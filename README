@@ -1,0 +1,36 @@
+
+                    The Region Vectorizer
+
+
+The Region Vectorizer (RV) is a general-purpose vectorization framework for LLVM.
+RV provides a unified interface to vectorize code regions, such as inner and outer loops, up to whole functions.
+RV is largely based on the Whole-Function Vectorizer by Ralf Karrenberg (http://www.cdl.uni-saarland.de/projects/wfv/).
+
+-- Buildling libRV --
+libRV uses cmake for its build system.
+cmake should be configured to build in the libRV root folder.
+The current version of libRV requires LLVM 3.8.
+Products:
+- liRV.so // main library
+- bin/rvTool // command line vectorizer
+- bin/wfvTestsuite // legacy test suite
+
+-- Testing libRV --
+To run the entire test suite enter the folder test/ and run ./test_rv.py.
+More details on testing can be found in test/README
+
+-- Getting started with the API --
+Users of RV should include its main header file include/rv/rv.h and supporting headers in include/rv.
+The command line tester (tool/rvTool.cpp) is a good starting point to learn how to use RVs API.
+
+-- Source structure --
+src/ - source files
+include/ - header files
+test/ - tests
+rvlibsrc/ - SIMD library sources
+tool/ - sources of rvTool
+
+
+The Region Vectorizer is distributed under the University of Illinois Open Source
+License. See LICENSE.TXT for details.
+

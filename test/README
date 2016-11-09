@@ -1,0 +1,55 @@
+-- Launching the test suite --
+run ./test_rv.py in the test/ folder.
+test_rv optionally accepts file patterns to c/cpp unit tests on the command line.
+
+-- How test_rv works --
+libRVs testing infrastructure is based on unit test files in suite/.
+The command line tool to run these is test_rv.py.
+test_rv.py will take a unit test file, vectorize it, and link it against a matching test launcher.
+The function in that module is always called "foo".
+test_rv vectorizes the test using rvTool, the command line vectorizer that is build along with libRV.
+
+The filename of each unit test describes what should be vectorized and how (loop region or whole function).
+The filename also determines the launcher for this test.
+
+test_rv recognizes two file name patterns:
+
+1.) Outer-Loop Vectorization Tests
+Filename structure: <testName>-loop-<launchCode>_<loopIdx>.c/cpp
+Launcher: launcher/loopverify_<launchCode>.cpp
+
+# loopIdx: currently ignored, rvTool vectorizes the first outer most loop in the unit test.
+
+2.) WFV tests
+Filename structure: <testName>-wfv-<launchCode>_<simdMapping>.c/cpp
+Launcher: launcher/verify_<launchCode>.cpp
+
+# simdMapping: Each character in this string is a shape code for an argument. The shape of the return value can be given by appending rX where C is a shape code.
+Possible shape codes are C for contiguous, U for uniform, T for varying.
+For example, the simdMapping "CrT" means that the function has exactly one contiguous argument and returns a vector value.
+rvTool takes care of generating a matching SIMD declaration in the unit test module.
+
+
+-- Test source structure --
+test_rv.py - command line tester
+launcher/ - test launchers.
+suite/ - contains outer-loop and whole-function vectorization tests.
+wfv1testsuite/ - sources of the legacy WFV test suite.
+
+
+-- Adding your own tests --
+Create a new file with a function "foo" and give it a name according to the patterns described above.
+If there already is a fitting launcher for your unit test you are done.
+Otherwise, you will have to add your own launcher.
+To do that add a new cpp file the the correct launch code to launcher/.
+WFV test launchers should return with an error code if there is a mismatch between scalar and SIMD execution result on a bunch of random inputs.
+Outer-loop test launchers should print a hash code of the output buffers on stdot: test_rv will compare these to decide whether the test passed.
+
+
+-- Legacy Whole-Function Vectorizer test suite --
+libRV still ships with the old testsuite for WFV, which has been ported to work with the new RV interface.
+This is because not all of the old tests have been ported to the new test_rv based test driver yet.
+
+
+-- General remarks --
+The vectorizer loop in outer-loop tests must be a plain 0, .., n-1 loop or rvTool will not recognize it.
