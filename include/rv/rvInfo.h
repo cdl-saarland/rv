@@ -57,8 +57,19 @@ class RVInfo {
             const bool      isIndexSame,
             const bool      isIndexConsecutive);
 
+    bool addSIMDSemantics(const Function& f,
+                          const bool      isOpUniform,
+                          const bool      isOpVarying,
+                          const bool      isOpSequential,
+                          const bool      isOpSequentialGuarded,
+                          const bool      isResultUniform,
+                          const bool      isResultVector,
+                          const bool      isResultScalars,
+                          const bool      isAligned,
+                          const bool      isIndexSame,
+                          const bool      isIndexConsecutive);
 public:
-	native::VectorMappingMap & getVectorFuncMap() { return funcMappings; }
+    native::VectorMappingMap & getVectorFuncMap() { return funcMappings; }
 
     friend class VectorizerInterface;
 
@@ -80,48 +91,20 @@ public:
     // legacy code adapter
     rv::VectorMapping inferTargetMapping(Function * actualScalarFn);
 
+    // add a new SIMD function mapping
+    bool addSIMDMapping(rv::VectorMapping & mapping);
+
     bool addSIMDMapping(const Function& scalarFunction,
                         const Function& simdFunction,
                         const int       maskPosition,
                         const bool      mayHaveSideEffects);
 
+    // link in rvlib with common SIMD mappings
     bool addCommonMappings(const bool useSSE,
                            const bool useSSE41,
                            const bool useSSE42,
                            const bool useAVX,
                            const bool useNEON);
-
-    bool addSIMDSemantics(const Function& f,
-                          const bool      isOpUniform,
-                          const bool      isOpVarying,
-                          const bool      isOpSequential,
-                          const bool      isOpSequentialGuarded,
-                          const bool      isResultUniform,
-                          const bool      isResultVector,
-                          const bool      isResultScalars,
-                          const bool      isAligned,
-                          const bool      isIndexSame,
-                          const bool      isIndexConsecutive);
-
-    bool addSIMDSemantics(const Argument& arg,
-                          const bool      isResultUniform,
-                          const bool      isResultVector,
-                          const bool      isResultScalars,
-                          const bool      isAligned,
-                          const bool      isIndexSame,
-                          const bool      isIndexConsecutive);
-
-    bool addSIMDSemantics(const Instruction& inst,
-                          const bool         isOpUniform,
-                          const bool         isOpVarying,
-                          const bool         isOpSequential,
-                          const bool         isOpSequentialGuarded,
-                          const bool         isResultUniform,
-                          const bool         isResultVector,
-                          const bool         isResultScalars,
-                          const bool         isAligned,
-                          const bool         isIndexSame,
-                          const bool         isIndexConsecutive);
 
     Module*              mModule;
     LLVMContext*         mContext;

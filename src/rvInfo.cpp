@@ -106,7 +106,10 @@ RVInfo::configure() {
 
 RVInfo::~RVInfo()
 {
-    delete mDataLayout;
+  for (auto it : funcMappings) {
+    delete it.second;
+  }
+  delete mDataLayout;
 }
 
 void
@@ -305,6 +308,11 @@ RVInfo::inferMapping(llvm::Function & scalarFnc, llvm::Function & simdFnc, int m
 				resultShape,
 				argShapes
 			);
+}
+
+bool
+RVInfo::addSIMDMapping(rv::VectorMapping & mapping) {
+  funcMappings[mapping.scalarFn] = new rv::VectorMapping(mapping);
 }
 
 // This function should be called *before* run().
@@ -622,133 +630,10 @@ RVInfo::addSIMDSemantics(const Function& f,
         return false;
     }
 
-#if 0
-    // Add mappings.
-    for (Function::const_use_iterator U=f.use_begin(),
-        UE=f.use_end(); U!=UE; ++U)
-    {
-        const Instruction* useI = cast<Instruction>(U->getUser());
-        assert (useI->getParent() && useI->getParent()->getParent());
-
-        // Ignore uses in other functions.
-        if (useI->getParent()->getParent() != mScalarFunction) continue;
-
-        const bool success = mValueInfoMap.add(*useI,
-                                               isOpUniform,
-                                               isOpVarying,
-                                               isOpSequential,
-                                               isOpSequentialGuarded,
-                                               isResultUniform,
-                                               isResultVector,
-                                               isResultScalars,
-                                               isAligned,
-                                               isIndexSame,
-                                               isIndexConsecutive);
-
-        if (!success)
-        {
-            errs() << "ERROR: Insertion of value analysis info failed for use of function: "
-                << *useI << "\n";
-            allSuccessful = false;
-        }
-    }
-#endif
-
     funcMappings[&f] = inferSelfMapping(const_cast<Function&>(f), isOpUniform, isOpVarying, isOpSequential, isOpSequentialGuarded, isResultUniform, isResultVector, isResultScalars, isAligned, isIndexSame, isIndexConsecutive);
 
     return allSuccessful;
 }
-
-// This function should be called *before* run()
-bool
-RVInfo::addSIMDSemantics(const Argument& arg,
-                          const bool      isResultUniform,
-                          const bool      isResultVector,
-                          const bool      isResultScalars,
-                          const bool      isAligned,
-                          const bool      isIndexSame,
-                          const bool      isIndexConsecutive)
-{
-    if (arg.getParent() != mScalarFunction)
-    {
-        errs() << "ERROR while adding SIMD semantics for argument '"
-            << arg.getName() << "': argument is no argument of to-be vectorized function!\n";
-        return false;
-    }
-
-    // Check sanity of properties.
-    if (!checkSanity(arg, isResultUniform, isResultVector, isResultScalars,
-                     isAligned, isIndexSame, isIndexConsecutive))
-    {
-        return false;
-    }
-
-    // Add mappings.
-    const bool success = mValueInfoMap.add(arg,
-                                           false,
-                                           false,
-                                           false,
-                                           false,
-                                           isResultUniform,
-                                           isResultVector,
-                                           isResultScalars,
-                                           isAligned,
-                                           isIndexSame,
-                                           isIndexConsecutive);
-
-    if (!success)
-    {
-        errs() << "ERROR: Insertion of value analysis info failed for argument: "
-            << arg << "\n";
-    }
-
-    return success;
-}
-
-// This function should be called *before* run()
-bool
-RVInfo::addSIMDSemantics(const Instruction& inst,
-                          const bool         isOpUniform,
-                          const bool         isOpVarying,
-                          const bool         isOpSequential,
-                          const bool         isOpSequentialGuarded,
-                          const bool         isResultUniform,
-                          const bool         isResultVector,
-                          const bool         isResultScalars,
-                          const bool         isAligned,
-                          const bool         isIndexSame,
-                          const bool         isIndexConsecutive)
-{
-    // Check sanity of properties.
-    if (!checkSanity(inst, isOpUniform, isOpVarying, isOpSequential, isOpSequentialGuarded,
-                     isResultUniform, isResultVector, isResultScalars,
-                     isAligned, isIndexSame, isIndexConsecutive))
-    {
-        return false;
-    }
-
-    const bool success = mValueInfoMap.add(inst,
-                                           isOpUniform,
-                                           isOpVarying,
-                                           isOpSequential,
-                                           isOpSequentialGuarded,
-                                           isResultUniform,
-                                           isResultVector,
-                                           isResultScalars,
-                                           isAligned,
-                                           isIndexSame,
-                                           isIndexConsecutive);
-
-    if (!success)
-    {
-        errs() << "ERROR: Insertion of value analysis info failed for instruction: "
-            << inst << "\n";
-        return false;
-    }
-
-    return true;
-}
-
 
 // TODO: The following functions do not exist as scalar intrinsics,
 //       so we have to create them manually:
