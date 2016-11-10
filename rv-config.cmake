@@ -9,9 +9,9 @@ ENDIF( NOT LLVM_FOUND )
 FIND_PATH ( RV_ROOT_DIR rv-config.cmake PATHS ${RV_DIR} $ENV{RV_DIR} $ENV{RV_ROOT} )
 SET ( CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${RV_ROOT_DIR} )
 
-SET ( RV_OUTPUT_LIBS WFV.lib WFV.so WFV.dll libWFV libWFV.so libWFV.a libWFV.dll )
+SET ( RV_OUTPUT_LIBS RV.lib RV.so RV.dll libRV libRV.so libRV.a libRV.dll )
 
-FIND_PATH ( RV_INCLUDE_DIR NAMES wfvInterface.h wfvInterface_C.h PATHS ${RV_ROOT_DIR}/include ${RV_ROOT_DIR}/build/include )
+FIND_PATH ( RV_INCLUDE_DIR NAMES rv.h PATHS ${RV_ROOT_DIR}/include/rv ${RV_ROOT_DIR}/build/include/rv )
 FIND_PATH ( RV_LIBRARY_DIR NAMES ${RV_OUTPUT_LIBS} PATHS ${RV_ROOT_DIR}/lib ${RV_ROOT_DIR}/build/lib )
 
 IF ( RV_LIBRARY_DIR )
