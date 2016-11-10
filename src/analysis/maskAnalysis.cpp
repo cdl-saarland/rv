@@ -224,7 +224,19 @@ MaskAnalysis::createMaskGraph(Function& f)
 {
     // Initialize graph starting from return nodes.
     SmallPtrSet<BasicBlock*, 2> returnBlocks;
+
+#if 1
     rv::findReturnBlocks(f, returnBlocks);
+#else
+    if (mRegion)
+    {
+        rv::findRegionEndingBlocks(*mRegion, returnBlocks);
+    }
+    else
+    {
+        rv::findReturnBlocks(f, returnBlocks);
+    }
+#endif
 
     DenseSet<BasicBlock*> markedBlocks;
     for (auto BB : returnBlocks)
@@ -240,7 +252,14 @@ MaskAnalysis::createMaskGraph(Function& f)
     // EXAMPLE: divergent loop inside non-divergent loop inside divergent loop.
     for (auto loop : mLoopInfo)
     {
+#if 1
         createLoopExitMasks(loop);
+#else
+        if (!mRegion || mRegion->contains(loop->getHeader()))
+        {
+            createLoopExitMasks(loop);
+        }
+#endif
     }
 }
 
@@ -251,7 +270,7 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
     assert (block);
 
     // If the block is not in the region, ignore it.
-    // if (mRegion && !mRegion->contains(block)) return; // FIXME broken
+    if (mRegion && !mRegion->contains(block)) return;
 
     // If we have marked this block already, ignore it.
     if (markedBlocks.find(block) != markedBlocks.end()) return;

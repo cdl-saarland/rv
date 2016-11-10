@@ -21,6 +21,7 @@
 #include "rv/vectorizationInfo.h"
 
 #include "analysis/analysisCfg.h"
+#include "rv/Region/Region.h"
 
 // Forward declarations.
 
@@ -149,6 +150,9 @@ createDummy(Type* type, Instruction* insertBefore);
 
 Instruction*
 createNoOp(Type* type, Instruction* insertBefore);
+
+void
+findRegionEndingBlocks(const Region& region, SmallPtrSet<BasicBlock*, 2>& regionEndingBlocks);
 
 // Returns the unique return block of function 'f'.
 // We rely on the ReturnUnifier pass and thus terminate as soon as we
