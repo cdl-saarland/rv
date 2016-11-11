@@ -151,9 +151,6 @@ createDummy(Type* type, Instruction* insertBefore);
 Instruction*
 createNoOp(Type* type, Instruction* insertBefore);
 
-void
-findRegionEndingBlocks(const Region& region, SmallPtrSet<BasicBlock*, 2>& regionEndingBlocks);
-
 // Returns the unique return block of function 'f'.
 // We rely on the ReturnUnifier pass and thus terminate as soon as we
 // have found a return.

@@ -14,6 +14,7 @@
 #include "rv/Region/RegionImpl.h"
 
 using llvm::Loop;
+using llvm::SmallVector;
 
 namespace rv {
 
@@ -24,15 +25,18 @@ namespace rv {
 // The region represented this way has control flow
 // possibly diverge after the entry but reconverge
 // at the exit
-class LoopRegion : public RegionImpl {
-  Loop & loop;
+class LoopRegion : public RegionImpl
+{
+private:
+    Loop& loop;
 
 public:
-  LoopRegion(Loop&);
-  ~LoopRegion();
+    LoopRegion(Loop&);
+    ~LoopRegion();
 
-  bool contains(const BasicBlock* BB) const override;
-  BasicBlock& getRegionEntry() const override;
+    bool contains(const BasicBlock* BB) const override;
+    BasicBlock& getRegionEntry() const override;
+    void getEndingBlocks(SmallPtrSet<BasicBlock*, 2>& endingBlocks) const override;
 };
 
 }

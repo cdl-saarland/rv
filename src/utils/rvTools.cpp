@@ -862,38 +862,6 @@ rv::createNoOp(Type* type, Instruction* insertBefore)
     return noOp;
 }
 
-void
-rv::findRegionEndingBlocks(const Region& region, SmallPtrSet<BasicBlock*, 2>& regionEndingBlocks)
-{
-    std::stack<BasicBlock*> blockStack;
-    blockStack.push(&region.getRegionEntry());
-
-    std::set<BasicBlock*> visitedBlocks;
-
-    while (!blockStack.empty())
-    {
-        // Pop the next block
-        BasicBlock* block = blockStack.top(); blockStack.pop();
-
-        // Make sure we haven't seen it already
-        if (visitedBlocks.count(block)) continue;
-        visitedBlocks.insert(block);
-
-        // If a successor is outside the region, the region ends here.
-        // Successors inside the region need to be processed recursively
-        for (BasicBlock* successor : successors(block))
-        {
-            if (region.contains(successor))
-            {
-                blockStack.push(successor);
-            }
-            else
-            {
-                regionEndingBlocks.insert(successor);
-            }
-        }
-    }
-}
 
 // Returns the unique return block of function 'f'.
 // We rely on the ReturnUnifier pass and thus terminate as soon as we

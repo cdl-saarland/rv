@@ -26,4 +26,10 @@ Region::getRegionEntry() const
     return mImpl.getRegionEntry();
 }
 
+void
+Region::getEndingBlocks(llvm::SmallPtrSet<BasicBlock*, 2>& endingBlocks) const
+{
+    mImpl.getEndingBlocks(endingBlocks);
+}
+
 }

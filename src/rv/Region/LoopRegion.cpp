@@ -22,14 +22,25 @@ LoopRegion::~LoopRegion() {}
 bool
 LoopRegion::contains(const BasicBlock* BB) const
 {
-  return loop.contains(BB);
+    return loop.contains(BB);
 }
 
 BasicBlock&
 LoopRegion::getRegionEntry() const
 {
-  return *loop.getHeader();
+    return *loop.getHeader();
 }
 
+void
+LoopRegion::getEndingBlocks(llvm::SmallPtrSet<BasicBlock*, 2>& endingBlocks) const
+{
+    SmallVector<BasicBlock*, 2> endingBlocksVector;
+    loop.getExitBlocks(endingBlocksVector);
+
+    for (auto& endingBB : endingBlocksVector)
+    {
+        endingBlocks.insert(endingBB);
+    }
+}
 
 }

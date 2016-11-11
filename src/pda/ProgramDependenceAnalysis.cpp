@@ -715,8 +715,8 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
     const int stride1 = shape1.getStride();
     const int stride2 = shape2.getStride();
 
-    const int alignment1 = shape1.getAlignment();
-    const int alignment2 = shape2.getAlignment();
+    const unsigned alignment1 = shape1.getAlignment();
+    const unsigned alignment2 = shape2.getAlignment();
 
     switch (I->getOpcode())
     {
@@ -726,7 +726,7 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
         {
             const bool fadd = I->getOpcode() == Instruction::FAdd;
 
-            const int resAlignment = VectorShape::gcd(alignment1, alignment2);
+            const unsigned resAlignment = VectorShape::gcd(alignment1, alignment2);
 
             if (shape1.isVarying() || shape2.isVarying())
                 return VectorShape::varying(resAlignment);
@@ -753,7 +753,7 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
         {
             const bool fsub = I->getOpcode() == Instruction::FSub;
 
-            const int resAlignment = VectorShape::gcd(alignment1, alignment2);
+            const unsigned resAlignment = VectorShape::gcd(alignment1, alignment2);
 
             if (shape1.isVarying() || shape2.isVarying())
                 return VectorShape::varying(resAlignment);

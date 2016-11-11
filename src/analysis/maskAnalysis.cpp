@@ -230,7 +230,7 @@ MaskAnalysis::createMaskGraph(Function& f)
 #else
     if (mRegion)
     {
-        rv::findRegionEndingBlocks(*mRegion, returnBlocks);
+        mRegion->getEndingBlocks(returnBlocks);
     }
     else
     {
@@ -270,7 +270,9 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
     assert (block);
 
     // If the block is not in the region, ignore it.
+#if 0
     if (mRegion && !mRegion->contains(block)) return;
+#endif
 
     // If we have marked this block already, ignore it.
     if (markedBlocks.find(block) != markedBlocks.end()) return;
