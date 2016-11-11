@@ -146,8 +146,8 @@ SelectGenerator::generate(Function& F)
 
     // If an error occurred in one of the previous phases, abort.
     try {
-        generatePhiSelects(&F);
-        generateLoopSelects(&F);
+        generatePhiSelects(F);
+        generateLoopSelects(F);
     }
     catch (std::logic_error& error)
     {
@@ -170,12 +170,10 @@ SelectGenerator::generate(Function& F)
 // Call 'generateSelectFromPhi()' for each non-uniform phi
 // that is not the header of a loop.
 void
-SelectGenerator::generatePhiSelects(Function* f)
+SelectGenerator::generatePhiSelects(Function& f)
 {
-    assert (f);
-
     // Loop over all blocks that contain a phi
-    for (auto &BB : *f)
+    for (auto &BB : f)
     {
         BasicBlock* block = &BB;
 
@@ -293,15 +291,13 @@ SelectGenerator::generateSelectFromPhi(PHINode* phi)
 }
 
 void
-SelectGenerator::generateLoopSelects(Function* f)
+SelectGenerator::generateLoopSelects(Function& f)
 {
-    assert (f);
-
     if (mLoopInfo.empty()) return;
 
     DEBUG_RV(
         outs() << "\nGenerating selects for loops of function "
-        << f->getName() << "... \n";
+        << f.getName() << "... \n";
     );
 
     SmallPtrSet<SelectInst*, 8> selectSet;

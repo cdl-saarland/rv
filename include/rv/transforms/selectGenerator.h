@@ -70,18 +70,18 @@ public:
 
 private:
     const rv::RVInfo&           mInfo;
-    const LoopInfo&          mLoopInfo;
-    const MaskAnalysis&      mMaskAnalysis;
-    LoopLiveValueAnalysis&   mLoopLiveValueAnalysis;
-	VectorizationInfo&       mvecInfo;
+    const LoopInfo&             mLoopInfo;
+    const MaskAnalysis&         mMaskAnalysis;
+    LoopLiveValueAnalysis&      mLoopLiveValueAnalysis;
+	VectorizationInfo&          mvecInfo;
 
-    void generatePhiSelects(Function* f);
+    void generatePhiSelects(Function& f);
     Value* generateSelectFromPhi(PHINode* phi);
 
-    void generateLoopSelects(Function* f);
+    void generateLoopSelects(Function& f);
 
-    void generateMultipleExitLoopSelects(Loop*                        loop,
-                                         SmallPtrSet<SelectInst*, 8>& selectSet);
+    void generateMultipleExitLoopSelects(Loop* loop, SmallPtrSet<SelectInst*, 8>& selectSet);
+
     bool hasLiveValueResult(const Loop* loop, const Instruction* liveValue) const;
 
     void replaceDirectParentLoopUsesOfWith(Value* oldValue, Value* newValue, Loop* loop);
