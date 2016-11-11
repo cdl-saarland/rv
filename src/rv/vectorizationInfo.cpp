@@ -19,217 +19,267 @@
 
 using namespace llvm;
 
-namespace rv {
-
-void
-VectorizationInfo::remapPredicate(Value & dest, Value & old) {
-  for (auto it : predicates) {
-    if (it.second == &old) {
-      predicates[it.first] = &dest;
-    }
-  }
-}
-
-
-void
-VectorizationInfo::dump() const {
-       llvm::raw_ostream & out = llvm::errs();
-	out << "VectorizationInfo ";
-
-        if (region) {
-          out << " for Region "; region->print(out); out << "\n";
-        } else {
-          out << " for function " << mapping.scalarFn->getName() << "\n";
-        }
-
-        out <<"CFG {\n";
-	mapping.dump(out);
-
-	for (const BasicBlock & block : *mapping.scalarFn) {
-		const Value * predicate = getPredicate(block);
-
-		out << "Block " << block.getName() << ", predicate ";
-		if (predicate) out << *predicate; else out << "null";
-		out << "\n";
-
-		for (const Instruction & inst : block) {
-			if (hasKnownShape(inst)) {
-				out << inst << " : " << getVectorShape(inst).str() << "\n";
-			} else {
-				out << inst << " : unknown shape\n";
-			}
-		}
-		out << "\n";
-	}
-
-	out << "}\n";
-}
-
-VectorizationInfo::VectorizationInfo(llvm::Function & parentFn, uint vectorWidth, Region & _region)
-: mapping(&parentFn, &parentFn, vectorWidth)
-, region(&_region)
+namespace rv
 {
-  mapping.resultShape = VectorShape::uni();
-  for (auto & arg : parentFn.getArgumentList()) {
-    mapping.argShapes.push_back(VectorShape::uni());
-  }
+
+void
+VectorizationInfo::remapPredicate(Value& dest, Value& old)
+{
+    for (auto it : predicates)
+    {
+        if (it.second == &old)
+        {
+            predicates[it.first] = &dest;
+        }
+    }
+}
+
+
+void
+VectorizationInfo::dump() const
+{
+    llvm::raw_ostream& out = llvm::errs();
+    out << "VectorizationInfo ";
+
+    if (region)
+    {
+        out << " for Region ";
+        region->print(out);
+        out << "\n";
+    }
+    else
+    {
+        out << " for function " << mapping.scalarFn->getName() << "\n";
+    }
+
+    out << "CFG {\n";
+    mapping.dump(out);
+
+    for (const BasicBlock& block : *mapping.scalarFn)
+    {
+        const Value* predicate = getPredicate(block);
+
+        out << "Block " << block.getName() << ", predicate ";
+        if (predicate)
+        {
+            out << *predicate;
+        }
+        else
+        {
+            out << "null";
+        }
+        out << "\n";
+
+        for (const Instruction& inst : block)
+        {
+            if (hasKnownShape(inst))
+            {
+                out << inst << " : " << getVectorShape(inst).str() << "\n";
+            }
+            else
+            {
+                out << inst << " : unknown shape\n";
+            }
+        }
+        out << "\n";
+    }
+
+    out << "}\n";
+}
+
+VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, uint vectorWidth, Region& _region)
+        : mapping(&parentFn, &parentFn, vectorWidth), region(&_region)
+{
+    mapping.resultShape = VectorShape::uni();
+    for (auto& arg : parentFn.getArgumentList())
+    {
+        mapping.argShapes.push_back(VectorShape::uni());
+    }
 }
 
 // VectorizationInfo
 VectorizationInfo::VectorizationInfo(VectorMapping _mapping)
-: mapping(_mapping)
-, region(nullptr)
+        : mapping(_mapping), region(nullptr)
 {
-  auto & argList = mapping.scalarFn->getArgumentList();
-  auto it = argList.begin();
-  for (auto argShape : mapping.argShapes) {
-    setVectorShape(*it, argShape);
-    ++it;
-  }
+    auto& argList = mapping.scalarFn->getArgumentList();
+    auto it = argList.begin();
+    for (auto argShape : mapping.argShapes)
+    {
+        setVectorShape(*it, argShape);
+        ++it;
+    }
 }
 
 bool
-VectorizationInfo::hasKnownShape(const llvm::Value & val) const {
-  return (bool) shapes.count(&val);
+VectorizationInfo::hasKnownShape(const llvm::Value& val) const
+{
+    return (bool) shapes.count(&val);
 }
 
 VectorShape
-VectorizationInfo::getVectorShape(const llvm::Value & val) const {
-  auto it = shapes.find(&val);
-  assert (it != shapes.end());
-  return it->second;
+VectorizationInfo::getVectorShape(const llvm::Value& val) const
+{
+    auto it = shapes.find(&val);
+    assert (it != shapes.end());
+    return it->second;
 }
 
 void
-VectorizationInfo::dropVectorShape(const Value & val) {
-  auto it = shapes.find(&val);
-  if (it == shapes.end()) return;
-  shapes.erase(it);
+VectorizationInfo::dropVectorShape(const Value& val)
+{
+    auto it = shapes.find(&val);
+    if (it == shapes.end()) return;
+    shapes.erase(it);
 }
 
 void
-VectorizationInfo::dropPredicate(const BasicBlock & block) {
-  auto it = predicates.find(&block);
-  if (it == predicates.end()) return;
-  predicates.erase(it);
+VectorizationInfo::dropPredicate(const BasicBlock& block)
+{
+    auto it = predicates.find(&block);
+    if (it == predicates.end()) return;
+    predicates.erase(it);
 }
 
 void
-VectorizationInfo::setVectorShape(const llvm::Value & val, VectorShape shape) {
-  shapes[&val] = shape;
+VectorizationInfo::setVectorShape(const llvm::Value& val, VectorShape shape)
+{
+    shapes[&val] = shape;
 }
 
-llvm::Value *
-VectorizationInfo::getPredicate(const llvm::BasicBlock & block) const {
-	auto it = predicates.find(&block);
-	if (it == predicates.end()) return nullptr;
-	else return it->second;
+llvm::Value*
+VectorizationInfo::getPredicate(const llvm::BasicBlock& block) const
+{
+    auto it = predicates.find(&block);
+    if (it == predicates.end())
+    {
+        return nullptr;
+    }
+    else
+    {
+        return it->second;
+    }
 }
 
 void
-VectorizationInfo::setPredicate(const llvm::BasicBlock & block, llvm::Value & predicate) {
-	predicates[&block] = &predicate;
+VectorizationInfo::setPredicate(const llvm::BasicBlock& block, llvm::Value& predicate)
+{
+    predicates[&block] = &predicate;
 }
 
 void
 VectorizationInfo::setDivergenceLevel(const llvm::BasicBlock& block, const llvm::Loop* level)
 {
-	/* outs() << "Setting divergence level of block " + block.getName() + " as loop: ";
-	if (level) level->dump(); else outs() << "top-level";
-	outs() << "\n\n"; */
+    /* outs() << "Setting divergence level of block " + block.getName() + " as loop: ";
+    if (level) level->dump(); else outs() << "top-level";
+    outs() << "\n\n"; */
 
-	auto loopit = loopAsDivergenceLevel.find(&block);
+    auto loopit = loopAsDivergenceLevel.find(&block);
 
-	if (loopit != loopAsDivergenceLevel.end() &&
-		loopit->second->contains(level))
-		return;
+    if (loopit != loopAsDivergenceLevel.end() &&
+        loopit->second->contains(level))
+    {
+        return;
+    }
 
-	loopAsDivergenceLevel[&block] = level;
+    loopAsDivergenceLevel[&block] = level;
 }
 
 bool
-VectorizationInfo::isDivergent(const llvm::BasicBlock& block, const llvm::Loop* level)
-const
+VectorizationInfo::isDivergent(const llvm::BasicBlock& block, const llvm::Loop* level) const
 {
-	auto loopit = loopAsDivergenceLevel.find(&block);
+    auto loopit = loopAsDivergenceLevel.find(&block);
 
-	//not divergent at all
-	if (loopit == loopAsDivergenceLevel.end())
-		return false;
+    //not divergent at all
+    if (loopit == loopAsDivergenceLevel.end())
+    {
+        return false;
+    }
 
-	//top-level-divergent
-	if (!level)
-		return &*loopit->second == nullptr;
+    //top-level-divergent
+    if (!level)
+    {
+        return &*loopit->second == nullptr;
+    }
 
-	//divergent respective to level
-	return level == loopit->second || loopit->second->contains(level);
+    //divergent respective to level
+    return level == loopit->second || loopit->second->contains(level);
 }
 
 bool
-VectorizationInfo::isDivergentLoop(const llvm::Loop* loop)
-const
+VectorizationInfo::isDivergentLoop(const llvm::Loop* loop) const
 {
-	return isDivergent(*loop->getHeader(), loop);
+    return isDivergent(*loop->getHeader(), loop);
 }
 
 bool
-VectorizationInfo::isDivergentLoopTopLevel(const llvm::Loop* loop)
-const
+VectorizationInfo::isDivergentLoopTopLevel(const llvm::Loop* loop) const
 {
-	Loop* parent = loop->getParentLoop();
+    Loop* parent = loop->getParentLoop();
 
-	return isDivergentLoop(loop) &&
-		   (!parent || !isDivergentLoop(parent));
+    return isDivergentLoop(loop) && (!parent || !isDivergentLoop(parent));
 }
 
 
 void
 VectorizationInfo::markAlwaysByAll(const llvm::BasicBlock* BB)
 {
-	ABABlocks.insert(BB);
+    ABABlocks.insert(BB);
 }
 
 void
 VectorizationInfo::markAlwaysByAllOrNone(const llvm::BasicBlock* BB)
 {
-	ABAONBlocks.insert(BB);
+    ABAONBlocks.insert(BB);
 }
 
 void
 VectorizationInfo::markNotAlwaysByAll(const llvm::BasicBlock* BB)
 {
-	NotABABlocks.insert(BB);
+    NotABABlocks.insert(BB);
 }
 
 bool
-VectorizationInfo::isAlwaysByAll(const llvm::BasicBlock* BB)
+VectorizationInfo::isAlwaysByAll(const llvm::BasicBlock* BB) const
 {
-	return (bool)ABABlocks.count(BB);
+    return (bool) ABABlocks.count(BB);
 }
 
 bool
-VectorizationInfo::isAlwaysByAllOrNone(const llvm::BasicBlock* BB)
+VectorizationInfo::isAlwaysByAllOrNone(const llvm::BasicBlock* BB) const
 {
-	return (bool)ABAONBlocks.count(BB);
+    return (bool) ABAONBlocks.count(BB);
 }
 
 bool
-VectorizationInfo::isNotAlwaysByAll(const llvm::BasicBlock* BB)
+VectorizationInfo::isNotAlwaysByAll(const llvm::BasicBlock* BB) const
 {
-	return (bool)NotABABlocks.count(BB);
+    return (bool) NotABABlocks.count(BB);
 }
 
 void
-VectorizationInfo::markMandatory(const BasicBlock *BB)
+VectorizationInfo::markMandatory(const BasicBlock* BB)
 {
-	MandatoryBlocks.insert(BB);
+    MandatoryBlocks.insert(BB);
 }
 
 bool
-VectorizationInfo::isMandatory(const BasicBlock* BB)
+VectorizationInfo::isMandatory(const BasicBlock* BB) const
 {
-	return (bool)MandatoryBlocks.count(BB);
+    return (bool) MandatoryBlocks.count(BB);
 }
+
+void
+VectorizationInfo::markMetadataMask(const Instruction* inst)
+{
+    MetadataMaskInsts.insert(inst);
+}
+
+bool
+VectorizationInfo::isMetadataMask(const Instruction* inst) const
+{
+    return (bool) MetadataMaskInsts.count(inst);
+}
+
 
 } /* namespace rv */
 

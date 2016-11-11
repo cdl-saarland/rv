@@ -173,36 +173,31 @@ void
 SelectGenerator::generatePhiSelects(Function& f)
 {
     // Loop over all blocks that contain a phi
-    for (auto &BB : f)
+    for (auto& block : f)
     {
-        BasicBlock* block = &BB;
-
         // Ignore blocks without phis.
-        if (block->getFirstNonPHI() == &block->getInstList().front())
+        if (!isa<PHINode>(&*block.begin()))
         {
             continue;
         }
 
         // Ignore loop headers.
-        if (Loop* loop = mLoopInfo.getLoopFor(block))
+        if (Loop* loop = mLoopInfo.getLoopFor(&block))
         {
-            if (loop->getHeader() == block) continue;
+            if (loop->getHeader() == &block) continue;
         }
 
         // Ignore NON_DIVERGENT blocks.
-        if (mvecInfo.getVectorShape(*block).isUniform())
+        if (mvecInfo.getVectorShape(block).isUniform())
         {
             continue;
         }
 
-        DEBUG_RV( outs() << "\nGenerating selects for block '"
-                << block->getName() << "'...\n"; );
+        DEBUG_RV( outs() << "\nGenerating selects for block '" << block.getName() << "'...\n"; );
 
         SmallPtrSet<PHINode*, 2> deleteSet;
 
-        for (BasicBlock::iterator I = block->begin();
-             isa<PHINode>(&*I);
-             ++I)
+        for (auto I = block.begin(); isa<PHINode>(&*I); ++I)
         {
             PHINode* phi = cast<PHINode>(I);
 
@@ -229,6 +224,7 @@ SelectGenerator::generatePhiSelects(Function& f)
             deleteSet.insert(phi);
         }
 
+        // The phis have been replaced by selects, now remove them
         for (auto phi : deleteSet)
         {
             assert (phi->use_empty());
@@ -237,7 +233,7 @@ SelectGenerator::generatePhiSelects(Function& f)
         }
 
         DEBUG_RV( outs() << "Select-generation for block '"
-                << block->getName() << "' finished.\n"; );
+                         << block.getName() << "' finished.\n"; );
     }
 }
 
@@ -255,7 +251,7 @@ SelectGenerator::generateSelectFromPhi(PHINode* phi)
 
     Value* blendedValue = phi->getIncomingValue(0);
 
-    for (unsigned i=1, e=phi->getNumIncomingValues(); i<e; ++i)
+    for (unsigned i = 1, e = phi->getNumIncomingValues(); i < e; ++i)
     {
         Value*      incVal = phi->getIncomingValue(i);
         BasicBlock* incBB  = phi->getIncomingBlock(i);
@@ -273,8 +269,8 @@ SelectGenerator::generateSelectFromPhi(PHINode* phi)
         // nullptr since the value being blended is already a
         // composed one.
         BasicBlock* incBBFalse = i == 1 ?
-            phi->getIncomingBlock(0) :
-            nullptr;
+                                 phi->getIncomingBlock(0) :
+                                 nullptr;
         const bool isLast = i == e-1;
         // rv::setMetadataForBlend(select, incBB, incBBFalse, isLast);
 
@@ -283,7 +279,6 @@ SelectGenerator::generateSelectFromPhi(PHINode* phi)
     }
 
     phi->replaceAllUsesWith(blendedValue);
-    mvecInfo.dropVectorShape(*phi);
 
     DEBUG_RV( outs() << "    select-generation for phi finished.\n"; );
 
@@ -360,7 +355,7 @@ SelectGenerator::generateMultipleExitLoopSelects(Loop*                        lo
             // that the result value is properly vectorized. The update operation
             // of the result vector will automatically broadcast the uniform value
             // and update only the appropriate elements of the result vector.
-            if (rv::hasMetadata(liveValue, rv::RV_METADATA_RES_SCALARS)) //TODO
+            /*if (rv::hasMetadata(liveValue, rv::RV_METADATA_RES_SCALARS)) //TODO
             {
                 //rv::setMetadata(phi, rv::RV_METADATA_OP_SEQUENTIAL);
                 //rv::setMetadata(phi, rv::RV_METADATA_RES_SCALARS);
@@ -369,7 +364,7 @@ SelectGenerator::generateMultipleExitLoopSelects(Loop*                        lo
             {
                 //rv::setMetadata(phi, rv::RV_METADATA_OP_UNIFORM);
                 //rv::setMetadata(phi, rv::RV_METADATA_RES_VECTOR);
-            }
+            }*/
             mvecInfo.setVectorShape(*phi, VectorShape::varying());
             //rv::setMetadata(phi, rv::RV_METADATA_INDEX_RANDOM);
             //rv::setMetadata(phi, rv::RV_METADATA_ALIGNED_FALSE);

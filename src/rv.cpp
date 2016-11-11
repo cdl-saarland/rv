@@ -17,6 +17,7 @@
 #include <rv/pda/ProgramDependenceAnalysis.h>
 #include <rv/pda/DFG.h>
 #include <rv/analysis/maskAnalysis.h>
+#include <rv/analysis/MetadataMaskAnalyzer.h>
 #include <rv/transforms/maskGenerator.h>
 #include <rv/transforms/cfgLinearizer.h>
 #include <rv/analysis/vectorizationAnalysis.h>
@@ -267,23 +268,7 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
                              const PostDominatorTree& postDomTree,
                              const DominatorTree& domTree)
 {
-#if 1
-    VectorizationAnalysis vectorizationAnalysis(mScalarFn,
-                                                mInfo.mSimdFunction,
-                                                mInfo.mVectorizationFactor,
-                                                mInfo.mMaskPosition,
-                                                &mInfo.mValueInfoMap,
-                                                &mInfo.mFunctionInfoMap,
-                                                mInfo.mDisableMemAccessAnalysis,
-                                                mInfo.mDisableControlFlowDivAnalysis,
-                                                mInfo.mDisableAllAnalyses,
-                                                mInfo.mVerbose,
-                                                &mInfo,
-                                                vectorizationInfo,
-                                                loopInfo,
-                                                postDomTree,
-                                                domTree);
-#endif
+    MetadataMaskAnalyzer maskAnalyzer(vectorizationInfo);
 
     PDA programDependenceAnalysis(vectorizationInfo,
                                   cdg,
@@ -299,7 +284,7 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
 
     programDependenceAnalysis.analyze(*mScalarFn);
     abaAnalysis.analyze(*mScalarFn);
-    vectorizationAnalysis.run(*mScalarFn); // still needed to boostrap METADATA_MASK
+    maskAnalyzer.markMasks(*mScalarFn);
 }
 
 MaskAnalysis*
