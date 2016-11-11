@@ -189,7 +189,9 @@ MaskGenerator::materializeMasks(Function* f)
 
     for (auto &BB : *f)
     {
+#if 0
         if (region && !region->contains(&BB)) continue; // skip blocks outside of region
+#endif
 
         if (entryMaskIsUsed(BB))
         {
