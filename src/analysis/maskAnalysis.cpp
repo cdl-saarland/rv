@@ -219,6 +219,23 @@ MaskAnalysis::createMask(const NodeType type,
     return mask;
 }
 
+BlockMaskInfo*
+MaskAnalysis::getOrCreateBMIFor(BasicBlock* block)
+{
+    BlockMaskInfo * info = nullptr;
+
+    auto itBlockInfo = mBlockMap.find(block);
+    if (itBlockInfo != mBlockMap.end()) {
+        info = itBlockInfo->second;
+        info->mExitMasks.clear();
+    } else {
+        info = new BlockMaskInfo();
+        mBlockMap[block] = info;
+    }
+
+    return info;
+}
+
 void
 MaskAnalysis::createMaskGraph(Function& f)
 {
@@ -306,15 +323,7 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
     createExitMasks(block, entryMask, exitMasks);
 
     // Store information in new graph node in maskGraph
-    auto itBlockInfo = mBlockMap.find(block);
-    BlockMaskInfo * info = nullptr;
-    if (itBlockInfo != mBlockMap.end()) {
-      info = itBlockInfo->second;
-      info->mExitMasks.clear();
-    } else {
-      info = new BlockMaskInfo();
-      mBlockMap[block] = info;
-    }
+    BlockMaskInfo* info = getOrCreateBMIFor(block);
 
     info->mBlock        = block;
     info->mEntryMask    = entryMask;
@@ -336,8 +345,6 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
     // Recurse into latch.
     BasicBlock* latchBB = loop->getLoopLatch();
     recCreateMaskGraph(latchBB, markedBlocks);
-
-    // assert(rv::hasMetadata(loop, rv::WFV_METADATA_LOOP_DIVERGENT_FALSE) == !mvInfo.isDivergentLoop(loop));
 
     // If this was no divergent loop, return.
     if (!mvInfo.isDivergentLoop(loop)) return;

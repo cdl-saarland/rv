@@ -149,6 +149,8 @@ private:
     inline MaskPtr createMask(const NodeType type,
                               Instruction*   insertPoint);
 
+	BlockMaskInfo* getOrCreateBMIFor(BasicBlock* block);
+
     void    createMaskGraph   (Function&                f);
     void    recCreateMaskGraph(BasicBlock*              block,
                                DenseSet<BasicBlock*>&   markedBlocks);

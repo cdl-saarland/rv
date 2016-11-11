@@ -290,6 +290,9 @@ MaskGenerator::materializeMasks(Function* f)
 
     for (auto &L : mLoopInfo)
     {
+#if 0
+        if (region && !region->contains(L->getHeader())) continue; // skip loops outside of region
+#endif
         materializeLoopExitMasks(L);
         materializeCombinedLoopExitMasks(L);
     }
