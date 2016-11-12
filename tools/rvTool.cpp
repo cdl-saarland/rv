@@ -378,7 +378,9 @@ decodeAlignment(std::string shapeText, unsigned& pos)
 {
     if (pos >= shapeText.size()) return 1U;
 
-    if (shapeText[pos++] != 'a') return 1U;
+    if (shapeText[pos] != 'a') return 1U;
+
+    ++pos;
 
     if (!isdigit(shapeText[pos])) return 1U; // alignment omitted, assume 1
 
