@@ -127,12 +127,11 @@ MaskAnalysisWrapper::print(raw_ostream& O, const Module* M) const
 }
 
 MaskAnalysis::MaskAnalysis(VectorizationInfo& Vecinfo,
-                           const rv::RVInfo&     RVinfo,
+                           const rv::RVInfo&  RVinfo,
                            const LoopInfo&    Loopinfo)
         : mvInfo(Vecinfo),
           mInfo(RVinfo),
-          mLoopInfo(Loopinfo),
-          mRegion(mvInfo.getRegion())
+          mLoopInfo(Loopinfo)
 { }
 
 bool
@@ -239,27 +238,12 @@ MaskAnalysis::getOrCreateBMIFor(BasicBlock* block)
 void
 MaskAnalysis::createMaskGraph(Function& f)
 {
-    // Initialize graph starting from return nodes.
-    SmallPtrSet<BasicBlock*, 2> returnBlocks;
+    Region* region = mvInfo.getRegion();
 
-#if 1
-    rv::findReturnBlocks(f, returnBlocks);
-#else
-    if (mRegion)
-    {
-        mRegion->getEndingBlocks(returnBlocks);
-    }
-    else
-    {
-        rv::findReturnBlocks(f, returnBlocks);
-    }
-#endif
+    BasicBlock* start = region ? &region->getRegionEntry() : &f.getEntryBlock();
 
     DenseSet<BasicBlock*> markedBlocks;
-    for (auto BB : returnBlocks)
-    {
-        recCreateMaskGraph(BB, markedBlocks);
-    }
+    recCreateMaskGraph(start, markedBlocks);
 
     // We have to be sure to create loop exit masks for every nested divergent
     // loop. Therefore, we iterate over all those loops that are divergent
@@ -269,14 +253,10 @@ MaskAnalysis::createMaskGraph(Function& f)
     // EXAMPLE: divergent loop inside non-divergent loop inside divergent loop.
     for (auto loop : mLoopInfo)
     {
-#if 1
-        createLoopExitMasks(loop);
-#else
-        if (!mRegion || mRegion->contains(loop->getHeader()))
+        if (!region || region->contains(loop->getHeader()))
         {
             createLoopExitMasks(loop);
         }
-#endif
     }
 }
 
@@ -285,11 +265,6 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
                                  DenseSet<BasicBlock*>& markedBlocks)
 {
     assert (block);
-
-    // If the block is not in the region, ignore it.
-#if 0
-    if (mRegion && !mRegion->contains(block)) return;
-#endif
 
     // If we have marked this block already, ignore it.
     if (markedBlocks.find(block) != markedBlocks.end()) return;
@@ -301,15 +276,12 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
     // Generate mask information for all predecessors (bottom-up post reversed order).
     // If we are in a loop header, we first have to recurse into the preheader, then
     // create the mask info, then recurse into the latch (see end of this function).
-    if (isLoopHeader)
-    {
-        BasicBlock* preheaderBB = loop->getLoopPreheader();
-        recCreateMaskGraph(preheaderBB, markedBlocks);
-    }
-    else
+    if (!isLoopHeader)
     {
         for (auto predBB : predecessors(block))
-            recCreateMaskGraph(predBB, markedBlocks);
+        {
+            if (!markedBlocks.count(predBB)) return;
+        }
     }
 
     DEBUG_RV( outs() << "\ngenerating mask information for block '"
@@ -340,14 +312,21 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
         info->print(outs());
     }
 
+    // Recurse into successors
+    for (BasicBlock* succBB : successors(block))
+    {
+        recCreateMaskGraph(succBB, markedBlocks);
+    }
+
     if (!isLoopHeader) return;
+
+    // If this was no divergent loop, return.
+    if (!mvInfo.isDivergentLoop(loop)) return;
 
     // Recurse into latch.
     BasicBlock* latchBB = loop->getLoopLatch();
     recCreateMaskGraph(latchBB, markedBlocks);
 
-    // If this was no divergent loop, return.
-    if (!mvInfo.isDivergentLoop(loop)) return;
     assert (entryMask->mType == LOOPMASKPHI && "VecInfo inconsistency: no loop mask available for this divergent loop");
 
     // Otherwise, we can now set the incoming value of the loop mask phi
@@ -721,10 +700,12 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
 void
 MaskAnalysis::createLoopExitMasks(Loop* loop)
 {
+    Region* region = mvInfo.getRegion();
+
     assert (loop);
 
     // Ignore loops outside of the region, it should be sufficient to test for the header
-    if (mRegion && !mRegion->contains(loop->getHeader())) return;
+    if (region && !region->contains(loop->getHeader())) return;
 
     // We have to iterate through ALL loops, but only do something
     // for those that are DIVERGENT. Since we have to generate a few

@@ -137,9 +137,8 @@ public:
 
 private:
 	VectorizationInfo& mvInfo;
-    const rv::RVInfo&     mInfo;
+    const rv::RVInfo&  mInfo;
     const LoopInfo&    mLoopInfo;
-	const rv::Region* mRegion;
 
     DenseMap<const BasicBlock*, BlockMaskInfo*>    mBlockMap;
     DenseMap<const Loop*,       LoopMaskInfo*>     mLoopMaskMap;
