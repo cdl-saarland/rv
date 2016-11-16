@@ -273,9 +273,7 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
     const Loop* loop         = mLoopInfo.getLoopFor(block);
     assert (!isLoopHeader || loop);
 
-    // Generate mask information for all predecessors (bottom-up post reversed order).
-    // If we are in a loop header, we first have to recurse into the preheader, then
-    // create the mask info, then recurse into the latch (see end of this function).
+    // Wait for predecessors to be reached, unless for loop headers (cyclic dependency)
     if (!isLoopHeader)
     {
         for (auto predBB : predecessors(block))
@@ -318,21 +316,17 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
         recCreateMaskGraph(succBB, markedBlocks);
     }
 
-    if (!isLoopHeader) return;
+    // Update loop mask phis if present:
 
-    // If this was no divergent loop, return.
-    if (!mvInfo.isDivergentLoop(loop)) return;
+    // Only present for divergent loops and located in the header
+    if (!isLoopHeader || !mvInfo.isDivergentLoop(loop)) return;
 
-    // Recurse into latch.
-    BasicBlock* latchBB = loop->getLoopLatch();
-    recCreateMaskGraph(latchBB, markedBlocks);
-
-    assert (entryMask->mType == LOOPMASKPHI && "VecInfo inconsistency: no loop mask available for this divergent loop");
-
-    // Otherwise, we can now set the incoming value of the loop mask phi
+    // We can now set the incoming value of the loop mask phi
     // from direction of the latch.
+    BasicBlock* latchBB = loop->getLoopLatch();
+
     assert (entryMask->mType == LOOPMASKPHI);
-    MaskPtr latchMask = getExitMaskPtr(*latchBB, *loop->getHeader());
+    MaskPtr latchMask = getExitMaskPtr(*latchBB, *block);
     entryMask->mOperands.push_back(latchMask);
     entryMask->mIncomingDirs.push_back(latchBB);
 
@@ -364,10 +358,8 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
             return entryMask;
         }
 
-        // assert(rv::hasMetadata(block, rv::WFV_METADATA_ALWAYS_BY_ALL_TRUE) == mvInfo.getVectorShape(*block).isUniform());
-
         assert ((mInfo.mDisableControlFlowDivAnalysis ||
-                 mvInfo.getVectorShape(*block).isUniform()) &&
+                 mvInfo.isAlwaysByAll(block)) &&
                 "entry block of function without mask argument must be ALWAYS_BY_ALL_TRUE");
         MaskPtr entryMask = createMask(CONSTANT, insertPoint);
         entryMask->mValue = mInfo.mConstBoolTrue;
@@ -378,8 +370,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
 
     // NOTE: this is only correct for ABAON blocks if we are sure that they
     //       *never* are executed with anything else than a full mask!
-    if (mvInfo.isAlwaysByAll(block) ||
-        mvInfo.isAlwaysByAllOrNone(block))
+    if (mvInfo.isAlwaysByAll(block) || mvInfo.isAlwaysByAllOrNone(block))
     {
         // If block is executed, *all* instances are active,
         // so the mask is always entirely true.
@@ -408,8 +399,6 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
     {
         BasicBlock* preheaderBB = loop->getLoopPreheader();
         MaskPtr preheaderOp = getExitMaskPtr(*preheaderBB, *block);
-
-        // assert (rv::hasMetadata(loop, rv::WFV_METADATA_LOOP_DIVERGENT_FALSE) == !mvInfo.isDivergentLoop(loop));
 
         if (!mvInfo.isDivergentLoop(loop))
         {
@@ -495,7 +484,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
     }
 
     assert (mvInfo.getVectorShape(*block).isVarying());
-    // assert (rv::hasMetadata(block, rv::WFV_METADATA_MANDATORY));
+    assert (mvInfo.isMandatory(block));
     assert (!block->getUniquePredecessor());
     assert (rv::getNumIncomingEdges(*block) > 1);
 
@@ -712,8 +701,6 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
     // things before recursing, this has to be prevented for non-
     // divergent loops.
 
-    // assert(rv::hasMetadata(loop, rv::WFV_METADATA_LOOP_DIVERGENT_TRUE) == mvInfo.isDivergentLoop(loop));
-
     const bool isDivergentLoop = mvInfo.isDivergentLoop(loop);
 
     SmallVector<BasicBlock*, 4> exitingBlocks;
@@ -735,11 +722,9 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
 
             Instruction* insertPoint = &*(loop->getHeader()->getFirstInsertionPt());
 
-            // assert (rv::hasMetadata(exitBlock, rv::WFV_METADATA_OPTIONAL) == mvInfo.getVectorShape(*exitingBlock->getTerminator()).isUniform());
-
             // The exit mask of an OPTIONAL exit is simply the exit mask of
             // the exiting block in direction of the exit block.
-            if (mvInfo.getVectorShape(*exitingBlock->getTerminator()).isUniform()) continue;
+            if (!mvInfo.isMandatory(exitBlock)) continue;
 
             // If we have some information about this exit already, only add the
             // fact that it is the exit of an additional loop.
@@ -815,10 +800,8 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
 
         Instruction* insertPoint = exitingBlock->getTerminator();
 
-        // assert (rv::hasMetadata(exitBlock, rv::WFV_METADATA_OPTIONAL) == mvInfo.getVectorShape(*exitingBlock->getTerminator()).isUniform());
-
         // Ignore edge if the target is OPTIONAL.
-        if (mvInfo.getVectorShape(*exitingBlock->getTerminator()).isUniform())
+        if (!mvInfo.isMandatory(exitBlock))
         {
             DEBUG_RV( outs() << "    target of exit block '"
                 << exitingBlock->getName() << "' is OPTIONAL, ignored!\n"; );
@@ -928,10 +911,8 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
         BasicBlock* exitBB    = exitBlocks[i];
         BasicBlock* exitingBB = exitingBlocks[i];
 
-        // assert (rv::hasMetadata(exitBB, rv::WFV_METADATA_OPTIONAL) == mvInfo.getVectorShape(*exitingBB->getTerminator()).isUniform());
-
         // Ignore edge if the successor outside the current loop is OPTIONAL.
-        if (mvInfo.getVectorShape(*exitingBB->getTerminator()).isUniform())
+        if (!mvInfo.isMandatory(exitBB))
         {
             DEBUG_RV( outs() << "  exit branch of block '"
                 << exitingBB->getName() << "' has OPTIONAL exit successor, ignored!\n"; );
