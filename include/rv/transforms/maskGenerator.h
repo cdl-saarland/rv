@@ -56,13 +56,14 @@ private:
     bool entryMaskIsUsed(const BasicBlock& block) const;
     Value* materializeMask(MaskPtr maskPtr);
 
-    Value* createNeg(Value* operand, Instruction* insertBefore);
-    Value* createAnd(Value* operand0, Value* operand1, Instruction* insertBefore);
-    Value* createOr (Value* operand0, Value* operand1, Instruction* insertBefore);
+    Value* createNeg(Value* operand, Instruction* insertBefore, const Twine& name);
+    Value* createAnd(Value* operand0, Value* operand1, Instruction* insertBefore, const Twine& name);
+    Value* createOr (Value* operand0, Value* operand1, Instruction* insertBefore, const Twine& name);
     Value* createSelect(Value*       operand0,
                         Value*       operand1,
                         Value*       operand2,
-                        Instruction* insertPoint);
+                        Instruction* insertPoint,
+                        const Twine& name);
     Value* createPhi(Mask& mask, const Twine& name);
 
     bool hasNonUniformPhi(const BasicBlock& block) const;
