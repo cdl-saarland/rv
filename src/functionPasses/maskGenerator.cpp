@@ -144,7 +144,7 @@ MaskGenerator::generate(Function& F)
 
     // If an error occurred in one of the previous phases, abort.
     try {
-        materializeMasks(&F);
+        materializeMasks(F);
     }
     catch (std::logic_error& error)
     {
@@ -180,14 +180,13 @@ MaskGenerator::generate(Function& F)
 // - MANDATORY blocks with phi(s)
 //   - Masks may be required if incoming edges change and cause live ranges to overlap.
 void
-MaskGenerator::materializeMasks(Function* f)
+MaskGenerator::materializeMasks(Function& f)
 {
-    assert (f);
-    assert (!f->getParent()->getFunction("entryMaskUseFn"));
+    assert (!f.getParent()->getFunction("entryMaskUseFn"));
 
     Region * region = mvecInfo.getRegion();
 
-    for (auto &BB : *f)
+    for (auto &BB : f)
     {
         if (region && !region->contains(&BB)) continue; // skip blocks outside of region
 
@@ -208,7 +207,7 @@ MaskGenerator::materializeMasks(Function* f)
             if (isa<Instruction>(newEntryMask) &&
                 cast<Instruction>(newEntryMask)->getParent() != &BB)
             {
-                Function* entryMaskUseFn = f->getParent()->getFunction("entryMaskUseFn");
+                Function* entryMaskUseFn = f.getParent()->getFunction("entryMaskUseFn");
 #if 0
                 if (!entryMaskUseFn)
                 {

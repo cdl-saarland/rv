@@ -52,7 +52,7 @@ private:
     const LoopInfo& 	mLoopInfo;
 
     void markMaskOperation(Instruction& maskOp);
-    void materializeMasks(Function* f);
+    void materializeMasks(Function& f);
     bool entryMaskIsUsed(const BasicBlock& block) const;
     Value* materializeMask(MaskPtr maskPtr);
 
