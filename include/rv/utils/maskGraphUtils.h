@@ -65,7 +65,7 @@ struct Mask
     SmallVector<BasicBlock*, 2> mIncomingDirs;
     Value*                      mValue;
     Instruction*                mInsertPoint;
-    Twine                       mName = "";
+    std::string                 mName = "";
 
     Mask(const NodeType type, Instruction* insertPoint);
     ~Mask();

@@ -431,6 +431,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
             MaskPtr entryMask = createMask(LOOPMASKPHI, block->getFirstNonPHI());
             entryMask->mOperands.push_back(preheaderOp);
             entryMask->mIncomingDirs.push_back(preheaderBB);
+            entryMask->mName = "loopMaskPHI";
 
             // Store loop mask phi.
             auto itLoopMaskInfo = mLoopMaskMap.find(loop);
@@ -471,6 +472,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
                 "optional block must have predecessors!");
 
         MaskPtr entryMask = createMask(PHI, block->getFirstNonPHI());
+        entryMask->mName = "entryMask." + block->getName().str();
 
         for (BasicBlock* predBB : predecessors(block))
         {
@@ -493,6 +495,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
     //       are no phis in the block!
 
     MaskPtr entryMask = createMask(DISJUNCTION, insertPoint);
+    entryMask->mName = "entryMask." + block->getName().str();
 
     for (const BasicBlock* predBB : predecessors(block))
     {
@@ -534,8 +537,6 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
         DEBUG_RV( outs() << "  exitMask  (1): "; exitMask->print(outs()); outs() << "\n"; );
         return;
     }
-
-    // assert(rv::hasMetadata(terminator, rv::WFV_METADATA_RES_UNIFORM) == mvInfo.getVectorShape(*terminator).isUniform());
 
     if (mvInfo.getVectorShape(*terminator).isUniform())
     {
@@ -606,6 +607,12 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
             exitMask->mOperands.push_back(trueMask);
             exitMask->mOperands.push_back(falseMask);
 
+            if (isa<BranchInst>(terminator))
+            {
+                exitMask->mName = "exitMask." + block->getName().str() + "."
+                                  + (i == 0 ? "true" : "false");
+            }
+
             exitMasks.push_back(exitMask);
 
             DEBUG_RV( outs() << "  exitMask  (2): "; exitMask->print(outs()); outs() << "\n"; );
@@ -641,6 +648,7 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
                 // We have to negate the condition since this is the 'false' edge.
                 condition = createMask(NEGATE, insertPoint);
                 condition->mOperands.push_back(cmp);
+                condition->mName = "neg." + cmp->mValue->getName().str();
                 DEBUG_RV( outs() << "  condition (2): "; condition->print(outs()); outs() << "\n"; );
             }
         }
@@ -679,6 +687,12 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
         MaskPtr exitMask = createMask(CONJUNCTION, insertPoint);
         exitMask->mOperands.push_back(entryMask);
         exitMask->mOperands.push_back(condition);
+
+        if (isa<BranchInst>(terminator))
+        {
+            exitMask->mName = "exitMask." + block->getName().str() + "."
+                              + (i == 0 ? "true" : "false");
+        }
 
         exitMasks.push_back(exitMask);
 
