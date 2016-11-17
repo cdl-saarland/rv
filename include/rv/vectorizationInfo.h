@@ -83,11 +83,13 @@ public:
 
     void remapPredicate(Value& dest, Value& old);
 
-    void dump() const;
-
     bool isDivergent(const BasicBlock& block, const Loop* level = nullptr) const;
     bool isDivergentLoop(const Loop* loop) const;
     bool isDivergentLoopTopLevel(const Loop* loop) const;
+
+    void dump() const;
+    void dump(const Value * val) const;
+    void dumpBlockInfo(const BasicBlock & block) const;
 
     void setDivergenceLevel(const BasicBlock& block, const Loop* level);
 

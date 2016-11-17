@@ -34,6 +34,37 @@ VectorizationInfo::remapPredicate(Value& dest, Value& old)
     }
 }
 
+void
+VectorizationInfo::dump(const Value * val) const {
+  llvm::raw_ostream & out = llvm::errs();
+  if (!val) return;
+
+  auto * block = dyn_cast<const BasicBlock>(val);
+  if (block) {
+    dumpBlockInfo(*block);
+  }
+
+  if (hasKnownShape(*val)) {
+  	out << *val << " : " << getVectorShape(*val).str() << "\n";
+  } else {
+  	out << *val << " : unknown shape\n";
+  }
+}
+
+void
+VectorizationInfo::dumpBlockInfo(const BasicBlock & block) const {
+  llvm::raw_ostream & out = llvm::errs();
+  const Value * predicate = getPredicate(block);
+
+  out << "Block " << block.getName() << ", predicate ";
+  if (predicate) out << *predicate; else out << "null";
+  out << "\n";
+
+  for (const Instruction & inst : block) {
+    dump(&inst);
+  }
+  out << "\n";
+}
 
 void
 VectorizationInfo::dump() const
@@ -52,36 +83,8 @@ VectorizationInfo::dump() const
         out << " for function " << mapping.scalarFn->getName() << "\n";
     }
 
-    out << "CFG {\n";
-    mapping.dump(out);
-
-    for (const BasicBlock& block : *mapping.scalarFn)
-    {
-        const Value* predicate = getPredicate(block);
-
-        out << "Block " << block.getName() << ", predicate ";
-        if (predicate)
-        {
-            out << *predicate;
-        }
-        else
-        {
-            out << "null";
-        }
-        out << "\n";
-
-        for (const Instruction& inst : block)
-        {
-            if (hasKnownShape(inst))
-            {
-                out << inst << " : " << getVectorShape(inst).str() << "\n";
-            }
-            else
-            {
-                out << inst << " : unknown shape\n";
-            }
-        }
-        out << "\n";
+    for (const BasicBlock & block : *mapping.scalarFn) {
+      dumpBlockInfo(block);
     }
 
     out << "}\n";
