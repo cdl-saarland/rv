@@ -70,6 +70,8 @@ public:
 
 class PDA {
    std::set<const Value*> overrides;
+   DataLayout layout;
+
 public:
 
     using ValueMap          = std::map<const Value*, VectorShape>;

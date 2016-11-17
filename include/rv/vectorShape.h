@@ -57,29 +57,7 @@ public:
 	static VectorShape cont(int aligned = 1) { return VectorShape(1, aligned); }
 	static VectorShape undef(int aligned = 1) { return VectorShape(0); }
 
-	static VectorShape join(VectorShape a, VectorShape b) {
-		const unsigned aligned = gcd(a.alignment, b.alignment);
-		if (a.hasStridedShape() && b.hasStridedShape() && a.getStride() == b.getStride()) {
-			return VectorShape(a.stride, aligned);
-		} else {
-			return varying(aligned);
-		}
-	}
-
-	static unsigned gcd(unsigned a, unsigned b)
-	{
-		if (a == 0)
-			return b;
-		else if (b == 0)
-			return a;
-
-		if (a == b)
-			return a;
-		else if (a > b)
-			return gcd(a - b, b);
-		else
-			return gcd(a, b - a);
-	}
+        static VectorShape join(VectorShape a, VectorShape b);
 
 	bool operator==(const VectorShape& a) const;
 	bool operator!=(const VectorShape& a) const;

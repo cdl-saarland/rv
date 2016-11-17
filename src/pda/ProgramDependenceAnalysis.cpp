@@ -14,6 +14,7 @@
 
 #include "rvConfig.h"
 #include "utils/rvTools.h"
+#include "rv/utils/mathUtils.h"
 
 #if 1
 #define IF_DEBUG_PDA IF_DEBUG
@@ -65,7 +66,8 @@ PDA::PDA(VectorizationInfo& VecInfo,
          const FuncInfo& Funcinfo,
          const LoopInfo& LoopInfo)
 
-        : mCDG(cdg),
+        : layout(""),
+          mCDG(cdg),
           mDFG(dfg),
           mVecinfo(VecInfo),
           mFuncinfo(Funcinfo),
@@ -166,6 +168,8 @@ PDA::getAlignment(const Constant* c) const
 void
 PDA::init(Function& F)
 {
+    layout = DataLayout(F.getParent());
+
     // Update initialized instructions
     for (auto& arg : F.args())
     {
@@ -398,11 +402,11 @@ PDA::updateAllocaOperands(const Instruction* I)
 
         eraseUserInfoRecursively(op);
 
-        const Type* PtrElemType = op->getType()->getPointerElementType();
+        auto* PtrElemType = op->getType()->getPointerElementType();
         const bool Vectorizable = rv::isVectorizableNonDerivedType(*PtrElemType);
 
         update(op, Vectorizable ?
-                   VectorShape::cont(alignment) :
+                   VectorShape::strided(layout.getTypeStoreSize(PtrElemType), alignment) :
                    VectorShape::varying(alignment));
     }
 }
@@ -559,7 +563,6 @@ PDA::computeShapeForInst(const Instruction* I)
         case Instruction::GetElementPtr:
         {
             const GetElementPtrInst* gep = cast<GetElementPtrInst>(I);
-            const DataLayout layout(I->getModule());
 
             const Value* pointer = gep->getPointerOperand();
 
@@ -592,7 +595,7 @@ PDA::computeShapeForInst(const Instruction* I)
                 {
                     subT = cast<SequentialType>(subT)->getPointerElementType();
 
-                    unsigned typeSize = (unsigned)layout.getTypeSizeInBits(subT) / BYTE_SIZE;
+                    unsigned typeSize = (unsigned)layout.getTypeStoreSize(subT) / BYTE_SIZE;
 
                     if (result.isVarying())
                         result = VectorShape::varying(result.getAlignment());
@@ -726,7 +729,7 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
         {
             const bool fadd = I->getOpcode() == Instruction::FAdd;
 
-            const unsigned resAlignment = VectorShape::gcd(alignment1, alignment2);
+            const int resAlignment = gcd(alignment1, alignment2);
 
             if (shape1.isVarying() || shape2.isVarying())
                 return VectorShape::varying(resAlignment);
@@ -753,7 +756,7 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
         {
             const bool fsub = I->getOpcode() == Instruction::FSub;
 
-            const unsigned resAlignment = VectorShape::gcd(alignment1, alignment2);
+            const int resAlignment = gcd(alignment1, alignment2);
 
             if (shape1.isVarying() || shape2.isVarying())
                 return VectorShape::varying(resAlignment);
@@ -885,6 +888,16 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
     }
 }
 
+static unsigned
+GetReferencedObjectSize(const DataLayout & layout, Type * ptrType) {
+  auto * elemTy = ptrType->getPointerElementType();
+  auto * arrTy = dyn_cast<ArrayType>(elemTy);
+  if (arrTy && arrTy->getArrayNumElements() == 0) {
+    elemTy = arrTy->getElementType();
+  }
+  return layout.getTypeStoreSize(elemTy);
+}
+
 VectorShape
 PDA::computeShapeForCastInst(const CastInst* castI)
 {
@@ -908,7 +921,7 @@ PDA::computeShapeForCastInst(const CastInst* castI)
             if (DestPointsTo->isIntegerTy(8))
                 return VectorShape::varying();
 
-            unsigned typeSize = (unsigned) layout.getTypeSizeInBits(DestPointsTo);
+            unsigned typeSize = (unsigned) layout.getTypeStoreSize(DestPointsTo);
 
             if (castOpStride % typeSize != 0)
                 return VectorShape::varying();
@@ -921,7 +934,7 @@ PDA::computeShapeForCastInst(const CastInst* castI)
             PointerType* SrcType = cast<PointerType>(castI->getSrcTy());
             Type* SrcPointsTo = SrcType->getPointerElementType();
 
-            unsigned typeSize = (unsigned) layout.getTypeSizeInBits(SrcPointsTo);
+            unsigned typeSize = (unsigned) layout.getTypeStoreSize(SrcPointsTo);
 
             return VectorShape(typeSize * castOpStride, 1);
         }
@@ -932,8 +945,7 @@ PDA::computeShapeForCastInst(const CastInst* castI)
         {
             Type* destTy = castI->getDestTy();
 
-            return VectorShape::truncateToTypeSize(castOpShape,
-                                                   (unsigned)layout.getTypeSizeInBits(destTy));
+            return VectorShape::truncateToTypeSize(castOpShape,(unsigned)layout.getTypeStoreSize(destTy));
         }
 
         // FIXME: is this correct?
@@ -971,8 +983,8 @@ PDA::computeShapeForCastInst(const CastInst* castI)
             PointerType* srcPtr = cast<PointerType>(srcType);
             PointerType* destPtr = cast<PointerType>(destType);
 
-            unsigned long srcElementSize = layout.getTypeSizeInBits(srcPtr->getElementType());
-            unsigned long destElementSize = layout.getTypeSizeInBits(destPtr->getElementType());
+            unsigned long srcElementSize =  GetReferencedObjectSize(layout, srcPtr);
+            unsigned long destElementSize = GetReferencedObjectSize(layout, destPtr);
 
             return VectorShape(srcElementSize * castOpStride / destElementSize, 1);
         }
