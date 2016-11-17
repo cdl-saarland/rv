@@ -2109,6 +2109,7 @@ test_085_noise(float x, float y)
     return lerp12 + W * (lerp34 - lerp12); //lerp(w, lerp12, lerp34);
 }
 
+#if 0
 //
 // AOBench
 // Adopted from AO Bench [http://lucille.atso-net.jp/aobench/]
@@ -2344,7 +2345,6 @@ computeAO(struct Intersection* isect, float* sd)
 	return occlusion;
 }
 
-#if 0
 extern "C" float
 test_086_ocl_aobench(float x, float y)
 {
@@ -2386,7 +2386,6 @@ test_086_ocl_aobench(float x, float y)
 	return (float)(rcol | (rcol<<8) | (rcol<<16) | (255<<24));
 }
 
-#if 0
 extern "C" float
 test_087_ocl_aobench_inlined(float x, float y)
 {
@@ -2720,7 +2719,6 @@ test_087_ocl_aobench_inlined(float x, float y)
 
 	return (float)(rcol | (rcol<<8) | (rcol<<16) | (255<<24));
 }
-#endif
 #endif
 
 #ifdef RUN_IRREDUCIBLE_TESTS

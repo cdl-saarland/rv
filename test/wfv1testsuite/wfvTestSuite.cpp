@@ -569,8 +569,8 @@ main(int argc, char** argv)
         RV_RUN_ON_FUNCTION(test_085_noise);
 #if 0
         RV_RUN_ON_FUNCTION(test_086_ocl_aobench);
+        RV_RUN_ON_FUNCTION(test_087_ocl_aobench_inlined); // Sometimes fails due to struct/writeback issue.
 #endif
-        //RV_RUN_ON_FUNCTION(test_087_ocl_aobench_inlined); // Sometimes fails due to struct/writeback issue.
 
 //#define RUN_IRREDUCIBLE_TESTS
 #ifdef RUN_IRREDUCIBLE_TESTS
