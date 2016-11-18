@@ -560,6 +560,66 @@ PDA::computeShapeForInst(const Instruction* I)
 
     switch (I->getOpcode())
     {
+        // If both compared values have the same stride the comparison is uniform
+        // This is new and not recognized by the old analysis
+        case Instruction::ICmp:
+        {
+            const Value* op1 = I->getOperand(0);
+            const Value* op2 = I->getOperand(1);
+
+            const VectorShape shape1 = getShape(op1);
+            const VectorShape shape2 = getShape(op2);
+
+            if (shape1.isVarying() || shape2.isVarying())
+                return VectorShape::varying();
+
+            // Same shape and not varying
+            if (shape1.getStride() == shape2.getStride())
+                return VectorShape::uni();
+
+            CmpInst::Predicate predicate = cast<CmpInst>(I)->getPredicate();
+            const int stride1 = shape1.getStride();
+            const int stride2 = shape2.getStride();
+            const int strideGap = stride1 - stride2;
+
+            const int vectorWidth = mVecinfo.getMapping().vectorWidth;
+
+            const unsigned alignment1 = shape1.getAlignment();
+            const unsigned alignment2 = shape2.getAlignment();
+
+            if (predicate == CmpInst::Predicate::ICMP_SLT ||
+                predicate == CmpInst::Predicate::ICMP_ULT)
+            {
+                // There are 2 possibilities:
+                // 1. The first vector1 entry is not smaller than the first vector2 entry
+                //    If strideGap >= 0, the gap does not decrease and so all other entries
+                //    are pairwise not smaller
+                // 2. The first vector1 entry is smaller...
+                //    If the alignment a is the same, we can at least add a until we are possibly
+                //    equal. But since strideGap * vectorWidth <= a, the accumulated difference
+                //    does not exceed a and all entries are pairwise smaller
+                if (strideGap >= 0 &&
+                    alignment1 == alignment2 &&
+                    strideGap * vectorWidth <= alignment1)
+                {
+                    return VectorShape::uni();
+                }
+            }
+            else if (predicate == CmpInst::Predicate::ICMP_SGT ||
+                     predicate == CmpInst::Predicate::ICMP_UGT)
+            {
+                // Analogous reasoning to the one above
+                if (strideGap <= 0 &&
+                    alignment1 == alignment2 &&
+                    -strideGap * vectorWidth <= alignment1)
+                {
+                    return VectorShape::uni();
+                }
+            }
+
+            return VectorShape::varying();
+        }
+
         case Instruction::GetElementPtr:
         {
             const GetElementPtrInst* gep = cast<GetElementPtrInst>(I);
@@ -707,8 +767,6 @@ PDA::computeShapeForInst(const Instruction* I)
 VectorShape
 PDA::computeShapeForBinaryInst(const BinaryOperator* I)
 {
-    assert (I->isBinaryOp());
-
     const Value* op1 = I->getOperand(0);
     const Value* op2 = I->getOperand(1);
 
@@ -829,54 +887,6 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
         }
 
         //case Instruction::FDiv:
-
-        // If both compared values have the same stride the comparison is uniform
-        // This is new and not recognized by the old analysis
-        case Instruction::ICmp:
-        {
-            if (shape1.isVarying() || shape2.isVarying())
-                return VectorShape::varying();
-
-            // Same shape and not varying
-            if (shape1.getStride() == shape2.getStride())
-                return VectorShape::uni();
-
-            CmpInst::Predicate predicate = cast<CmpInst>(I)->getPredicate();
-            const int vectorWidth = mVecinfo.getMapping().vectorWidth;
-            const int strideGap = stride1 - stride2;
-
-            if (predicate == CmpInst::Predicate::ICMP_SLT ||
-                predicate == CmpInst::Predicate::ICMP_ULT)
-            {
-                // There are 2 possibilities:
-                // 1. The first vector1 entry is not smaller than the first vector2 entry
-                //    If strideGap >= 0, the gap does not decrease and so all other entries
-                //    are pairwise not smaller
-                // 2. The first vector1 entry is smaller...
-                //    If the alignment a is the same, we can at least add a until we are possibly
-                //    equal. But since strideGap * vectorWidth <= a, the accumulated difference
-                //    does not exceed a and all entries are pairwise smaller
-                if (strideGap >= 0 &&
-                    alignment1 == alignment2 &&
-                    strideGap * vectorWidth <= alignment1)
-                {
-                    return VectorShape::uni();
-                }
-            }
-            else if (predicate == CmpInst::Predicate::ICMP_SGT ||
-                     predicate == CmpInst::Predicate::ICMP_UGT)
-            {
-                // Analogous reasoning to the one above
-                if (strideGap <= 0 &&
-                    alignment1 == alignment2 &&
-                    -strideGap * vectorWidth <= alignment1)
-                {
-                    return VectorShape::uni();
-                }
-            }
-
-            return VectorShape::varying();
-        }
 
         default:
         {
