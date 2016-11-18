@@ -312,7 +312,8 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
                                   const DominatorTree& domTree)
 {
     LoopLiveValueAnalysis loopLiveValueAnalysis(mInfo,
-                                                loopInfo);
+                                                loopInfo,
+                                                vectorizationInfo);
 
     SelectGenerator selectgenerator(mInfo,
                                     loopInfo,

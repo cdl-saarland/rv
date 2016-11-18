@@ -18,6 +18,7 @@
 #include <llvm/ADT/DenseMap.h>
 
 #include <rv/rvInfo.h>
+#include <rv/vectorizationInfo.h>
 
 namespace llvm {
 class Value;
@@ -26,7 +27,12 @@ class Loop;
 class SelectInst;
 }
 
+namespace rv {
+class VectorizationInfo;
+}
+
 using namespace llvm;
+using namespace rv;
 
 //namespace {
 
@@ -121,7 +127,9 @@ public:
 class LoopLiveValueAnalysis
 {
 public:
-    LoopLiveValueAnalysis(const rv::RVInfo& rvInfo, const LoopInfo& loopInfo);
+    LoopLiveValueAnalysis(const rv::RVInfo&        rvInfo,
+                          const LoopInfo&          loopInfo,
+                          const VectorizationInfo& vecInfo);
 	~LoopLiveValueAnalysis();
 
     bool run(Function& F);
@@ -167,8 +175,9 @@ public:
     LoopResults* getLoopResults(const Loop* loop) const;
 
 private:
-    const rv::RVInfo&  mInfo;
-    const LoopInfo& mLoopInfo;
+    const rv::RVInfo&        mInfo;
+    const LoopInfo&          mLoopInfo;
+    const VectorizationInfo& mVecInfo;
 
     DenseMap<const Loop*, LoopLiveValueInfo*> mLiveValueMaps;
     DenseMap<const Loop*, LoopResults*>       mLoopResultMap;

@@ -175,6 +175,10 @@ SelectGenerator::generatePhiSelects(Function& f)
     // Loop over all blocks that contain a phi
     for (auto& block : f)
     {
+        Region* region = mvecInfo.getRegion();
+
+        if (region && !region->contains(&block)) continue;
+
         // Ignore blocks without phis.
         if (!isa<PHINode>(&*block.begin()))
         {
@@ -301,9 +305,23 @@ SelectGenerator::generateLoopSelects(Function& f)
     // Here, we can now stop recursion every time we see a uniform sub-loop
     // because possible varying loops nested deeper have been collected
     // before.
-    for (auto &L : mLoopInfo)
+
+    Region* region = mvecInfo.getRegion();
+
+    if (region && mLoopInfo.isLoopHeader(&region->getRegionEntry()))
     {
-        generateMultipleExitLoopSelects(L, selectSet);
+        Loop* regionLoop = mLoopInfo.getLoopFor(&region->getRegionEntry());
+        for (Loop* loop : *regionLoop)
+        {
+            generateMultipleExitLoopSelects(loop, selectSet);
+        }
+    }
+    else
+    {
+        for (auto& L : mLoopInfo)
+        {
+            generateMultipleExitLoopSelects(L, selectSet);
+        }
     }
 
     DEBUG_RV( outs() << "\nGeneration of loop-selects finished!\n"; );

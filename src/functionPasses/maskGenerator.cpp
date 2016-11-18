@@ -287,13 +287,24 @@ MaskGenerator::materializeMasks(Function& f)
         }
     }
 
-    for (auto &L : mLoopInfo)
+    // A loop region is regarded as a uniform loop, mask generation thus starts at
+    // its child loops which may be divergent
+    if (region && mLoopInfo.isLoopHeader(&region->getRegionEntry()))
     {
-#if 0
-        if (region && !region->contains(L->getHeader())) continue; // skip loops outside of region
-#endif
-        materializeLoopExitMasks(L);
-        materializeCombinedLoopExitMasks(L);
+        Loop* regionLoop = mLoopInfo.getLoopFor(&region->getRegionEntry());
+        for (Loop* loop : *regionLoop)
+        {
+            materializeLoopExitMasks(loop);
+            materializeCombinedLoopExitMasks(loop);
+        }
+    }
+    else
+    {
+        for (auto& L : mLoopInfo)
+        {
+            materializeLoopExitMasks(L);
+            materializeCombinedLoopExitMasks(L);
+        }
     }
 }
 
