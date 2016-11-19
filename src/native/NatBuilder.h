@@ -19,6 +19,7 @@
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
+#include <PlatformInfo.h>
 
 namespace rv {
   class Region;
@@ -39,6 +40,8 @@ namespace native {
         llvm::Type *i32Ty;
 
         rv::Region * region;
+
+        rv::PlatformInfo platformInfo;
 
     public:
         NatBuilder(rv::RVInfo & rvInfo, VectorizationInfo &vectorizationInfo, const llvm::DominatorTree &dominatorTree);
@@ -70,24 +73,12 @@ namespace native {
 
         llvm::DenseMap<const llvm::Value *, llvm::Value *> vectorValueMap;
         std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
-        llvm::DenseMap<unsigned, llvm::Function *> cascadeLoadMap;
-        llvm::DenseMap<unsigned, llvm::Function *> cascadeStoreMap;
         std::vector<llvm::PHINode *> phiVector;
 
         llvm::Value *requestVectorValue(llvm::Value *const value);
 
         llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
                                         bool skipMappingWhenDone = false);
-        llvm::Value *requestCascadeLoad(llvm::Value *vecPtr, unsigned int alignment, llvm::Value *mask);
-        llvm::Value *requestCascadeStore(llvm::Value *vecVal, llvm::Value *vecPtr, unsigned int alignment,
-                                         llvm::Value *mask);
-
-        llvm::Function *createCascadeMemory(llvm::VectorType *pointerVectorType, unsigned alignment,
-                                            llvm::VectorType *maskType, bool store);
-
-        void mapCascadeFunction(unsigned bitWidth, llvm::Function *function, bool store);
-
-        llvm::Function *getCascadeFunction(unsigned bitWidth, bool store);
 
         llvm::Value *createPTest(llvm::Value *vector);
 

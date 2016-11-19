@@ -14,17 +14,17 @@
 #include <llvm/IR/Value.h>
 
 #include <vector>
+#include <PlatformInfo.h>
 
 llvm::Type *getVectorType(llvm::Type *type, unsigned width);
 
 llvm::Value *createContiguousVector(unsigned width, llvm::Type *type, int start = 0);
 
-/***
- * Create blocks needed for an if-cascade. Condition blocks are inserted into condBlocks, the masked blocks into
- * maskedBlocks. Pointer to return block is returned.
- */
+
 llvm::BasicBlock *createCascadeBlocks(llvm::Function *insertInto, unsigned vectorWidth,
                                       std::vector<llvm::BasicBlock *> &condBlocks,
                                       std::vector<llvm::BasicBlock *> &maskedBlocks);
+
+void addSIMDMappingsFor(rv::PlatformInfo &platformInfo, llvm::Function *function);
 
 #endif //NATIVE_UTILS_H
