@@ -5,12 +5,6 @@
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
 //
-//===----------------------------------------------------------------------===//
-//
-// This file defines the DominatorTree class, which provides fast and efficient
-// dominance queries.
-//
-//===----------------------------------------------------------------------===//
 
 #ifndef RV_PROGRAMDEPENDENCEANALYSIS_H
 #define RV_PROGRAMDEPENDENCEANALYSIS_H
@@ -88,9 +82,6 @@ public:
     PDA& operator=(PDA) = delete;
 
     void analyze(Function& F);
-
-    //------------------- Analysis logic ------------------------//
-    void setRegion(Region* region);
 
     //---------------------- Map access -------------------------//
     /// Get the shape for a value

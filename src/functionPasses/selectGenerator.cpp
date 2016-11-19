@@ -265,6 +265,7 @@ SelectGenerator::generateSelectFromPhi(PHINode* phi)
 
         SelectInst* select = SelectInst::Create(mask, incVal, blendedValue, "", phi);
         rv::copyMetadata(select, *phi);
+        if (mvecInfo.isMetadataMask(phi)) mvecInfo.markMetadataMask(select);
         mvecInfo.setVectorShape(*select, mvecInfo.getVectorShape(*phi));
 
         // Store where the values came from in metadata.
@@ -481,6 +482,7 @@ SelectGenerator::generateMultipleExitLoopSelects(Loop*                        lo
         else
         {
             rv::copyMetadata(resultSelect, *liveValue);
+            if (mvecInfo.isMetadataMask(liveValue)) mvecInfo.markMetadataMask(resultSelect);
             mvecInfo.setVectorShape(*resultSelect, mvecInfo.getVectorShape(*liveValue));
         }
         // rv::setMetadataForBlend(resultSelect, latchBB, nullptr, true);

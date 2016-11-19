@@ -90,12 +90,6 @@ PDA::analyze(Function& F)
     // checkEquivalentToOldAnalysis(F);
 }
 
-void
-PDA::setRegion(rv::Region* region)
-{
-    mRegion = region;
-}
-
 bool
 PDA::isInRegion(const BasicBlock* BB)
 {
@@ -134,7 +128,7 @@ PDA::getAlignment(const Constant* c) const
 
     if (const ConstantInt* cint = dyn_cast<ConstantInt>(c))
     {
-        return std::abs(cint->getSExtValue());
+        return static_cast<unsigned>(std::abs(cint->getSExtValue()));
     }
 
     // Other than that, only integer vector constants can be aligned.
@@ -149,7 +143,7 @@ PDA::getAlignment(const Constant* c) const
 
         const int intValue = (int) cast<ConstantInt>(cdv->getAggregateElement(0U))->getSExtValue();
 
-        return std::abs(intValue);
+        return static_cast<unsigned>(std::abs(intValue));
     }
 
     assert (isa<ConstantVector>(c));
@@ -162,7 +156,7 @@ PDA::getAlignment(const Constant* c) const
     const int intValue = (int) celem->getSExtValue();
 
     // The vector is aligned if its first element is aligned
-    return std::abs(intValue);
+    return static_cast<unsigned>(std::abs(intValue));
 }
 
 void
@@ -405,8 +399,10 @@ PDA::updateAllocaOperands(const Instruction* I)
         auto* PtrElemType = op->getType()->getPointerElementType();
         const bool Vectorizable = rv::isVectorizableNonDerivedType(*PtrElemType);
 
+        int typeStoreSize = static_cast<int>(layout.getTypeStoreSize(PtrElemType));
+
         update(op, Vectorizable ?
-                   VectorShape::strided(layout.getTypeStoreSize(PtrElemType), alignment) :
+                   VectorShape::strided(typeStoreSize, alignment) :
                    VectorShape::varying(alignment));
     }
 }
@@ -787,7 +783,7 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
         {
             const bool fadd = I->getOpcode() == Instruction::FAdd;
 
-            const int resAlignment = gcd(alignment1, alignment2);
+            const unsigned resAlignment = gcd(alignment1, alignment2);
 
             if (shape1.isVarying() || shape2.isVarying())
                 return VectorShape::varying(resAlignment);
@@ -814,7 +810,7 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
         {
             const bool fsub = I->getOpcode() == Instruction::FSub;
 
-            const int resAlignment = gcd(alignment1, alignment2);
+            const unsigned resAlignment = gcd(alignment1, alignment2);
 
             if (shape1.isVarying() || shape2.isVarying())
                 return VectorShape::varying(resAlignment);
@@ -905,7 +901,7 @@ GetReferencedObjectSize(const DataLayout & layout, Type * ptrType) {
   if (arrTy && arrTy->getArrayNumElements() == 0) {
     elemTy = arrTy->getElementType();
   }
-  return layout.getTypeStoreSize(elemTy);
+  return static_cast<unsigned>(layout.getTypeStoreSize(elemTy));
 }
 
 VectorShape
@@ -993,8 +989,8 @@ PDA::computeShapeForCastInst(const CastInst* castI)
             PointerType* srcPtr = cast<PointerType>(srcType);
             PointerType* destPtr = cast<PointerType>(destType);
 
-            unsigned long srcElementSize =  GetReferencedObjectSize(layout, srcPtr);
-            unsigned long destElementSize = GetReferencedObjectSize(layout, destPtr);
+            int srcElementSize = static_cast<int>(GetReferencedObjectSize(layout, srcPtr));
+            int destElementSize = static_cast<int>(GetReferencedObjectSize(layout, destPtr));
 
             return VectorShape(srcElementSize * castOpStride / destElementSize, 1);
         }

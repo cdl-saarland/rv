@@ -35,7 +35,7 @@ MaskGenerator::markMaskOperation(Instruction& maskOp) {
     // or OP_UNIFORM/RES_VECTOR/MASK in case of a phi.
     // rv::setMetadata(&maskOp, isa<PHINode>(maskOp) ?        rv::RV_METADATA_OP_UNIFORM :        rv::RV_METADATA_OP_VARYING);
     // rv::setMetadata(maskOp, rv::RV_METADATA_RES_VECTOR);
-    rv::setMetadata(&maskOp, rv::RV_METADATA_MASK);
+    mvecInfo.markMetadataMask(&maskOp);
 }
 
 char MaskGeneratorWrapper::ID = 0;

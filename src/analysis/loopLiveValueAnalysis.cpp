@@ -270,7 +270,7 @@ LoopLiveValueAnalysis::findLoopLiveValues(Loop*              loop,
         for (auto &I : *curBB)
         {
             // Masks are generated correctly, so we don't consider them as live values.
-            if (rv::hasMetadata(&I, rv::RV_METADATA_MASK)) continue;
+            if (mVecInfo.isMetadataMask(&I)) continue;
 
             Instruction* useI = findUseOutsideLoop(&I, loop);
             if (!useI) continue;
