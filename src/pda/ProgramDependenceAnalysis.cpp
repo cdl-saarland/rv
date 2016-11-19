@@ -345,11 +345,7 @@ PDA::update(const Value* const V, VectorShape AT)
             {
                 // In case of only one exit block we can optimize considering it gets
                 // linearized
-                if (endsVaryingLoop->getUniqueExitBlock())
-                {
-                    mVecinfo.setDivergenceLevel(*BB, endsVaryingLoop);
-                    continue;
-                }
+                if (endsVaryingLoop->getUniqueExitBlock()) continue;
 
                 // For multiple exits, the loop shall be blackboxed
                 VectorShape CombinedExitShape = combineExitShapes(endsVaryingLoop);
@@ -358,10 +354,9 @@ PDA::update(const Value* const V, VectorShape AT)
             else
                 mValue2Shape[BB] = VectorShape::varying();
 
-            mVecinfo.setDivergenceLevel(*BB, endsVaryingLoop);
-
             if (mValue2Shape[BB].isVarying())
             {
+                // FIXME this could have been divergent before this iteration
                 IF_DEBUG_PDA {
                         outs() << "Block " + BB->getName() +
                                   " is divergent since the branch in " +
