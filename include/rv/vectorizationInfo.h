@@ -39,7 +39,8 @@ class VectorizationInfo
     VectorMapping mapping;
     std::map<const BasicBlock*, Value*> predicates;
     std::map<const Value*, VectorShape> shapes;
-    std::map<const BasicBlock*, const Loop*> loopAsDivergenceLevel;
+
+    std::set<const Loop*> mDivergentLoops;
 
     std::set<const BasicBlock*> ABABlocks;
     std::set<const BasicBlock*> ABAONBlocks;
@@ -83,7 +84,6 @@ public:
 
     void remapPredicate(Value& dest, Value& old);
 
-    bool isDivergent(const BasicBlock& block, const Loop* level = nullptr) const;
     bool isDivergentLoop(const Loop* loop) const;
     bool isDivergentLoopTopLevel(const Loop* loop) const;
 
@@ -91,7 +91,7 @@ public:
     void dump(const Value * val) const;
     void dumpBlockInfo(const BasicBlock & block) const;
 
-    void setDivergenceLevel(const BasicBlock& block, const Loop* level);
+    void setDivergentLoop(const Loop* loop);
 
     bool isAlwaysByAll(const BasicBlock* block) const;
     bool isAlwaysByAllOrNone(const BasicBlock* block) const;

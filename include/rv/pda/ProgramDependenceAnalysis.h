@@ -106,6 +106,8 @@ private:
     ValueMap                     mValue2Shape;    // Computed shapes
     InstructionSet               mWorklist;       // Next instructions to handle
 
+    std::map<BasicBlock*, std::vector<BasicBlock*>> mDivergenceCauseMap;
+
     // VectorShape analysis logic
 
     // Initialize all statically known shapes (constants, arguments via argument mapping,

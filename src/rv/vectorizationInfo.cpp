@@ -170,48 +170,15 @@ VectorizationInfo::setPredicate(const llvm::BasicBlock& block, llvm::Value& pred
 }
 
 void
-VectorizationInfo::setDivergenceLevel(const llvm::BasicBlock& block, const llvm::Loop* level)
+VectorizationInfo::setDivergentLoop(const Loop* loop)
 {
-    /* outs() << "Setting divergence level of block " + block.getName() + " as loop: ";
-    if (level) level->dump(); else outs() << "top-level";
-    outs() << "\n\n"; */
-
-    auto loopit = loopAsDivergenceLevel.find(&block);
-
-    if (loopit != loopAsDivergenceLevel.end() &&
-        loopit->second->contains(level))
-    {
-        return;
-    }
-
-    loopAsDivergenceLevel[&block] = level;
-}
-
-bool
-VectorizationInfo::isDivergent(const llvm::BasicBlock& block, const llvm::Loop* level) const
-{
-    auto loopit = loopAsDivergenceLevel.find(&block);
-
-    //not divergent at all
-    if (loopit == loopAsDivergenceLevel.end())
-    {
-        return false;
-    }
-
-    //top-level-divergent
-    if (!level)
-    {
-        return &*loopit->second == nullptr;
-    }
-
-    //divergent respective to level
-    return level == loopit->second || loopit->second->contains(level);
+    mDivergentLoops.insert(loop);
 }
 
 bool
 VectorizationInfo::isDivergentLoop(const llvm::Loop* loop) const
 {
-    return isDivergent(*loop->getHeader(), loop);
+    return static_cast<bool>(mDivergentLoops.count(loop));
 }
 
 bool

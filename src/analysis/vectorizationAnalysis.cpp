@@ -3594,7 +3594,7 @@ VectorizationAnalysis::checkEquivalentToNewAnalysis(Function& F)
 				if (rv::hasMetadata(&I, rv::RV_METADATA_OP_VARYING))
 					assert(vs.isVarying());
 				else
-					assert(!mVecInfo.isDivergent(*I.getParent()));
+					assert(mVecInfo.getVectorShape(*I.getParent()).isUniform());
 			}
 		}
 

@@ -260,7 +260,7 @@ PDA::update(const Value* const V, VectorShape AT)
         return;// nothing changed
 
     IF_DEBUG_PDA {
-      outs() << "marking " << V->getName().str() << " " << New << "\n";
+        outs() << "Marking " << New << ": " << *V << "\n";
     }
 
     if (overrides.count(V) && mValue2Shape.count(V)) {
@@ -312,27 +312,35 @@ PDA::update(const Value* const V, VectorShape AT)
 
             assert(isInRegion(BB)); // Otherwise the region is ill-formed
 
+            if (mValue2Shape[BB].isVarying()) continue;
+
+            bool causedDivergence;
+
             // Loop headers are not marked divergent, but can be loop divergent
             if (mLoopInfo.isLoopHeader(BB))
             {
                 const Loop* BBLoop = mLoopInfo.getLoopFor(BB);
-                if (!BBLoop->contains(endsVaryingLoop))
-                    continue;
+
+                // BB needs to be a header of the same or an outer loop
+                if (!BBLoop->contains(endsVaryingLoop)) continue;
 
                 const bool BranchExitsBBLoop = BBLoop->isLoopExiting(endsVarying);
-
-                // If the branch exits the loop, the loop is divergent
-                // (the header diverges in its loop)
-
-                const Loop * divLevel = BranchExitsBBLoop ? BBLoop : endsVaryingLoop;
-                IF_DEBUG errs() << "Setting divlevel for " << *BB << " for branch " << *branch << " to " << *divLevel << "\n";
-
-                mVecinfo.setDivergenceLevel(*BB, divLevel);
-
-                if (mVecinfo.isDivergentLoop(BBLoop))
+                if (BBLoop == endsVaryingLoop || BranchExitsBBLoop)
                 {
+                    mVecinfo.setDivergentLoop(BBLoop);
+
+                    IF_DEBUG_PDA {
+                        outs() << "\n"
+                               << "The loop with header: \n"
+                               << "    " << BB->getName() << "\n"
+                               << "is divergent because of the non-uniform branch in:\n"
+                               << "    " << endsVarying->getName() << "\n\n";
+                    }
+
                     for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it)
+                    {
                         updateOutsideLoopUsesVarying(cast<PHINode>(&*it), BBLoop);
+                    }
                 }
 
                 continue;
@@ -349,18 +357,23 @@ PDA::update(const Value* const V, VectorShape AT)
 
                 // For multiple exits, the loop shall be blackboxed
                 VectorShape CombinedExitShape = combineExitShapes(endsVaryingLoop);
+                causedDivergence = !CombinedExitShape.isUniform();
                 mValue2Shape[BB] = joinWithOld(BB, CombinedExitShape);
             }
             else
-                mValue2Shape[BB] = VectorShape::varying();
-
-            if (mValue2Shape[BB].isVarying())
             {
-                // FIXME this could have been divergent before this iteration
+                causedDivergence = true;
+                mValue2Shape[BB] = VectorShape::varying();
+            }
+
+            if (causedDivergence)
+            {
                 IF_DEBUG_PDA {
-                        outs() << "Block " + BB->getName() +
-                                  " is divergent since the branch in " +
-                                  endsVarying->getName() + " is varying.\n\n";
+                        outs() << "\n"
+                               << "The block:\n"
+                               << "    " << BB->getName() << "\n"
+                               << "is divergent because of the non-uniform branch in:\n"
+                               << "    " << endsVarying->getName() << "\n\n";
                 }
 
                 // MANDATORY case 2: divergent block
@@ -429,8 +442,7 @@ PDA::addRelevantUsersToWL(const Value* V)
                 continue;
 
         mWorklist.insert(cast<Instruction>(user));
-        IF_DEBUG_PDA outs() << "Inserted " << user->getName() << " as relevant user of " << V->getName() <<
-               "\n";
+        IF_DEBUG_PDA outs() << "Inserted relevant user of " << V->getName() << ":" << *user << "\n";
     }
 }
 

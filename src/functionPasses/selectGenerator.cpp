@@ -656,7 +656,7 @@ SelectGenerator::generateMultipleExitLoopSelects(Loop*                        lo
                 continue;
             }
 
-            assert (!mvecInfo.isDivergent(*origLCSSAPhi->getParent()));
+            assert (mvecInfo.getVectorShape(*origLCSSAPhi->getParent()).isUniform());
             assert (mvecInfo.getVectorShape(*origLCSSAPhi).isVarying());
 
             //assert (rv::hasMetadata(origLCSSAPhi, rv::RV_METADATA_OP_UNIFORM));
