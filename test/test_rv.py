@@ -34,8 +34,8 @@ def outerLoopVectorize(srcFile, loopDesc):
   destFile = "build/" + baseName + ".loopvec.ll"
   logPrefix =  "logs/"  + baseName + ".loopvec"
   scalarName = "foo"
-  runOuterLoopVec(srcFile, destFile, scalarName, loopDesc, logPrefix)
-  return destFile;
+  ret = runOuterLoopVec(srcFile, destFile, scalarName, loopDesc, logPrefix)
+  return destFile if ret == 0 else None
 
 def executeWFVTest(scalarLL, options):
   sigInfo = options.split("_")
@@ -50,6 +50,8 @@ def executeOuterLoopTest(scalarLL, options):
   loopHint = sigInfo[1]
 
   vectorIR = outerLoopVectorize(scalarLL, loopHint)
+  if vectorIR is None:
+    return False
 
   scalarRes = runOuterLoopTest(scalarLL, launchCode, "scalar")
   vectorRes = runOuterLoopTest(vectorIR, launchCode, "loopvec")
