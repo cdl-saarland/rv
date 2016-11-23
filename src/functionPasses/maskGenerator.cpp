@@ -35,7 +35,7 @@ MaskGenerator::markMaskOperation(Instruction& maskOp) {
     // or OP_UNIFORM/RES_VECTOR/MASK in case of a phi.
     // rv::setMetadata(&maskOp, isa<PHINode>(maskOp) ?        rv::RV_METADATA_OP_UNIFORM :        rv::RV_METADATA_OP_VARYING);
     // rv::setMetadata(maskOp, rv::RV_METADATA_RES_VECTOR);
-    rv::setMetadata(&maskOp, rv::RV_METADATA_MASK);
+    mvecInfo.markMetadataMask(&maskOp);
 }
 
 char MaskGeneratorWrapper::ID = 0;
@@ -287,13 +287,24 @@ MaskGenerator::materializeMasks(Function& f)
         }
     }
 
-    for (auto &L : mLoopInfo)
+    // A loop region is regarded as a uniform loop, mask generation thus starts at
+    // its child loops which may be divergent
+    if (region && mLoopInfo.isLoopHeader(&region->getRegionEntry()))
     {
-#if 0
-        if (region && !region->contains(L->getHeader())) continue; // skip loops outside of region
-#endif
-        materializeLoopExitMasks(L);
-        materializeCombinedLoopExitMasks(L);
+        Loop* regionLoop = mLoopInfo.getLoopFor(&region->getRegionEntry());
+        for (Loop* loop : *regionLoop)
+        {
+            materializeLoopExitMasks(loop);
+            materializeCombinedLoopExitMasks(loop);
+        }
+    }
+    else
+    {
+        for (auto& L : mLoopInfo)
+        {
+            materializeLoopExitMasks(L);
+            materializeCombinedLoopExitMasks(L);
+        }
     }
 }
 

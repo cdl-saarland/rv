@@ -251,9 +251,21 @@ MaskAnalysis::createMaskGraph(Function& f)
     // inside a non-divergent loop.
     // EXAMPLE: divergent loop inside non-divergent loop.
     // EXAMPLE: divergent loop inside non-divergent loop inside divergent loop.
-    for (auto loop : mLoopInfo)
+
+    // Iterate through loops inside the region
+    // If the region is a loop region, it must not be divergent
+    // The vectorization scope is thus the region loop
+    if (region && mLoopInfo.isLoopHeader(start))
     {
-        if (!region || region->contains(loop->getHeader()))
+        Loop* regionLoop = mLoopInfo.getLoopFor(start);
+        for (Loop* loop : *regionLoop)
+        {
+            createLoopExitMasks(loop);
+        }
+    }
+    else
+    {
+        for (auto loop : mLoopInfo)
         {
             createLoopExitMasks(loop);
         }
@@ -265,6 +277,9 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
                                  DenseSet<BasicBlock*>& markedBlocks)
 {
     assert (block);
+
+    Region* region = mvInfo.getRegion();
+    if (region && !region->contains(block)) return; // Ignore blocks outside of region
 
     // If we have marked this block already, ignore it.
     if (markedBlocks.find(block) != markedBlocks.end()) return;
