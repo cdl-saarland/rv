@@ -88,7 +88,7 @@ def runOuterLoopVec(scalarLL, destFile, scalarName = "foo", loopDesc=None, logPr
     return shellCmd(cmd,  None, logPrefix)
 
 def runWFV(scalarLL, destFile, scalarName = "foo", shapes=None, logPrefix=None):
-    cmd = rvToolLine + " -wfv -i " + scalarLL
+    cmd = rvToolLine + " -wfv -lower -i " + scalarLL
     if destFile:
       cmd = cmd + " -o " + destFile
     if scalarName:
