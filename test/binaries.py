@@ -112,19 +112,25 @@ def requestLauncher(launchCode, prefix):
     return launcherLL
 
 def runWFVTest(testBC, launchCode):
-    caseName = plainName(testBC)
-    launcherLL = requestLauncher(launchCode, "verify")
-    launcherBin = "./build/verify_" + caseName + ".bin"
-    shellCmd(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
-    retCode = shellCmd(launcherBin)
-    return retCode == 0
+    try:
+      caseName = plainName(testBC)
+      launcherLL = requestLauncher(launchCode, "verify")
+      launcherBin = "./build/verify_" + caseName + ".bin"
+      shellCmd(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
+      retCode = shellCmd(launcherBin)
+      return retCode == 0
+    except:
+      return False
 
 def runOuterLoopTest(testBC, launchCode, suffix):
+  try:
     caseName = plainName(testBC)
     launcherLL = requestLauncher(launchCode, "loopverify")
     launcherBin = "./build/verify_" + caseName + "." + suffix + ".bin"
     success, hashText = runForOutput(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
     return hashText if success else None
+  except:
+      return None
 
 def compileToIR(srcFile, destFile):
     if srcFile[-2:] == ".c":
