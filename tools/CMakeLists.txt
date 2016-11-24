@@ -16,7 +16,7 @@ SET ( LLVM_TOOL_LLVMAS "${LLVM_PLATFORM_TOOLS_PATH}/llvm-as" )
 SET ( LLVM_TOOL_CLANG "${LLVM_PLATFORM_TOOLS_PATH}/clang" )
 SET ( LLVM_TOOL_CLANGPP "${LLVM_PLATFORM_TOOLS_PATH}/clang++" )
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG -fsanitize=address")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
 
 # this defaults to no-rtti builds, if this flag is not available
 IF (LLVM_ENABLE_RTTI)
