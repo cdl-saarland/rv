@@ -29,7 +29,7 @@ ADD_DEFINITIONS ( "-std=c++11" )
 
 # enable c++11
 IF (NOT MSVC)
-    SET(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} " -fPIC -fno-rtti" )
+  SET(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} " -fPIC -fno-rtti -Wall" ) 
 ELSE ()
   ADD_DEFINITIONS ( "-DRV_LIB" )
   ADD_DEFINITIONS ( "-DRV_STATIC_LIBS" )
