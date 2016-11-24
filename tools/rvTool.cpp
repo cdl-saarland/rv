@@ -426,6 +426,7 @@ int main(int argc, char** argv)
     std::string targetDeclName;
     bool hasTargetDeclName = reader.readOption<std::string>("-t", targetDeclName);
 
+    bool lowerPredicateIntrinsics = reader.hasOption("-lower");
 
     std::string outFile;
     bool hasOutFile = reader.readOption<std::string>("-o", outFile);
@@ -529,6 +530,11 @@ int main(int argc, char** argv)
     else if (loopVecMode)
     {
         vectorizeFirstLoop(*scalarFn, vectorWidth);
+    }
+
+    if (lowerPredicateIntrinsics) {
+      errs() << "Lowering predicate intrinsics in function " << scalarFn->getName() << "\n";
+      rv::VectorizerInterface::lowerPredicateIntrinsics(*scalarFn);
     }
 
     //output
