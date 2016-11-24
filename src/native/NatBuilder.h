@@ -26,73 +26,70 @@ namespace rv {
 }
 
 namespace native {
-    typedef std::map<const llvm::Function*, const rv::VectorMapping*> VectorMappingMap;
-    typedef std::vector<llvm::Value *> LaneValueVector;
+  typedef std::map<const llvm::Function *, const rv::VectorMapping *> VectorMappingMap;
+  typedef std::vector<llvm::Value *> LaneValueVector;
 
-    class NatBuilder {
-        llvm::IRBuilder<> builder;
+  class NatBuilder {
+    llvm::IRBuilder<> builder;
 
-        rv::RVInfo & rvInfo;
-        rv::VectorizationInfo &vectorizationInfo;
-        const llvm::DominatorTree &dominatorTree;
+    rv::RVInfo &rvInfo;
+    rv::VectorizationInfo &vectorizationInfo;
+    const llvm::DominatorTree &dominatorTree;
 
-        llvm::Type *i1Ty;
-        llvm::Type *i32Ty;
+    llvm::Type *i1Ty;
+    llvm::Type *i32Ty;
 
-        rv::Region * region;
+    rv::Region *region;
 
-        rv::PlatformInfo platformInfo;
+    rv::PlatformInfo platformInfo;
 
-    public:
-        NatBuilder(rv::RVInfo & rvInfo, VectorizationInfo &vectorizationInfo, const llvm::DominatorTree &dominatorTree);
+  public:
+    NatBuilder(rv::RVInfo &rvInfo, VectorizationInfo &vectorizationInfo, const llvm::DominatorTree &dominatorTree);
 
-        void vectorize();
-        void vectorize(llvm::BasicBlock *const bb, llvm::BasicBlock *vecBlock);
-        void vectorize(llvm::Instruction *const inst);
+    void vectorize();
+    void vectorize(llvm::BasicBlock *const bb, llvm::BasicBlock *vecBlock);
+    void vectorize(llvm::Instruction *const inst);
 
-        void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
-        void copyGEPInstruction(llvm::GetElementPtrInst *const gep, unsigned laneIdx = 0);
+    void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
+    void copyGEPInstruction(llvm::GetElementPtrInst *const gep, unsigned laneIdx = 0);
 
-        void mapVectorValue(const llvm::Value *const value, llvm::Value *vecValue);
+    void mapVectorValue(const llvm::Value *const value, llvm::Value *vecValue);
+    void mapScalarValue(const llvm::Value *const value, llvm::Value *mapValue, unsigned laneIdx = 0);
 
-        void mapScalarValue(const llvm::Value *const value, llvm::Value *mapValue, unsigned laneIdx = 0);
+    llvm::Value *getVectorValue(llvm::Value *const value);
+    llvm::Value *getScalarValue(llvm::Value *const value, unsigned laneIdx = 0);
 
-        llvm::Value *getVectorValue(llvm::Value *const value);
+  private:
+    void addValuesToPHINodes();
+    void vectorizePHIInstruction(llvm::PHINode *const scalPhi);
 
-        llvm::Value *getScalarValue(llvm::Value *const value, unsigned laneIdx = 0);
+    void vectorizeMemoryInstruction(llvm::Instruction *const inst);
 
-    private:
-        void addValuesToPHINodes();
+    void vectorizeCallInstruction(llvm::CallInst *const scalCall);
 
-        void vectorizePHIInstruction(llvm::PHINode *const scalPhi);
-        void vectorizeMemoryInstruction(llvm::Instruction *const inst);
-        void vectorizeCallInstruction(llvm::CallInst *const scalCall);
+    void mapOperandsInto(llvm::Instruction *const scalInst, llvm::Instruction *inst, bool vectorizedInst,
+                         unsigned laneIdx = 0);
 
-        void mapOperandsInto(llvm::Instruction *const scalInst, llvm::Instruction *inst, bool vectorizedInst,
-                             unsigned laneIdx = 0);
+    llvm::DenseMap<const llvm::Value *, llvm::Value *> vectorValueMap;
+    std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
+    std::vector<llvm::PHINode *> phiVector;
 
-        llvm::DenseMap<const llvm::Value *, llvm::Value *> vectorValueMap;
-        std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
-        std::vector<llvm::PHINode *> phiVector;
+    llvm::Value *requestVectorValue(llvm::Value *const value);
+    llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
+                                    bool skipMappingWhenDone = false);
 
-        llvm::Value *requestVectorValue(llvm::Value *const value);
+    llvm::Value *createPTest(llvm::Value *vector);
+    void vectorizeReductionCall(CallInst *rvCall);
 
-        llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
-                                        bool skipMappingWhenDone = false);
+    const rv::VectorMapping *getFunctionMapping(llvm::Function *func);
 
-        llvm::Value *createPTest(llvm::Value *vector);
+    unsigned vectorWidth();
 
-        const rv::VectorMapping * getFunctionMapping(llvm::Function *func);
+    bool canVectorize(llvm::Instruction *inst);
+    bool shouldVectorize(llvm::Instruction *inst);
 
-        unsigned vectorWidth();
-
-        bool canVectorize(llvm::Instruction *inst);
-        bool shouldVectorize(llvm::Instruction *inst);
-
-        bool useMappingForCall(const rv::VectorMapping *mapping, llvm::CallInst *const scalCall);
-
-        void vectorizeReductionCall(CallInst *wfvCall);
-    };
+    bool useMappingForCall(const rv::VectorMapping *mapping, llvm::CallInst *const scalCall);
+  };
 }
 
 #endif //NATIVE_NATBUILDER_H

@@ -14,19 +14,21 @@
 namespace rv {
 
 // wrapper pass for Montadas NaTIVE backend
-class NativeBackendPass : public llvm::FunctionPass {
-public:
-	static char ID;
-	NativeBackendPass();
-	~NativeBackendPass();
+  class NativeBackendPass : public llvm::FunctionPass {
+  public:
+    static char ID;
 
-	void getAnalysisUsage(llvm::AnalysisUsage &AU) const;
-	bool runOnFunction   (llvm::Function& F);
-};
+    NativeBackendPass();
+
+    ~NativeBackendPass();
+
+    void getAnalysisUsage(llvm::AnalysisUsage &AU) const;
+
+    bool runOnFunction(llvm::Function &F);
+  };
 
 
 }
-
 
 
 #endif /* SRC_NATIVE_NATIVEBACKENDPASS_H_ */
