@@ -166,14 +166,20 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     // loads and stores need special treatment (masking, shuffling, etc)
     if (load || store)
       vectorizeMemoryInstruction(inst);
-      // calls need special treatment
     else if (call)
+      // calls need special treatment
       if (call->getCalledFunction()->getName() == "rv_any")
         vectorizeReductionCall(call);
-      else
+      else if (canVectorize(call) && shouldVectorize(call))
         vectorizeCallInstruction(call);
-      // phis need special treatment as they might contain not-yet mapped instructions
+      else {
+        unsigned laneEnd = shouldVectorize(call) ? vectorWidth() : 1;
+        for (unsigned lane = 0; lane < laneEnd; ++lane) {
+          copyCallInstruction(call);
+        }
+      }
     else if (phi)
+      // phis need special treatment as they might contain not-yet mapped instructions
       vectorizePHIInstruction(phi);
     else if (alloca && shouldVectorize(inst)) {
       // TODO: instead of 4 x alloca float do alloca <4 x float> (if type allows it)
@@ -189,10 +195,10 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         copyGEPInstruction(gep, lane);
       }
     }
-//      else if (alloca && shouldVectorize(alloca))
-//          vectorizeAllocaInstruction(alloca);
     else if (canVectorize(inst) && shouldVectorize(inst))
       vectorize(inst);
+    else if (!canVectorize(inst) && shouldVectorize(inst))
+      fallbackVectorize(inst);
     else
       copyInstruction(inst);
   }
@@ -266,6 +272,26 @@ void NatBuilder::copyInstruction(Instruction *const inst, unsigned laneIdx) {
   mapScalarValue(inst, cpInst, laneIdx);
 }
 
+void NatBuilder::fallbackVectorize(Instruction *const inst) {
+  // fallback for vectorizing varying instructions:
+  // if !void: create result vector
+  // clone instruction
+  // map operands into instruction
+  // if !void: insert into result vector
+  // repeat from line 3 for all lanes
+  Type *type = inst->getType();
+  Value *resVec = type->isVoidTy() || type->isVectorTy() || type->isStructTy() ? nullptr : UndefValue::get(
+      getVectorType(inst->getType(), vectorWidth()));
+  for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
+    Instruction *cpInst = inst->clone();
+    mapOperandsInto(inst, cpInst, false, lane);
+    builder.Insert(cpInst, inst->getName());
+    if (type->isStructTy() || type->isVectorTy()) mapScalarValue(inst, cpInst, lane);
+    if (resVec) resVec = builder.CreateInsertElement(resVec, cpInst, lane, "fallBackInsert");
+  }
+  if (resVec) mapVectorValue(inst, resVec);
+}
+
 /* expects that builder has valid insertion point set */
 void NatBuilder::vectorize(Instruction *const inst) {
   assert(inst && "no instruction to vectorize");
@@ -304,8 +330,7 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall) {
   mapScalarValue(rvCall, reduction);
 }
 
-static bool
-HasSideEffects(CallInst &call) {
+static bool HasSideEffects(CallInst &call) {
   return false; // FIXME
 }
 
@@ -409,7 +434,27 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   }
 }
 
+void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx) {
+  // TODO: do we need predication?
+  // copying call instructions:
+  // 1) get scalar callee
+  // 2) construct arguments
+  // 3) create call instruction
+  Function *callee = scalCall->getCalledFunction();
+
+  std::vector<Value *> args;
+  for (unsigned i = 0; i < scalCall->getNumArgOperands(); ++i) {
+    Value *scalArg = scalCall->getArgOperand(i);
+    Value *laneArg = requestScalarValue(scalArg, laneIdx);
+    args.push_back(laneArg);
+  }
+
+  Value *call = builder.CreateCall(callee, args, scalCall->getName());
+  mapScalarValue(scalCall, call, laneIdx);
+}
+
 void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
+  // TODO: Once available: replace !(addrShape.isUniform() || addrShape.isContiguous()) with proper mechanism
   LoadInst *load = dyn_cast<LoadInst>(inst);
   StoreInst *store = dyn_cast<StoreInst>(inst);
 
@@ -435,6 +480,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   // exception: address is an argument that is a vector -> vector load/store.
   Value *vecPtr = nullptr;
 
+#if 0
   uint scalarBytes = accessedType->getPrimitiveSizeInBits() / 8;
 
   if (addrShape.hasStride(scalarBytes)) {
@@ -446,6 +492,13 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       PointerType *vecPtrType = PointerType::getUnqual(vecType);
       vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
     }
+  } else
+#endif
+  if (addrShape.isContiguous()) {
+    // cast pointer to vector-width pointer
+    Value *mappedPtr = requestScalarValue(accessedPtr);
+    PointerType *vecPtrType = PointerType::getUnqual(vecType);
+    vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
   } else if (addrShape.isUniform()) {
     vecPtr = requestScalarValue(accessedPtr);
   } else {
@@ -470,11 +523,11 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   Value *vecMem = nullptr;
   if (load) {
 
-    if (addrShape.isVarying() || needsMask) {
+    if (addrShape.isVarying() || !(addrShape.isUniform() || addrShape.isContiguous()) || needsMask) {
       if (needsMask) mask = requestVectorValue(predicate);
       else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
 
-      if (addrShape.isVarying()) {
+      if (addrShape.isVarying() || !(addrShape.isUniform() || addrShape.isContiguous())) {
         std::vector<Value *> args;
         args.push_back(vecPtr);
         args.push_back(ConstantInt::get(i32Ty, load->getAlignment()));
@@ -496,11 +549,11 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                    : requestVectorValue(storedValue);
 
-    if (addrShape.isVarying() || needsMask) {
+    if (addrShape.isVarying() || !(addrShape.isUniform() || addrShape.isContiguous()) || needsMask) {
       if (needsMask) mask = requestVectorValue(predicate);
       else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
 
-      if (addrShape.isVarying()) {
+      if (addrShape.isVarying() || !(addrShape.isUniform() || addrShape.isContiguous())) {
         std::vector<Value *> args;
         args.push_back(mappedStoredVal);
         args.push_back(vecPtr);
@@ -509,7 +562,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
         Function *scatterIntr = Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, vecType);
         assert(scatterIntr && "masked scatter not found!");
-        vecMem = builder.CreateCall(scatterIntr, args, "scatter");
+        vecMem = builder.CreateCall(scatterIntr, args);
       } else
         vecMem = builder.CreateMaskedStore(mappedStoredVal, vecPtr, store->getAlignment(), mask);
     } else {
@@ -666,8 +719,14 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
 
   auto scalarIt = scalarValueMap.find(value);
   if (scalarIt != scalarValueMap.end()) {
+    VectorShape shape;
     if (vectorizationInfo.hasKnownShape(*value)) {
-      VectorShape shape = vectorizationInfo.getVectorShape(*value);
+      shape = vectorizationInfo.getVectorShape(*value);
+      if (shape.isUniform()) laneIdx = 0;
+    } else if (isa<Argument>(*value)) { // TODO: REMOVE ONCE FIXED IN RV
+      Argument *arg = cast<Argument>(value);
+      unsigned i = arg->getArgNo();
+      shape = vectorizationInfo.getMapping().argShapes[i];
       if (shape.isUniform()) laneIdx = 0;
     }
 
@@ -688,7 +747,15 @@ unsigned NatBuilder::vectorWidth() {
 }
 
 bool NatBuilder::canVectorize(Instruction *const inst) {
+#if 0
+  if (isa<CallInst>(inst))
+    return !inst->getType()->isVectorTy() && !inst->getType()->isStructTy();
   return !(isa<TerminatorInst>(inst) && !isa<ReturnInst>(inst));
+#endif
+
+  // whitelisting approach. for direct vectorization we support:
+  // binary operations (normal & bitwise), memory access operations, conversion operations and other operations
+  return isSupportedOperation(inst);
 }
 
 bool NatBuilder::shouldVectorize(Instruction *inst) {

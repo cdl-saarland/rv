@@ -47,11 +47,6 @@ namespace native {
     NatBuilder(rv::RVInfo &rvInfo, VectorizationInfo &vectorizationInfo, const llvm::DominatorTree &dominatorTree);
 
     void vectorize();
-    void vectorize(llvm::BasicBlock *const bb, llvm::BasicBlock *vecBlock);
-    void vectorize(llvm::Instruction *const inst);
-
-    void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
-    void copyGEPInstruction(llvm::GetElementPtrInst *const gep, unsigned laneIdx = 0);
 
     void mapVectorValue(const llvm::Value *const value, llvm::Value *vecValue);
     void mapScalarValue(const llvm::Value *const value, llvm::Value *mapValue, unsigned laneIdx = 0);
@@ -60,12 +55,27 @@ namespace native {
     llvm::Value *getScalarValue(llvm::Value *const value, unsigned laneIdx = 0);
 
   private:
-    void addValuesToPHINodes();
+    void vectorize(llvm::BasicBlock *const bb, llvm::BasicBlock *vecBlock);
+
+    void vectorize(llvm::Instruction *const inst);
+
     void vectorizePHIInstruction(llvm::PHINode *const scalPhi);
 
     void vectorizeMemoryInstruction(llvm::Instruction *const inst);
 
     void vectorizeCallInstruction(llvm::CallInst *const scalCall);
+
+    void vectorizeReductionCall(CallInst *rvCall);
+
+    void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
+
+    void copyGEPInstruction(llvm::GetElementPtrInst *const gep, unsigned laneIdx = 0);
+
+    void copyCallInstruction(llvm::CallInst *const scalCall, unsigned laneIdx = 0);
+
+    void fallbackVectorize(llvm::Instruction *const inst);
+
+    void addValuesToPHINodes();
 
     void mapOperandsInto(llvm::Instruction *const scalInst, llvm::Instruction *inst, bool vectorizedInst,
                          unsigned laneIdx = 0);
@@ -79,7 +89,6 @@ namespace native {
                                     bool skipMappingWhenDone = false);
 
     llvm::Value *createPTest(llvm::Value *vector);
-    void vectorizeReductionCall(CallInst *rvCall);
 
     const rv::VectorMapping *getFunctionMapping(llvm::Function *func);
 

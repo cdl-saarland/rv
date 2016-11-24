@@ -66,3 +66,18 @@ void addSIMDMappingsFor(rv::PlatformInfo &platformInfo, Function *function) {
     }
   }
 }
+
+bool isSupportedOperation(llvm::Instruction *const inst) {
+  // binary operations (normal & bitwise), load / stores, conversion operations, returns, and other operations
+  // exception: calls with vector or struct return type are not supported
+  CallInst *call = dyn_cast<CallInst>(inst);
+  if (call) {
+    Type *retType = call->getFunctionType()->getReturnType();
+    if (retType->isStructTy() || retType->isVectorTy())
+      return false;
+  }
+  return inst->isBinaryOp() || isa<LoadInst>(inst) || isa<StoreInst>(inst) || inst->isCast() || isa<ReturnInst>(inst) ||
+         (!isa<ExtractElementInst>(inst) && !isa<ExtractValueInst>(inst) && !isa<InsertElementInst>(inst) &&
+          !isa<InsertValueInst>(inst) && !isa<ShuffleVectorInst>(inst) &&
+          (inst->getOpcode() >= Instruction::OtherOpsBegin && inst->getOpcode() <= Instruction::OtherOpsEnd));
+}

@@ -139,4 +139,4 @@ def build_launcher(launcherBin, launcherLL, fooFile, suffix):
     return shellCmd(clangLine + " -fno-slp-vectorize -o " + launcherBin + " " + launcherLL + " " + fooFile, "logs/clang-launcher_" + suffix) == 0
 
 def assemble(fooFile, destAsm, suffix):
-    -1return shellCmd(clangLine + " -fno-slp-vectorize -c -S -o " + destAsm + " " + fooFile, "logs/clang-asm_" + suffix) == 0
+    return shellCmd(clangLine + " -fno-slp-vectorize -c -S -o " + destAsm + " " + fooFile, "logs/clang-asm_" + suffix) == 0
