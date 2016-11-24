@@ -360,6 +360,32 @@ VectorizerInterface::vectorize(VectorizationInfo& vecInfo, const DominatorTree& 
     return true;
 }
 
+// TODO move this in a public header
+static bool
+IsPredicateIntrinsic(Function & func) {
+  return (func.getName() == "rv_any") ||
+         (func.getName() == "rv_all");
+}
+
+void
+VectorizerInterface::lowerPredicateIntrinsics(Function & func) {
+  for (auto & block : func) {
+    BasicBlock::iterator itStart = block.begin(), itEnd = block.end();
+    for (BasicBlock::iterator it = itStart; it != itEnd; ) {
+      auto * inst = &*it++;
+      auto * call = dyn_cast<CallInst>(inst);
+      if (!call) continue;
+
+      auto * callee = call->getCalledFunction();
+      if (callee && IsPredicateIntrinsic(*callee)) {
+        Value *predicate = call->getArgOperand(0);
+        call->replaceAllUsesWith(predicate);
+        call->eraseFromParent();
+      }
+    }
+  }
+}
+
 void
 VectorizerInterface::finalize()
 {
