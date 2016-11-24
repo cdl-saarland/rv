@@ -431,18 +431,15 @@ int main(int argc, char** argv)
     std::string outFile;
     bool hasOutFile = reader.readOption<std::string>("-o", outFile);
 
-    bool onlyAnalyze = reader.hasOption("--analyze");
-
     if (!(hasFile && hasKernelName))
     {
         std::cerr << "Not all arguments specified -wfv/-loopvec) "
                   << "-i MODULE -k KERNELNAME [-target TARGET_DECL]"
-                  << "[-o OUTPUT_LL] [-w 8] [--vectorize] [--analyze\n";
+                  << "[-o OUTPUT_LL] [-w 8] [--lower]\n";
         return -1;
     }
 
     // Load module
-    llvm::LLVMContext& context = llvm::getGlobalContext();
     llvm::Module* mod = createModuleFromFile(inFile);
     if (!mod)
     {
@@ -465,8 +462,9 @@ int main(int argc, char** argv)
     if (reader.readOption<std::string>("-s", shapeText))
     {
         uint i = 0;
-        for (auto& it : scalarFn->getArgumentList())
-        {
+        for (auto & it : scalarFn->getArgumentList()) {
+            (void) it;
+
             if (i >= shapeText.size())
             {
                 argShapes.push_back(rv::VectorShape::uni());
@@ -484,10 +482,10 @@ int main(int argc, char** argv)
     }
     else
     {
-        for (auto& it : scalarFn->getArgumentList())
-        {
-            argShapes.push_back(rv::VectorShape::uni());
-        }
+      for (auto& it : scalarFn->getArgumentList()) {
+        (void) it;
+        argShapes.push_back(rv::VectorShape::uni());
+      }
     }
 
     uint vectorWidth = reader.getOption<uint>("-w", 8);
