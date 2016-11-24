@@ -35,7 +35,7 @@ MaskGenerator::markMaskOperation(Instruction& maskOp) {
     // or OP_UNIFORM/RES_VECTOR/MASK in case of a phi.
     // rv::setMetadata(&maskOp, isa<PHINode>(maskOp) ?        rv::RV_METADATA_OP_UNIFORM :        rv::RV_METADATA_OP_VARYING);
     // rv::setMetadata(maskOp, rv::RV_METADATA_RES_VECTOR);
-    rv::setMetadata(&maskOp, rv::RV_METADATA_MASK);
+    mvecInfo.markMetadataMask(&maskOp);
 }
 
 char MaskGeneratorWrapper::ID = 0;
@@ -144,7 +144,7 @@ MaskGenerator::generate(Function& F)
 
     // If an error occurred in one of the previous phases, abort.
     try {
-        materializeMasks(&F);
+        materializeMasks(F);
     }
     catch (std::logic_error& error)
     {
@@ -180,18 +180,15 @@ MaskGenerator::generate(Function& F)
 // - MANDATORY blocks with phi(s)
 //   - Masks may be required if incoming edges change and cause live ranges to overlap.
 void
-MaskGenerator::materializeMasks(Function* f)
+MaskGenerator::materializeMasks(Function& f)
 {
-    assert (f);
-    assert (!f->getParent()->getFunction("entryMaskUseFn"));
+    assert (!f.getParent()->getFunction("entryMaskUseFn"));
 
     Region * region = mvecInfo.getRegion();
 
-    for (auto &BB : *f)
+    for (auto &BB : f)
     {
-#if 0
         if (region && !region->contains(&BB)) continue; // skip blocks outside of region
-#endif
 
         if (entryMaskIsUsed(BB))
         {
@@ -210,7 +207,7 @@ MaskGenerator::materializeMasks(Function* f)
             if (isa<Instruction>(newEntryMask) &&
                 cast<Instruction>(newEntryMask)->getParent() != &BB)
             {
-                Function* entryMaskUseFn = f->getParent()->getFunction("entryMaskUseFn");
+                Function* entryMaskUseFn = f.getParent()->getFunction("entryMaskUseFn");
 #if 0
                 if (!entryMaskUseFn)
                 {
@@ -290,13 +287,24 @@ MaskGenerator::materializeMasks(Function* f)
         }
     }
 
-    for (auto &L : mLoopInfo)
+    // A loop region is regarded as a uniform loop, mask generation thus starts at
+    // its child loops which may be divergent
+    if (region && mLoopInfo.isLoopHeader(&region->getRegionEntry()))
     {
-#if 0
-        if (region && !region->contains(L->getHeader())) continue; // skip loops outside of region
-#endif
-        materializeLoopExitMasks(L);
-        materializeCombinedLoopExitMasks(L);
+        Loop* regionLoop = mLoopInfo.getLoopFor(&region->getRegionEntry());
+        for (Loop* loop : *regionLoop)
+        {
+            materializeLoopExitMasks(loop);
+            materializeCombinedLoopExitMasks(loop);
+        }
+    }
+    else
+    {
+        for (auto& L : mLoopInfo)
+        {
+            materializeLoopExitMasks(L);
+            materializeCombinedLoopExitMasks(L);
+        }
     }
 }
 
@@ -419,6 +427,7 @@ MaskGenerator::materializeMask(MaskPtr maskPtr)
     if (mask.mValue) return mask.mValue;
 
     Value* maskValue = nullptr;
+    const Twine& maskName = mask.mName;
 
     switch (mask.mType)
     {
@@ -434,7 +443,7 @@ MaskGenerator::materializeMask(MaskPtr maskPtr)
             assert (mask.mOperands.size() == 1);
             Value* mask0 = mask.mOperands[0].lock()->mValue;
 
-            maskValue = createNeg(mask0, mask.mInsertPoint);
+            maskValue = createNeg(mask0, mask.mInsertPoint, maskName);
             break;
         }
 
@@ -445,7 +454,7 @@ MaskGenerator::materializeMask(MaskPtr maskPtr)
             for (unsigned i=1, e=mask.mOperands.size(); i<e; ++i)
             {
                 Value* mask1 = mask.mOperands[i].lock()->mValue;
-                maskValue = createAnd(maskValue, mask1, mask.mInsertPoint);
+                maskValue = createAnd(maskValue, mask1, mask.mInsertPoint, maskName);
             }
             break;
         }
@@ -457,7 +466,7 @@ MaskGenerator::materializeMask(MaskPtr maskPtr)
             for (unsigned i=1, e=mask.mOperands.size(); i<e; ++i)
             {
                 Value* mask1 = mask.mOperands[i].lock()->mValue;
-                maskValue = createOr(maskValue, mask1, mask.mInsertPoint);
+                maskValue = createOr(maskValue, mask1, mask.mInsertPoint, maskName);
             }
 
             break;
@@ -469,7 +478,7 @@ MaskGenerator::materializeMask(MaskPtr maskPtr)
             Value* condition = mask.mOperands[0].lock()->mValue;
             Value* trueMask  = mask.mOperands[1].lock()->mValue;
             Value* falseMask = mask.mOperands[2].lock()->mValue;
-            maskValue = createSelect(condition, trueMask, falseMask, mask.mInsertPoint);
+            maskValue = createSelect(condition, trueMask, falseMask, mask.mInsertPoint, maskName);
             break;
         }
 
@@ -513,7 +522,7 @@ MaskGenerator::materializeMask(MaskPtr maskPtr)
             assert (isa<PHINode>(mask.mOperands[0].lock()->mValue));
             Value* mask0 = mask.mOperands[0].lock()->mValue;
             Value* mask1 = mask.mOperands[1].lock()->mValue;
-            maskValue = createOr(mask0, mask1, mask.mInsertPoint);
+            maskValue = createOr(mask0, mask1, mask.mInsertPoint, maskName);
             if (Instruction* maskValI = dyn_cast<Instruction>(maskValue))
             {
                 maskValI->setName("loopMaskUpdate");
@@ -547,7 +556,8 @@ MaskGenerator::materializeMask(MaskPtr maskPtr)
 
 Value*
 MaskGenerator::createNeg(Value*       operand,
-                         Instruction* insertPoint)
+                         Instruction* insertPoint,
+                         const Twine& name)
 {
     assert (operand && insertPoint);
 
@@ -579,7 +589,7 @@ MaskGenerator::createNeg(Value*       operand,
     }
 
     Instruction* notI = BinaryOperator::CreateNot(operand,
-                                                  "",
+                                                  name,
                                                   insertPoint);
 
     markMaskOperation(*notI);
@@ -590,7 +600,8 @@ MaskGenerator::createNeg(Value*       operand,
 Value*
 MaskGenerator::createAnd(Value*       operand0,
                          Value*       operand1,
-                         Instruction* insertPoint)
+                         Instruction* insertPoint,
+                         const Twine& name)
 {
     assert (operand0 && operand1 && insertPoint);
 
@@ -623,7 +634,7 @@ MaskGenerator::createAnd(Value*       operand0,
     Instruction* andI = BinaryOperator::Create(Instruction::And,
                                                operand0,
                                                operand1,
-                                               "",
+                                               name,
                                                insertPoint);
 
     markMaskOperation(*andI);
@@ -635,7 +646,8 @@ MaskGenerator::createAnd(Value*       operand0,
 Value*
 MaskGenerator::createOr(Value*       operand0,
                         Value*       operand1,
-                        Instruction* insertPoint)
+                        Instruction* insertPoint,
+                        const Twine& name)
 {
     assert (operand0 && operand1 && insertPoint);
 
@@ -668,7 +680,7 @@ MaskGenerator::createOr(Value*       operand0,
     Instruction* orI = BinaryOperator::Create(Instruction::Or,
                                               operand0,
                                               operand1,
-                                              "",
+                                              name,
                                               insertPoint);
 
     markMaskOperation(*orI);
@@ -680,7 +692,8 @@ Value*
 MaskGenerator::createSelect(Value*       operand0,
                             Value*       operand1,
                             Value*       operand2,
-                            Instruction* insertPoint)
+                            Instruction* insertPoint,
+                            const Twine& name)
 {
     assert (operand0 && operand1 && operand2 && insertPoint);
 
@@ -709,7 +722,7 @@ MaskGenerator::createSelect(Value*       operand0,
     Instruction* select = SelectInst::Create(operand0,
                                              operand1,
                                              operand2,
-                                             "",
+                                             name,
                                              insertPoint);
 
     markMaskOperation(*select);

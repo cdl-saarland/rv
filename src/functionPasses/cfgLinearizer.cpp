@@ -660,7 +660,7 @@ CFGLinearizer::collectLoopExitInfo(Function* f)
     }
 
 #if 0
-    for (auto &BB : *f)
+    for (auto &BB : f)
     {
         BlockInfo* LBI = new BlockInfo(&BB);
         mBlockMap[&BB] = LBI;
@@ -1817,6 +1817,7 @@ CFGLinearizer::rewireEdge(TerminatorInst* terminator,
                                        br->getCondition(),
                                        parentBB);
             rv::copyMetadata(newBr, *br);
+            if (mvecInfo.isMetadataMask(br)) mvecInfo.markMetadataMask(newBr);
             mvecInfo.setVectorShape(*newBr, mvecInfo.getVectorShape(*br));
             mvecInfo.dropVectorShape(*br);
             br->eraseFromParent();
@@ -2017,6 +2018,7 @@ CFGLinearizer::reg2mem(Function*         f,
 #endif
         rv::copyMetadata(alloca, *inst); // Store metadata in alloca.
         mvecInfo.setVectorShape(*alloca, mvecInfo.getVectorShape(*inst));
+        if (mvecInfo.isMetadataMask(inst)) mvecInfo.markMetadataMask(alloca);
 
         DEBUG_RV( outs() << "  alloca       ('" << allocaPos->getParent()->getName(); );
         DEBUG_RV( outs() << "'): " << *alloca << "\n"; );
@@ -2024,7 +2026,7 @@ CFGLinearizer::reg2mem(Function*         f,
         // If this is a mask, we have to update the mask analysis.
         // Similar to metadata, we use the alloca and store a value mapping.
         // This mapping is used after mem2reg.
-        const bool isMask = rv::hasMetadata(inst, rv::RV_METADATA_MASK);
+        const bool isMask = mvecInfo.isMetadataMask(inst);
         if (isMask)
         {
             allocaValueMap[alloca] = inst;
@@ -2155,9 +2157,10 @@ CFGLinearizer::reg2mem(Function*         f,
         DEBUG_RV( outs() << "  block        ('" << phi->getParent()->getName() << "')\n"; );
         DEBUG_RV( outs() << "  addr         ('" << (void*) phi << "')\n"; );
 
-        const bool isMask = rv::hasMetadata(phi, rv::RV_METADATA_MASK);
+        const bool isMask = mvecInfo.isMetadataMask(phi);
         Instruction* dummy = rv::createDummy(phi->getType(), allocaPos);
         rv::copyMetadata(dummy, *phi); // Store metadata in tmp inst.
+        if (mvecInfo.isMetadataMask(phi)) mvecInfo.markMetadataMask(dummy);
         auto shape = mvecInfo.getVectorShape(*phi);
 
         AllocaInst* alloca = SafelyDemotePHIToStack(phi, allocaPos);
@@ -2172,6 +2175,7 @@ CFGLinearizer::reg2mem(Function*         f,
 #endif
 
         rv::copyMetadata(alloca, *dummy); // Store metadata in alloca.
+        if (mvecInfo.isMetadataMask(dummy)) mvecInfo.markMetadataMask(alloca);
         mvecInfo.setVectorShape(*alloca, shape);
         dummy->eraseFromParent();
         DEBUG_RV( outs() << "  alloca       ('" << allocaPos->getParent()->getName(); );
@@ -2367,11 +2371,12 @@ CFGLinearizer::repairOverlappingPaths(MemInfoMapType&   memInfos,
                                                    "alloca.tmp",
                                                    allocaPos);
             rv::copyMetadata(newAlloca, *oldAlloca); // Retain metadata.
+            if (mvecInfo.isMetadataMask(oldAlloca)) mvecInfo.markMetadataMask(newAlloca);
             mvecInfo.setVectorShape(*newAlloca, mvecInfo.getVectorShape(*oldAlloca));
             DEBUG_RV( outs() << "  new alloca   ('" << newAlloca->getParent()->getName(); );
             DEBUG_RV( outs() << "'): " << *newAlloca << "\n"; );
 
-            const bool isNewMask = rv::hasMetadata(newAlloca, rv::RV_METADATA_MASK);
+            const bool isNewMask = mvecInfo.isMetadataMask(newAlloca);
 
             // Create new store to new location for each overwritten store.
             // If the old one is overwritten on all paths, it does not have an
@@ -2440,7 +2445,7 @@ CFGLinearizer::repairOverlappingPaths(MemInfoMapType&   memInfos,
 
             if (isNewMask)
             {
-                rv::setMetadata(select, rv::RV_METADATA_MASK); //TODO
+                mvecInfo.markMetadataMask(select);
                 allocaValueMap[newAlloca] = select;
                 maskValueMap[select] = newAlloca;
                 maskBlockMap[select] = select->getParent();
@@ -2614,7 +2619,7 @@ CFGLinearizer::mem2reg(Function*              f,
         // NOTE: We must never directly access "origMask" since it may have been
         //       erased. We must only use its pointer address to access the
         //       mapped values in maskValueMap and maskBlockMap.
-        if (rv::hasMetadata(alloca, rv::RV_METADATA_MASK))
+        if (mvecInfo.isMetadataMask(alloca))
         {
             assert (allocaValueMap.count(alloca));
             Value* origMask = allocaValueMap[alloca];
@@ -2651,6 +2656,7 @@ CFGLinearizer::mem2reg(Function*              f,
             // The alloca temporarily stored the relevant metadata.
             rv::copyMetadata(phi, *alloca);
             mvecInfo.setVectorShape(*phi, mvecInfo.getVectorShape(*alloca));
+            if (mvecInfo.isMetadataMask(alloca)) mvecInfo.markMetadataMask(phi);
             // Phi functions are always OP_UNIFORM unless they have RES_SCALARS operands.
             // Since we copied from a normal instruction, that metadata may be wrong.
             // TODO: There may be more things to consider here...
@@ -2673,7 +2679,7 @@ CFGLinearizer::mem2reg(Function*              f,
         // test suite 3).
         for (auto &phi : insertedPhis)
         {
-            if (!rv::hasMetadata(phi, rv::RV_METADATA_MASK)) continue;
+            if (!mvecInfo.isMetadataMask(phi)) continue;
             for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i)
             {
                 Value* incVal = phi->getIncomingValue(i);

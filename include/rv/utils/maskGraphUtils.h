@@ -11,6 +11,7 @@
 
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/Twine.h>
 #include <llvm/Support/raw_ostream.h>
 
 #include <memory> // shared_ptr, weak_ptr
@@ -20,6 +21,7 @@ class Value;
 class BasicBlock;
 class Instruction;
 class Loop;
+class Twine;
 }
 
 using namespace llvm;
@@ -63,6 +65,7 @@ struct Mask
     SmallVector<BasicBlock*, 2> mIncomingDirs;
     Value*                      mValue;
     Instruction*                mInsertPoint;
+    std::string                 mName = "";
 
     Mask(const NodeType type, Instruction* insertPoint);
     ~Mask();

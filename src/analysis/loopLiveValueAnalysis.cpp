@@ -16,6 +16,8 @@
 
 #include "rv/rvInfo.h"
 #include <rv/rvInfoProxyPass.h>
+#include <rv/VectorizationInfoProxyPass.h>
+#include <rv/Region/Region.h>
 
 #include "utils/metadata.h"
 #include "rvConfig.h"
@@ -44,8 +46,10 @@ LoopLiveValueAnalysisWrapper::LoopLiveValueAnalysisWrapper()
     initializeLoopLiveValueAnalysisWrapperPass(*PassRegistry::getPassRegistry());
 }
 
-LoopLiveValueAnalysis::LoopLiveValueAnalysis(const RVInfo& rvInfo, const LoopInfo& loopInfo)
-    : mInfo(rvInfo), mLoopInfo(loopInfo)
+LoopLiveValueAnalysis::LoopLiveValueAnalysis(const RVInfo&            rvInfo,
+                                             const LoopInfo&          loopInfo,
+                                             const VectorizationInfo& vecInfo)
+    : mInfo(rvInfo), mLoopInfo(loopInfo), mVecInfo(vecInfo)
 {
     for (auto &it : mLiveValueMaps)
     {
@@ -72,6 +76,7 @@ LoopLiveValueAnalysisWrapper::getAnalysisUsage(AnalysisUsage &AU) const
 {
     AU.addRequired<RVInfoProxyPass>();
     AU.addRequired<LoopInfoWrapperPass>();
+    AU.addRequired<VectorizationInfoProxyPass>();
 
     AU.setPreservesAll();
 }
@@ -97,8 +102,9 @@ LoopLiveValueAnalysisWrapper::runOnFunction(Function& F)
 {
     const RVInfo& rvInfo = getAnalysis<RVInfoProxyPass>().getInfo();
     const LoopInfo& loopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+    const VectorizationInfo& vecInfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
 
-    mAnalysis = new LoopLiveValueAnalysis(rvInfo, loopInfo);
+    mAnalysis = new LoopLiveValueAnalysis(rvInfo, loopInfo, vecInfo);
 
     return mAnalysis->run(F);
 }
@@ -107,11 +113,23 @@ bool
 LoopLiveValueAnalysis::run(Function& F)
 {
     try {
+        Region* region = mVecInfo.getRegion();
         // Do stuff.
         IF_DEBUG { errs() << "analyzing function for values live across loop boundaries\n"; }
-        for (auto &L : mLoopInfo)
+        if (region && mLoopInfo.isLoopHeader(&region->getRegionEntry()))
         {
-            findAllLoopLiveValues(L);
+            Loop* regionLoop = mLoopInfo.getLoopFor(&region->getRegionEntry());
+            for (Loop* subLoop : *regionLoop)
+            {
+                findAllLoopLiveValues(subLoop);
+            }
+        }
+        else
+        {
+            for (auto& L : mLoopInfo)
+            {
+                findAllLoopLiveValues(L);
+            }
         }
         DEBUG_RV( outs() << "loop live value analysis finished.\n"; );
     }
@@ -252,7 +270,7 @@ LoopLiveValueAnalysis::findLoopLiveValues(Loop*              loop,
         for (auto &I : *curBB)
         {
             // Masks are generated correctly, so we don't consider them as live values.
-            if (rv::hasMetadata(&I, rv::RV_METADATA_MASK)) continue;
+            if (mVecInfo.isMetadataMask(&I)) continue;
 
             Instruction* useI = findUseOutsideLoop(&I, loop);
             if (!useI) continue;

@@ -90,12 +90,6 @@ PDA::analyze(Function& F)
     // checkEquivalentToOldAnalysis(F);
 }
 
-void
-PDA::setRegion(rv::Region* region)
-{
-    mRegion = region;
-}
-
 bool
 PDA::isInRegion(const BasicBlock* BB)
 {
@@ -134,7 +128,7 @@ PDA::getAlignment(const Constant* c) const
 
     if (const ConstantInt* cint = dyn_cast<ConstantInt>(c))
     {
-        return std::abs(cint->getSExtValue());
+        return static_cast<unsigned>(std::abs(cint->getSExtValue()));
     }
 
     // Other than that, only integer vector constants can be aligned.
@@ -149,7 +143,7 @@ PDA::getAlignment(const Constant* c) const
 
         const int intValue = (int) cast<ConstantInt>(cdv->getAggregateElement(0U))->getSExtValue();
 
-        return std::abs(intValue);
+        return static_cast<unsigned>(std::abs(intValue));
     }
 
     assert (isa<ConstantVector>(c));
@@ -162,7 +156,7 @@ PDA::getAlignment(const Constant* c) const
     const int intValue = (int) celem->getSExtValue();
 
     // The vector is aligned if its first element is aligned
-    return std::abs(intValue);
+    return static_cast<unsigned>(std::abs(intValue));
 }
 
 void
@@ -351,11 +345,7 @@ PDA::update(const Value* const V, VectorShape AT)
             {
                 // In case of only one exit block we can optimize considering it gets
                 // linearized
-                if (endsVaryingLoop->getUniqueExitBlock())
-                {
-                    mVecinfo.setDivergenceLevel(*BB, endsVaryingLoop);
-                    continue;
-                }
+                if (endsVaryingLoop->getUniqueExitBlock()) continue;
 
                 // For multiple exits, the loop shall be blackboxed
                 VectorShape CombinedExitShape = combineExitShapes(endsVaryingLoop);
@@ -364,10 +354,9 @@ PDA::update(const Value* const V, VectorShape AT)
             else
                 mValue2Shape[BB] = VectorShape::varying();
 
-            mVecinfo.setDivergenceLevel(*BB, endsVaryingLoop);
-
             if (mValue2Shape[BB].isVarying())
             {
+                // FIXME this could have been divergent before this iteration
                 IF_DEBUG_PDA {
                         outs() << "Block " + BB->getName() +
                                   " is divergent since the branch in " +
@@ -405,8 +394,10 @@ PDA::updateAllocaOperands(const Instruction* I)
         auto* PtrElemType = op->getType()->getPointerElementType();
         const bool Vectorizable = rv::isVectorizableNonDerivedType(*PtrElemType);
 
+        int typeStoreSize = static_cast<int>(layout.getTypeStoreSize(PtrElemType));
+
         update(op, Vectorizable ?
-                   VectorShape::strided(layout.getTypeStoreSize(PtrElemType), alignment) :
+                   VectorShape::strided(typeStoreSize, alignment) :
                    VectorShape::varying(alignment));
     }
 }
@@ -560,6 +551,66 @@ PDA::computeShapeForInst(const Instruction* I)
 
     switch (I->getOpcode())
     {
+        // If both compared values have the same stride the comparison is uniform
+        // This is new and not recognized by the old analysis
+        case Instruction::ICmp:
+        {
+            const Value* op1 = I->getOperand(0);
+            const Value* op2 = I->getOperand(1);
+
+            const VectorShape shape1 = getShape(op1);
+            const VectorShape shape2 = getShape(op2);
+
+            if (shape1.isVarying() || shape2.isVarying())
+                return VectorShape::varying();
+
+            // Same shape and not varying
+            if (shape1.getStride() == shape2.getStride())
+                return VectorShape::uni();
+
+            CmpInst::Predicate predicate = cast<CmpInst>(I)->getPredicate();
+            const int stride1 = shape1.getStride();
+            const int stride2 = shape2.getStride();
+            const int strideGap = stride1 - stride2;
+
+            const int vectorWidth = mVecinfo.getMapping().vectorWidth;
+
+            const unsigned alignment1 = shape1.getAlignment();
+            const unsigned alignment2 = shape2.getAlignment();
+
+            if (predicate == CmpInst::Predicate::ICMP_SLT ||
+                predicate == CmpInst::Predicate::ICMP_ULT)
+            {
+                // There are 2 possibilities:
+                // 1. The first vector1 entry is not smaller than the first vector2 entry
+                //    If strideGap >= 0, the gap does not decrease and so all other entries
+                //    are pairwise not smaller
+                // 2. The first vector1 entry is smaller...
+                //    If the alignment a is the same, we can at least add a until we are possibly
+                //    equal. But since strideGap * vectorWidth <= a, the accumulated difference
+                //    does not exceed a and all entries are pairwise smaller
+                if (strideGap >= 0 &&
+                    alignment1 == alignment2 &&
+                    strideGap * vectorWidth <= alignment1)
+                {
+                    return VectorShape::uni();
+                }
+            }
+            else if (predicate == CmpInst::Predicate::ICMP_SGT ||
+                     predicate == CmpInst::Predicate::ICMP_UGT)
+            {
+                // Analogous reasoning to the one above
+                if (strideGap <= 0 &&
+                    alignment1 == alignment2 &&
+                    -strideGap * vectorWidth <= alignment1)
+                {
+                    return VectorShape::uni();
+                }
+            }
+
+            return VectorShape::varying();
+        }
+
         case Instruction::GetElementPtr:
         {
             const GetElementPtrInst* gep = cast<GetElementPtrInst>(I);
@@ -707,8 +758,6 @@ PDA::computeShapeForInst(const Instruction* I)
 VectorShape
 PDA::computeShapeForBinaryInst(const BinaryOperator* I)
 {
-    assert (I->isBinaryOp());
-
     const Value* op1 = I->getOperand(0);
     const Value* op2 = I->getOperand(1);
 
@@ -729,7 +778,7 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
         {
             const bool fadd = I->getOpcode() == Instruction::FAdd;
 
-            const int resAlignment = gcd(alignment1, alignment2);
+            const unsigned resAlignment = gcd(alignment1, alignment2);
 
             if (shape1.isVarying() || shape2.isVarying())
                 return VectorShape::varying(resAlignment);
@@ -756,7 +805,7 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
         {
             const bool fsub = I->getOpcode() == Instruction::FSub;
 
-            const int resAlignment = gcd(alignment1, alignment2);
+            const unsigned resAlignment = gcd(alignment1, alignment2);
 
             if (shape1.isVarying() || shape2.isVarying())
                 return VectorShape::varying(resAlignment);
@@ -830,54 +879,6 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
 
         //case Instruction::FDiv:
 
-        // If both compared values have the same stride the comparison is uniform
-        // This is new and not recognized by the old analysis
-        case Instruction::ICmp:
-        {
-            if (shape1.isVarying() || shape2.isVarying())
-                return VectorShape::varying();
-
-            // Same shape and not varying
-            if (shape1.getStride() == shape2.getStride())
-                return VectorShape::uni();
-
-            CmpInst::Predicate predicate = cast<CmpInst>(I)->getPredicate();
-            const int vectorWidth = mVecinfo.getMapping().vectorWidth;
-            const int strideGap = stride1 - stride2;
-
-            if (predicate == CmpInst::Predicate::ICMP_SLT ||
-                predicate == CmpInst::Predicate::ICMP_ULT)
-            {
-                // There are 2 possibilities:
-                // 1. The first vector1 entry is not smaller than the first vector2 entry
-                //    If strideGap >= 0, the gap does not decrease and so all other entries
-                //    are pairwise not smaller
-                // 2. The first vector1 entry is smaller...
-                //    If the alignment a is the same, we can at least add a until we are possibly
-                //    equal. But since strideGap * vectorWidth <= a, the accumulated difference
-                //    does not exceed a and all entries are pairwise smaller
-                if (strideGap >= 0 &&
-                    alignment1 == alignment2 &&
-                    strideGap * vectorWidth <= alignment1)
-                {
-                    return VectorShape::uni();
-                }
-            }
-            else if (predicate == CmpInst::Predicate::ICMP_SGT ||
-                     predicate == CmpInst::Predicate::ICMP_UGT)
-            {
-                // Analogous reasoning to the one above
-                if (strideGap <= 0 &&
-                    alignment1 == alignment2 &&
-                    -strideGap * vectorWidth <= alignment1)
-                {
-                    return VectorShape::uni();
-                }
-            }
-
-            return VectorShape::varying();
-        }
-
         default:
         {
             if (shape1.isUniform() && shape2.isUniform())
@@ -895,7 +896,7 @@ GetReferencedObjectSize(const DataLayout & layout, Type * ptrType) {
   if (arrTy && arrTy->getArrayNumElements() == 0) {
     elemTy = arrTy->getElementType();
   }
-  return layout.getTypeStoreSize(elemTy);
+  return static_cast<unsigned>(layout.getTypeStoreSize(elemTy));
 }
 
 VectorShape
@@ -983,8 +984,8 @@ PDA::computeShapeForCastInst(const CastInst* castI)
             PointerType* srcPtr = cast<PointerType>(srcType);
             PointerType* destPtr = cast<PointerType>(destType);
 
-            unsigned long srcElementSize =  GetReferencedObjectSize(layout, srcPtr);
-            unsigned long destElementSize = GetReferencedObjectSize(layout, destPtr);
+            int srcElementSize = static_cast<int>(GetReferencedObjectSize(layout, srcPtr));
+            int destElementSize = static_cast<int>(GetReferencedObjectSize(layout, destPtr));
 
             return VectorShape(srcElementSize * castOpStride / destElementSize, 1);
         }
