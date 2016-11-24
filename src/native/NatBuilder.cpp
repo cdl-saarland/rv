@@ -175,7 +175,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       else {
         unsigned laneEnd = shouldVectorize(call) ? vectorWidth() : 1;
         for (unsigned lane = 0; lane < laneEnd; ++lane) {
-          copyCallInstruction(call);
+          copyCallInstruction(call, lane);
         }
       }
     else if (phi)
