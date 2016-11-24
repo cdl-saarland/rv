@@ -41,8 +41,8 @@ struct VectorMapping {
 	, vectorFn(_vectorFn)
 	, vectorWidth(_vectorWidth)
 	, maskPos(_maskPos)
-	, resultShape(_resultShape)
 	, argShapes(argShapeList)
+	, resultShape(_resultShape)
 	{}
 
 	VectorMapping(llvm::Function * _scalarFn, llvm::Function * _vectorFn, unsigned _vectorWidth, int _maskPos, VectorShape _resultShape, const VectorShapeVec & _argShapeVec)
@@ -50,8 +50,8 @@ struct VectorMapping {
 	, vectorFn(_vectorFn)
 	, vectorWidth(_vectorWidth)
 	, maskPos(_maskPos)
-	, resultShape(_resultShape)
 	, argShapes(_argShapeVec)
+	, resultShape(_resultShape)
 	{}
 
 	VectorMapping(llvm::Function * _scalarFn, llvm::Function * _vectorFn, unsigned _vectorWidth)
@@ -59,8 +59,8 @@ struct VectorMapping {
 	, vectorFn(_vectorFn)
 	, vectorWidth(_vectorWidth)
 	, maskPos(-1)
-	, resultShape()
 	, argShapes()
+	, resultShape()
 	{}
 
 	void dump(llvm::raw_ostream & out) const;
