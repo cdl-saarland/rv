@@ -81,7 +81,7 @@
         const bool useNEON  = false; \
         rvInfo->addCommonMappings(useSSE, useSSE41, useSSE42, useAVX, useNEON); \
         \
-        const DominatorTree domTree(*scalarCopy); \
+        DominatorTree domTree(*scalarCopy); \
         PostDominatorTree postDomTree; \
         postDomTree.runOnFunction(*scalarCopy); \
         \
@@ -107,7 +107,7 @@
         assert(genMaskOk); \
         bool linearizeOk = wfv.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, postDomTree, domTree); \
         assert(linearizeOk); \
-	    const DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn); \
+	    DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn); \
         bool vectorizeOk = wfv.vectorize(vecInfo, domTreeNew); \
         assert(vectorizeOk); \
         wfv.finalize(); \
@@ -182,7 +182,7 @@
         const bool useNEON  = false; \
         rvInfo->addCommonMappings(useSSE, useSSE41, useSSE42, useAVX, useNEON); \
         \
-        const DominatorTree domTree(*scalarCopy); \
+        DominatorTree domTree(*scalarCopy); \
         PostDominatorTree postDomTree; \
         postDomTree.runOnFunction(*scalarCopy); \
         \
@@ -208,7 +208,7 @@
         assert(genMaskOk); \
         bool linearizeOk = wfv.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, postDomTree, domTree); \
         assert(linearizeOk); \
-        const DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn); \
+        DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn); \
         bool vectorizeOk = wfv.vectorize(vecInfo, domTreeNew); \
         assert(vectorizeOk); \
         wfv.finalize(); \

@@ -282,7 +282,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
 #endif
 
     // build Analysis
-    const DominatorTree domTree(*scalarCopy);
+    DominatorTree domTree(*scalarCopy);
     PostDominatorTree postDomTree;
     postDomTree.runOnFunction(*scalarCopy);
     LoopInfo loopInfo(domTree);

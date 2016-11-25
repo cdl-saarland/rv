@@ -47,9 +47,10 @@ FILE ( GLOB REGIONS             rv/Region/*.cpp )
 FILE ( GLOB PDA                 pda/*.cpp )
 FILE ( GLOB CPP_FUNCTIONPASSES  functionPasses/*.cpp )
 FILE ( GLOB CPP_FUNCTIONPASSES2 functionPasses/functionVectorization/*.cpp )
+FILE ( GLOB TRANSFORMS          transform/*.cpp )
 FILE ( GLOB OPT_PASSES pass/*.cpp )
 
-SET ( RV_SOURCE_FILES ${CPP_GLOBAL} ${CPP_UTILS} ${STAGES} ${CPP_ANALYSIS} ${CPP_FUNCTIONPASSES} ${CPP_FUNCTIONPASSES2} ${REGIONS} ${RV} ${PDA} ${NATIVE_CPP} ${OPT_PASSES} analysis/MetadataMaskAnalyzer.cpp)
+SET ( RV_SOURCE_FILES ${CPP_GLOBAL} ${CPP_UTILS} ${STAGES} ${CPP_ANALYSIS} ${CPP_FUNCTIONPASSES} ${CPP_FUNCTIONPASSES2} ${REGIONS} ${RV} ${PDA} ${NATIVE_CPP} ${OPT_PASSES} ${TRANSFORMS} analysis/MetadataMaskAnalyzer.cpp)
 
 # create libRV
 INCLUDE ( rv-shared )

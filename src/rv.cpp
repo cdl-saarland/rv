@@ -25,6 +25,8 @@
 #include <rv/transforms/loopExitCanonicalizer.h>
 #include <rv/pda/ABAAnalysis.h>
 
+#include "rv/transform/Linearizer.h"
+
 #include <native/nativeBackendPass.h>
 #include <native/NatBuilder.h>
 
@@ -308,8 +310,8 @@ bool
 VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
                                   MaskAnalysis& maskAnalysis,
                                   LoopInfo& loopInfo,
-                                  const PostDominatorTree& postDomTree,
-                                  const DominatorTree& domTree)
+                                  PostDominatorTree& postDomTree,
+                                  DominatorTree& domTree)
 {
     LoopLiveValueAnalysis loopLiveValueAnalysis(mInfo,
                                                 loopInfo,
@@ -320,7 +322,7 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
                                     maskAnalysis,
                                     loopLiveValueAnalysis,
                                     vectorizationInfo);
-    CFGLinearizer linearizer(mInfo,
+    CFGLinearizer oldLinearizer(mInfo,
                              loopInfo,
                              maskAnalysis,
                              loopLiveValueAnalysis,
@@ -328,9 +330,23 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
                              postDomTree,
                              domTree);
 
+    Linearizer linearizer(vectorizationInfo, domTree, loopInfo);
+
+    IF_DEBUG {
+      errs() << "--- VecInfo before Linearizer ---\n";
+      vectorizationInfo.dump();
+    }
+
+    linearizer.run();
+
+    IF_DEBUG {
+      errs() << "--- VecInfo after Linearizer ---\n";
+      vectorizationInfo.dump();
+    }
+
     loopLiveValueAnalysis.run(*mScalarFn);
     selectgenerator.generate(*mScalarFn);
-    linearizer.linearize(*mScalarFn);
+    oldLinearizer.linearize(*mScalarFn);
 
     return true;
 }

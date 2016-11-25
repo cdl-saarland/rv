@@ -105,6 +105,8 @@ public:
     void markMandatory(const BasicBlock* block);
     void markMetadataMask(const Instruction* inst);
 
+    Function & getScalarFunction() { return *mapping.scalarFn; }
+    Function & getVectorFunction() { return *mapping.vectorFn; }
 };
 
 

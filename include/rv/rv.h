@@ -70,8 +70,8 @@ public:
     bool linearizeCFG(VectorizationInfo& vectorizationInfo,
                       MaskAnalysis& maskAnalysis,
                       LoopInfo& loopInfo,
-                      const PostDominatorTree& postDomTree,
-                      const DominatorTree& domTree);
+                      PostDominatorTree& postDomTree,
+                      DominatorTree& domTree);
 
     /*
      * Produce vectorized instructions
