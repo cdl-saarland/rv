@@ -8,6 +8,8 @@
 // @author karrenberg
 //
 
+#define ENABLE_AOBENCH
+
 #include <string.h> //strcmp
 #include <iostream>
 
@@ -244,7 +246,7 @@
     if (dump) \
     { \
         std::cout << "writing module to file... "; \
-        LLVMWrapper::writeModuleToFile(module, "testModule" #testSuiteNr ".pkt.ll"); \
+        LLVMWrapper::writeModuleToFile(module, "/tmp/testModule" #testSuiteNr ".pkt.ll"); \
         std::cout << "done.\n"; \
     } \
     \
@@ -567,7 +569,7 @@ main(int argc, char** argv)
         RV_RUN_ON_FUNCTION(test_083_misc);
         RV_RUN_ON_FUNCTION(test_084_ocl_mandelbrot);
         RV_RUN_ON_FUNCTION(test_085_noise);
-#if 0
+#ifdef ENABLE_AOBENCH
         RV_RUN_ON_FUNCTION(test_086_ocl_aobench);
         RV_RUN_ON_FUNCTION(test_087_ocl_aobench_inlined); // Sometimes fails due to struct/writeback issue.
 #endif

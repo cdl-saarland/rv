@@ -8,6 +8,8 @@
 // @author karrenberg
 //
 
+#define ENABLE_AOBENCH
+
 #include <stdio.h>
 #include <math.h>
 //#include <mmintrin.h> //MMX
@@ -199,7 +201,7 @@ extern "C" VEC test_082_call10_SIMD(VEC a, VEC b) ALIGN;
 extern "C" VEC test_083_misc_SIMD(VEC a, VEC b) ALIGN;
 extern "C" VEC test_084_ocl_mandelbrot_SIMD(VEC a, VEC b) ALIGN;
 extern "C" VEC test_085_noise_SIMD(VEC a, VEC b) ALIGN;
-#if 0
+#ifdef ENABLE_AOBENCH
 extern "C" VEC test_086_ocl_aobench_SIMD(VEC a, VEC b) ALIGN;
 extern "C" VEC test_087_ocl_aobench_inlined_SIMD(VEC a, VEC b) ALIGN;
 #endif
@@ -2109,7 +2111,7 @@ test_085_noise(float x, float y)
     return lerp12 + W * (lerp34 - lerp12); //lerp(w, lerp12, lerp34);
 }
 
-#if 0
+#ifdef ENABLE_AOBENCH
 //
 // AOBench
 // Adopted from AO Bench [http://lucille.atso-net.jp/aobench/]
@@ -2933,7 +2935,7 @@ addTestCases(TestCaseVecType& testCases)
 	ADD_TEST(083_misc);
 	ADD_TEST(084_ocl_mandelbrot);
 	ADD_TEST(085_noise);
-#if 0
+#ifdef ENABLE_AOBENCH
 	ADD_TEST(086_ocl_aobench);
 	ADD_TEST(087_ocl_aobench_inlined); // Sometimes fails due to struct/writeback issue.
 #endif
