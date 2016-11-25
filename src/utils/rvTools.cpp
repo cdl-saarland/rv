@@ -756,6 +756,8 @@ rv::mayHaveSideEffects(const Instruction&     inst,
     case Intrinsic::lifetime_end:
     case Intrinsic::lifetime_start:
     	return false;
+    default:
+        break;
     }
 
     if (!functionInfoMap) return true;
