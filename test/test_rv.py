@@ -26,8 +26,8 @@ def wholeFunctionVectorize(srcFile, argMappings):
   destFile = "build/" + baseName + ".wfv.ll"
   logPrefix =  "logs/"  + baseName + ".wfv"
   scalarName = "foo"
-  runWFV(srcFile, destFile, scalarName, argMappings, logPrefix)
-  return destFile
+  ret = runWFV(srcFile, destFile, scalarName, argMappings, logPrefix)
+  return destFile if ret == 0 else None
 
 def outerLoopVectorize(srcFile, loopDesc):
   baseName = path.basename(srcFile)
@@ -42,7 +42,7 @@ def executeWFVTest(scalarLL, options):
   launchCode = sigInfo[0]
   shapes = sigInfo[1]
   testBC = wholeFunctionVectorize(scalarLL, shapes)
-  return runWFVTest(testBC, launchCode)
+  return runWFVTest(testBC, launchCode) if testBC else False
 
 def executeOuterLoopTest(scalarLL, options):
   sigInfo = options.split("_")
