@@ -67,7 +67,7 @@ void addSIMDMappingsFor(rv::PlatformInfo &platformInfo, Function *function) {
   }
 }
 
-bool isSupportedOperation(llvm::Instruction *const inst) {
+bool isSupportedOperation(Instruction *const inst) {
   // binary operations (normal & bitwise), load / stores, conversion operations, returns, and other operations
   // exception: calls with vector or struct return type are not supported
   CallInst *call = dyn_cast<CallInst>(inst);

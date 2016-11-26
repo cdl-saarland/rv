@@ -56,21 +56,14 @@ namespace native {
 
   private:
     void vectorize(llvm::BasicBlock *const bb, llvm::BasicBlock *vecBlock);
-
     void vectorize(llvm::Instruction *const inst);
-
     void vectorizePHIInstruction(llvm::PHINode *const scalPhi);
-
     void vectorizeMemoryInstruction(llvm::Instruction *const inst);
-
     void vectorizeCallInstruction(llvm::CallInst *const scalCall);
-
     void vectorizeReductionCall(CallInst *rvCall);
 
     void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
-
     void copyGEPInstruction(llvm::GetElementPtrInst *const gep, unsigned laneIdx = 0);
-
     void copyCallInstruction(llvm::CallInst *const scalCall, unsigned laneIdx = 0);
 
     void fallbackVectorize(llvm::Instruction *const inst);

@@ -64,17 +64,6 @@ void NatBuilder::vectorize() {
         mapVectorValue(sarg, arg);
       else
         mapScalarValue(sarg, arg);
-
-      // match types as well
-      Type *argType = arg->getType(), *sargType = sarg->getType();
-      if (argType != sargType) {
-        // just take base type, ignore pointers
-        while (argType->isPointerTy()) {
-          argType = argType->getPointerElementType();
-          sargType = sargType->getPointerElementType();
-          // TODO: wat
-        }
-      }
     }
   }
 
@@ -617,6 +606,8 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   mappedVal = getVectorValue(value);
   Value *reqVal;
   if (mappedVal) {
+    // to avoid dominance problems assume: if we only have a vectorized value and need a scalar one -> do not map!
+    skipMappingWhenDone = true;
     Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
     auto oldIP = builder.GetInsertPoint();
     auto oldIB = builder.GetInsertBlock();
