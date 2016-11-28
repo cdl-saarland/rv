@@ -92,6 +92,7 @@ public:
     void dumpBlockInfo(const BasicBlock & block) const;
 
     void setDivergentLoop(const Loop* loop);
+    void setLoopDivergence(const Loop & loop, bool toUniform);
 
     bool isAlwaysByAll(const BasicBlock* block) const;
     bool isAlwaysByAllOrNone(const BasicBlock* block) const;

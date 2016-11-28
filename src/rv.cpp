@@ -326,6 +326,11 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
                                     maskAnalysis,
                                     loopLiveValueAnalysis,
                                     vectorizationInfo);
+
+    loopLiveValueAnalysis.run(*mScalarFn);
+    selectgenerator.generate(*mScalarFn);
+
+#if 0
     CFGLinearizer oldLinearizer(mInfo,
                              loopInfo,
                              maskAnalysis,
@@ -334,7 +339,10 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
                              postDomTree,
                              domTree);
 
-    Linearizer linearizer(vectorizationInfo, domTree, loopInfo);
+    oldLinearizer.linearize(*mScalarFn);
+
+#else
+    Linearizer linearizer(vectorizationInfo, maskAnalysis, domTree, loopInfo);
 
     IF_DEBUG {
       errs() << "--- VecInfo before Linearizer ---\n";
@@ -347,10 +355,7 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
       errs() << "--- VecInfo after Linearizer ---\n";
       vectorizationInfo.dump();
     }
-
-    loopLiveValueAnalysis.run(*mScalarFn);
-    selectgenerator.generate(*mScalarFn);
-    oldLinearizer.linearize(*mScalarFn);
+#endif
 
     return true;
 }

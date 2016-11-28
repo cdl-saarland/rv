@@ -170,6 +170,11 @@ VectorizationInfo::setPredicate(const llvm::BasicBlock& block, llvm::Value& pred
 }
 
 void
+VectorizationInfo::setLoopDivergence(const Loop & loop, bool toUniform) {
+  mDivergentLoops.erase(&loop);
+}
+
+void
 VectorizationInfo::setDivergentLoop(const Loop* loop)
 {
     mDivergentLoops.insert(loop);
