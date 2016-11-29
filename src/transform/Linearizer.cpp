@@ -37,20 +37,52 @@ void
 Linearizer::buildBlockIndex() {
   // FIXME this will diverge for non-canonical (LoopInfo) loops
   std::vector<BasicBlock*> stack;
+  std::set<Loop*> pushedLoops;
 
   for (auto & block : func) {
     // seek unprocessed blocks
     if (!inRegion(block)) continue; // FIXME we need a Region::blocks-in-the-region iterator
-    if (blockIndex.count(&block)) continue;
+    if (blockIndex.count(&block)) continue; // already indexed this block
     stack.push_back(&block);
 
     // process blocks
     while (!stack.empty()) {
-      BasicBlock * block = stack.back(); // HINT @block overwritten deliberatly
+      BasicBlock * block = stack.back();
+      if (blockIndex.count(block)) {
+        stack.pop_back();
+        continue; // already indexed this block
+      }
 
-      // check whether we are looking at the header of a loop
-      Loop * filterLoop = nullptr;
       auto * loop = li.getLoopFor(block);
+
+      // we are seeing this loop for the first time
+      // drop this block
+      // push first the latch and than all predecessors of the header on top
+      if (loop && pushedLoops.insert(loop).second) {
+        stack.pop_back(); // forget how we entered this loop
+
+        auto & latch = *loop->getLoopLatch();
+        stack.push_back(&latch);
+
+        // push all header predecessors on top of the latch
+        for (auto * pred : predecessors(loop->getHeader())) {
+          if (!inRegion(*pred)) continue;
+
+          // do not descend into the latch
+          if (loop->contains(pred)) continue;
+
+          // Otw, check if dependencies are satifised
+          if (!blockIndex.count(pred)) {
+            stack.push_back(pred);
+          }
+        }
+
+        // start processing the loop
+        continue;
+      }
+
+      // filter out all dependences to loop-carried blocks if we are looking at the loop header
+      Loop * filterLoop = nullptr;
       if (loop && loop->getHeader() == block) {
         filterLoop = loop;
       }
@@ -74,6 +106,7 @@ Linearizer::buildBlockIndex() {
       if (allDone) {
         // assign an id
         stack.pop_back();
+        assert(!blockIndex.count(block));
         addToBlockIndex(*block);
 
         // if we are re-vising the loop header all dependences outside of the loop have been scheduled
@@ -87,6 +120,42 @@ Linearizer::buildBlockIndex() {
         }
       }
     }
+  }
+}
+
+void
+Linearizer::verifyLoopIndex(Loop & loop) {
+  for (auto * childLoop : loop) {
+    verifyLoopIndex(*childLoop);
+  }
+
+  auto & latch = *loop.getLoopLatch();
+  uint startId = blocks.size();
+  uint endId = 0;
+
+  for (auto * block : loop.blocks()) {
+    startId = std::min<>(getIndex(*block), startId);
+    endId = std::max<>(getIndex(*block), endId);
+  }
+
+  IF_DEBUG_LIN {
+    errs() << "Loop index range of " << loop.getHeader()->getName() << " from "  << startId << " to " << endId << "\n";
+  }
+
+  // there are no blocks in the range that are not part of the loop
+  for (uint i = startId; i <= endId; ++i) {
+    assert(loop.contains(blocks[i]) && "non-loop block in topo range of loop");
+  }
+
+  // the header has @startId, the latch as @endId
+  assert(startId == getIndex(*loop.getHeader()));
+  assert(endId == getIndex(latch));
+}
+
+void
+Linearizer::verifyBlockIndex() {
+  for (auto * loop : li) {
+    verifyLoopIndex(*loop);
   }
 }
 
@@ -224,7 +293,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, ConstBlockSet mustHaves) {
         BasicBlock * defBlock = inst->getParent();
 
         // TODO repair
-        assert(dt.dominates(defBlock, &latch) && "LCSSA data flow repair not yet implemented");
+        assert(dt.dominates(defBlock, block) && "LCSSA data flow repair not yet implemented");
 
         // branch will start from the latch
         lcPhi->setIncomingBlock(i, &latch);
@@ -257,8 +326,9 @@ Linearizer::convertToSingleExitLoop(Loop & loop, ConstBlockSet mustHaves) {
   // cond == rv_any(<loop live mas>) // as long as any thread is still executing
   auto * anyThreadLiveCond = &createReduction(*liveCond, "rv_any", latch);
   BranchInst* branch = BranchInst::Create(&header, loopExitRelay.block, anyThreadLiveCond, &latch);
-  vecInfo.setVectorShape(*branch, VectorShape::uni());
 
+// mark loop and its latch exit as non-divergent
+  vecInfo.setVectorShape(*branch, VectorShape::uni());
   vecInfo.setLoopDivergence(loop, false);
 
 // Update mask analysis information.
@@ -271,7 +341,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, ConstBlockSet mustHaves) {
   return loopExitRelay;
 }
 
-void
+uint
 Linearizer::processLoop(BasicBlock & loopHead, ConstBlockSet mustHaves) {
   IF_DEBUG_LIN {
     errs() << "processLoop : header " << loopHead.getName() << " {";
@@ -286,26 +356,23 @@ Linearizer::processLoop(BasicBlock & loopHead, ConstBlockSet mustHaves) {
   assert(loop && "not actually part of a loop");
   assert(loop->getHeader() == &loopHead && "not actually the header of the loop");
 
-  if (!vecInfo.isDivergentLoop(loop)) {
-    processDomRegion(loopHead, mustHaves, loop);
+  auto & latch = *loop->getLoopLatch();
 
-    // emit loop header again to re-wire to blocks inside the loop
-    emitBlock(loopHead);
-
-  } else {
+  if (vecInfo.isDivergentLoop(loop)) {
     // convert loop into a non-divergent form
     convertToSingleExitLoop(*loop, mustHaves);
-
-    // process nested CFG
-    processDomRegion(loopHead, mustHaves, loop);
-
-    // re-link header
-    emitBlock(loopHead);
-
-    // FIXME we have link the exitBlocks just as processBranch(,,) does
-    // we don't do it and so test_030_loopmx02 fails because the second loop exit ist never branched to from the first
-    // assert(loopExitRelay.empty() && "FIXME!!!");
   }
+
+  // emit all blocks within the loop (except the latch)
+  uint latchNodeId = processRange(getIndex(loopHead), getIndex(latch), mustHaves, loop);
+
+  // now emit the latch (without descending into its successors)
+  emitBlock(latch);
+
+  // emit loop header again to re-wire the latch to the header
+  emitBlock(loopHead);
+
+  return latchNodeId + 1; // continue after the latch
 }
 
 // makes relayBlocks for @target branch to @target
@@ -342,6 +409,9 @@ Linearizer::emitBlock(BasicBlock & target) {
   auto itStart = relayBlock->use_begin();
   auto itEnd = relayBlock->use_end();
 
+  // while at it search for a new dominator
+  auto * commonDomBlock = &target;
+
   for (auto itUse = itStart; itUse != itEnd; ) {
     Use & use = *(itUse++);
 
@@ -349,8 +419,18 @@ Linearizer::emitBlock(BasicBlock & target) {
     auto & branch = *cast<BranchInst>(use.getUser());
     IF_DEBUG_LIN { errs() << "\t\tlinking " << branch << " opIdx " << i << "\n"; }
 
+    // forward branches from relay to target
     branch.setOperand(i, &target);
+
+    // advance to the nearest common dominator of all branches so far
+    commonDomBlock = dt.findNearestCommonDominator(commonDomBlock, branch.getParent());
+    assert(commonDomBlock && "domtree repair: did not reach a common dom node!");
   }
+
+// domtree update: least common dominator of all incoming branches
+  // assert(commonDomBlock != &target && "did not find a valid idom of target"); // FIXME what about loop headers?
+  auto * targetDom = dt.getNode(&target);
+  targetDom->setIDom(dt.getNode(commonDomBlock));
 
 // if there are any instructions stuck in @relayBlock move them to target now
   for (auto it = relayBlock->begin(); it != relayBlock->end() && !isa<TerminatorInst>(*it); it = relayBlock->begin()) {
@@ -383,50 +463,60 @@ Linearizer::emitBlock(BasicBlock & target) {
 // linearize the region consisting of all blocks that @domNode dominates and that are contained within @parentLoop
 // create a relay block (@relayBlock) for every destination outside of the region (@destBlock)
 // all branches to @nextBlock can stay because it will be scheduled next
-void
-Linearizer::processDomRegion(BasicBlock & head, ConstBlockSet mustHaves, Loop * parentLoop) {
+uint
+Linearizer::processBlock(BasicBlock & head, ConstBlockSet mustHaves, Loop * parentLoop) {
+  // pending blocks at this point
+  auto * headRelay = getRelay(head);
+  // assert(headRelay && "dominance based propagation disengaged for now!");
+
+  // we need to promote them to the branch targets
+  mustHaves.clear(); // FIXME this should all be kept in the relayNode for now
+  if (headRelay) {
+    for (auto * block : headRelay->destBlocks) {
+      if (block == &head) continue; // jsut emitting this block now
+      mustHaves.insert(block);
+    }
+  }
+
   IF_DEBUG_LIN {
-    errs() << "processDomRegion : " << head.getName() << " {";
+    errs() << "processBlock (" << getIndex(head) << ") " << head.getName() << " {";
     for (const auto * mustHaveExit : mustHaves) {
       errs() << mustHaveExit->getName() << ", ";
     }
     errs() << "}\n";
   }
 
+#if 0
   // FIXME this is a hack to skip over the exits of normalized divergent loops
   if (parentLoop && (&head == parentLoop->getLoopLatch())) {
     IF_DEBUG_LIN { errs() << "\tconverted loop latch (skipping)\n";  }
 
     // emit the latch and be done with this loop
     emitBlock(head);
-    return;
-  }
 
-  assert(!finishedBlocks.count(&head));
+    return getIndex(head) + 1;
+  }
+#endif
+
+  // assert(!finishedBlocks.count(&head));
 
 // descend into loop, if any
   auto * loop = li.getLoopFor(&head);
 
   if (loop != parentLoop) {
-    processLoop(head, mustHaves);
+    return processLoop(head, mustHaves);
 
   } else {
-  // schedule basic block @head
-    // link relay nodes to @head
-    auto * headRelay = emitBlock(head);
+    // all dependencies satisfied -> emit this block
+    emitBlock(head);
 
-    // fetch pending blocks beyond this block
-    // we need to promote them to the branch targets
-    if (headRelay) {
-      for (auto * block : headRelay->destBlocks) {
-        mustHaves.insert(block);
-      }
-    }
-
-  // descend into all nodes that @head dominates and fold this branch, if necessary
+    // materialize all relays
     processBranch(head, mustHaves, parentLoop);
+
+    return getIndex(head) + 1;
   }
 
+#if 0
 // process remaining blocks in dom region
   for (uint i = getIndex(head); i < blocks.size(); ++i) { // FIXME make this more efficient
     auto * block = blocks[i];
@@ -439,6 +529,21 @@ Linearizer::processDomRegion(BasicBlock & head, ConstBlockSet mustHaves, Loop * 
        processDomRegion(*block, mustHaves, parentLoop);
     }
   }
+#endif
+}
+
+uint
+Linearizer::processRange(uint startId, uint endId, ConstBlockSet mustHaves, Loop * parentLoop) {
+  for (uint i = startId; i < endId;) { // FIXME make this more efficient
+    auto * block = blocks[i];
+
+    // assert(!finishedBlocks.count(block));
+    assert(!parentLoop || parentLoop->contains(block));
+
+    i = processBlock(*block, mustHaves, parentLoop);
+  }
+
+  return endId;
 }
 
 void
@@ -460,9 +565,12 @@ Linearizer::processBranch(BasicBlock & head, ConstBlockSet mustHaves, Loop * par
 
 // Unconditional branch case
   if (!branch->isConditional()) {
-    if (dt.dominates(&head, branch->getSuccessor(0))) {
+#if 0
+    if (false /* dt.dominates(&head, branch->getSuccessor(0))*/ ) {
       processDomRegion(*branch->getSuccessor(0), mustHaves, parentLoop);
-    } else {
+    } else
+#endif
+    {
       ConstBlockSet pendingBlocks(mustHaves); // {B} + mustHaves
       pendingBlocks.insert(branch->getSuccessor(0));
       auto & relay = requestRelay(pendingBlocks);
@@ -495,10 +603,17 @@ Linearizer::processBranch(BasicBlock & head, ConstBlockSet mustHaves, Loop * par
     branch->setSuccessor(secondIdx, firstBlock); // put @secondBlock after @firstBlock's dominance region in the linearized schedule
   }
 
-  // keep track of successor changes at this @branch
-  bool branchModified = false;
 
-  bool descendIntoFirst =
+// domtree repair
+  // if there is no relay node for B then A will dominate B after the transformation
+  // this is because in that case all paths do B have to go through A first
+  if (dt.dominates(&head, secondBlock) && !getRelay(*secondBlock)) {
+    auto * secondDom = dt.getNode(secondBlock);
+    secondDom->setIDom(dt.getNode(firstBlock));
+  }
+
+#if 0
+  bool descendIntoFirst = false;
     // if the edge is within the loop and does not lead back to the header
     (!parentLoop || (parentLoop->contains(firstBlock) && firstBlock != parentLoop->getHeader())) &&
      // and we dominate the branch target
@@ -509,7 +624,10 @@ Linearizer::processBranch(BasicBlock & head, ConstBlockSet mustHaves, Loop * par
     // we know that @secondBlock will come after the domRegion of @firstBlock, a fact we could tell ::processDomRegion about to avoid superfluous relays
     processDomRegion(*firstBlock, firstMustHaves, parentLoop);
 
-  } else {
+  } else
+#endif
+
+  {
     // preserve any pre-existing must haves
     if (relayBlocks.count(firstBlock)) {
       // TODO should probably use this to disable dominance criterion
@@ -521,11 +639,11 @@ Linearizer::processBranch(BasicBlock & head, ConstBlockSet mustHaves, Loop * par
     firstMustHaves.insert(firstBlock); // as @firstBlock is deferred now as well, we need to add it to the blocks @relayBlock is deferring
     auto & firstRelay = requestRelay(firstMustHaves);
     branch->setSuccessor(firstIdx, firstRelay.block);
-    branchModified = true;
   }
 
 // process the second successor
-  bool descendIntoSecond =
+#if 0
+  bool descendIntoSecond = false;
     // if the edge is within the loop and does not lead back to the header
     (!parentLoop || (parentLoop->contains(secondBlock) && secondBlock != parentLoop->getHeader())) &&
      // and we dominate the branch target
@@ -533,8 +651,10 @@ Linearizer::processBranch(BasicBlock & head, ConstBlockSet mustHaves, Loop * par
 
   if (descendIntoSecond) { // TODO OR all blocks with a lower topo index have been finished
    processDomRegion(*secondBlock, mustHaves, parentLoop);
+  } else
+#endif
 
-  } else {
+  {
     ConstBlockSet secondMustHaves(mustHaves); // inherited must haves
     secondMustHaves.insert(secondBlock);
 
@@ -547,12 +667,7 @@ Linearizer::processBranch(BasicBlock & head, ConstBlockSet mustHaves, Loop * par
     auto & secondRelay = requestRelay(secondMustHaves);
     if (!mustFoldBranch) {
       branch->setSuccessor(secondIdx, secondRelay.block);
-      branchModified = true;
     }
-  }
-
-  if (branchModified) {
-    // if this branch was modified try to simplify during cleanup() after linearization
   }
 
 // mark branch as non-divergent
@@ -561,8 +676,17 @@ Linearizer::processBranch(BasicBlock & head, ConstBlockSet mustHaves, Loop * par
 
 void
 Linearizer::run() {
+
+  IF_DEBUG_LIN {
+    errs() << "-- LoopInfo --\n";
+    li.print(errs());
+  }
+
 // initialize with a global topologic enumeration
   buildBlockIndex();
+
+// verify the integrity of the block index
+  verifyBlockIndex();
 
 // early exit on trivial cases
   if (blocks.size() <= 1) return;
@@ -602,13 +726,9 @@ void
 Linearizer::linearizeControl() {
   IF_DEBUG_LIN {  errs() << "\n-- LIN: linearization log --\n"; }
 
-  for (uint i = 0; i < blocks.size(); ++i) {
-    auto * block = blocks[i];
-    if (finishedBlocks.count(block)) continue;
+  uint lastId = processRange(0, blocks.size(), ConstBlockSet(), nullptr);
 
-    processDomRegion(*block, ConstBlockSet(), nullptr);
-  }
-
+  assert(lastId  == blocks.size());
   assert(scheduleHeads.empty() && "did not finalize all schedule heads!");
 
   IF_DEBUG_LIN {  errs() << "\n-- LIN: linearization finished --\n"; }

@@ -74,7 +74,7 @@ namespace rv {
     std::map<const BasicBlock*, RelayNode*> scheduleHeads; // maps current heads to RelayNodes
     std::map<const BasicBlock*, RelayNode*> relayBlocks;   // maps relay BBs to their RelayNodes
 
-    RelayNode * getRelayNode(const BasicBlock & head) const {
+    RelayNode * getRelay(const BasicBlock & head) const {
       auto it = scheduleHeads.find(&head);
       if (it != scheduleHeads.end()) {
         return it->second;
@@ -94,7 +94,7 @@ namespace rv {
     // @return the advanced schedule head. Otw, nullptr if @head is not a schedule head or no @destBlocks remain
     // @oRelayBlock will hold the actual basic block if the schedule head was advanced
     RelayNode * advanceScheduleHead(llvm::BasicBlock & head, BasicBlock *& oRelayBlock) {
-      auto * oldRelay = getRelayNode(head);
+      auto * oldRelay = getRelay(head);
       if (!oldRelay) {
         oRelayBlock = nullptr;
         return nullptr;
@@ -164,9 +164,12 @@ namespace rv {
     RelayNode* emitBlock(llvm::BasicBlock & block);
 
   // transformations
-    void processDomRegion(llvm::BasicBlock & regionHead, ConstBlockSet mustHaves, llvm::Loop * parentLoop);
+    // partially linearize a range of blocks in the blockIndex
+    uint processRange(uint startId, uint endId, ConstBlockSet mustHaves, llvm::Loop * parentLoop);
 
-    void processLoop(llvm::BasicBlock & loopHead, ConstBlockSet mustHaves);
+    uint processBlock(llvm::BasicBlock & regionHead, ConstBlockSet mustHaves, llvm::Loop * parentLoop);
+
+    uint processLoop(llvm::BasicBlock & loopHead, ConstBlockSet mustHaves);
 
     bool needsFolding(llvm::TerminatorInst & branch);
     void processBranch(llvm::BasicBlock & block, ConstBlockSet mustHaves, llvm::Loop * parentLoop);
@@ -198,6 +201,13 @@ namespace rv {
   // passes
     // topo sort basic blocks in function
     void buildBlockIndex();
+
+    // verify the block index integrity
+    // a) the block index is a topological sorting of the regions blocks.
+    // b) the index range of loop blocks must be tight (there should be not blocks in the range that do not belong to the loop)
+    void verifyBlockIndex();
+    void verifyLoopIndex(llvm::Loop & loop);
+
 
     // linearize all divergent control
     void linearizeControl();
