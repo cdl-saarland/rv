@@ -13,7 +13,7 @@ from os import path
 import shlex, subprocess, sys, errno
 
 # set-up workspace
-Debug=False
+Debug=int(os.getenv("RVT_DEBUG", 0)) != 0
 
 libRV="../lib/libRV.so"
 
