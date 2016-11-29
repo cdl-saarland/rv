@@ -64,7 +64,9 @@ def executeOuterLoopTest(scalarLL, options):
 
 print("-- RV tester --")
 for pattern in patterns:
-  for testCase in glob(pattern):
+  tests = [testCase for testCase in glob(pattern)]
+  tests.sort()
+  for testCase in tests:
     baseName = path.basename(testCase)
     print("- {}".format(baseName))
     parts = baseName.split("-")
