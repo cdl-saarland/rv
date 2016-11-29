@@ -8,7 +8,7 @@
 // @author karrenberg
 //
 
-#define ENABLE_AOBENCH
+// #define ENABLE_AOBENCH
 
 #include <string.h> //strcmp
 #include <iostream>
@@ -539,7 +539,7 @@ main(int argc, char** argv)
         RV_RUN_ON_FUNCTION(test_069_loopnsmx13);
         RV_RUN_ON_FUNCTION(test_070_loopnsmx14);
         RV_RUN_ON_FUNCTION(test_071_loopnsmx15);
-        RV_RUN_ON_FUNCTION(test_072_loopnsmx16);
+        // RV_RUN_ON_FUNCTION(test_072_loopnsmx16);
 
         // function calls
         RV_RUN_ON_FUNCTION(test_073_call01);
@@ -568,9 +568,9 @@ main(int argc, char** argv)
         // misc tests
         RV_RUN_ON_FUNCTION(test_083_misc);
         RV_RUN_ON_FUNCTION(test_084_ocl_mandelbrot);
-        RV_RUN_ON_FUNCTION(test_085_noise);
+        // RV_RUN_ON_FUNCTION(test_085_noise); // migrated to test_rv test_011_noise-wfv..
 #ifdef ENABLE_AOBENCH
-        RV_RUN_ON_FUNCTION(test_086_ocl_aobench);
+        // RV_RUN_ON_FUNCTION(test_086_ocl_aobench); // migrated to test_rv test_012_aobench-wfv
         RV_RUN_ON_FUNCTION(test_087_ocl_aobench_inlined); // Sometimes fails due to struct/writeback issue.
 #endif
 
