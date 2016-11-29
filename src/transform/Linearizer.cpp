@@ -171,15 +171,71 @@ Linearizer::dropLoopExit(BasicBlock & block, Loop & loop) {
   vecInfo.setVectorShape(*loopBranch, VectorShape::uni());
 }
 
+static void
+InsertAtFront(BasicBlock & block, Instruction & inst) {
+  block.getInstList().insert(block.begin(), &inst);
+}
+
 Linearizer::RelayNode &
 Linearizer::convertToSingleExitLoop(Loop & loop, ConstBlockSet mustHaves) {
+
+// query the live mask on the latch
+  auto & latch = *loop.getLoopLatch();
+  auto & header = *loop.getHeader();
+  Value* liveCond = maskAnalysis.getExitMask(latch, header);
+
 // collect all loop exits
+  // on the way check if we need to repair any LCSSA phi nodes
+  // we will create a single exit at the latch and might need to re-route live-out values through it
   SmallVector<BasicBlock*, 3> loopExitBlocks;
   loop.getExitBlocks(loopExitBlocks);
 
   ConstBlockSet loopExits(mustHaves);
   for (auto * block : loopExitBlocks) {
     loopExits.insert(block);
+  }
+
+// create a common relay for all loopExits
+  auto & loopExitRelay = requestRelay(loopExits);
+
+// move LCSSA nodes to relay
+  for (auto * block : loopExitBlocks) {
+
+    if (block == loopExitRelay.block) {
+      continue; // already migrated LCSSA phi to loop exit relay
+    }
+
+    // check if we need to repair any LCSSA phi nodes
+    for (auto it = block->begin(); isa<PHINode>(it) && it != block->end(); it = block->begin()) {
+      auto * lcPhi = &cast<PHINode>(*it);
+      if (!lcPhi) break;
+
+      // for all exiting edges
+      for (uint i = 0; i < lcPhi->getNumIncomingValues(); ++i) {
+        auto * exitingBlock = lcPhi->getIncomingBlock(i);
+        assert (loop.contains(exitingBlock) && "not an LCSSA Phi node");
+
+        auto * inst = dyn_cast<Instruction>(lcPhi->getIncomingValue(i));
+        if (!inst) {
+          // no repair necessary as the incoming value is globally available in the function
+          continue;
+        }
+
+        BasicBlock * defBlock = inst->getParent();
+
+        // TODO repair
+        assert(dt.dominates(defBlock, &latch) && "LCSSA data flow repair not yet implemented");
+
+        // branch will start from the latch
+        lcPhi->setIncomingBlock(i, &latch);
+      }
+
+      // migrate this PHI node to the loopExitRelay
+      IF_DEBUG_LIN { errs() << "\t\tMigrating " << lcPhi->getName() << " from " << lcPhi->getParent()->getName() << " to " << loopExitRelay.block->getName() << "\n"; }
+
+      lcPhi->removeFromParent();
+      InsertAtFront(*loopExitRelay.block, *lcPhi);
+    }
   }
 
 // drop all loop exiting blocks
@@ -189,14 +245,6 @@ Linearizer::convertToSingleExitLoop(Loop & loop, ConstBlockSet mustHaves) {
   for (auto * exitingBlock : loopExitingBlocks) {
     dropLoopExit(*exitingBlock, loop);
   }
-
-// create a common relay for all loopExits
-  auto & loopExitRelay = requestRelay(loopExits);
-
-// query the live mask on the latch
-  auto & latch = *loop.getLoopLatch();
-  auto & header = *loop.getHeader();
-  Value* liveCond = maskAnalysis.getExitMask(latch, header);
 
 // drop old latch
   auto * latchTerm = latch.getTerminator();
@@ -269,6 +317,8 @@ Linearizer::emitBlock(BasicBlock & target) {
     errs() << "\temit : " << target.getName() << "\n";
   }
 
+  assert(!relayBlocks.count(&target) && "can not finalize relays");
+
 // mark this block as finished
   finishedBlocks.insert(&target);
 
@@ -302,20 +352,13 @@ Linearizer::emitBlock(BasicBlock & target) {
     branch.setOperand(i, &target);
   }
 
-#if 0
-      // TODO fix up data flow (later..)
-      for (auto * inst : target) {
-        auto * phi = dyn_cast<PHINode>(inst);
-        if (!phi) break;
+// if there are any instructions stuck in @relayBlock move them to target now
+  for (auto it = relayBlock->begin(); it != relayBlock->end() && !isa<TerminatorInst>(*it); it = relayBlock->begin()) {
+    it->removeFromParent();
+    InsertAtFront(target, *it);
+  }
 
-        int blockIdx = phi->getBasicBlockIndex(predBlock);
-        phi->getIncomingValueForBlock(*relayBlock);
-
-
-      }
-      // FIXME rebuild PHI nodes in @target
-#endif
-
+// dump remaining uses for debugging purposes
   IF_DEBUG_LIN {
     for (auto & use : relayBlock->uses()) {
       auto * userInst = dyn_cast<Instruction>(use.getUser());
@@ -401,7 +444,7 @@ Linearizer::processDomRegion(BasicBlock & head, ConstBlockSet mustHaves, Loop * 
 void
 Linearizer::processBranch(BasicBlock & head, ConstBlockSet mustHaves, Loop * parentLoop) {
   IF_DEBUG_LIN {
-    errs() << "processBranch : " << *head.getTerminator() << " of block " << head.getName() << "\n";
+    errs() << "  processBranch : " << *head.getTerminator() << " of block " << head.getName() << "\n";
   }
 
   auto & term = *head.getTerminator();
@@ -565,6 +608,8 @@ Linearizer::linearizeControl() {
 
     processDomRegion(*block, ConstBlockSet(), nullptr);
   }
+
+  assert(scheduleHeads.empty() && "did not finalize all schedule heads!");
 
   IF_DEBUG_LIN {  errs() << "\n-- LIN: linearization finished --\n"; }
 }

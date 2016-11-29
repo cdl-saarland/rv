@@ -121,6 +121,8 @@ namespace rv {
       }
       BasicBlock & head = getBlock(minIdx);
 
+      assert(!finishedBlocks.count(&head) && "relay head already emitted -> relay block will never be linked back");
+
       IF_DEBUG_LIN {
         errs() << "\t - relay request " << head.getName() << " -> {";
         for (auto * block : destBlocks) {
