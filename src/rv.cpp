@@ -18,11 +18,10 @@
 #include <rv/pda/DFG.h>
 #include <rv/analysis/maskAnalysis.h>
 #include <rv/analysis/MetadataMaskAnalyzer.h>
-#include <rv/transforms/maskGenerator.h>
-#include <rv/transforms/cfgLinearizer.h>
+#include <rv/transform/maskGenerator.h>
 #include <rv/analysis/vectorizationAnalysis.h>
-#include <rv/transforms/selectGenerator.h>
-#include <rv/transforms/loopExitCanonicalizer.h>
+#include <rv/transform/selectGenerator.h>
+#include <rv/transform/loopExitCanonicalizer.h>
 #include <rv/pda/ABAAnalysis.h>
 
 #include "rv/transform/Linearizer.h"
@@ -330,18 +329,6 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
     loopLiveValueAnalysis.run(*mScalarFn);
     selectgenerator.generate(*mScalarFn);
 
-#if 0
-    CFGLinearizer oldLinearizer(mInfo,
-                             loopInfo,
-                             maskAnalysis,
-                             loopLiveValueAnalysis,
-                             vectorizationInfo,
-                             postDomTree,
-                             domTree);
-
-    oldLinearizer.linearize(*mScalarFn);
-
-#else
     Linearizer linearizer(vectorizationInfo, maskAnalysis, domTree, loopInfo);
 
     IF_DEBUG {
@@ -355,7 +342,6 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
       errs() << "--- VecInfo after Linearizer ---\n";
       vectorizationInfo.dump();
     }
-#endif
 
     return true;
 }

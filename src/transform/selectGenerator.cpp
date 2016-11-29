@@ -10,7 +10,7 @@
 
 #include "rvConfig.h"
 
-#include "rv/transforms/selectGenerator.h"
+#include "rv/transform/selectGenerator.h"
 #include "rv/rvInfo.h"
 #include "rv/analysis/maskAnalysis.h"
 #include "rv/analysis/loopLiveValueAnalysis.h"

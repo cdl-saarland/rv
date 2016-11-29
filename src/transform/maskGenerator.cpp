@@ -8,7 +8,7 @@
 // @authors karrenberg, kloessner, simon
 //
 
-#include "rv/transforms/maskGenerator.h"
+#include "rv/transform/maskGenerator.h"
 
 #include <stdexcept>
 #include <rv/rvInfoProxyPass.h>

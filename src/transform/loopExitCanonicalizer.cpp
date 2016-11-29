@@ -10,7 +10,7 @@
 
 
 
-#include "rv/transforms/loopExitCanonicalizer.h"
+#include "rv/transform/loopExitCanonicalizer.h"
 
 #include <stdexcept>
 

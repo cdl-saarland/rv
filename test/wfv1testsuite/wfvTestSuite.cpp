@@ -21,7 +21,7 @@
 #include <rv/rv.h>
 #include <rv/vectorizationInfo.h>
 #include <rv/analysis/maskAnalysis.h>
-#include <rv/transforms/loopExitCanonicalizer.h>
+#include <rv/transform/loopExitCanonicalizer.h>
 #include <rv/vectorMapping.h>
 
 #define RV_RUN_ON_FUNCTION_NEW_INTERFACE_BEGIN(scalarName) \
