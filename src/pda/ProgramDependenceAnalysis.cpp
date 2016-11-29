@@ -67,11 +67,11 @@ PDA::PDA(VectorizationInfo& VecInfo,
          const LoopInfo& LoopInfo)
 
         : layout(""),
+          mVecinfo(VecInfo),
           mCDG(cdg),
           mDFG(dfg),
-          mVecinfo(VecInfo),
-          mFuncinfo(Funcinfo),
           mLoopInfo(LoopInfo),
+          mFuncinfo(Funcinfo),
           mRegion(mVecinfo.getRegion())
 { }
 
@@ -339,7 +339,7 @@ PDA::update(const Value* const V, VectorShape AT)
 
                     for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it)
                     {
-                        updateOutsideLoopUsesVarying(cast<PHINode>(&*it), BBLoop);
+                        updateOutsideLoopUsesVarying(BBLoop);
                     }
                 }
 
@@ -447,17 +447,23 @@ PDA::addRelevantUsersToWL(const Value* V)
 }
 
 void
-PDA::updateOutsideLoopUsesVarying(const PHINode* PHI, const Loop* PHILoop)
+PDA::updateOutsideLoopUsesVarying(const Loop* divLoop)
 {
-    for (auto use : PHI->users())
-    {
-        const Instruction* useI = cast<Instruction>(use);
-        if (!isInRegion(*useI)) continue;
+  SmallVector<BasicBlock*, 3> exitBlocks;
+  divLoop->getExitBlocks(exitBlocks);
+  for (auto * exitBlock : exitBlocks) {
+    if (!isInRegion(exitBlock)) continue;
 
-        // find outside uses and update varying
-        if (!PHILoop->contains(mLoopInfo.getLoopFor(useI->getParent())))
-            update(useI, VectorShape::varying());
+    for (auto & inst : *exitBlock) {
+      auto * phi = dyn_cast<PHINode>(&inst);
+      if (!phi) break;
+
+       // find outside uses and update varying
+       if (!divLoop->contains(mLoopInfo.getLoopFor(phi->getParent())))
+           update(phi, VectorShape::varying());
+
     }
+  }
 }
 
 VectorShape
@@ -719,9 +725,11 @@ PDA::computeShapeForInst(const Instruction* I)
 
             // Collect defined values
             VectorShapeVec DefinedValues;
-            for (auto& op : I->operands())
-                if (isa<Constant>(op) || mValue2Shape.count(op))
+            for (auto& op : I->operands()) {
+                if (isa<Constant>(op) || mValue2Shape.count(op)) {
                     DefinedValues.push_back(getShape(op));
+                }
+            }
 
             if (DefinedValues.empty()) {
               return VectorShape::undef();

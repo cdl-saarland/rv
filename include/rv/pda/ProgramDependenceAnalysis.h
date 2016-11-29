@@ -85,6 +85,7 @@ public:
 
     //---------------------- Map access -------------------------//
     /// Get the shape for a value
+    //  if loop carried, this is the shape observed within the loop that defines @V
     VectorShape getShape(const Value *const V) const;
 
     //---------------------- Iterators --------------------------//
@@ -128,7 +129,8 @@ private:
     // Update a value with its new computed shape, recursing into users if it has changed
     void update(const Value* const V, VectorShape AT);
     // Calls update on every user of this PHI that is not in its loop
-    void updateOutsideLoopUsesVarying(const PHINode* PHI, const Loop* PHILoop);
+    // void updateOutsideLoopUsesVarying(const PHINode* PHI, const Loop* PHILoop);
+    void updateOutsideLoopUsesVarying(const Loop* divLoop);
     // Adds all users of V to the worklist to continue iterating,
     // unless the concept of shape is not defined for the user (e.g. void return calls)
     void addRelevantUsersToWL(const Value* V);
