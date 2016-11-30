@@ -55,7 +55,7 @@ public:
 	static VectorShape strided(int stride, int aligned = 1) { return VectorShape(stride, aligned); }
 	static VectorShape uni(int aligned = 1) { return VectorShape(0, aligned); }
 	static VectorShape cont(int aligned = 1) { return VectorShape(1, aligned); }
-	static VectorShape undef(int aligned = 1) { return VectorShape(0); }
+	static VectorShape undef(int aligned = 1) { return VectorShape(0); } // bot
 
         static VectorShape join(VectorShape a, VectorShape b);
 

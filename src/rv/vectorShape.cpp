@@ -81,12 +81,16 @@ bool VectorShape::operator<(const VectorShape &a) const {
 
 VectorShape
 VectorShape::join(VectorShape a, VectorShape b) {
-      const unsigned aligned = gcd<>(a.alignment, b.alignment);
-      if (a.hasStridedShape() && b.hasStridedShape() && a.getStride() == b.getStride()) {
-	      return VectorShape(a.stride, aligned);
-      } else {
-	      return varying(aligned);
-      }
+  if (!a.isDefined()) {
+    return b;
+  }
+
+  const unsigned aligned = gcd<>(a.alignment, b.alignment);
+  if (a.hasStridedShape() && b.hasStridedShape() && a.getStride() == b.getStride()) {
+    return VectorShape(a.stride, aligned);
+  } else {
+    return varying(aligned);
+  }
 }
 
 std::string VectorShape::str() const {

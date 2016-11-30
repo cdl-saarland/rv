@@ -723,6 +723,10 @@ PDA::computeShapeForInst(const Instruction* I)
                 if (isa<Constant>(op) || mValue2Shape.count(op))
                     DefinedValues.push_back(getShape(op));
 
+            if (DefinedValues.empty()) {
+              return VectorShape::undef();
+            }
+
             // Join them (non-empty, at least one is defined)
             assert (!DefinedValues.empty());
             VectorShape Joined = DefinedValues[0];
