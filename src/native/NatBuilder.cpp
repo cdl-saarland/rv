@@ -209,13 +209,21 @@ void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst,
 void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
   assert(vectorizationInfo.hasKnownShape(*scalPhi) && "no VectorShape for PHINode available!");
   VectorShape shape = vectorizationInfo.getVectorShape(*scalPhi);
-  Type *type = !shape.isVarying() ? scalPhi->getType() : getVectorType(scalPhi->getType(), vectorWidth());
-  auto name = !shape.isVarying() ? scalPhi->getName() : scalPhi->getName() + "_SIMD";
-  PHINode *phi = builder.CreatePHI(type, scalPhi->getNumIncomingValues(), name);
-  if (!shape.isVarying())
-    mapScalarValue(scalPhi, phi);
-  else
-    mapVectorValue(scalPhi, phi);
+  Type *scalType = scalPhi->getType();
+  Type *type = !shape.isVarying() || scalType->isVectorTy() || scalType->isStructTy() ?
+               scalType : getVectorType(scalPhi->getType(), vectorWidth());
+  auto name = !shape.isVarying() || scalType->isVectorTy() || scalType->isStructTy() ?
+              scalPhi->getName() : scalPhi->getName() + "_SIMD";
+
+  // replicate phi <vector_width> times if type is not vectorizable
+  unsigned loopEnd = shape.isVarying() && (scalType->isVectorTy() || scalType->isStructTy()) ? vectorWidth() : 1;
+  for (unsigned lane = 0; lane < loopEnd; ++lane) {
+    PHINode *phi = builder.CreatePHI(type, scalPhi->getNumIncomingValues(), name);
+    if (loopEnd == 1 && shape.isVarying())
+      mapVectorValue(scalPhi, phi);
+    else
+      mapScalarValue(scalPhi, phi, lane);
+  }
   phiVector.push_back(scalPhi);
 }
 
@@ -652,15 +660,24 @@ void NatBuilder::addValuesToPHINodes() {
   for (PHINode *scalPhi : phiVector) {
     assert(vectorizationInfo.hasKnownShape(*scalPhi) && "no VectorShape for PHINode available!");
     VectorShape shape = vectorizationInfo.getVectorShape(*scalPhi);
-    PHINode *phi = cast<PHINode>(!shape.isVarying() ? getScalarValue(scalPhi) : getVectorValue(scalPhi));
-    for (unsigned i = 0; i < scalPhi->getNumIncomingValues(); ++i) {
-      // set insertion point to before Terminator of incoming block
-      BasicBlock *incVecBlock = cast<BasicBlock>(getVectorValue(scalPhi->getIncomingBlock(i)));
-      builder.SetInsertPoint(incVecBlock->getTerminator());
+    Type *scalType = scalPhi->getType();
 
-      Value *val = !shape.isVarying() ? requestScalarValue(scalPhi->getIncomingValue(i))
-                                      : requestVectorValue(scalPhi->getIncomingValue(i));
-      phi->addIncoming(val, incVecBlock);
+    // replicate phi <vector_width> times if type is not vectorizable
+    bool replicate = shape.isVarying() && (scalType->isVectorTy() || scalType->isStructTy());
+    unsigned loopEnd = replicate ? vectorWidth() : 1;
+
+    for (unsigned lane = 0; lane < loopEnd; ++lane) {
+      PHINode *phi = cast<PHINode>(
+          !shape.isVarying() || replicate ? getScalarValue(scalPhi, lane) : getVectorValue(scalPhi));
+      for (unsigned i = 0; i < scalPhi->getNumIncomingValues(); ++i) {
+        // set insertion point to before Terminator of incoming block
+        BasicBlock *incVecBlock = cast<BasicBlock>(getVectorValue(scalPhi->getIncomingBlock(i)));
+        builder.SetInsertPoint(incVecBlock->getTerminator());
+
+        Value *val = !shape.isVarying() || replicate ? requestScalarValue(scalPhi->getIncomingValue(i), lane)
+                                                     : requestVectorValue(scalPhi->getIncomingValue(i));
+        phi->addIncoming(val, incVecBlock);
+      }
     }
   }
 
