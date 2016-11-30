@@ -36,6 +36,7 @@
 
 
 namespace {
+
 void removeTempFunction(Module* mod, const std::string& name)
 {
     assert (mod);
@@ -80,7 +81,10 @@ removeUnusedRVLibFunctions(Module* mod)
 
 #undef REMOVE_LIB_FN
 }
+
 }
+
+namespace rv {
 
 VectorizerInterface::VectorizerInterface(RVInfo& rvInfo, Function* scalarCopy)
         : mInfo(rvInfo), mScalarFn(scalarCopy)
@@ -384,25 +388,6 @@ IsPredicateIntrinsic(Function & func) {
 }
 
 void
-VectorizerInterface::lowerPredicateIntrinsics(Function & func) {
-  for (auto & block : func) {
-    BasicBlock::iterator itStart = block.begin(), itEnd = block.end();
-    for (BasicBlock::iterator it = itStart; it != itEnd; ) {
-      auto * inst = &*it++;
-      auto * call = dyn_cast<CallInst>(inst);
-      if (!call) continue;
-
-      auto * callee = call->getCalledFunction();
-      if (callee && IsPredicateIntrinsic(*callee)) {
-        Value *predicate = call->getArgOperand(0);
-        call->replaceAllUsesWith(predicate);
-        call->eraseFromParent();
-      }
-    }
-  }
-}
-
-void
 VectorizerInterface::finalize()
 {
     const auto & scalarName = mScalarFn->getName();
@@ -432,3 +417,52 @@ VectorizerInterface::finalize()
     }
 }
 
+static void
+ReplaceByIdentity(Function & func) {
+  for (
+      auto itUse = func.use_begin();
+      itUse != func.use_end();
+      itUse = func.use_begin())
+  {
+    auto *user = itUse->getUser();
+
+    if (!isa<CallInst>(user)) {
+      errs() << "Non Call: " << *user << "\n";
+    }
+
+    auto * call = cast<CallInst>(user);
+    call->replaceAllUsesWith(call->getOperand(0));
+    call->eraseFromParent();
+  }
+}
+
+void
+lowerPredicateIntrinsics(Module & mod) {
+  auto * anyFunc = mod.getFunction("rv_any");
+  if (anyFunc) ReplaceByIdentity(*anyFunc);
+  auto * allFunc = mod.getFunction("rv_all");
+  if (allFunc) ReplaceByIdentity(*allFunc);
+}
+
+void
+lowerPredicateIntrinsics(Function & func) {
+  for (auto & block : func) {
+    BasicBlock::iterator itStart = block.begin(), itEnd = block.end();
+    for (BasicBlock::iterator it = itStart; it != itEnd; ) {
+      auto * inst = &*it++;
+      auto * call = dyn_cast<CallInst>(inst);
+      if (!call) continue;
+
+      auto * callee = call->getCalledFunction();
+      if (callee && IsPredicateIntrinsic(*callee)) {
+        Value *predicate = call->getArgOperand(0);
+        call->replaceAllUsesWith(predicate);
+        call->eraseFromParent();
+      }
+    }
+  }
+}
+
+
+
+} // namespace rv

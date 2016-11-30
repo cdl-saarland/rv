@@ -97,11 +97,6 @@ public:
                           const bool      isIndexSame,
                           const bool      isIndexConsecutive);
 
-   // implement all rv_* predicate intrinsics in function
-   // this is necessary to make scalar functions with predicate intrinsics executable
-   // the SIMS semantics of the function will change if @scalar func used any mask intrinsics
-   static void lowerPredicateIntrinsics(Function & scalarFunc);
-
 private:
     RVInfo&                       mInfo;
     Function*                      mScalarFn;
@@ -110,6 +105,13 @@ private:
     bool verifyFunctionSignaturesMatch(const Function& F1, const Function& F2);
     void addPredicateInstrinsics();
 };
+
+
+   // implement all rv_* predicate intrinsics in function
+   // this is necessary to make scalar functions with predicate intrinsics executable
+   // the SIMS semantics of the function will change if @scalar func used any mask intrinsics
+  void lowerPredicateIntrinsics(Function & scalarFunc);
+  void lowerPredicateIntrinsics(Module & mod);
 
 }
 

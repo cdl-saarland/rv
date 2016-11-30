@@ -532,7 +532,7 @@ int main(int argc, char** argv)
 
     if (lowerPredicateIntrinsics) {
       errs() << "Lowering predicate intrinsics in function " << scalarFn->getName() << "\n";
-      rv::VectorizerInterface::lowerPredicateIntrinsics(*scalarFn);
+      rv::lowerPredicateIntrinsics(*scalarFn);
     }
 
     //output
