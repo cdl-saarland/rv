@@ -159,13 +159,10 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       // calls need special treatment
       if (call->getCalledFunction()->getName() == "rv_any")
         vectorizeReductionCall(call);
-      else if (canVectorize(call) && shouldVectorize(call))
+      else if (shouldVectorize(call))
         vectorizeCallInstruction(call);
       else {
-        unsigned laneEnd = shouldVectorize(call) ? vectorWidth() : 1;
-        for (unsigned lane = 0; lane < laneEnd; ++lane) {
-          copyCallInstruction(call, lane);
-        }
+        copyCallInstruction(call);
       }
     else if (phi)
       // phis need special treatment as they might contain not-yet mapped instructions
@@ -212,13 +209,21 @@ void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst,
 void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
   assert(vectorizationInfo.hasKnownShape(*scalPhi) && "no VectorShape for PHINode available!");
   VectorShape shape = vectorizationInfo.getVectorShape(*scalPhi);
-  Type *type = !shape.isVarying() ? scalPhi->getType() : getVectorType(scalPhi->getType(), vectorWidth());
-  auto name = !shape.isVarying() ? scalPhi->getName() : scalPhi->getName() + "_SIMD";
-  PHINode *phi = builder.CreatePHI(type, scalPhi->getNumIncomingValues(), name);
-  if (!shape.isVarying())
-    mapScalarValue(scalPhi, phi);
-  else
-    mapVectorValue(scalPhi, phi);
+  Type *scalType = scalPhi->getType();
+  Type *type = !shape.isVarying() || scalType->isVectorTy() || scalType->isStructTy() ?
+               scalType : getVectorType(scalPhi->getType(), vectorWidth());
+  auto name = !shape.isVarying() || scalType->isVectorTy() || scalType->isStructTy() ?
+              scalPhi->getName() : scalPhi->getName() + "_SIMD";
+
+  // replicate phi <vector_width> times if type is not vectorizable
+  unsigned loopEnd = shape.isVarying() && (scalType->isVectorTy() || scalType->isStructTy()) ? vectorWidth() : 1;
+  for (unsigned lane = 0; lane < loopEnd; ++lane) {
+    PHINode *phi = builder.CreatePHI(type, scalPhi->getNumIncomingValues(), name);
+    if (loopEnd == 1 && shape.isVarying())
+      mapVectorValue(scalPhi, phi);
+    else
+      mapScalarValue(scalPhi, phi, lane);
+  }
   phiVector.push_back(scalPhi);
 }
 
@@ -327,11 +332,6 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   Function *callee = scalCall->getCalledFunction();
   const VectorMapping *mapping = getFunctionMapping(callee);
 
-//    if (!mapping) {
-//        addSIMDMappingsFor(platformInfo, callee);
-//        mapping = getFunctionMapping(callee);
-//    }
-
   if (mapping && useMappingForCall(mapping, scalCall)) {
     CallInst *call = cast<CallInst>(scalCall->clone());
     Function *simdFunc = mapping->vectorFn;
@@ -360,7 +360,7 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
 
     // type of the call. we don't need to construct a result if void
     Type *callType = scalCall->getType();
-    Value *resVec = callType->isVoidTy() ? nullptr : UndefValue::get(getVectorType(callType, vectorWidth()));
+    Value *resVec = (callType->isVoidTy() || callType->isVectorTy() || callType->isStructTy()) ? nullptr : UndefValue::get(getVectorType(callType, vectorWidth()));
 
     // create <vector_width> scalar calls
     for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
@@ -382,7 +382,7 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       }
 
       // (masked block or not cascaded)
-      // for each argument, get lane value of argument, do the call, (if !voidTy) insert to resVec
+      // for each argument, get lane value of argument, do the call, (if !voidTy, !vectorTy, !structTy) insert to resVec
       std::vector<Value *> args;
       for (unsigned i = 0; i < scalCall->getNumArgOperands(); ++i) {
         Value *scalArg = scalCall->getArgOperand(i);
@@ -392,13 +392,13 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       }
       Twine suffix = callType->isVoidTy() ? "" : "_lane_" + std::to_string(lane);
       Value *call = builder.CreateCall(callee, args, scalCall->getName() + suffix);
+      if (!needCascade)
+        mapScalarValue(scalCall, call, lane); // might proof useful. but only if not predicated
 
       Value *insert = nullptr;
-      if (!callType->isVoidTy()) {
+      if (!(callType->isVoidTy() || callType->isVectorTy() || callType->isStructTy())) {
         insert = builder.CreateInsertElement(resVec, call, ConstantInt::get(i32Ty, lane),
                                              "insert_lane_" + std::to_string(lane));
-        if (!needCascade)
-          mapScalarValue(scalCall, call, lane); // might proof useful. but only if not predicated
       }
 
       // if predicated, branch to nextBlock and create phi which will become resVec. else, insert is resVec
@@ -424,7 +424,6 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
 }
 
 void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx) {
-  // TODO: do we need predication?
   // copying call instructions:
   // 1) get scalar callee
   // 2) construct arguments
@@ -661,15 +660,24 @@ void NatBuilder::addValuesToPHINodes() {
   for (PHINode *scalPhi : phiVector) {
     assert(vectorizationInfo.hasKnownShape(*scalPhi) && "no VectorShape for PHINode available!");
     VectorShape shape = vectorizationInfo.getVectorShape(*scalPhi);
-    PHINode *phi = cast<PHINode>(!shape.isVarying() ? getScalarValue(scalPhi) : getVectorValue(scalPhi));
-    for (unsigned i = 0; i < scalPhi->getNumIncomingValues(); ++i) {
-      // set insertion point to before Terminator of incoming block
-      BasicBlock *incVecBlock = cast<BasicBlock>(getVectorValue(scalPhi->getIncomingBlock(i)));
-      builder.SetInsertPoint(incVecBlock->getTerminator());
+    Type *scalType = scalPhi->getType();
 
-      Value *val = !shape.isVarying() ? requestScalarValue(scalPhi->getIncomingValue(i))
-                                      : requestVectorValue(scalPhi->getIncomingValue(i));
-      phi->addIncoming(val, incVecBlock);
+    // replicate phi <vector_width> times if type is not vectorizable
+    bool replicate = shape.isVarying() && (scalType->isVectorTy() || scalType->isStructTy());
+    unsigned loopEnd = replicate ? vectorWidth() : 1;
+
+    for (unsigned lane = 0; lane < loopEnd; ++lane) {
+      PHINode *phi = cast<PHINode>(
+          !shape.isVarying() || replicate ? getScalarValue(scalPhi, lane) : getVectorValue(scalPhi));
+      for (unsigned i = 0; i < scalPhi->getNumIncomingValues(); ++i) {
+        // set insertion point to before Terminator of incoming block
+        BasicBlock *incVecBlock = cast<BasicBlock>(getVectorValue(scalPhi->getIncomingBlock(i)));
+        builder.SetInsertPoint(incVecBlock->getTerminator());
+
+        Value *val = !shape.isVarying() || replicate ? requestScalarValue(scalPhi->getIncomingValue(i), lane)
+                                                     : requestVectorValue(scalPhi->getIncomingValue(i));
+        phi->addIncoming(val, incVecBlock);
+      }
     }
   }
 

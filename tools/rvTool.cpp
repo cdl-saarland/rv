@@ -22,6 +22,7 @@
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Analysis/TargetLibraryInfo.h>
 
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Scalar.h"
@@ -35,6 +36,7 @@
 #include "rv/rv.h"
 #include "rv/vectorMapping.h"
 #include "rv/rvInfo.h"
+#include "rv/sleefLibrary.h"
 #include "rv/transforms/loopExitCanonicalizer.h"
 #include "rv/Region/LoopRegion.h"
 
@@ -271,7 +273,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
 
     rv::VectorizerInterface vectorizer(*rvInfo, scalarCopy);
 
-#if 1
+#if 0
     // link in SIMD library
     const bool useSSE = false;
     const bool useSSE41 = false;
@@ -279,6 +281,12 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     const bool useNEON = false;
     const bool useAVX = true;
     rvInfo->addCommonMappings(useSSE, useSSE41, useSSE42, useAVX, useNEON);
+#else
+    // link in SIMD library
+    const bool useSSE = false;
+    const bool useAVX = true;
+    const bool useAVX2 = false;
+    TargetLibraryInfo tli =  addSleefMappings(useSSE, useAVX, useAVX2);
 #endif
 
     // build Analysis
