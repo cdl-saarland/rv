@@ -1,8 +1,3 @@
-SET(RV_ENABLE_NATIVE ON) #TODO: clion workaround to enable the sources. remove before release
-IF ( RV_ENABLE_NATIVE )
-	SET (NATIVE_NAME Native)
-ENDIF ()
-
 # pre-compilation setup
 ADD_DEFINITIONS ( ${LLVM_DEFINITIONS} )
 
