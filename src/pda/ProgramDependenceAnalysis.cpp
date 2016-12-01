@@ -282,16 +282,14 @@ PDA::update(const Value* const V, VectorShape AT)
 
     /* Begin with divergence analysis */
 
-    // Divergence is caused directly by branches only
-    if (!isa<BranchInst>(V))
-        return;
+    // Find out which regions diverge because of this non-uniform terminator
+    // The terminator is regarded as varying, even if its condition is only strided
+    const TerminatorInst* terminator = dyn_cast<TerminatorInst>(V);
 
-    // Find out which regions diverge because of this non-uniform branch
-    // The branch is regarded as varying, even if its condition is only strided
-    const BranchInst* branch = cast<BranchInst>(V);
-    assert (branch->isConditional());
+    // Divergence is caused directly by terminators only
+    if (!terminator || terminator->getNumSuccessors() < 2) return;
 
-    const BasicBlock* endsVarying = branch->getParent();
+    const BasicBlock* endsVarying = terminator->getParent();
     const Loop* endsVaryingLoop = mLoopInfo.getLoopFor(endsVarying);
 
     markSuccessorsMandatory(endsVarying);
@@ -304,10 +302,10 @@ PDA::update(const Value* const V, VectorShape AT)
         const DFNode* df_node = mDFG[cd_succ->getBB()];
         for (const DFNode* df_pred : df_node->preds())
         {
-            // Get the block BB that is affected by the varying branch
+            // Get the block BB that is affected by the varying terminator
             const BasicBlock* const BB = df_pred->getBB();
 
-            IF_DEBUG errs() << "Branch " << *branch << " affects " << *BB << "\n";
+            IF_DEBUG errs() << "Terminator " << *terminator << " affects " << *BB << "\n";
 
             assert(isInRegion(BB)); // Otherwise the region is ill-formed
 
@@ -332,7 +330,7 @@ PDA::update(const Value* const V, VectorShape AT)
                         outs() << "\n"
                                << "The loop with header: \n"
                                << "    " << BB->getName() << "\n"
-                               << "is divergent because of the non-uniform branch in:\n"
+                               << "is divergent because of the non-uniform terminator in:\n"
                                << "    " << endsVarying->getName() << "\n\n";
                     }
 
@@ -368,11 +366,17 @@ PDA::update(const Value* const V, VectorShape AT)
             if (causedDivergence)
             {
                 IF_DEBUG_PDA {
+<<<<<<< HEAD
                         outs() << "\n"
                                << "The block:\n"
                                << "    " << BB->getName() << "\n"
                                << "is divergent because of the non-uniform branch in:\n"
                                << "    " << endsVarying->getName() << "\n\n";
+=======
+                        outs() << "Block " + BB->getName() +
+                                  " is divergent since the terminator in " +
+                                  endsVarying->getName() + " is varying.\n\n";
+>>>>>>> VectorShapes for compares for switch cases no longer missing after mask analysis, pda now supports divergence of blocks because of SwitchInsts
                 }
 
                 // MANDATORY case 2: divergent block

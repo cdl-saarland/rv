@@ -595,10 +595,6 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
                 condition = createMask(VALUE, insertPoint);
                 condition->mValue = brInst->getCondition();
             }
-                // FIXME: Switches with default case break this code.
-                //        The assertion crashes in the default case, because it has no case value.
-                //        If the assertion is removed, the default case has no exit mask
-                //        (which should be the negation of the disjunction of all case conditions?)
             else if (SwitchInst* switchInst = dyn_cast<SwitchInst>(terminator))
             {
             	if (succBB == switchInst->getDefaultDest()) continue;
@@ -620,6 +616,8 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
                                              cond,
                                              caseConst,
                                              "switchcmp"+str<int>(i));
+
+                mvInfo.setVectorShape(*cmp, mvInfo.getVectorShape(*terminator));
 
                 condition->mValue = cmp;
             }
@@ -746,6 +744,8 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
                                          cond,
                                          caseConst,
                                          "switchcmp"+str<int>(i));
+
+            mvInfo.setVectorShape(*cmp, mvInfo.getVectorShape(*terminator));
 
             condition->mValue = cmp;
             DEBUG_RV( outs() << "  condition (3): "; condition->print(outs()); outs() << "\n"; );
