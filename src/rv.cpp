@@ -350,7 +350,7 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
 }
 
 bool
-VectorizerInterface::vectorize(VectorizationInfo& vecInfo, const DominatorTree& domTree)
+VectorizerInterface::vectorize(PlatformInfo &platformInfo, VectorizationInfo &vecInfo, const DominatorTree &domTree)
 {
     // Strip legacy metadata calls
     std::vector<Instruction *> killList;
@@ -368,7 +368,7 @@ VectorizerInterface::vectorize(VectorizationInfo& vecInfo, const DominatorTree& 
     for (auto *inst : killList) inst->eraseFromParent();
 
     // vectorize with native
-    native::NatBuilder natBuilder(mInfo, vecInfo, domTree);
+    native::NatBuilder natBuilder(platformInfo, vecInfo, domTree);
     natBuilder.vectorize();
 
     return true;

@@ -142,6 +142,18 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     rv::Region loopRegion(loopRegionImpl);
     VectorizationInfo vecInfo(parentFn, vectorWidth, loopRegion);
 
+    TargetIRAnalysis irAnalysis;
+    TargetTransformInfo tti = irAnalysis.run(parentFn);
+    TargetLibraryAnalysis libAnalysis;
+    TargetLibraryInfo tli = libAnalysis.run(*parentFn.getParent());
+    rv::PlatformInfo platformInfo(&tti, &tli);
+
+    // link in SIMD library
+    const bool useSSE = false;
+    const bool useAVX = true;
+    const bool useAVX2 = false;
+    addSleefMappings(useSSE, useAVX, useAVX2, platformInfo);
+
     // configure initial shape for induction variable
     auto* header = loop.getHeader();
     PHINode* xPhi = cast<PHINode>(&*header->begin());
@@ -181,7 +193,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     const DominatorTree domTreeNew(*vecInfo.getMapping()
                                            .scalarFn); // Control conversion does not preserve the domTree so we have to rebuild it for now
-    bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew);
+    bool vectorizeOk = vectorizer.vectorize(platformInfo, vecInfo, domTreeNew);
     assert(vectorizeOk);
 
     // cleanup
@@ -273,6 +285,12 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
 
     rv::VectorizerInterface vectorizer(*rvInfo, scalarCopy);
 
+    TargetIRAnalysis irAnalysis;
+    TargetTransformInfo tti = irAnalysis.run(*scalarCopy);
+    TargetLibraryAnalysis libAnalysis;
+    TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent());
+    rv::PlatformInfo platformInfo(&tti, &tli);
+
 #if 0
     // link in SIMD library
     const bool useSSE = false;
@@ -286,7 +304,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     const bool useSSE = false;
     const bool useAVX = true;
     const bool useAVX2 = false;
-    TargetLibraryInfo tli =  addSleefMappings(useSSE, useAVX, useAVX2);
+    addSleefMappings(useSSE, useAVX, useAVX2, platformInfo);
 #endif
 
     // build Analysis
@@ -325,7 +343,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
 
     const DominatorTree domTreeNew(*vecInfo.getMapping()
                                            .scalarFn); // Control conversion does not preserve the domTree so we have to rebuild it for now
-    bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew);
+    bool vectorizeOk = vectorizer.vectorize(platformInfo, vecInfo, domTreeNew);
     assert(vectorizeOk);
 
     // cleanup

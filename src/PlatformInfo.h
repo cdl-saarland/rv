@@ -13,28 +13,38 @@ using namespace llvm;
 
 namespace rv {
 
-class PlatformInfo
-{
-    typedef std::map<const Function*, const VectorMapping*> FuncToVecMapping;
-public:
-    PlatformInfo(TargetTransformInfo* TTI, TargetLibraryInfo* TLI);
+  struct VecDesc {
+    const char *scalarFnName;
+    const char *vectorFnName;
+    unsigned vectorWidth;
+  };
 
-    void addMapping(const Function* function, const VectorMapping* mapping);
+  class PlatformInfo {
+    typedef std::map<const Function *, const VectorMapping *> FuncToVecMapping;
+  public:
+    PlatformInfo(TargetTransformInfo *TTI, TargetLibraryInfo *TLI);
 
-    void removeMappingIfPresent(const Function* function);
-    const VectorMapping* getMappingByFunction(const Function* function) const;
+    void addMapping(const Function *function, const VectorMapping *mapping);
 
-    void setTTI(TargetTransformInfo* TTI);
-    void setTLI(TargetLibraryInfo* TLI);
+    void removeMappingIfPresent(const Function *function);
+    const VectorMapping *getMappingByFunction(const Function *function) const;
 
-    TargetTransformInfo* getTTI();
-    TargetLibraryInfo* getTLI();
+    void setTTI(TargetTransformInfo *TTI);
+    void setTLI(TargetLibraryInfo *TLI);
 
-private:
-    TargetTransformInfo* mTTI;
-    TargetLibraryInfo* mTLI;
+    TargetTransformInfo *getTTI();
+    TargetLibraryInfo *getTLI();
+
+    void addVectorizableFunctions(ArrayRef<VecDesc> funcs);
+    bool isFunctionVectorizable(StringRef funcName, unsigned vectorWidth);
+    StringRef getVectorizedFunction(StringRef func, unsigned vectorWidth);
+
+  private:
+    TargetTransformInfo *mTTI;
+    TargetLibraryInfo *mTLI;
     FuncToVecMapping funcMappings;
-};
+    std::vector<VecDesc> commonVectorMappings;
+  };
 
 }
 

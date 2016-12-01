@@ -9,6 +9,7 @@
 #ifndef RV_RV_H
 #define RV_RV_H
 
+#include <PlatformInfo.h>
 #include "rv/vectorizationInfo.h"
 #include "rv/pda/DFG.h"
 #include "rv/analysis/maskAnalysis.h"
@@ -77,7 +78,8 @@ public:
      * Produce vectorized instructions
      */
     bool
-    vectorize(VectorizationInfo& vecInfo, const DominatorTree& domTree);
+    vectorize(PlatformInfo &platformInfo, VectorizationInfo &vecInfo,
+              const DominatorTree &domTree);
 
     /*
      * Ends the vectorization process on this function, removes metadata and

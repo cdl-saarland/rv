@@ -23,6 +23,7 @@
 #include <rv/analysis/maskAnalysis.h>
 #include <rv/transform/loopExitCanonicalizer.h>
 #include <rv/vectorMapping.h>
+#include <rv/sleefLibrary.h>
 
 #define RV_RUN_ON_FUNCTION_NEW_INTERFACE_BEGIN(scalarName) \
     Function* scalarName = LLVMWrapper::getFunction(#scalarName, module); \
@@ -74,12 +75,17 @@
         /* that we will be working on (tempF). */ \
         rvInfo->mValueInfoMap.mapValueInformation(valueMap); \
         \
+        TargetIRAnalysis irAnalysis; \
+        TargetTransformInfo tti = irAnalysis.run(*scalarCopy); \
+        TargetLibraryAnalysis libAnalysis; \
+        TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent()); \
+        rv::PlatformInfo platformInfo(&tti, &tli); \
         rv::VectorizerInterface wfv(*rvInfo, scalarCopy); \
-        const bool useSSE   = !useAVX; \
-        const bool useSSE41 = useSSE; \
-        const bool useSSE42 = useSSE; \
-        const bool useNEON  = false; \
-        rvInfo->addCommonMappings(useSSE, useSSE41, useSSE42, useAVX, useNEON); \
+        /* link in SIMD library */ \
+        const bool useSSE = false; \
+        const bool useAVX = true; \
+        const bool useAVX2 = false; \
+        addSleefMappings(useSSE, useAVX, useAVX2, platformInfo); \
         \
         DominatorTree domTree(*scalarCopy); \
         PostDominatorTree postDomTree; \
@@ -108,7 +114,7 @@
         bool linearizeOk = wfv.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, postDomTree, domTree); \
         assert(linearizeOk); \
 	    DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn); \
-        bool vectorizeOk = wfv.vectorize(vecInfo, domTreeNew); \
+        bool vectorizeOk = wfv.vectorize(platformInfo, vecInfo, domTreeNew); \
         assert(vectorizeOk); \
         wfv.finalize(); \
         delete maskAnalysis; \
@@ -174,13 +180,17 @@
         /* that we will be working on (tempF). */ \
         rvInfo->mValueInfoMap.mapValueInformation(valueMap); \
         \
+        TargetIRAnalysis irAnalysis; \
+        TargetTransformInfo tti = irAnalysis.run(*scalarCopy); \
+        TargetLibraryAnalysis libAnalysis; \
+        TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent()); \
+        rv::PlatformInfo platformInfo(&tti, &tli); \
         rv::VectorizerInterface wfv(*rvInfo, scalarCopy); \
-        \
-        const bool useSSE   = !useAVX; \
-        const bool useSSE41 = useSSE; \
-        const bool useSSE42 = useSSE; \
-        const bool useNEON  = false; \
-        rvInfo->addCommonMappings(useSSE, useSSE41, useSSE42, useAVX, useNEON); \
+        /* link in SIMD library */ \
+        const bool useSSE = false; \
+        const bool useAVX = true; \
+        const bool useAVX2 = false; \
+        addSleefMappings(useSSE, useAVX, useAVX2, platformInfo); \
         \
         DominatorTree domTree(*scalarCopy); \
         PostDominatorTree postDomTree; \
@@ -209,7 +219,7 @@
         bool linearizeOk = wfv.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, postDomTree, domTree); \
         assert(linearizeOk); \
         DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn); \
-        bool vectorizeOk = wfv.vectorize(vecInfo, domTreeNew); \
+        bool vectorizeOk = wfv.vectorize(platformInfo, vecInfo, domTreeNew); \
         assert(vectorizeOk); \
         wfv.finalize(); \
         delete maskAnalysis; \

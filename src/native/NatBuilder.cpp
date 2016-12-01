@@ -22,28 +22,22 @@ using namespace native;
 using namespace llvm;
 using namespace rv;
 
-NatBuilder::NatBuilder(RVInfo &rvInfo, VectorizationInfo &vectorizationInfo, const DominatorTree &dominatorTree) :
-    builder(*rvInfo.mContext),
+NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
+                       const DominatorTree &dominatorTree) :
+    builder(vectorizationInfo.getMapping().vectorFn->getContext()),
     vectorValueMap(),
     scalarValueMap(),
-    rvInfo(rvInfo),
+    platformInfo(platformInfo),
     vectorizationInfo(vectorizationInfo),
     dominatorTree(dominatorTree),
-    i1Ty(IntegerType::get(*rvInfo.mContext, 1)),
-    i32Ty(IntegerType::get(*rvInfo.mContext, 32)),
-    region(vectorizationInfo.getRegion()),
-    platformInfo(0, 0) {}
+    i1Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 1)),
+    i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
+    region(vectorizationInfo.getRegion())
+{}
 
 void NatBuilder::vectorize() {
   const Function *func = vectorizationInfo.getMapping().scalarFn;
   Function *vecFunc = vectorizationInfo.getMapping().vectorFn;
-
-  TargetIRAnalysis irAnalysis;
-  TargetTransformInfo tti = irAnalysis.run(*func);
-  TargetLibraryAnalysis libraryAnalysis;
-  TargetLibraryInfo tli = libraryAnalysis.run(*vecFunc->getParent());
-  platformInfo.setTTI(&tti);
-  platformInfo.setTLI(&tli);
 
   IF_DEBUG {
     errs() << "VA before vector codegen\n";
@@ -735,10 +729,9 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
   } else return nullptr;
 }
 
-const rv::VectorMapping *NatBuilder::getFunctionMapping(Function *func) {
-  auto mapIt = rvInfo.getVectorFuncMap().find(func);
-  if (mapIt != rvInfo.getVectorFuncMap().end()) return mapIt->second;
-  return platformInfo.getMappingByFunction(func); // can return nullptr
+const VectorMapping *NatBuilder::getFunctionMapping(Function *func) {
+  // IMPLEMENT ME
+  return nullptr;
 }
 
 unsigned NatBuilder::vectorWidth() {

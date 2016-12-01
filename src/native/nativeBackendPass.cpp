@@ -55,8 +55,12 @@ namespace rv {
 
     for (auto *inst : killList) inst->eraseFromParent();
 
-// Fetch vector function mappings
-    auto &rvInfo = getAnalysis<RVInfoProxyPass>().getInfo();
+// Fetch platform info
+    TargetIRAnalysis irAnalysis;
+    TargetTransformInfo tti = irAnalysis.run(*vi.getMapping().scalarFn);
+    TargetLibraryAnalysis libAnalysis;
+    TargetLibraryInfo tli = libAnalysis.run(*vi.getMapping().scalarFn->getParent());
+    PlatformInfo platformInfo(&tti, &tli);
     // mappings[vi->getMapping().scalarFn] = &vi->getMapping();
 
 // Get dominator tree
@@ -67,7 +71,7 @@ namespace rv {
     assert(vi.getMapping().vectorFn && "user has to provide empty simd function");
     assert(vi.getMapping().scalarFn != vi.getMapping().vectorFn &&
            "scalar function and simd function must not be the same");
-    native::NatBuilder builder(rvInfo, vi, dtree);
+    native::NatBuilder builder(platformInfo, vi, dtree);
     builder.vectorize();
 
     return true;

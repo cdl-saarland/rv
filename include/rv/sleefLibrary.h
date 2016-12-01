@@ -10,10 +10,11 @@
 #ifndef RV_SLEEFLIBRARY_H
 #define RV_SLEEFLIBRARY_H
 
+#include <PlatformInfo.h>
 #include "llvm/Analysis/TargetLibraryInfo.h"
 
 namespace rv {
-  llvm::TargetLibraryInfo addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2);
+  bool addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2, PlatformInfo &platformInfo);
 }
 
 #endif //RV_SLEEFLIBRARY_H

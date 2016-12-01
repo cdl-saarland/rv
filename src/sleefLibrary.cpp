@@ -12,9 +12,7 @@
 using namespace llvm;
 
 namespace rv {
-  llvm::TargetLibraryInfo addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2) {
-
-    TargetLibraryInfoImpl tliimpl;
+  bool addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2, PlatformInfo &platformInfo) {
 
     if (useAVX2) {
       const VecDesc VecFuncs[] = {
@@ -45,7 +43,7 @@ namespace rv {
           {"log1pf", "xlog1pf_avx2", 8}
       };
 
-      tliimpl.addVectorizableFunctions(VecFuncs);
+      platformInfo.addVectorizableFunctions(VecFuncs);
     }
 
     if (useAVX) {
@@ -77,7 +75,7 @@ namespace rv {
           {"log1pf", "xlog1pf_avx", 8},
       };
 
-      tliimpl.addVectorizableFunctions(VecFuncs);
+      platformInfo.addVectorizableFunctions(VecFuncs);
     }
 
     if (useSSE || useAVX || useAVX2) {
@@ -109,8 +107,8 @@ namespace rv {
           {"log1pf", "xlog1pf_sse", 4}
       };
 
-      tliimpl.addVectorizableFunctions(VecFuncs);
+      platformInfo.addVectorizableFunctions(VecFuncs);
     }
-    return TargetLibraryInfo(tliimpl);
+    return useAVX || useAVX2 || useSSE;
   }
 }

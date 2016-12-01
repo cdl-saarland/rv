@@ -32,7 +32,7 @@ namespace native {
   class NatBuilder {
     llvm::IRBuilder<> builder;
 
-    rv::RVInfo &rvInfo;
+    rv::PlatformInfo &platformInfo;
     rv::VectorizationInfo &vectorizationInfo;
     const llvm::DominatorTree &dominatorTree;
 
@@ -41,10 +41,10 @@ namespace native {
 
     rv::Region *region;
 
-    rv::PlatformInfo platformInfo;
 
   public:
-    NatBuilder(rv::RVInfo &rvInfo, VectorizationInfo &vectorizationInfo, const llvm::DominatorTree &dominatorTree);
+    NatBuilder(rv::PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
+               const llvm::DominatorTree &dominatorTree);
 
     void vectorize();
 
