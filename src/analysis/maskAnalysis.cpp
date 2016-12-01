@@ -561,6 +561,24 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
 
     if (mvInfo.getVectorShape(*terminator).isUniform())
     {
+        // Create a mask for the default case first
+        if (isa<SwitchInst>(terminator))
+        {
+            MaskPtr defaultExitMask = createMask(SELECT, insertPoint);
+            defaultExitMask->mName = "exitMask." + block->getName().str() + ".case.default";
+
+            MaskPtr defaultCondition = createMask(NEGATE, insertPoint);
+
+            MaskPtr falseMask = createMask(VALUE, insertPoint);
+            falseMask->mValue = mInfo.mConstBoolFalse;
+
+            defaultExitMask->mOperands.push_back(defaultCondition);
+            defaultExitMask->mOperands.push_back(entryMask);
+            defaultExitMask->mOperands.push_back(falseMask);
+
+            exitMasks.push_back(defaultExitMask);
+        }
+
         // For every outgoing edge, create a mask select with the entry mask of
         // the same block and an all-false-mask, selected by the comparison
         // result.
@@ -579,12 +597,12 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
             }
             else if (SwitchInst* switchInst = dyn_cast<SwitchInst>(terminator))
             {
-            	// if (succBB == switchInst->getDefaultDest()) continue;
+            	if (succBB == switchInst->getDefaultDest()) continue;
 
                 condition = createMask(VALUE, insertPoint);
 
-                ConstantInt*       caseDest = switchInst->findCaseDest(succBB);
-                SwitchInst::CaseIt caseIt   = switchInst->findCaseValue(caseDest);
+                SwitchInst::CaseIt caseIt = switchInst->case_begin();
+                for (unsigned j = 0; j < i - 1; ++j) ++caseIt; // Case 0 is default
 
                 assert (isa<ConstantInt>(caseIt.getCaseValue()) &&
                     "handling of non-constant int values in switch not implemented!");
@@ -639,7 +657,37 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
             DEBUG_RV( outs() << "  exitMask  (2): "; exitMask->print(outs()); outs() << "\n"; );
         }
 
+        // If this was a switch the default case was skipped,
+        // handle it now that we have the case conditions and build the condition for default
+        if (isa<SwitchInst>(terminator))
+        {
+            MaskPtr disj = exitMasks[1]->mOperands[0].lock();
+            for (unsigned i = 2; i < NumSuccessors; ++i)
+            {
+                auto temp = disj;
+                disj = createMask(DISJUNCTION, insertPoint);
+                disj->mOperands.push_back(temp);
+                disj->mOperands.push_back(exitMasks[i]->mOperands[0].lock());
+            }
+
+            exitMasks[0]->mOperands[0].lock()->mOperands.push_back(disj);
+        }
+
         return;
+    }
+
+    // Create a mask for the default case first
+    if (isa<SwitchInst>(terminator))
+    {
+        MaskPtr defaultExitMask = createMask(CONJUNCTION, insertPoint);
+        defaultExitMask->mName = "exitMask." + block->getName().str() + ".case.default";
+
+        MaskPtr defaultCondition = createMask(NEGATE, insertPoint);
+
+        defaultExitMask->mOperands.push_back(entryMask);
+        defaultExitMask->mOperands.push_back(defaultCondition);
+
+        exitMasks.push_back(defaultExitMask);
     }
 
     // For every outgoing edge, create a conjunction of the entry
@@ -675,12 +723,12 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
         }
         else if (SwitchInst* switchInst = dyn_cast<SwitchInst>(terminator))
         {
-        	// if (succBB == switchInst->getDefaultDest()) continue;
+        	if (succBB == switchInst->getDefaultDest()) continue;
 
             condition = createMask(VALUE, insertPoint);
 
-            ConstantInt*       caseDest = switchInst->findCaseDest(succBB);
-            SwitchInst::CaseIt caseIt   = switchInst->findCaseValue(caseDest);
+            SwitchInst::CaseIt caseIt = switchInst->case_begin();
+            for (unsigned j = 0; j < i - 1; ++j) ++caseIt; // Case 0 is default
 
             assert (isa<ConstantInt>(caseIt.getCaseValue()) &&
                     "handling of non-constant int values in switch not implemented!");
@@ -718,6 +766,22 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
         exitMasks.push_back(exitMask);
 
         DEBUG_RV( outs() << "  exitMask  (3): "; exitMask->print(outs()); outs() << "\n"; );
+    }
+
+    // If this was a switch the default case was skipped,
+    // handle it now that we have the case conditions and build the condition for default
+    if (isa<SwitchInst>(terminator))
+    {
+        MaskPtr disj = exitMasks[1]->mOperands[1].lock();
+        for (unsigned i = 2; i < NumSuccessors; ++i)
+        {
+            auto temp = disj;
+            disj = createMask(DISJUNCTION, insertPoint);
+            disj->mOperands.push_back(temp);
+            disj->mOperands.push_back(exitMasks[i]->mOperands[1].lock());
+        }
+
+        exitMasks[0]->mOperands[1].lock()->mOperands.push_back(disj);
     }
 }
 
