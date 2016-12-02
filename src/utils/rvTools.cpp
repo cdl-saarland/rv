@@ -337,8 +337,9 @@ rv::typesMatchPumped(const Type& t1, const Type& t2)
 
 bool
 rv::HasVaryingBranch(const llvm::BasicBlock & block, const VectorizationInfo& vecInfo) {
-	const llvm::BranchInst*  br          = llvm::dyn_cast<llvm::BranchInst>(block.getTerminator());
-	return (br && !vecInfo.getVectorShape(*br).isUniform());
+	const llvm::TerminatorInst* term = block.getTerminator();
+	return ((isa<BranchInst>(term) || isa<SwitchInst>(term)) &&
+            !vecInfo.getVectorShape(*term).isUniform());
 }
 
 
