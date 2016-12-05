@@ -37,7 +37,7 @@
 #include "rv/vectorMapping.h"
 #include "rv/rvInfo.h"
 #include "rv/sleefLibrary.h"
-#include "rv/transforms/loopExitCanonicalizer.h"
+#include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/Region/LoopRegion.h"
 
 using namespace llvm;
