@@ -39,6 +39,16 @@ static V toVec(S v[8]) {
 }
 
 template<typename S, typename V>
+static V toVec4(S v[4]) {
+  V r;
+  r.s0 = v[0];
+  r.s1 = v[1];
+  r.s2 = v[2];
+  r.s3 = v[3];
+  return r;
+}
+
+template<typename S, typename V>
 static void toArray(V v, S * r) {
   r[0] = v.s0;
   r[1] = v.s1;
@@ -50,6 +60,14 @@ static void toArray(V v, S * r) {
   r[7] = v.s7;
 }
 
+
+template<typename S, typename V>
+static void toArray4(V v, S * r) {
+  r[0] = v.s0;
+  r[1] = v.s1;
+  r[2] = v.s2;
+  r[3] = v.s3;
+}
 template<typename S>
 static void dumpArray(S * A, uint n) {
   if (n == 0) return;
