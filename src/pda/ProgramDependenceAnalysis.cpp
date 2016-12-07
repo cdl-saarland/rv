@@ -27,7 +27,7 @@ namespace rv {
 using ValueMap = std::map<const Value*, VectorShape>;
 using FuncInfo = native::VectorMappingMap;
 
-#define BYTE_SIZE 8
+// #define BYTE_SIZE 8
 
 char PDAWrapperPass::ID = 0;
 
@@ -658,7 +658,7 @@ PDA::computeShapeForInst(const Instruction* I)
                 {
                     subT = cast<SequentialType>(subT)->getPointerElementType();
 
-                    unsigned typeSize = (unsigned)layout.getTypeStoreSize(subT) / BYTE_SIZE;
+                    unsigned typeSize = (unsigned)layout.getTypeStoreSize(subT);
 
                     if (result.isVarying())
                         result = VectorShape::varying(result.getAlignment());
