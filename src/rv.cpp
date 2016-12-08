@@ -329,7 +329,10 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
     loopLiveValueAnalysis.run(*mScalarFn);
     selectgenerator.generate(*mScalarFn);
 
-    Linearizer linearizer(vectorizationInfo, maskAnalysis, domTree, loopInfo);
+    // use a fresh domtree here
+    DominatorTree fixedDomTree(vectorizationInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
+    domTree.recalculate(vectorizationInfo.getScalarFunction());
+    Linearizer linearizer(vectorizationInfo, maskAnalysis, fixedDomTree, loopInfo);
 
     IF_DEBUG {
       errs() << "--- VecInfo before Linearizer ---\n";

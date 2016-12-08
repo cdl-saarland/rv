@@ -177,6 +177,8 @@ namespace rv {
   // loop transofmr
     RelayNode & convertToSingleExitLoop(Loop & loop, ConstBlockSet mustHaves);
     void dropLoopExit(BasicBlock & block, Loop & loop);
+    // make @inst defined in @destBlock by adding PHI nodes with incoming undef edges
+    llvm::Value & promoteDefinition(llvm::Value & inst, uint defBlockId, uint destBlockId);
 
   // analysis structures
     VectorizationInfo & vecInfo;

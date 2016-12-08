@@ -21,6 +21,12 @@
 
 #include <cassert>
 
+#if 0
+#define IF_DEBUG_DTFIX IF_DEBUG
+#else
+#define IF_DEBUG_DTFIX if (false)
+#endif
+
 namespace rv {
 
 
@@ -121,6 +127,81 @@ Linearizer::buildBlockIndex() {
       }
     }
   }
+}
+
+Value &
+Linearizer::promoteDefinition(Value & inst, uint defBlockId, uint destBlockId) {
+  IF_DEBUG_LIN { errs() << "\t\tpromoting value " << inst << " from def block " << defBlockId << " to " << defBlockId << "\n"; }
+
+  assert(defBlockId <= destBlockId);
+
+  if (defBlockId == destBlockId) return inst;
+
+  const int span = destBlockId - defBlockId + 1;
+
+  auto * type = inst.getType();
+
+  std::vector<Value*> defs(span, nullptr);
+  defs[0] = &inst;
+
+  for (int i = 1; i < span + 1; ++i) {
+    int blockId = defBlockId + i;
+
+    auto & block = getBlock(blockId);
+
+    Value * localDef = nullptr;
+    PHINode * localPhi = nullptr;
+
+    auto itBegin = pred_begin(&block), itEnd = pred_end(&block);
+    for (auto it = itBegin; it != itEnd; ++it) {
+      auto * predBlock = *it;
+      int predIndex = getIndex(*predBlock);
+
+      // turn incoming value into an explicit value (nullptr -> Undef)
+      Value * inVal = nullptr;
+      if (predIndex < defBlockId) {
+        // predecessor not in span -> undef
+        inVal = UndefValue::get(type);
+
+      } else if (predIndex >= blockId) {
+        continue; // reaching backedge -> ignore
+
+      } else {
+        // predecessor in span with def
+        int reachingDefId = predIndex - defBlockId;
+        auto * reachingDef = defs[reachingDefId];
+        if (!reachingDef) {
+          // reaching undef within block range
+          inVal = UndefValue::get(type);
+        } else {
+          inVal = reachingDef;
+        }
+      }
+
+      // first reaching def OR reaching def is the same
+      if (!localDef || localDef == inVal) {
+        localDef = inVal;
+        continue;
+      }
+
+      // Otw, we need a phi node
+      if (!localPhi) {
+        localPhi = PHINode::Create(type, 0, "", &*block.getFirstInsertionPt());
+        for (auto itPassedPred = itBegin; itPassedPred != it; ++itPassedPred) {
+          localPhi->addIncoming(localDef, *itPassedPred);
+        }
+        localDef = localPhi;
+      }
+
+      // attach the incoming value
+      localPhi->addIncoming(inVal, predBlock);
+    }
+
+    // register as final definition at this point
+    defs[i] = localDef;
+  }
+
+  return *defs[span];
 }
 
 void
@@ -250,7 +331,11 @@ Linearizer::convertToSingleExitLoop(Loop & loop, ConstBlockSet mustHaves) {
 
 // query the live mask on the latch
   auto & latch = *loop.getLoopLatch();
+  auto latchIndex = getIndex(latch);
+  assert(latchIndex >= 0);
   auto & header = *loop.getHeader();
+  auto headerIndex = getIndex(header);
+  assert(headerIndex >= 0);
   Value* liveCond = maskAnalysis.getExitMask(latch, header);
 
 // collect all loop exits
@@ -292,16 +377,29 @@ Linearizer::convertToSingleExitLoop(Loop & loop, ConstBlockSet mustHaves) {
 
         BasicBlock * defBlock = inst->getParent();
 
-        // TODO repair
-        assert(dt.dominates(defBlock, block) && "LCSSA data flow repair not yet implemented");
-
         // branch will start from the latch
         lcPhi->setIncomingBlock(i, &latch);
+
+        // def dominates exit block and will continue to do so after loop transform
+        if (dt.dominates(defBlock, block)) {
+          continue;
+        }
+
+        // def does not dominate latch
+        // create a dominating def by inserting PHI nodes with incoming undefs
+        int defIndex = getIndex(*defBlock);
+        assert(headerIndex <= defIndex && defIndex <= latchIndex && "non-dominating def not in loop");
+
+        auto & dominatingDef = promoteDefinition(*inst, defIndex, latchIndex);
+
+        // replace incoming value with new dominating def
+        lcPhi->setIncomingValue(i, &dominatingDef);
       }
 
       // migrate this PHI node to the loopExitRelay
       IF_DEBUG_LIN { errs() << "\t\tMigrating " << lcPhi->getName() << " from " << lcPhi->getParent()->getName() << " to " << loopExitRelay.block->getName() << "\n"; }
 
+      // FIXME this will generate redundant PHI nodes if the same instruction is liveout on multiple exits
       lcPhi->removeFromParent();
       InsertAtFront(*loopExitRelay.block, *lcPhi);
     }
@@ -409,8 +507,12 @@ Linearizer::emitBlock(BasicBlock & target) {
   auto itStart = relayBlock->use_begin();
   auto itEnd = relayBlock->use_end();
 
+  // dom node of emitted target block
+  auto * targetDom = dt.getNode(&target);
+  assert(targetDom);
+
   // while at it search for a new dominator
-  auto * commonDomBlock = &target;
+  BasicBlock * commonDomBlock = nullptr;
 
   for (auto itUse = itStart; itUse != itEnd; ) {
     Use & use = *(itUse++);
@@ -423,14 +525,19 @@ Linearizer::emitBlock(BasicBlock & target) {
     branch.setOperand(i, &target);
 
     // advance to the nearest common dominator of all branches so far
-    commonDomBlock = dt.findNearestCommonDominator(commonDomBlock, branch.getParent());
+    auto * branchBlock = branch.getParent();
+    if (!commonDomBlock) { commonDomBlock = branchBlock; }
+    else { commonDomBlock = dt.findNearestCommonDominator(commonDomBlock, branchBlock); }
     assert(commonDomBlock && "domtree repair: did not reach a common dom node!");
   }
 
 // domtree update: least common dominator of all incoming branches
   // assert(commonDomBlock != &target && "did not find a valid idom of target"); // FIXME what about loop headers?
-  auto * targetDom = dt.getNode(&target);
-  targetDom->setIDom(dt.getNode(commonDomBlock));
+  auto * nextCommonDom = dt.getNode(commonDomBlock);
+  assert(nextCommonDom);
+  IF_DEBUG_DTFIX{ errs() << "DT before dom change:";dt.print(errs()); }
+  targetDom->setIDom(nextCommonDom);
+  IF_DEBUG_DTFIX { errs() << "DT after dom change:";dt.print(errs()); }
 
 // if there are any instructions stuck in @relayBlock move them to target now
   for (auto it = relayBlock->begin(); it != relayBlock->end() && !isa<TerminatorInst>(*it); it = relayBlock->begin()) {
@@ -609,7 +716,12 @@ Linearizer::processBranch(BasicBlock & head, ConstBlockSet mustHaves, Loop * par
   // this is because in that case all paths do B have to go through A first
   if (dt.dominates(&head, secondBlock) && !getRelay(*secondBlock)) {
     auto * secondDom = dt.getNode(secondBlock);
-    secondDom->setIDom(dt.getNode(firstBlock));
+    auto * firstDom = dt.getNode(firstBlock);
+    assert(firstDom);
+
+    IF_DEBUG_DTFIX { errs() << "DT before dom change:"; dt.print(errs()); }
+    secondDom->setIDom(firstDom);
+    IF_DEBUG_DTFIX { errs() << "DT after dom change:";dt.print(errs()); }
   }
 
 #if 0
@@ -693,6 +805,8 @@ Linearizer::run() {
 
 // dump divergent branches / loops
   IF_DEBUG_LIN {
+    dt.print(errs());
+
     errs() << "-- LIN: divergent loops/brances in the region --";
     for (uint i = 0; i < blocks.size(); ++i) {
       auto * block = blocks[i];
@@ -753,6 +867,9 @@ Linearizer::verify() {
       assert(!vecInfo.isDivergentLoop(loop));
     }
   }
+
+  // check whether the on-the-fly domTree repair worked
+  dt.verifyDomTree();
 
 }
 
