@@ -29,6 +29,12 @@ using namespace rv::MaskGraphUtils;
 using namespace rv;
 
 
+#if 1
+#define IF_DEBUG_MA if (false)
+#else
+#define IF_DEBUG_MA IF_DEBUG
+#endif
+
 char MaskAnalysisWrapper::ID = 0;
 // NOTE: The order of initialized dependencies is important
 //       to prevent 'Unable to schedule' errors!
@@ -137,7 +143,7 @@ MaskAnalysis::MaskAnalysis(VectorizationInfo& Vecinfo,
 bool
 MaskAnalysis::analyze(Function& F)
 {
-    IF_DEBUG {
+    IF_DEBUG_MA {
             errs() << "\n#########################################################\n";
             errs() << "## MASK ANALYSIS\n";
             errs() << "#########################################################\n";
@@ -162,7 +168,7 @@ MaskAnalysis::analyze(Function& F)
         return true;
     }
 
-    IF_DEBUG { print(outs(), NULL); }
+    IF_DEBUG_MA { print(outs(), NULL); }
 
     return false;
 }
@@ -320,7 +326,7 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
     // Mark block as finished.
     markedBlocks.insert(block);
 
-    IF_DEBUG {
+    IF_DEBUG_MA {
         outs() << "generated mask information for block '" << block->getName() << "':\n";
         info->print(outs());
     }
@@ -417,7 +423,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
 
         if (!mvInfo.isDivergentLoop(loop))
         {
-            IF_DEBUG errs() << "MA: non-divergent loop " << *loop->getHeader() << "\n";
+            IF_DEBUG_MA errs() << "MA: non-divergent loop " << *loop->getHeader() << "\n";
 
             // This is the header of a NON_DIVERGENT loop, so we have to make sure
             // that the entry mask is the exit mask of the preheader in all
@@ -431,7 +437,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
         }
         else
         {
-            IF_DEBUG errs() << "MA: divergent loop " << *loop->getHeader() << "\n";
+            IF_DEBUG_MA errs() << "MA: divergent loop " << *loop->getHeader() << "\n";
 
             // This is the header of a DIVERGENT loop, so we have to make sure
             // that there is a loop mask phi.
@@ -460,7 +466,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
             loopInfo->mLoop    = loop;
             loopInfo->mMaskPhi = entryMask;
 
-            IF_DEBUG {
+            IF_DEBUG_MA {
               errs() << "  entryMask (5): "; entryMask->print(outs()); outs() << "\n";
             }
 
