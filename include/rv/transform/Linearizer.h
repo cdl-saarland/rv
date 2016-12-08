@@ -23,7 +23,7 @@
 #include <llvm/IR/Dominators.h>
 
 #include <vector>
-#include <map>
+#include <unordered_map>
 #include <set>
 
 namespace llvm {
@@ -33,68 +33,82 @@ namespace llvm {
   class TerminatorInst;
 }
 
-#include "rvConfig.h"
-
-#if 1
-#define IF_DEBUG_LIN IF_DEBUG
-#else
-#define IF_DEBUG_LIN if (false)
-#endif
-
-
 namespace rv {
-
-  typedef std::vector<llvm::BasicBlock*> BlockVector;
-  typedef std::map<const llvm::BasicBlock*, unsigned> BlockIndex;
-  typedef std::set<const llvm::BasicBlock*> ConstBlockSet;
+  typedef std::unordered_map<const llvm::BasicBlock*, int> BlockIndex;
+  // typedef std::set<int> IndexSet;
 
   class Linearizer {
 
   // relay logic
-
     // every block branching to @relayBlock actually need to execute the blocks in @destBlocks next
     // we need to defer these edges to we can schedule linearized blocks in between
     struct RelayNode {
+      // the next destionation for every branch going to this relaynode
+      llvm::BasicBlock & head;
+
+      // head block id
+      int id;
+
       // branch to this block if you need to execute any of @destBlocks next
       llvm::BasicBlock * block;
 
       // blocks that will be executed in any case when branching to @block
       // this implies that these blocks will be completely linearized (possible interspread by uniform subgraphs)
-      ConstBlockSet destBlocks;
+      RelayNode * next;
 
-      RelayNode(llvm::BasicBlock * _block, ConstBlockSet _destBlocks)
-      : block(_block)
-      , destBlocks(_destBlocks)
+      RelayNode(llvm::BasicBlock & _head, int _id)
+      : head(_head)
+      , id (_id)
+      , block(nullptr)
+      , next(nullptr)
       {}
+
+      void enable(BasicBlock & relayBlock, RelayNode * _tail) {
+        block = &relayBlock; next = _tail;
+      }
+
+      void finalize() { block = nullptr; }
+
+      bool isActive() const { return block != nullptr; }
     };
 
-    // maps blocks of the CFG to the relay states they are heading
-    // This means they have the minimal index by the topologic order of all blocks in @destBlocks of this relay node
-    // FIXME use a proper tree structure instead
-    std::map<const BasicBlock*, RelayNode*> scheduleHeads; // maps current heads to RelayNodes
-    std::map<const BasicBlock*, RelayNode*> relayBlocks;   // maps relay BBs to their RelayNodes
+    RelayNode & createRelay(int headId, RelayNode * tail) {
+      auto & head = relays[headId].head;
 
-    RelayNode * getRelay(const BasicBlock & head) const {
-      auto it = scheduleHeads.find(&head);
-      if (it != scheduleHeads.end()) {
-        return it->second;
-      } else {
-        return nullptr;
-      }
+      auto * relayBlock = BasicBlock::Create(context, "relay_" + head.getName(), &func);
+      relays[headId].enable(*relayBlock, tail);
+      return relays[headId];
     }
 
-    void getDestBlocks(const BasicBlock & relayBlock, ConstBlockSet & oDestBlocks) {
-      assert(relayBlocks.count(&relayBlock));
-      for (auto * block : relayBlocks[&relayBlock]->destBlocks) {
-        oDestBlocks.insert(block);
-      }
+    std::vector<RelayNode> relays; // map target blocks to relay nodes
+
+    RelayNode * getRelay(int blockId) {
+      auto & blockRelay =  relays[blockId];
+      return blockRelay.isActive() ? &blockRelay : nullptr;
     }
 
-    // return a new schedule head that represents all @destBlocks at the schedule head @head minus @head itself
+    const RelayNode * getRelay(int blockId) const {
+      const auto & blockRelay =  relays[blockId];
+      return blockRelay.isActive() ? &blockRelay : nullptr;
+    }
+
+    void dumpRelayChain(int headId) const {
+      errs() << "chain at " << getBlock(headId).getName() << " {";
+      auto * relay = getRelay(headId);
+      while (relay) {
+        if (relay->id != headId) {
+          errs() << " -> " << relay->head.getName();
+        }
+        relay = relay->next;
+      }
+      errs() << "}";
+    }
+
+
     // @return the advanced schedule head. Otw, nullptr if @head is not a schedule head or no @destBlocks remain
     // @oRelayBlock will hold the actual basic block if the schedule head was advanced
-    RelayNode * advanceScheduleHead(llvm::BasicBlock & head, BasicBlock *& oRelayBlock) {
-      auto * oldRelay = getRelay(head);
+    RelayNode * advanceScheduleHead(int headId, BasicBlock *& oRelayBlock) {
+      auto * oldRelay = getRelay(headId);
       if (!oldRelay) {
         oRelayBlock = nullptr;
         return nullptr;
@@ -102,83 +116,83 @@ namespace rv {
 
       oRelayBlock = oldRelay->block;
 
-      auto destBlocks = oldRelay->destBlocks;
-      destBlocks.erase(&head);
-
-      // free old relay
-      scheduleHeads.erase(&head);
-      delete oldRelay;
+      // free old relay (this unliks oldRelay from @oRelayBlock)
+      auto * nextRelay = oldRelay->next;
+      oldRelay->finalize(); // delete oldRelay;
 
       // create a new relay for any remaining blocks
-      if (destBlocks.empty()) return nullptr;
-      return &requestRelay(destBlocks);
+      return nextRelay; // &requestRelay(destBlocks);
     }
 
-    RelayNode & requestRelay(ConstBlockSet & destBlocks) {
-      unsigned minIdx = blocks.size();
-      for (auto * block : destBlocks) {
-        minIdx = std::min<>(minIdx, getIndex(*block));
-      }
-      BasicBlock & head = getBlock(minIdx);
+    // relay chain merging
+    RelayNode * mergeRelays(RelayNode * a, RelayNode * b) {
+      if (a->id < b->id) {
+        if (!a->next) {
+          // we reached the tail of a
+          a->next = b;
 
-      assert(!finishedBlocks.count(&head) && "relay head already emitted -> relay block will never be linked back");
-
-      IF_DEBUG_LIN {
-        errs() << "\t - relay request " << head.getName() << " -> {";
-        for (auto * block : destBlocks) {
-          if (&head != block) errs() << ", " << block->getName();
+        } else {
+          // we need to interleave here
+          auto * tailHead = mergeRelays(a->next, b);
+          a->next = tailHead;
         }
-        errs() << "}\n";
+      } else if (a->id > b->id) {
+        return mergeRelays(b, a);
+      } else {
+        // return a;
       }
 
-      auto it = scheduleHeads.find(&head);
-      if (it != scheduleHeads.end()) {
-        IF_DEBUG_LIN{ errs() << "\treusing relay\n"; }
-        // TODO we could optimize the schedule by splitting
-        // Consider the case of A-->B and B-->C relay nodes
-        // right now we merge these two to A-->B-->C
-        // we could instead split B and create to instances A-->B and B'-->C
-        // This would avoid executing C whenever we reached B by A
-        //
-        // We could either we split now or we make the scheduleHead map a n:n relation
-        //
-      // merge additional destBlocks into existing node
-        auto * relNode = it->second;
-
-        for (const auto * block : destBlocks) {
-          relNode->destBlocks.insert(block);
-        }
-
-        return *it->second;
-      }
-
-      auto * relayBlock = BasicBlock::Create(context, "relay_" + head.getName(), &func);
-      auto * relay = new RelayNode(relayBlock, destBlocks);
-      relayBlocks[relayBlock] = relay;
-      scheduleHeads[&head] = relay;
-
-      return *relay;
+      return a;
     }
 
-    ConstBlockSet finishedBlocks;
-    RelayNode* emitBlock(llvm::BasicBlock & block);
+    // merges the chain starting at @targetId into the chain defined by @headRelay
+    // creates a new single element chain for @targetId if there was none before
+    // if there is no @headRelay, returns the chain for @targetId
+    RelayNode & addTargetToRelay(RelayNode * headRelay, int targetId) {
+      auto * targetRelay = getRelay(targetId);
+      if (!targetRelay) {
+        targetRelay = &createRelay(targetId, nullptr);
+      }
+
+      if (!headRelay) {
+        return *targetRelay;
+      }
+
+      return *mergeRelays(headRelay, targetRelay);
+    }
+
+    bool needsFolding(llvm::TerminatorInst & branch);
 
   // transformations
     // partially linearize a range of blocks in the blockIndex
-    uint processRange(uint startId, uint endId, ConstBlockSet mustHaves, llvm::Loop * parentLoop);
+    int processRange(int startId, int endId, llvm::Loop * parentLoop);
 
-    uint processBlock(llvm::BasicBlock & regionHead, ConstBlockSet mustHaves, llvm::Loop * parentLoop);
+    // process the terminator in @head subjecting all sucessors to @exitRelay
+    // if @headId is the header of a loop transform the entire loop
+    int processBlock(int headId, llvm::Loop * parentLoop);
 
-    uint processLoop(llvm::BasicBlock & loopHead, ConstBlockSet mustHaves);
+    // process all blocks and branches in the loop
+    // if that loop is divergent, processLoop will make it uniform before processing its body
+    int processLoop(int headId, Loop * loop);
 
-    bool needsFolding(llvm::TerminatorInst & branch);
-    void processBranch(llvm::BasicBlock & block, ConstBlockSet mustHaves, llvm::Loop * parentLoop);
+    // update the relays for all branch targets of @block, linking them to @exitRelay
+    void processBranch(llvm::BasicBlock & block, RelayNode * exitRelay, llvm::Loop * parentLoop);
 
-  // loop transofmr
-    RelayNode & convertToSingleExitLoop(Loop & loop, ConstBlockSet mustHaves);
+    // emit the block at @targetId
+    // any branches to the (optional) relay block for @targetId will be linked to the real block
+    // will erase the relay block for @target Id and finalize its RelayNode
+    RelayNode* emitBlock(int targetId);
+
+  // divergent loop transform
+    // creates a single exiting edge at the latch
+    // adds all old exit blocks as relay targets for the new single exit block
+    RelayNode & convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay);
+
+    // removes all exiting control edges from @block out of @loop
     void dropLoopExit(BasicBlock & block, Loop & loop);
+
     // make @inst defined in @destBlock by adding PHI nodes with incoming undef edges
-    llvm::Value & promoteDefinition(llvm::Value & inst, uint defBlockId, uint destBlockId);
+    llvm::Value & promoteDefinition(llvm::Value & inst, int defBlockId, int destBlockId);
 
   // analysis structures
     VectorizationInfo & vecInfo;
@@ -194,11 +208,12 @@ namespace rv {
 
   // topological sorted blocks in the region
     BlockIndex blockIndex;
-    BlockVector blocks;
     void addToBlockIndex(llvm::BasicBlock & block);
 
-    inline unsigned getIndex(const llvm::BasicBlock & block) const { return blockIndex.at(&block); }
-    BasicBlock & getBlock(unsigned i) const { assert(i < blocks.size()); return *blocks[i]; }
+    inline int getIndex(const llvm::BasicBlock & block) const { return blockIndex.at(&block); }
+    BasicBlock & getBlock(unsigned i) { assert(i < relays.size()); return relays[i].head; }
+    const BasicBlock & getBlock(unsigned i) const { assert(i < relays.size()); return relays[i].head; }
+    int getNumBlocks() const { return (int) relays.size(); }
 
   // passes
     // topo sort basic blocks in function
@@ -209,7 +224,6 @@ namespace rv {
     // b) the index range of loop blocks must be tight (there should be not blocks in the range that do not belong to the loop)
     void verifyBlockIndex();
     void verifyLoopIndex(llvm::Loop & loop);
-
 
     // linearize all divergent control
     void linearizeControl();
