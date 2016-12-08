@@ -28,6 +28,12 @@
 using namespace llvm;
 using namespace rv;
 
+#if 1
+#define IF_DEBUG_SG if (false)
+#else
+#define IF_DEBUG_SG IF_DEBUG
+#endif
+
 char SelectGeneratorWrapper::ID = 0;
 // NOTE: The order of initialized dependencies is important
 //       to prevent 'Unable to schedule' errors!
@@ -138,7 +144,7 @@ SelectGeneratorWrapper::print(raw_ostream& O, const Module*) const
 bool
 SelectGenerator::generate(Function& F)
 {
-    IF_DEBUG {
+    IF_DEBUG_SG {
             outs() << "\n#########################################################\n";
             outs() << "## SELECT GENERATION\n";
             outs() << "#########################################################\n";
