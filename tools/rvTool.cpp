@@ -481,9 +481,10 @@ int main(int argc, char** argv)
             rv::VectorShape argShape = decodeShape(shapeText, i);
             argShapes.push_back(argShape);
         }
-        if (shapeText.size() > i + 1)
+        if (shapeText.size() > i)
         { // return shape
-            assert(shapeText[i++] == 'r' && "expected return shape");
+            assert(shapeText[i] == 'r' && "expected return shape");
+            ++i;
             resShape = decodeShape(shapeText, i);
         }
 
