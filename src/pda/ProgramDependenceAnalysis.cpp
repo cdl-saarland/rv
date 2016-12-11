@@ -575,8 +575,8 @@ PDA::computeShapeForInst(const Instruction* I)
             const Value* op1 = I->getOperand(0);
             const Value* op2 = I->getOperand(1);
 
-            const VectorShape shape1 = getShape(op1);
-            const VectorShape shape2 = getShape(op2);
+            const VectorShape& shape1 = getShape(op1);
+            const VectorShape& shape2 = getShape(op2);
 
             if (shape1.isVarying() || shape2.isVarying())
                 return VectorShape::varying();
@@ -694,8 +694,8 @@ PDA::computeShapeForInst(const Instruction* I)
             unsigned int i = 0;
             for (auto& op : callee->operands())
             {
-                const VectorShape expected = Arginfo[i++];
-                const VectorShape actual   = getShape(op);
+                const VectorShape& expected = Arginfo[i++];
+                const VectorShape& actual   = getShape(op);
 
                 // Anything goes
                 if (expected.isVarying())
@@ -756,9 +756,9 @@ PDA::computeShapeForInst(const Instruction* I)
             const Value* selection1 = I->getOperand(1);
             const Value* selection2 = I->getOperand(2);
 
-            const VectorShape condShape = getShape(condition);
-            const VectorShape sel1Shape = getShape(selection1);
-            const VectorShape sel2Shape = getShape(selection2);
+            const VectorShape& condShape = getShape(condition);
+            const VectorShape& sel1Shape = getShape(selection1);
+            const VectorShape& sel2Shape = getShape(selection2);
 
             if (!condShape.isUniform())
                 return VectorShape::varying();
@@ -784,8 +784,8 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
     const Value* op1 = I->getOperand(0);
     const Value* op2 = I->getOperand(1);
 
-    const VectorShape shape1 = getShape(op1);
-    const VectorShape shape2 = getShape(op2);
+    const VectorShape& shape1 = getShape(op1);
+    const VectorShape& shape2 = getShape(op2);
 
     const int stride1 = shape1.getStride();
     const int stride2 = shape2.getStride();
@@ -926,7 +926,7 @@ VectorShape
 PDA::computeShapeForCastInst(const CastInst* castI)
 {
     const Value* castOp = castI->getOperand(0);
-    const VectorShape castOpShape = getShape(castOp);
+    const VectorShape& castOpShape = getShape(castOp);
     const int castOpStride = castOpShape.getStride();
     const int castOpAlignment = castOpShape.getAlignment();
     const DataLayout layout(castI->getModule());
@@ -1018,17 +1018,14 @@ PDA::computeShapeForCastInst(const CastInst* castI)
     }
 }
 
-VectorShape
-PDA::getShape(const Value* const V) const
+const VectorShape&
+PDA::getShape(const Value* const V)
 {
-    if (isa<Constant>(V))
-    {
-        return VectorShape::uni(getAlignment(cast<Constant>(V))); // TODO alignment
-    }
-
     auto found = mValue2Shape.find(V), end = mValue2Shape.end();
-    assert (found != end && "Value has not been computed yet");
-    return found->second;
+    if (found != end) return found->second;
+
+    assert (isa<Constant>(V) && "Value is not available");
+    return mValue2Shape[V] = VectorShape::uni(getAlignment(cast<Constant>(V)));
 }
 
 inline std::string
