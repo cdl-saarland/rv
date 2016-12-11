@@ -586,11 +586,9 @@ PDA::computeShapeForInst(const Instruction* I)
                 return VectorShape::uni();
 
             CmpInst::Predicate predicate = cast<CmpInst>(I)->getPredicate();
-            const int stride1 = shape1.getStride();
-            const int stride2 = shape2.getStride();
-            const int strideGap = stride1 - stride2;
+            const int strideDiff = shape1.getStride() - shape2.getStride();
 
-            const int vectorWidth = mVecinfo.getMapping().vectorWidth;
+            const unsigned vectorWidth = mVecinfo.getMapping().vectorWidth;
 
             const unsigned alignment1 = shape1.getAlignment();
             const unsigned alignment2 = shape2.getAlignment();
@@ -600,15 +598,14 @@ PDA::computeShapeForInst(const Instruction* I)
             {
                 // There are 2 possibilities:
                 // 1. The first vector1 entry is not smaller than the first vector2 entry
-                //    If strideGap >= 0, the gap does not decrease and so all other entries
+                //    If strideDiff >= 0, the gap does not decrease and so all other entries
                 //    are pairwise not smaller
                 // 2. The first vector1 entry is smaller...
                 //    If the alignment a is the same, we can at least add a until we are possibly
-                //    equal. But since strideGap * vectorWidth <= a, the accumulated difference
+                //    equal. But since strideDiff * vectorWidth <= a, the accumulated difference
                 //    does not exceed a and all entries are pairwise smaller
-                if (strideGap >= 0 &&
-                    alignment1 == alignment2 &&
-                    strideGap * vectorWidth <= alignment1)
+                if (strideDiff >= 0 && alignment1 == alignment2 &&
+                    strideDiff * vectorWidth <= alignment1)
                 {
                     return VectorShape::uni();
                 }
@@ -617,9 +614,8 @@ PDA::computeShapeForInst(const Instruction* I)
                      predicate == CmpInst::Predicate::ICMP_UGT)
             {
                 // Analogous reasoning to the one above
-                if (strideGap <= 0 &&
-                    alignment1 == alignment2 &&
-                    -strideGap * vectorWidth <= alignment1)
+                if (strideDiff <= 0 && alignment1 == alignment2 &&
+                    -strideDiff * vectorWidth <= alignment1)
                 {
                     return VectorShape::uni();
                 }
@@ -640,7 +636,7 @@ PDA::computeShapeForInst(const Instruction* I)
 
             for (const Value* index : make_range(gep->idx_begin(), gep->idx_end()))
             {
-                const VectorShape indexShape = getShape(index);
+                const VectorShape& indexShape = getShape(index);
                 const int indexStride = indexShape.getStride();
                 const int indexAlignment = indexShape.getAlignment();
 
@@ -806,7 +802,7 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
             if (shape1.isVarying() || shape2.isVarying())
                 return VectorShape::varying(resAlignment);
 
-            VectorShape res = VectorShape(stride1 + stride2, resAlignment);
+            VectorShape res(stride1 + stride2, resAlignment);
 
             // Only allow strided results for floating point addition if
             // according fast math flags are set
@@ -833,7 +829,7 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
             if (shape1.isVarying() || shape2.isVarying())
                 return VectorShape::varying(resAlignment);
 
-            VectorShape res = VectorShape(stride1 - stride2, resAlignment);
+            VectorShape res(stride1 - stride2, resAlignment);
 
             // Only allow strided results for floating point substraction if
             // according fast math flags are set
