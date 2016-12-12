@@ -105,15 +105,15 @@ PDA::isInRegion(const Instruction & inst) {
 void
 PDA::fillVectorizationInfo(Function& F)
 {
-    for (const BasicBlock& BB : F)
-    {
-        mVecinfo.setVectorShape(BB, mValue2Shape[&BB]);
-        for (const Instruction& I : BB)
-            if (mValue2Shape.count(&I))
-                mVecinfo.setVectorShape(I, mValue2Shape[&I]);
-        if (!mVecinfo.hasKnownShape(*BB.getTerminator()))
-            mVecinfo.setVectorShape(*BB.getTerminator(), VectorShape::uni());
-    }
+  for (const BasicBlock& BB : F)
+  {
+      mVecinfo.setVectorShape(BB, mValue2Shape[&BB]);
+      for (const Instruction& I : BB)
+          if (mValue2Shape.count(&I))
+              mVecinfo.setVectorShape(I, mValue2Shape[&I]);
+      if (!mVecinfo.hasKnownShape(*BB.getTerminator()))
+          mVecinfo.setVectorShape(*BB.getTerminator(), VectorShape::uni());
+  }
 }
 
 unsigned
@@ -175,7 +175,6 @@ PDA::init(Function& F)
                 argShape = VectorShape::cont();
 
             update(&arg, argShape);
-            mVecinfo.dropVectorShape(arg);
         } else {
           assert(mRegion && "will only default function args if in region mode");
           // set argument shapes to uniform if not known better
