@@ -68,7 +68,7 @@ for pattern in patterns:
   tests.sort()
   for testCase in tests:
     baseName = path.basename(testCase)
-    print("- {}".format(baseName))
+    print("{:60}".format("- {}".format(baseName)), end="")
     parts = baseName.split("-")
     options = parts[-1].split(".")[0]
     mode = parts[-2]
@@ -80,10 +80,7 @@ for pattern in patterns:
       success = executeWFVTest(scalarLL, options)
     elif mode == "loop":
       success = executeOuterLoopTest(scalarLL, options)
-    if success:
-        print("\tpassed!")
-    else:
-        print("\tfailed!")
+    print("passed!" if success else "failed!")
 
 
 
