@@ -62,9 +62,9 @@ ENDIF ()
 IF ( VECTOR_ISA  STREQUAL "avx")
     ADD_CUSTOM_COMMAND (
         OUTPUT ${RV_LIB_SLEEF_OUT_DIR}
-        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -mavx2 -DENABLE_AVX2=ON -o ${RV_LIB_SLEEF_OUT_DIR}/avx2_unopt_sleef.bc
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -mavx2 -mfma -DENABLE_AVX2=ON -o ${RV_LIB_SLEEF_OUT_DIR}/avx2_unopt_sleef.bc
         COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -mavx -DENABLE_AVX=ON -o ${RV_LIB_SLEEF_OUT_DIR}/avx_unopt_sleef.bc
-        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -msse4.2 -DENABLE_SSE=ON -o ${RV_LIB_SLEEF_OUT_DIR}/sse_unopt_sleef.bc
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -msse4.2 -DENABLE_SSE2=ON -o ${RV_LIB_SLEEF_OUT_DIR}/sse_unopt_sleef.bc
         COMMAND ${LLVM_TOOL_OPT} ${RV_LIB_SLEEF_OUT_DIR}/avx2_unopt_sleef.bc -O3 -o ${RV_LIB_SLEEF_OUT_DIR}/avx2_sleef.bc
         COMMAND ${LLVM_TOOL_OPT} ${RV_LIB_SLEEF_OUT_DIR}/avx_unopt_sleef.bc -O3 -o ${RV_LIB_SLEEF_OUT_DIR}/avx_sleef.bc
         COMMAND ${LLVM_TOOL_OPT} ${RV_LIB_SLEEF_OUT_DIR}/sse_unopt_sleef.bc -O3 -o ${RV_LIB_SLEEF_OUT_DIR}/sse_sleef.bc

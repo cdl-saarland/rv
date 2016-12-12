@@ -27,6 +27,4 @@ llvm::BasicBlock *createCascadeBlocks(llvm::Function *insertInto, unsigned vecto
 
 bool isSupportedOperation(llvm::Instruction *const inst);
 
-void addSIMDMappingsFor(rv::PlatformInfo &platformInfo, llvm::Function *function);
-
 #endif //NATIVE_UTILS_H

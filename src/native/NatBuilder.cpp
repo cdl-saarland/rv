@@ -32,8 +32,7 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     dominatorTree(dominatorTree),
     i1Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
-    region(vectorizationInfo.getRegion())
-{}
+    region(vectorizationInfo.getRegion()) {}
 
 void NatBuilder::vectorize() {
   const Function *func = vectorizationInfo.getMapping().scalarFn;
@@ -174,8 +173,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       for (unsigned lane = 0; lane < laneEnd; ++lane) {
         copyGEPInstruction(gep, lane);
       }
-    }
-    else if (canVectorize(inst) && shouldVectorize(inst))
+    } else if (canVectorize(inst) && shouldVectorize(inst))
       vectorize(inst);
     else if (!canVectorize(inst) && shouldVectorize(inst))
       fallbackVectorize(inst);
@@ -191,7 +189,8 @@ void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst,
   assert(scalInst && "no instruction to map operands from");
   assert(builder.GetInsertBlock() && "no insertion point set");
 
-  for (unsigned i = 0; i < inst->getNumOperands(); ++i) {
+  unsigned e = isa<CallInst>(scalInst) ? inst->getNumOperands() - 1 : inst->getNumOperands();
+  for (unsigned i = 0; i < e; ++i) {
     Value *op = scalInst->getOperand(i);
     Value *mappedOp = (vectorizedInst || isa<BasicBlock>(op)) ? requestVectorValue(op) : requestScalarValue(op,
                                                                                                             laneIdx);
@@ -324,14 +323,18 @@ static bool HasSideEffects(CallInst &call) {
 
 void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   Function *callee = scalCall->getCalledFunction();
-  const VectorMapping *mapping = getFunctionMapping(callee);
+  StringRef calleeName = callee->getName();
 
-  if (mapping && useMappingForCall(mapping, scalCall)) {
+  // is func is vectorizable (standard mapping exists for given vector width), create new call to vector func
+  if (platformInfo.isFunctionVectorizable(calleeName, vectorWidth())) {
     CallInst *call = cast<CallInst>(scalCall->clone());
-    Function *simdFunc = mapping->vectorFn;
+    Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
+    Function *simdFunc = platformInfo.requestVectorizedFunction(calleeName, vectorWidth(), mod);
     call->setCalledFunction(simdFunc);
     call->mutateType(simdFunc->getReturnType());
-    // TODO: map operands
+    mapOperandsInto(scalCall, call, true);
+    mapVectorValue(scalCall, call);
+    builder.Insert(call, scalCall->getName());
   } else {
     // check if we need cascade first
     Value *predicate = vectorizationInfo.getPredicate(*scalCall->getParent());
@@ -354,7 +357,9 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
 
     // type of the call. we don't need to construct a result if void
     Type *callType = scalCall->getType();
-    Value *resVec = (callType->isVoidTy() || callType->isVectorTy() || callType->isStructTy()) ? nullptr : UndefValue::get(getVectorType(callType, vectorWidth()));
+    Value *resVec = (callType->isVoidTy() || callType->isVectorTy() || callType->isStructTy()) ? nullptr
+                                                                                               : UndefValue::get(
+            getVectorType(callType, vectorWidth()));
 
     // create <vector_width> scalar calls
     for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
