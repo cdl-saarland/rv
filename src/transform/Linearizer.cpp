@@ -21,6 +21,7 @@
 
 #include <cassert>
 #include <climits>
+#include <set>
 
 #include "rvConfig.h"
 
@@ -222,9 +223,7 @@ Linearizer::verifyLoopIndex(Loop & loop) {
     verifyLoopIndex(*childLoop);
   }
 
-  auto & latch = *loop.getLoopLatch();
-  int startId = getNumBlocks();
-  int endId = 0;
+  int startId = getNumBlocks(), endId = 0;
 
   for (auto * block : loop.blocks()) {
     startId = std::min<>(getIndex(*block), startId);
@@ -242,7 +241,7 @@ Linearizer::verifyLoopIndex(Loop & loop) {
 
   // the header has @startId, the latch as @endId
   assert(startId == getIndex(*loop.getHeader()));
-  assert(endId == getIndex(latch));
+  assert(endId == getIndex(*loop.getLoopLatch()));
 }
 
 void
@@ -263,7 +262,6 @@ Linearizer::needsFolding(TerminatorInst & termInst) {
   if (!branch.isConditional()) return false;
 
 // the branch condition is immediately divergent
-  // if (!vecInfo.getVectorShape(*branch.getCondition()).isUniform()) return true;
   if (!vecInfo.getVectorShape(branch).isUniform()) return true;
 
   return false;
@@ -330,8 +328,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   auto latchIndex = getIndex(latch);
   assert(latchIndex >= 0);
   auto & header = *loop.getHeader();
-  auto headerIndex = getIndex(header);
-  assert(headerIndex >= 0);
+  assert(getIndex(header) >= 0);
   Value* liveCond = maskAnalysis.getExitMask(latch, header);
 
 // create a relay for the single exit block that this loop will have after the conversion
@@ -361,13 +358,11 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
 
       // for all exiting edges
       for (uint i = 0; i < lcPhi->getNumIncomingValues(); ++i) {
-        auto * exitingBlock = lcPhi->getIncomingBlock(i);
-        assert (loop.contains(exitingBlock) && "not an LCSSA Phi node");
+        assert (loop.contains(lcPhi->getIncomingBlock(i)) && "not an LCSSA Phi node");
 
         auto * inst = dyn_cast<Instruction>(lcPhi->getIncomingValue(i));
         if (!inst) {
-          // no repair necessary as the incoming value is globally available in the function
-          continue;
+          continue; // no repair necessary as the incoming value is globally available in the function
         }
 
         BasicBlock * defBlock = inst->getParent();
@@ -383,7 +378,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
         // def does not dominate latch
         // create a dominating def by inserting PHI nodes with incoming undefs
         int defIndex = getIndex(*defBlock);
-        assert(headerIndex <= defIndex && defIndex <= latchIndex && "non-dominating def not in loop");
+        assert(getIndex(header) <= defIndex && defIndex <= latchIndex && "non-dominating def not in loop");
 
         auto & dominatingDef = promoteDefinition(*inst, defIndex, latchIndex);
 
@@ -415,8 +410,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   vecInfo.dropVectorShape(*latchTerm);
   latchTerm->eraseFromParent();
 
-// create a new if-all-threads-have-left exit branch
-  // cond == rv_any(<loop live mas>) // as long as any thread is still executing
+// create a new if-all-threads-have-left exit branch cond == rv_any(<loop live mask>)
   auto * anyThreadLiveCond = &createReduction(*liveCond, "rv_any", latch);
   BranchInst* branch = BranchInst::Create(&header, loopExitRelay->block, anyThreadLiveCond, &latch);
 
@@ -464,7 +458,7 @@ Linearizer::processLoop(int headId, Loop * loop) {
   // emit all blocks within the loop (except the latch)
   int latchNodeId = processRange(loopHeadIndex, latchIndex, loop);
 
-  // FIXME repair SSA inside the loop after normalization
+  // FIXME repair SSA in the loop here, AFTER loop conversion
   // repairLiveOutSSA({(val, defStart)}, destId)
 
   // now emit the latch (without descending into its successors)
@@ -502,8 +496,7 @@ Linearizer::emitBlock(int targetId) {
   auto * targetDom = dt.getNode(&target);
   assert(targetDom);
 
-  // while at it search for a new dominator
-  BasicBlock * commonDomBlock = nullptr;
+  IF_DEBUG_DTFIX errs() << "\t\tDTFIX: searching idom for " << target.getName() << "\n";
 
   for (auto itUse = itStart; itUse != itEnd; ) {
     Use & use = *(itUse++);
@@ -514,20 +507,27 @@ Linearizer::emitBlock(int targetId) {
 
     // forward branches from relay to target
     branch.setOperand(i, &target);
+    IF_DEBUG_LIN { errs() << "\t\t-> linked " << branch << " opIdx " << i << "\n"; }
+  }
 
-    // advance to the nearest common dominator of all branches so far
-    auto * branchBlock = branch.getParent();
-    if (!commonDomBlock) { commonDomBlock = branchBlock; }
-    else { commonDomBlock = dt.findNearestCommonDominator(commonDomBlock, branchBlock); }
+// search for a new idom
+  // FIXME we can do this in lockstep with the branch fixing above for release builds
+  BasicBlock * commonDomBlock = nullptr;
+  for (auto itPred = pred_begin(&target); itPred != pred_end(&target); ++itPred) {
+    auto * predBlock = *itPred;
+    if (!commonDomBlock) { commonDomBlock = predBlock; }
+    else { commonDomBlock = dt.findNearestCommonDominator(commonDomBlock, predBlock); }
+
+    IF_DEBUG_DTFIX { errs() << "\t\t\t: dom with " << predBlock->getName() << " is " << commonDomBlock->getName() << "\n"; }
 
     assert(commonDomBlock && "domtree repair: did not reach a common dom node!");
   }
 
 // domtree update: least common dominator of all incoming branches
-  // assert(commonDomBlock != &target && "did not find a valid idom of target"); // FIXME what about loop headers?
   auto * nextCommonDom = dt.getNode(commonDomBlock);
   assert(nextCommonDom);
   IF_DEBUG_DTFIX { errs() << "DT before dom change:";dt.print(errs()); }
+  IF_DEBUG_DTFIX{ errs() << "DTFIX: " << target.getName() << " idom is " << commonDomBlock->getName() << " by common pred dom\n"; }
   targetDom->setIDom(nextCommonDom);
   IF_DEBUG_DTFIX { errs() << "DT after dom change:";dt.print(errs()); }
 
@@ -635,13 +635,17 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   int secondId = getIndex(*secondBlock);
   assert(firstId > 0 && secondId > 0 && "branch leaves the region!");
 
+  IF_DEBUG_LIN {
+    if (mustFoldBranch) {  errs() << "\tneeds folding. first is " << firstBlock->getName() << " at " << firstId << " , second is " << secondBlock->getName() << " at " << secondId << "\n"; }
+  }
+
 // process the first successor
 // if this branch is folded then @secondBlock is a must-have after @firstBlock
   RelayNode * firstRelay = &addTargetToRelay(exitRelay, firstId);
 
   if (mustFoldBranch) {
     firstRelay = &addTargetToRelay(firstRelay, secondId);
-    branch->setSuccessor(secondSuccIdx, firstBlock); // put @secondBlock after @firstBlock's dominance region in the linearized schedule
+    branch->setSuccessor(secondSuccIdx, firstRelay->block);
   }
 
 // relay the first branch to its relay block
@@ -656,6 +660,7 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
     assert(firstDom);
 
     IF_DEBUG_DTFIX { errs() << "DT before dom change:"; dt.print(errs()); }
+    IF_DEBUG_DTFIX { errs() << "DTFIX: " << secondBlock->getName() << " idom is " << firstBlock->getName() << " by dominance\n"; }
     secondDom->setIDom(firstDom);
     IF_DEBUG_DTFIX { errs() << "DT after dom change:";dt.print(errs()); }
   }
@@ -699,15 +704,13 @@ Linearizer::run() {
 
       errs() << "\n" << i << " : " << block.getName() << " , ";
 
-      if (!loop) {
-        if (needsFolding(*block.getTerminator())) {
-           errs() << "Fold : " << *block.getTerminator() << " of block " << block.getName();
-        }
-
-      } else if (loop && loop->getHeader() == &block) {
+      if (loop && loop->getHeader() == &block) {
         if (vecInfo.isDivergentLoop(loop)) {
-           errs() << "Fold loop with header: " << block.getName();
+           errs() << "div-loop header: " << block.getName();
         }
+      }
+      if (needsFolding(*block.getTerminator())) {
+         errs() << "Fold : " << *block.getTerminator();
       }
     }
   }
@@ -727,6 +730,7 @@ Linearizer::linearizeControl() {
   IF_DEBUG_LIN {  errs() << "\n-- LIN: linearization log --\n"; }
 
   int lastId = processRange(0, getNumBlocks(), nullptr);
+  (void) lastId;
 
   assert(lastId  == getNumBlocks());
 
@@ -735,7 +739,7 @@ Linearizer::linearizeControl() {
 
 void
 Linearizer::verify() {
-  IF_DEBUG_LIN { errs() << "\n-- LIN: verify linearization --\n"; }
+  IF_DEBUG_LIN { errs() << "\n-- LIN: verify linearization --\n"; func.dump(); }
 
   for (int i = 0; i < getNumBlocks(); ++i) {
     auto * block = &getBlock(i);

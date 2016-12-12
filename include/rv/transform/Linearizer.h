@@ -24,7 +24,6 @@
 
 #include <vector>
 #include <unordered_map>
-#include <set>
 
 namespace llvm {
   class LoopInfo;
@@ -35,7 +34,6 @@ namespace llvm {
 
 namespace rv {
   typedef std::unordered_map<const llvm::BasicBlock*, int> BlockIndex;
-  // typedef std::set<int> IndexSet;
 
   class Linearizer {
 
@@ -235,8 +233,6 @@ namespace rv {
     // a) all divergent branches have been folded
     // b) the function, domTree and loop tree are consistent
     void verify();
-
-    std::set<BasicBlock*> finalizedBlocks;
 
   // mask reduction helper
     Instruction & createReduction(Value & pred, const std::string & name, BasicBlock & atEnd);
