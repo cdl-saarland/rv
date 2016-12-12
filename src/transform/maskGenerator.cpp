@@ -20,6 +20,13 @@
 #include "utils/metadata.h"
 #include "rvConfig.h"
 
+
+#if 1
+#define IF_DEBUG_MG IF_DEBUG
+#else
+#define IF_DEBUG_MG if (false)
+#endif
+
 using namespace llvm;
 using namespace rv;
 
@@ -136,10 +143,10 @@ MaskGeneratorWrapper::print(raw_ostream& O, const Module* M) const
 bool
 MaskGenerator::generate(Function& F)
 {
-    IF_DEBUG {
-            outs() << "\n#########################################################\n";
-            outs() << "## MASK GENERATION\n";
-            outs() << "#########################################################\n";
+    IF_DEBUG_MG {
+            errs() << "\n#########################################################\n";
+            errs() << "## MASK GENERATION\n";
+            errs() << "#########################################################\n";
     }
 
     // If an error occurred in one of the previous phases, abort.
@@ -159,11 +166,14 @@ MaskGenerator::generate(Function& F)
         return false;
     }
 
-    IF_DEBUG F.print(outs());
-
+    IF_DEBUG_MG {
+      errs() << "-- Function after MaskGenerator --\n";
+      F.dump();
+      llvm::verifyFunction(F);
+    }
     fillVecInfoWithPredicates(F);
 
-    IF_DEBUG {
+    IF_DEBUG_MG {
       errs() << "VectorizationInfo after maskGeneration:\n";
       mvecInfo.dump();
     }
@@ -195,7 +205,7 @@ MaskGenerator::materializeMasks(Function& f)
             MaskPtr mask = mMaskAnalysis.getEntryMaskPtr(BB);
             Value* newEntryMask = materializeMask(mask);
 
-            IF_DEBUG {  outs() << "  entry mask of block '"
+            IF_DEBUG_MG {  errs() << "  entry mask of block '"
                 << BB.getName() << "': " << *newEntryMask << "\n";
             }
 
@@ -280,8 +290,8 @@ MaskGenerator::materializeMasks(Function& f)
             MaskPtr mask = mMaskAnalysis.getExitMaskPtr(BB, *succBB);
             Value* newExitMask = materializeMask(mask); RV_UNUSED(newExitMask);
 
-            IF_DEBUG{
-              outs() << "  mask of edge '" << BB.getName()
+            IF_DEBUG_MG {
+              errs() << "  mask of edge '" << BB.getName()
                 << "' -> '" << succBB->getName() << "': " << *newExitMask << "\n";
             }
         }
@@ -790,8 +800,8 @@ MaskGenerator::materializeLoopExitMasks(Loop* loop)
             Value* mask = materializeMask(mMaskAnalysis.getExitMaskPtr(*exitingBB, *exitBB));
             RV_UNUSED(mask);
 
-            IF_DEBUG {
-              outs() << "  loop exit mask of OPTIONAL edge '"
+            IF_DEBUG_MG {
+              errs() << "  loop exit mask of OPTIONAL edge '"
                 << exitingBB->getName() << "' -> '"
                 << exitBB->getName() << "': " << *mask << "\n";
             }
@@ -801,8 +811,8 @@ MaskGenerator::materializeLoopExitMasks(Loop* loop)
         MaskPtr maskPtr = mMaskAnalysis.getLoopExitMaskPtrUpdate(*loop, *exitingBB);
         Value* mask = materializeMask(maskPtr); RV_UNUSED(mask);
 
-        IF_DEBUG {
-          outs() << "  loop exit mask of edge '"
+        IF_DEBUG_MG {
+          errs() << "  loop exit mask of edge '"
             << exitingBB->getName() << "' -> '"
             << exitBB->getName() << "': " << *mask << "\n";
         }
