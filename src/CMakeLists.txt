@@ -16,18 +16,10 @@ ELSE ()
 	ADD_DEFINITIONS( "-fno-rtti" )
 ENDIF ()
 
-ADD_DEFINITIONS ( "-std=c++11" )
+ADD_DEFINITIONS ( "-std=c++14" )
 
 # enable c++11
-IF (NOT MSVC)
-    SET(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} " -fPIC -fno-rtti -Wall" )
-ELSE ()
-    ADD_DEFINITIONS ( "-DRV_LIB" )
-    ADD_DEFINITIONS ( "-DRV_STATIC_LIBS" )
-    # suppress redundant warnings
-    ADD_DEFINITIONS ( "-D_SCL_SECURE_NO_WARNINGS -D_CRT_SECURE_NO_WARNINGS" )
-    ADD_DEFINITIONS ( "/wd4244 /wd4800")
-ENDIF ()
+SET(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} " -fPIC -Wall -Wpedantic" )
 
 SET ( RV_GLOBAL_INCLUDES "${PROJ_ROOT_DIR}/include" )
 FILE ( GLOB RV_GLOBAL_INCLUDE_FILES "${RV_GLOBAL_INCLUDES}/rv/**/*.h" )

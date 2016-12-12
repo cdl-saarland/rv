@@ -15,7 +15,7 @@ ELSE ()
 	ADD_DEFINITIONS( "-fno-rtti" )
 ENDIF ()
 
-ADD_DEFINITIONS ( "-std=c++11" )
+ADD_DEFINITIONS ( "-std=c++14" )
 
 # enable c++11
 IF (NOT MSVC)
