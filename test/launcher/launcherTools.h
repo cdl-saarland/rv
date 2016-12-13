@@ -24,6 +24,14 @@ hashArray(D * data, int n, size_t accu)  {
 typedef __attribute__((ext_vector_type(8))) float float8;
 typedef __attribute__((ext_vector_type(8))) int int8;
 
+static float
+wfvRand() {
+  #define CUSTOM_RAND_MAX 1000 //prevent too large inputs
+  float r = (float)rand()/(float)RAND_MAX;
+  float neg = rand() > (RAND_MAX/2) ? 1.f : -1.f;
+  return (rand() % CUSTOM_RAND_MAX) * r * neg;
+}
+
 template<typename S, typename V>
 static V toVec(S v[8]) {
   V r;
