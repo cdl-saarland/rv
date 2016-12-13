@@ -541,7 +541,7 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
     TerminatorInst* terminator  = block->getTerminator();
     Instruction*    insertPoint = block->getTerminator();
 
-    const int NumSuccessors = terminator->getNumSuccessors();
+    const uint NumSuccessors = terminator->getNumSuccessors();
 
     if (NumSuccessors == 0)
     {
@@ -564,7 +564,7 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
         // For every outgoing edge, create a mask select with the entry mask of
         // the same block and an all-false-mask, selected by the comparison
         // result.
-        for (unsigned i = 0; i < NumSuccessors; ++i)
+        for (uint i = 0; i < NumSuccessors; ++i)
         {
             BasicBlock* succBB = terminator->getSuccessor(i);
 
@@ -1116,16 +1116,18 @@ Value*
 MaskAnalysis::getExitMask(const BasicBlock& block,
                           const unsigned    index) const
 {
-    assert (getExitMaskPtr(block, index)->mValue);
-    return getExitMaskPtr(block, index)->mValue;
+    auto maskPtr = getExitMaskPtr(block, index);
+    if (maskPtr) return maskPtr->mValue;
+    else return nullptr;
 }
 
 Value*
 MaskAnalysis::getExitMask(const BasicBlock& block,
                           const BasicBlock& direction) const
 {
-    assert (getExitMaskPtr(block, direction)->mValue);
-    return getExitMaskPtr(block, direction)->mValue;
+    auto maskPtr = getExitMaskPtr(block, direction);
+    if (maskPtr) return maskPtr->mValue;
+    else return nullptr;
 }
 
 Value*
