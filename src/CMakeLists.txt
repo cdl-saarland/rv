@@ -1,8 +1,6 @@
-SET ( RV_LIB_PATH "${CMAKE_BINARY_DIR}/rvlib.bc" CACHE FILEPATH "Wfv libary path" )
-SET ( RV_LIB_DIR "${PROJ_ROOT_DIR}/rvlibsrc" )
-SET ( RV_LIB_MATH_DIR "${RV_LIB_DIR}/mathfun" )
-SET ( RV_LIB_SLEEF_DIR "${PROJ_ROOT_DIR}/sleef/simd" )
-SET ( RV_LIB_SLEEF_OUT_DIR "${PROJ_ROOT_DIR}/sleefsrc" )
+# SET ( SLEEF_LIB_PATH "${CMAKE_BINARY_DIR}/rvlib.bc" CACHE FILEPATH "Wfv libary path" )
+# SET ( RV_LIB_DIR "${PROJ_ROOT_DIR}/rvlibsrc" )
+# SET ( RV_LIB_MATH_DIR "${RV_LIB_DIR}/mathfun" )
 
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
 
@@ -57,33 +55,6 @@ get_rv_llvm_dependency_libs ( LLVM_LIBRARIES )
 IF (LLVM_SHARED_LIBS)
   TARGET_LINK_LIBRARIES ( ${LIBRARY_NAME} ${LLVM_LIBRARIES} )
 ENDIF ()
-
-# build sleef lib
-IF ( VECTOR_ISA  STREQUAL "avx")
-    ADD_CUSTOM_COMMAND (
-        OUTPUT ${RV_LIB_SLEEF_OUT_DIR}
-        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -mavx2 -mfma -DENABLE_AVX2=ON -o ${RV_LIB_SLEEF_OUT_DIR}/avx2_unopt_sleef.bc
-        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -mavx -DENABLE_AVX=ON -o ${RV_LIB_SLEEF_OUT_DIR}/avx_unopt_sleef.bc
-        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -msse4.2 -DENABLE_SSE2=ON -o ${RV_LIB_SLEEF_OUT_DIR}/sse_unopt_sleef.bc
-        COMMAND ${LLVM_TOOL_OPT} ${RV_LIB_SLEEF_OUT_DIR}/avx2_unopt_sleef.bc -O3 -o ${RV_LIB_SLEEF_OUT_DIR}/avx2_sleef.bc
-        COMMAND ${LLVM_TOOL_OPT} ${RV_LIB_SLEEF_OUT_DIR}/avx_unopt_sleef.bc -O3 -o ${RV_LIB_SLEEF_OUT_DIR}/avx_sleef.bc
-        COMMAND ${LLVM_TOOL_OPT} ${RV_LIB_SLEEF_OUT_DIR}/sse_unopt_sleef.bc -O3 -o ${RV_LIB_SLEEF_OUT_DIR}/sse_sleef.bc
-    )
-ENDIF ()
-IF ( VECTOR_ISA STREQUAL "neon")
-    ADD_CUSTOM_COMMAND (
-        OUTPUT ${RV_LIB_PATH}
-        COMMAND ${LLVM_TOOL_LLVMAS} ${RV_LIB_DIR}/generated.ll -o ${CMAKE_BINARY_DIR}/generated.bc
-        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_MATH_DIR}/neon_mathfun.c -emit-llvm -c -Wall -o ${CMAKE_BINARY_DIR}/neon_mathfun.bc
-        COMMAND ${LLVM_TOOL_LINK} ${CMAKE_BINARY_DIR}/generated.bc
-                ${CMAKE_BINARY_DIR}/neon_mathfun.bc
-                -o ${CMAKE_BINARY_DIR}/rvlib_unopt.bc
-        COMMAND ${LLVM_TOOL_OPT} ${CMAKE_BINARY_DIR}/rvlib_unopt.bc -O3 -o ${RV_LIB_PATH}
-    )
-ENDIF ()
-
-ADD_CUSTOM_TARGET ( RVLIB DEPENDS ${RV_LIB_PATH} )
-ADD_DEPENDENCIES ( ${LIBRARY_NAME} RVLIB )
 
 # make install
 SET ( CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE )

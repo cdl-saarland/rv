@@ -65,3 +65,38 @@ ADD_SUBDIRECTORY ( ${PROJ_SOURCE_DIR} )
 # rvTool
 SET ( RVTOOL_SOURCE_DIR  ${PROJ_ROOT_DIR}/tools )
 ADD_SUBDIRECTORY( ${RVTOOL_SOURCE_DIR} )
+
+# Sleef lib
+SET ( SLEEF_DIR "${PROJ_ROOT_DIR}/sleef" CACHE STRING "Path to libsleef sources" FORCE )
+SET ( RV_LIB_SLEEF_DIR "${SLEEF_DIR}/simd" )
+SET ( RV_LIB_SLEEF_OUT_DIR "${PROJ_ROOT_DIR}/sleefsrc" )
+
+SET ( SLEEF_BC_AVX2 "${PROJ_ROOT_DIR}/sleefsrc/avx2_sleef.bc" )
+SET ( SLEEF_BC_AVX "${PROJ_ROOT_DIR}/sleefsrc/avx_sleef.bc" )
+SET ( SLEEF_BC_SSE "${PROJ_ROOT_DIR}/sleefsrc/sse_sleef.bc" )
+
+SET ( RV_LIB_SLEEF_OUT_DIR "${PROJ_ROOT_DIR}/sleefsrc" )
+
+IF (IS_DIRECTORY ${RV_LIB_SLEEF_DIR})
+  MESSAGE("-- SLEEF sources found: ${SLEEF_DIR}")
+  ADD_CUSTOM_TARGET ( libsleef_x64 DEPENDS ${SLEEF_BC_AVX2} ${SLEEF_BC_AVX} ${SLEEF_BC_SSE} )
+
+  SET( RVLIB_BUILD_OPTS -O3 )
+  ADD_CUSTOM_COMMAND (
+    OUTPUT ${SLEEF_BC_AVX2}
+    COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall ${RVLIB_BUILD_OPTS} -march=haswell -mavx2 -mfma -DENABLE_AVX2=ON -o ${SLEEF_BC_AVX2}
+  )
+  ADD_CUSTOM_COMMAND (
+    OUTPUT ${SLEEF_BC_AVX}
+    COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall ${RVLIB_BUILD_OPTS} -mavx -DENABLE_AVX=ON -o ${SLEEF_BC_AVX}
+  )
+  ADD_CUSTOM_COMMAND (
+    OUTPUT ${SLEEF_BC_SSE}
+    COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${SLEEF_BC_SSE}
+  )
+  ADD_DEPENDENCIES ( ${LIBRARY_NAME} libsleef_x64 )
+ELSE()
+  MESSAGE("-- did not find sleef sources")
+ENDIF ()
+
+
