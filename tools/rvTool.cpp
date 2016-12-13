@@ -506,9 +506,6 @@ int main(int argc, char** argv)
         Function* vectorFn = nullptr;
         if (!hasTargetDeclName)
         {
-            errs()
-                    << "No target function declaration given (-target <NAME>), creating declaration with same signature "
-                    << scalarFn->getName() << "_SIMD(..) \n";
             vectorFn = createVectorDeclaration(*scalarFn, resShape, argShapes, vectorWidth);
         }
         else
