@@ -24,9 +24,8 @@ using namespace llvm;
 
 #include "vectorShape.h"
 #include "vectorMapping.h"
-#include <map>
+#include <unordered_map>
 #include <set>
-
 
 namespace rv
 {
@@ -37,8 +36,8 @@ class Region;
 class VectorizationInfo
 {
     VectorMapping mapping;
-    std::map<const BasicBlock*, Value*> predicates;
-    std::map<const Value*, VectorShape> shapes;
+    std::unordered_map<const BasicBlock*, Value*> predicates;
+    std::unordered_map<const Value*, VectorShape> shapes;
 
     std::set<const Loop*> mDivergentLoops;
 

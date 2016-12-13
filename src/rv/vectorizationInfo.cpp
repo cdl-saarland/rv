@@ -104,13 +104,14 @@ VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, uint vectorWidth,
 VectorizationInfo::VectorizationInfo(VectorMapping _mapping)
         : mapping(_mapping), region(nullptr)
 {
-    auto& argList = mapping.scalarFn->getArgumentList();
-    auto it = argList.begin();
-    for (auto argShape : mapping.argShapes)
-    {
-        setVectorShape(*it, argShape);
-        ++it;
-    }
+  assert(mapping.argShapes.size() == mapping.scalarFn->getArgumentList().size());
+  auto& argList = mapping.scalarFn->getArgumentList();
+  auto it = argList.begin();
+  for (auto argShape : mapping.argShapes)
+  {
+    setVectorShape(*it, argShape);
+    ++it;
+  }
 }
 
 bool
