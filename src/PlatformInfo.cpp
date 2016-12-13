@@ -8,7 +8,7 @@
 #include <llvm/IR/InstIterator.h>
 #include "PlatformInfo.h"
 
-#define SLEEF_FILES "/home/dominik/repositories/rv/sleefsrc"
+#define SLEEF_FILES RV_SLEEF_BC_DIR
 #define SLEEF_AVX2 SLEEF_FILES"/avx2_sleef.bc"
 #define SLEEF_AVX SLEEF_FILES"/avx_sleef.bc"
 #define SLEEF_SSE SLEEF_FILES"/sse_sleef.bc"

@@ -99,13 +99,6 @@ public:
                         const int       maskPosition,
                         const bool      mayHaveSideEffects);
 
-    // link in rvlib with common SIMD mappings
-    bool addCommonMappings(const bool useSSE,
-                           const bool useSSE41,
-                           const bool useSSE42,
-                           const bool useAVX,
-                           const bool useNEON);
-
     Module*              mModule;
     LLVMContext*         mContext;
     DataLayout*          mDataLayout;

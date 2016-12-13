@@ -1,5 +1,5 @@
 # SET ( SLEEF_LIB_PATH "${CMAKE_BINARY_DIR}/rvlib.bc" CACHE FILEPATH "Wfv libary path" )
-# SET ( RV_LIB_DIR "${PROJ_ROOT_DIR}/rvlibsrc" )
+SET ( RV_SLEEF_BC_DIR "${PROJ_ROOT_DIR}/sleefsrc" )
 # SET ( RV_LIB_MATH_DIR "${RV_LIB_DIR}/mathfun" )
 
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
@@ -7,7 +7,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
 ADD_DEFINITIONS ( ${LLVM_DEFINITIONS} )
 
 # setup additional lib definition
-ADD_DEFINITIONS ( "-DRV_RVLIB_FILE=\"${RV_LIB_PATH}\"" )
+ADD_DEFINITIONS ( "-DRV_SLEEF_BC_DIR=\"${RV_SLEEF_BC_DIR}\"" )
 
 # this defaults to no-rtti builds, if this flag is not available
 IF (LLVM_ENABLE_RTTI)

@@ -45,9 +45,6 @@
 // (default: deactivated)
 //#define RV_FORCE_UNALIGNED_MEMOPS
 
-#ifndef RV_RVLIB_FILE
-#   error "Path to RV library file (native SSE sin, cos, etc.) not supplied via build script!"
-#endif
 
 
 //----------------------------------------------------------------------------//
