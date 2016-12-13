@@ -316,6 +316,7 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
                                   PostDominatorTree& postDomTree,
                                   DominatorTree& domTree)
 {
+#if 0
     LoopLiveValueAnalysis loopLiveValueAnalysis(mInfo,
                                                 loopInfo,
                                                 vectorizationInfo);
@@ -328,6 +329,7 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
 
     loopLiveValueAnalysis.run(*mScalarFn);
     selectgenerator.generate(*mScalarFn);
+#endif
 
     // use a fresh domtree here
     DominatorTree fixedDomTree(vectorizationInfo.getScalarFunction()); // FIXME someone upstream broke the domtree

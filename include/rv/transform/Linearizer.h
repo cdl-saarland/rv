@@ -34,6 +34,8 @@ namespace llvm {
 
 namespace rv {
   typedef std::unordered_map<const llvm::BasicBlock*, int> BlockIndex;
+  typedef std::pair<llvm::BasicBlock*, llvm::BasicBlock*> Edge;
+  typedef llvm::DenseMap<Edge, llvm::Value*> EdgeMaskCache;
 
   class Linearizer {
 
@@ -180,6 +182,19 @@ namespace rv {
     // any branches to the (optional) relay block for @targetId will be linked to the real block
     // will erase the relay block for @target Id and finalize its RelayNode
     RelayNode* emitBlock(int targetId);
+
+    // add undef inputs to PHINodes for all predecessors of @block that do not occur in the PHINodes' block lists
+    void addUndefInputs(BasicBlock & block);
+
+  // phi -> select conversion
+    // we invalidate mask analysis's and track edge masks on our own
+    EdgeMaskCache edgeMasks;
+    llvm::Value * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) { return edgeMasks[Edge(&start, &dest)]; }
+    void setEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest, llvm::Value * val) { edgeMasks[Edge(&start, &dest)] = val; }
+
+    // will replace all Phis in @block with select insts using edge masks
+    bool needsFolding(llvm::PHINode & phi);
+    void foldPhis(llvm::BasicBlock & block);
 
   // divergent loop transform
     // creates a single exiting edge at the latch

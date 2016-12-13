@@ -320,8 +320,87 @@ InsertAtFront(BasicBlock & block, Instruction & inst) {
   block.getInstList().insert(block.begin(), &inst);
 }
 
+class LiveValueTracker {
+  VectorizationInfo & vecInfo;
+  MaskAnalysis & ma;
+  Loop & loop;
+
+  // maps loop live-out values to their tracking PHI nodes
+  // the phi node @second keeps track of the computed value of @first when each thread left the loop
+  DenseMap<Instruction*, PHINode*> liveOutPhis;
+
+public:
+  LiveValueTracker(VectorizationInfo & _vecInfo, MaskAnalysis & _ma, Loop & _loop)
+  : vecInfo(_vecInfo), ma(_ma), loop(_loop)
+  {}
+
+  // request a tracker PHI for this loop-carried instructions
+  // returns the tracker update valid at the latch block
+  Instruction &
+  requestTracker(Instruction& inst) {
+    auto it = liveOutPhis.find(&inst);
+    if (it != liveOutPhis.end()) {
+      auto & phi = *it->second;
+      int latchId = phi.getBasicBlockIndex(loop.getLoopLatch());
+      return cast<Instruction>(*phi.getIncomingValue(latchId));
+    }
+    auto * phi = PHINode::Create(inst.getType(), 2, "track_" + inst.getName(), &*loop.getHeader()->getFirstInsertionPt());
+    vecInfo.setVectorShape(*phi, VectorShape::varying());
+
+  // update the tracker phi whenever a thread leaves the loop
+    // TODO we only need to update trackers if the value is actually live out on the taken exit
+    auto combinedExitMask = ma.getCombinedLoopExitMask(loop);
+    IRBuilder<> builder(loop.getLoopLatch(), loop.getLoopLatch()->getTerminator()->getIterator());
+    auto * trackerUpdate = builder.CreateSelect(combinedExitMask, &inst, phi, "update_" + inst.getName());
+    vecInfo.setVectorShape(*trackerUpdate, VectorShape::varying());
+
+  // attach trackerPHI inputs
+    // all liveouts are initially undef
+    // phi->addIncoming(UndefValue::get(inst.getType()), loop.getLoopPreheader()); // FIXME we have no preheader at this point..
+    phi->addIncoming(trackerUpdate, loop.getLoopLatch());
+
+    liveOutPhis[&inst] = phi;
+
+    return cast<Instruction>(*trackerUpdate);
+  }
+
+  // return the incoming index of the exitblock
+  int GetLoopBlockIndex(PHINode & lcPhi) {
+    for (int i = 0; i < lcPhi.getNumIncomingValues(); ++i) {
+      if (loop.contains(lcPhi.getIncomingBlock(i))) return i;
+    }
+    return -1;
+  }
+
+  // adds all live out values on loop-exits to @exitBlock
+  void
+  foldLiveOuts(BasicBlock & exitBlock) {
+    assert(!loop.contains(&exitBlock));
+    auto itBegin = exitBlock.begin(), itEnd = exitBlock.end();
+    for (auto it = itBegin; isa<PHINode>(*it) && it != itEnd; ++it) {
+      auto & lcPhi = cast<PHINode>(*it);
+      assert(lcPhi.getNumIncomingValues() == 1 && "not a LCSSA PHI");
+
+    // do not track non-live carried values
+      int loopIncomingId = GetLoopBlockIndex(lcPhi);
+      assert(loopIncomingId >= 0 && "not an LCSSA node");
+
+      auto * inInst = dyn_cast<Instruction>(lcPhi.getIncomingValue(loopIncomingId));
+      if (!inInst || !loop.contains(inInst->getParent())) continue; // live out value not loop carried
+
+    // replace live-out value with tracker update
+      auto & trackerUpdate = requestTracker(*inInst);
+      lcPhi.setIncomingValue(loopIncomingId, &trackerUpdate);
+    }
+  }
+};
+
 Linearizer::RelayNode &
 Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
+  // TODO rename convertToLatchExitLoop
+
+// replaces live-out values by explicit tracker PHIs and updates
+  LiveValueTracker liveOutTracker(vecInfo, maskAnalysis, loop);
 
 // query the live mask on the latch
   auto & latch = *loop.getLoopLatch();
@@ -339,6 +418,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   auto * loopExitRelay = exitRelay;
   for (auto * block : loopExitBlocks) {
     auto exitId = getIndex(*block);
+    liveOutTracker.foldLiveOuts(*block);
     loopExitRelay = &addTargetToRelay(loopExitRelay, exitId);
   }
 
@@ -428,6 +508,70 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   return *loopExitRelay;
 }
 
+bool
+Linearizer::needsFolding(PHINode & phi) {
+  // this implementation exploits the fact that edges only disappear completely by relaying
+  // e.g. if a edge persists we may assume that it always implies the old predicate
+
+  auto & block = *phi.getParent();
+
+  // this is the case if there are predecessors that are unknown to the PHI
+  SmallPtrSet<BasicBlock*, 4> predSet;
+
+  for (auto * inBlock : predecessors(&block)) {
+    auto blockId = phi.getBasicBlockIndex(inBlock);
+    if (blockId < 0) { return true; }
+    predSet.insert(inBlock);
+    IF_DEBUG_LIN { errs() << "pred: " << inBlock->getName() << "\n"; }
+  }
+
+  // or incoming blocks in the PHI node are no longer predecessors
+  for (int i = 0; i < phi.getNumIncomingValues(); ++i) {
+    if (!predSet.count(phi.getIncomingBlock(i))) { return true; }
+  }
+
+  // Phi should still work
+  return false;
+}
+
+void
+Linearizer::foldPhis(BasicBlock & block) {
+// FIXME first shot implementation (highly optimizeable)
+
+// no PHis, no folding
+  auto * phi = dyn_cast<PHINode>(&*block.begin());
+  if (!phi) return;
+
+// check if PHIs need to be folded at all
+  if (!needsFolding(*phi)) return;
+
+  IF_DEBUG_LIN { errs() << "\tfolding PHIs in " << block.getName() << "\n"; }
+// phi -> select based on getEdgeMask(start, dest)
+  auto itStart = block.begin(), itEnd = block.end();
+  for (auto it = itStart; it != itEnd; ) {
+    auto * phi = dyn_cast<PHINode>(&*it++);
+    if (!phi) break;
+
+    IRBuilder<> builder(&block, block.getFirstInsertionPt());
+
+    auto * defValue = phi->getIncomingValue(0);
+
+    auto phiShape = vecInfo.getVectorShape(*phi);
+    for (int i = 1; i < phi->getNumIncomingValues(); ++i) {
+      auto * inBlock = phi->getIncomingBlock(i);
+      auto * inVal = phi->getIncomingValue(i);
+
+      auto * edgeMask = getEdgeMask(*inBlock, block);
+
+      defValue = builder.CreateSelect(edgeMask, inVal, defValue);
+      vecInfo.setVectorShape(*defValue, phiShape);
+    }
+
+    phi->replaceAllUsesWith(defValue);
+    phi->eraseFromParent();
+  }
+}
+
 int
 Linearizer::processLoop(int headId, Loop * loop) {
   auto & loopHead = getBlock(headId);
@@ -463,12 +607,32 @@ Linearizer::processLoop(int headId, Loop * loop) {
 
   // now emit the latch (without descending into its successors)
   emitBlock(latchIndex);
+  foldPhis(latch);
 
   // emit loop header again to re-wire the latch to the header
   emitBlock(loopHeadIndex);
 
+  // attach undef inputs for all preheader edges to @loopHead
+  addUndefInputs(loopHead);
+  IF_DEBUG_LIN { errs() << "-- processLoop finished --\n"; }
+
   return latchNodeId + 1; // continue after the latch
 }
+
+void
+Linearizer::addUndefInputs(llvm::BasicBlock & block) {
+  auto itBegin = block.begin(), itEnd = block.end();
+  for (auto it = itBegin; isa<PHINode>(*it) && it != itEnd; ++it) {
+    auto & phi = cast<PHINode>(*it);
+    for (auto * predBlock : predecessors(&block)) {
+      auto blockId = phi.getBasicBlockIndex(predBlock);
+      if (blockId >= 0) continue;
+
+      phi.addIncoming(UndefValue::get(phi.getType()), predBlock);
+    }
+  }
+}
+
 
 // forwards branches to the relay target of @targetId to the actual @targetId block
 // any scheduleHeads pointing to @target will be advanced to the next block on their itinerary
@@ -575,6 +739,9 @@ Linearizer::processBlock(int headId, Loop * parentLoop) {
   // all dependencies satisfied -> emit this block
   auto * advancedExitRelay = emitBlock(headId);
 
+  // convert phis to selectsw
+  foldPhis(head);
+
   // materialize all relays
   processBranch(head, advancedExitRelay, parentLoop);
 
@@ -610,6 +777,7 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   if (!branch->isConditional()) {
     auto & nextBlock = *branch->getSuccessor(0);
     auto & relay = addTargetToRelay(exitRelay, getIndex(nextBlock));
+    setEdgeMask(head, nextBlock, maskAnalysis.getExitMask(head, 0));
     IF_DEBUG_LIN {
       errs() << "\tunconditional. merged with " << nextBlock.getName() << " "; dumpRelayChain(relay.id); errs() << "\n";
     }
@@ -638,6 +806,10 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   IF_DEBUG_LIN {
     if (mustFoldBranch) {  errs() << "\tneeds folding. first is " << firstBlock->getName() << " at " << firstId << " , second is " << secondBlock->getName() << " at " << secondId << "\n"; }
   }
+
+// track exit masks
+  setEdgeMask(head, *firstBlock, maskAnalysis.getExitMask(head, firstSuccIdx));
+  setEdgeMask(head, *secondBlock, maskAnalysis.getExitMask(head, secondSuccIdx));
 
 // process the first successor
 // if this branch is folded then @secondBlock is a must-have after @firstBlock
