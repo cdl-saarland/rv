@@ -11,18 +11,19 @@ float bound(float v) {
 extern "C" float
 foo(float a, float b)
 {
-    float  r, x = a + b;
-    float y =r= x * x - b;
+    float x = a + b;
+    float r= x * x - b;
+    float y = fabs(10.f*r);
     float z= fabs(a);
 
-    for (float i=3.2f; i<bound(a) ; i=i+2000.0f) {
+    for (float i=3.2f; i<bound(a) ; i=i+200.0f) {
 
-X:    for (int j=0; j<bound(b); j+=2000.0f) {
+X:    for (int j=0; j<bound(b); j+=200) {
         z += y-i;
       }
 
-      for (int k=0; k<bound(x); k += 5000) {
-           z = z-3*a; // keep!
+      for (int k=0; k<bound(x); k += 50) {
+           z = z + 2*(1.f + fabs(a)); // keep!
        }
 
        if (z < y) goto X;
