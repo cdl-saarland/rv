@@ -96,7 +96,7 @@ IF (IS_DIRECTORY ${RV_LIB_SLEEF_DIR})
   )
   ADD_DEPENDENCIES ( ${LIBRARY_NAME} libsleef_x64 )
 ELSE()
-  MESSAGE("-- did not find sleef sources")
+  Message(FATAL_ERROR "Did not find sleef sources")
 ENDIF ()
 
 
