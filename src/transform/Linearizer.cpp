@@ -324,25 +324,40 @@ class LiveValueTracker {
   VectorizationInfo & vecInfo;
   MaskAnalysis & ma;
   Loop & loop;
+  BasicBlock & preHeader;
 
   // maps loop live-out values to their tracking PHI nodes
   // the phi node @second keeps track of the computed value of @first when each thread left the loop
   DenseMap<Instruction*, PHINode*> liveOutPhis;
 
+  // return the incoming index of the exitblock
+  int getLoopBlockIndex(PHINode & lcPhi) {
+    for (int i = 0; i < lcPhi.getNumIncomingValues(); ++i) {
+      if (loop.contains(lcPhi.getIncomingBlock(i))) return i;
+    }
+    return -1;
+  }
+
+  // return the successor index that leaves the loop
+  int getLoopExitIndex(Instruction & inst) {
+    auto & branch = cast<BranchInst>(inst);
+    if (loop.contains(branch.getSuccessor(0))) return 1;
+    else if (loop.contains(branch.getSuccessor(1))) return 0;
+    else abort();
+  }
 public:
-  LiveValueTracker(VectorizationInfo & _vecInfo, MaskAnalysis & _ma, Loop & _loop)
-  : vecInfo(_vecInfo), ma(_ma), loop(_loop)
+  LiveValueTracker(VectorizationInfo & _vecInfo, MaskAnalysis & _ma, Loop & _loop, BasicBlock & _preHeader)
+  : vecInfo(_vecInfo), ma(_ma), loop(_loop), preHeader(_preHeader)
   {}
 
-  // request a tracker PHI for this loop-carried instructions
+  // inserts a tracker PHI into the loop header for this value
   // returns the tracker update valid at the latch block
-  Instruction &
-  requestTracker(Instruction& inst) {
+  PHINode &
+  requestTracker(Instruction & inst) {
     auto it = liveOutPhis.find(&inst);
     if (it != liveOutPhis.end()) {
       auto & phi = *it->second;
-      int latchId = phi.getBasicBlockIndex(loop.getLoopLatch());
-      return cast<Instruction>(*phi.getIncomingValue(latchId));
+      return phi;
     }
     auto * phi = PHINode::Create(inst.getType(), 2, "track_" + inst.getName(), &*loop.getHeader()->getFirstInsertionPt());
     vecInfo.setVectorShape(*phi, VectorShape::varying());
@@ -356,25 +371,81 @@ public:
 
   // attach trackerPHI inputs
     // all liveouts are initially undef
-    // phi->addIncoming(UndefValue::get(inst.getType()), loop.getLoopPreheader()); // FIXME we have no preheader at this point..
+    phi->addIncoming(UndefValue::get(inst.getType()), &preHeader);
     phi->addIncoming(trackerUpdate, loop.getLoopLatch());
 
     liveOutPhis[&inst] = phi;
 
-    return cast<Instruction>(*trackerUpdate);
+    return *phi;
   }
 
-  // return the incoming index of the exitblock
-  int GetLoopBlockIndex(PHINode & lcPhi) {
-    for (int i = 0; i < lcPhi.getNumIncomingValues(); ++i) {
-      if (loop.contains(lcPhi.getIncomingBlock(i))) return i;
+  // return the mask predicate of the loop exit
+  Value&
+  getLoopExitMask(BasicBlock & exiting) {
+    int exitSuccIdx = getLoopExitIndex(*exiting.getTerminator());
+    return *ma.getExitMask(exiting, exitSuccIdx);
+  }
+
+  // updates @tracker in block @src with @val, if the exit predicate is true
+  // this inserts a select instruction in the latch that blends in @val into @tracker if the exit is taken
+  // FIXME this will only work if the exit predicate and the live-out instruction dominate the latchBlock
+  void
+  addTrackerUpdate(PHINode & tracker, BasicBlock & exiting, BasicBlock & exit, Value & val) {
+    auto & latch = *loop.getLoopLatch();
+    int latchId = tracker.getBasicBlockIndex(&latch);
+
+  // last tracker state
+    auto * lastTrackerState = tracker.getIncomingValue(latchId);
+
+  // get exit predicate
+    // auto & exitMask = getLoopExitMask(exiting);
+    auto & exitMask = *ma.getCombinedLoopExitMask(loop);
+
+  // chain in the update
+    IRBuilder<> builder(&latch, latch.getTerminator()->getIterator());
+    auto * updateInst = builder.CreateSelect(&exitMask, &val, lastTrackerState, "update_" + val.getName());
+    tracker.setIncomingValue(latchId, updateInst);
+  }
+
+  // the last update to @tracker
+  Value &
+  getLastTrackerState(PHINode & tracker) {
+    auto & latch = *loop.getLoopLatch();
+    int latchId = tracker.getBasicBlockIndex(&latch);
+    return *tracker.getIncomingValue(latchId);
+  }
+
+  // get the last tracker state for this live out value (which must be a loop carried instruction)
+  Value & getTrackerStateForLiveOut(Instruction & liveOutInst) {
+    auto it = liveOutPhis.find(&liveOutInst);
+    assert(it != liveOutPhis.end() && "not a tracked value!");
+    auto &tracker = *it->second;
+    return getLastTrackerState(tracker);
+  }
+
+  BasicBlock & getExitingBlock(BasicBlock & exitBlock) {
+    for (auto * pred : predecessors(&exitBlock)) {
+      if (loop.contains(pred)) return *pred;
     }
-    return -1;
+    abort();
   }
 
   // adds all live out values on loop-exits to @exitBlock
+  // FIXME this currently assumes that all out-of-loop uses pass through LCSSA Phis. However, uses by all out-of-loop instructions are set to use the tracker value instead.
+  // This  (test_021).
+  // either fix LCSSA or scan through all out-of-loop uses to decide to track values
   void
-  foldLiveOuts(BasicBlock & exitBlock) {
+  trackLiveOuts(BasicBlock & exitBlock) {
+    auto & exitingBlock = getExitingBlock(exitBlock);
+
+#if 0
+    if (vecInfo.getVectorShape(*exitingBlock.getTerminator()).isUniform()) {
+      // this exit kills the loop so we do not need to track any values for it
+      IF_DEBUG_LIN errs() << "kill exit " << exitBlock.getName() << " skipping..\n";
+      return;
+    }
+#endif
+
     assert(!loop.contains(&exitBlock));
     auto itBegin = exitBlock.begin(), itEnd = exitBlock.end();
     for (auto it = itBegin; isa<PHINode>(*it) && it != itEnd; ++it) {
@@ -382,25 +453,100 @@ public:
       assert(lcPhi.getNumIncomingValues() == 1 && "not a LCSSA PHI");
 
     // do not track non-live carried values
-      int loopIncomingId = GetLoopBlockIndex(lcPhi);
+      int loopIncomingId = getLoopBlockIndex(lcPhi);
+      assert(loopIncomingId >= 0 && "not an LCSSA node");
+      assert(&exitingBlock == lcPhi.getIncomingBlock(loopIncomingId));
+
+      auto * inInst = dyn_cast<Instruction>(lcPhi.getIncomingValue(loopIncomingId));
+      if (!inInst || !loop.contains(inInst->getParent())) continue; // live out value not loop carried
+
+    // request a tracker PHI for this loop-dependent live out
+      auto & tracker = requestTracker(*inInst);
+      // update the tracker with @inInst whenever the exit edge is taken
+      addTrackerUpdate(tracker, exitingBlock, exitBlock, *inInst);
+
+    // replace outside uses with tracker
+      auto & liveOut = getTrackerStateForLiveOut(*inInst);
+      lcPhi.setIncomingValue(loopIncomingId, &liveOut);
+
+#if 0 // unnecessary
+      auto itUseBegin = inInst->use_begin(), itUseEnd = inInst->use_end();
+      for (auto it = itUseBegin; it != itUseEnd; ) {
+        auto & use = *(it++);
+        auto & user = *cast<Instruction>(use.getUser());
+        int opIdx = use.getOperandNo();
+
+        if (loop.contains(&user)) continue;
+        user.setOperand(opIdx, &liveOut);
+      }
+#endif
+    }
+  }
+
+  // replace all out-of-loop users of tracker values with the last tracker state
+  void
+  replaceLiveOutsWithTrackers(BasicBlock & exitBlock) {
+    auto & exitingBlock = getExitingBlock(exitBlock);
+
+    if (vecInfo.getVectorShape(*exitingBlock.getTerminator()).isUniform()) {
+      // this exit kills the loop so we do not need to track any values for it
+      return;
+    }
+
+    assert(!loop.contains(&exitBlock));
+    auto itBegin = exitBlock.begin(), itEnd = exitBlock.end();
+    for (auto it = itBegin; isa<PHINode>(*it) && it != itEnd; ++it) {
+      auto & lcPhi = cast<PHINode>(*it);
+      assert(lcPhi.getNumIncomingValues() == 1 && "not a LCSSA PHI");
+
+    // do not track non-live carried values
+      int loopIncomingId = getLoopBlockIndex(lcPhi);
       assert(loopIncomingId >= 0 && "not an LCSSA node");
 
       auto * inInst = dyn_cast<Instruction>(lcPhi.getIncomingValue(loopIncomingId));
       if (!inInst || !loop.contains(inInst->getParent())) continue; // live out value not loop carried
 
-    // replace live-out value with tracker update
-      auto & trackerUpdate = requestTracker(*inInst);
-      lcPhi.setIncomingValue(loopIncomingId, &trackerUpdate);
+    // request a tracker PHI for this loop-dependent live out
+      auto & liveOut = getTrackerStateForLiveOut(*inInst);
+
+      // lcssa PHI (defer this until all updates have been looped in)
+      lcPhi.setIncomingValue(loopIncomingId, &liveOut);
+
+      // scan through all out-of-loop uses and replace with tracker value
+#if 0
+      auto itUseBegin = inInst->use_begin(), itUseEnd = inInst->use_end();
+      for (auto it = itUseBegin; it != itUseEnd; ) {
+        auto & use = *(it++);
+        auto & user = *cast<Instruction>(use.getUser());
+        int opIdx = use.getOperandNo();
+
+        if (loop.contains(&user)) continue;
+        user.setOperand(opIdx, &liveOut);
+      }
+#endif
     }
   }
 };
+
+static
+BasicBlock &
+GetExitingBlock(Loop & loop, BasicBlock & exitBlock) {
+  for (auto * pred : predecessors(&exitBlock)) {
+    if (loop.contains(pred)) return *pred;
+  }
+  abort();
+}
 
 Linearizer::RelayNode &
 Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   // TODO rename convertToLatchExitLoop
 
+// look-aheader for the prehader (TODO this is a hack)
+  auto & relay = *getRelay(getIndex(*loop.getHeader()));
+  auto & preHeader = **pred_begin(relay.block);
+
 // replaces live-out values by explicit tracker PHIs and updates
-  LiveValueTracker liveOutTracker(vecInfo, maskAnalysis, loop);
+  LiveValueTracker liveOutTracker(vecInfo, maskAnalysis, loop, preHeader);
 
 // query the live mask on the latch
   auto & latch = *loop.getLoopLatch();
@@ -408,19 +554,34 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   assert(latchIndex >= 0);
   auto & header = *loop.getHeader();
   assert(getIndex(header) >= 0);
-  Value* liveCond = maskAnalysis.getExitMask(latch, header);
 
 // create a relay for the single exit block that this loop will have after the conversion
-  // merge all existing exit blocks into the relay chain inherited from the header
+  // while at it create tracker PHIS and updates to them for all live-out values
   SmallVector<BasicBlock*, 3> loopExitBlocks;
   loop.getExitBlocks(loopExitBlocks);
 
   auto * loopExitRelay = exitRelay;
-  for (auto * block : loopExitBlocks) {
-    auto exitId = getIndex(*block);
-    liveOutTracker.foldLiveOuts(*block);
+  for (auto * exitBlock : loopExitBlocks) {
+    auto exitId = getIndex(*exitBlock);
+    // all exit blocks must be visited after the loop
     loopExitRelay = &addTargetToRelay(loopExitRelay, exitId);
+    // track all values that live across this exit edge
+
+    auto & exitingBlock = GetExitingBlock(loop, *exitBlock);
+    auto * innerMostExitLoop = li.getLoopFor(&exitingBlock);
+    if (innerMostExitLoop == &loop) {
+      IF_DEBUG_LIN errs() << "Processing loop exit from " << exitBlock->getName() << " to " << exitingBlock.getName() << " of loop with header " << innerMostExitLoop->getHeader()->getName() << "\n";
+      // only consider exits of the current loop level
+      liveOutTracker.trackLiveOuts(*exitBlock);
+    }
   }
+
+  // replace all outside uses of loop-carried instructions with their last updated state
+#if 0
+  for (auto * exitBlock : loopExitBlocks) {
+     liveOutTracker.replaceLiveOutsWithTrackers(*exitBlock);
+  }
+#endif
 
 // move LCSSA nodes to exitBlockRelay
   for (auto * block : loopExitBlocks) {
@@ -482,6 +643,9 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   for (auto * exitingBlock : loopExitingBlocks) {
     dropLoopExit(*exitingBlock, loop);
   }
+
+// query exit mask (before dropping the latch which destroys the terminator)
+  Value* liveCond = maskAnalysis.getExitMask(latch, header);
 
 // drop old latch
   auto * latchTerm = latch.getTerminator();
@@ -894,7 +1058,7 @@ Linearizer::run() {
   cleanup();
 
 // verify control integrity
-  verify();
+  IF_DEBUG_LIN verify();
 }
 
 void
