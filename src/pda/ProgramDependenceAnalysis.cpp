@@ -564,6 +564,17 @@ PDA::computeShapeForInst(const Instruction* I)
 
     switch (I->getOpcode())
     {
+        case Instruction::Br:
+        {
+            const BranchInst* branch = cast<BranchInst>(I);
+            assert(branch->isConditional());
+            return getShape(branch->getCondition());
+        }
+        case Instruction::Switch:
+        {
+            const SwitchInst* sw = cast<SwitchInst>(I);
+            return getShape(sw->getCondition());
+        }
         // If both compared values have the same stride the comparison is uniform
         // This is new and not recognized by the old analysis
         case Instruction::ICmp:
