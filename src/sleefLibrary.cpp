@@ -13,12 +13,12 @@ using namespace llvm;
 
 namespace rv {
   bool addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2, PlatformInfo &platformInfo) {
-
+    // TODO: sinf, cosf, powf are not precise in SLEEF variant
     if (useAVX2) {
       const VecDesc VecFuncs[] = {
           {"ldexpf", "xldexpf_avx2", 8},
-          {"sinf", "xsinf_avx2", 8},
-          {"cosf", "xcosf_avx2", 8},
+//          {"sinf", "xsinf_avx2", 8},
+//          {"cosf", "xcosf_avx2", 8},
           {"sincosf", "xsincosf_avx2", 8},
           {"tanf", "xtanf_avx2", 8},
           {"atanf", "xatanf_avx2", 8},
@@ -29,7 +29,7 @@ namespace rv {
           {"expf", "xexpf_avx2", 8},
           {"sqrtf", "xsqrtf_avx2", 8},
           {"cbrtf", "xcbrtf_avx2", 8},
-          {"powf", "xpowf_avx2", 8},
+//          {"powf", "xpowf_avx2", 8},
           {"sinhf", "xsinhf_avx2", 8},
           {"coshf", "xcoshf_avx2", 8},
           {"tanhf", "xtanhf_avx2", 8},
@@ -49,8 +49,8 @@ namespace rv {
     if (useAVX) {
       const VecDesc VecFuncs[] = {
           {"ldexpf", "xldexpf_avx", 8},
-          {"sinf", "xsinf_avx", 8},
-          {"cosf", "xcosf_avx", 8},
+//          {"sinf", "xsinf_avx", 8},
+//          {"cosf", "xcosf_avx", 8},
           {"sincosf", "xsincosf_avx", 8},
           {"tanf", "xtanf_avx", 8},
           {"atanf", "xatanf_avx", 8},
@@ -61,7 +61,7 @@ namespace rv {
           {"expf", "xexpf_avx", 8},
           {"sqrtf", "xsqrtf_avx", 8},
           {"cbrtf", "xcbrtf_avx", 8},
-          {"powf", "xpowf_avx", 8},
+//          {"powf", "xpowf_avx", 8},
           {"sinhf", "xsinhf_avx", 8},
           {"coshf", "xcoshf_avx", 8},
           {"tanhf", "xtanhf_avx", 8},
@@ -81,8 +81,8 @@ namespace rv {
     if (useSSE || useAVX || useAVX2) {
       const VecDesc VecFuncs[] = {
           {"ldexpf", "xldexpf_sse", 4},
-          {"sinf", "xsinf_sse", 4},
-          {"cosf", "xcosf_sse", 4},
+//          {"sinf", "xsinf_sse", 4},
+//          {"cosf", "xcosf_sse", 4},
           {"sincosf", "xsincosf_sse", 4},
           {"tanf", "xtanf_sse", 4},
           {"atanf", "xatanf_sse", 4},
@@ -93,7 +93,7 @@ namespace rv {
           {"expf", "xexpf_sse", 4},
           {"sqrtf", "xsqrtf_sse", 4},
           {"cbrtf", "xcbrtf_sse", 4},
-          {"powf", "xpowf_sse", 4},
+//          {"powf", "xpowf_sse", 4},
           {"sinhf", "xsinhf_sse", 4},
           {"coshf", "xcoshf_sse", 4},
           {"tanhf", "xtanhf_sse", 4},

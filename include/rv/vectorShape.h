@@ -40,15 +40,15 @@ public:
 	, alignment(_alignment)
 	{}
 
-        bool isDefined() const { return !(!hasConstantStride && (alignment == 0) && (stride == 0)); }
-        bool hasStride(int testStride) const { return hasConstantStride && stride == testStride; }
+  bool isDefined() const { return !(!hasConstantStride && (alignment == 0) && (stride == 0)); }
+  bool hasStride(int testStride) const { return hasConstantStride && stride == testStride; }
 	bool hasStridedShape() const { return hasConstantStride; }
 	int getStride() const { return stride; }
 	unsigned getAlignment() const { return alignment; }
 
 	bool isUniform() const { return hasStridedShape() && getStride() == 0; }
-	bool isStrided(int ofStride) const { return hasStridedShape() && stride == ofStride; }
-	inline bool isContiguous() const { return isStrided(1); }
+	bool isStrided() const { return hasStridedShape() && getStride() != 0 && getStride() != 1; }
+	inline bool isContiguous() const { return hasStride(1); }
 	bool isVarying() const { return !hasStridedShape(); }
 
 	static VectorShape varying(int aligned = 1) { return VectorShape(aligned); }

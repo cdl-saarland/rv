@@ -441,7 +441,6 @@ void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx)
 }
 
 void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
-  // TODO: Once available: replace !(addrShape.isUniform() || addrShape.isContiguous()) with proper mechanism
   LoadInst *load = dyn_cast<LoadInst>(inst);
   StoreInst *store = dyn_cast<StoreInst>(inst);
 
@@ -467,6 +466,11 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   // exception: address is an argument that is a vector -> vector load/store.
   Value *vecPtr = nullptr;
 
+  bool needsMask = false;
+  Value *predicate = vectorizationInfo.getPredicate(*inst->getParent());
+  assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
+  if (!addrShape.isUniform() && !isa<Constant>(predicate)) needsMask = true;
+
 #if 0
   uint scalarBytes = accessedType->getPrimitiveSizeInBits() / 8;
 
@@ -481,7 +485,8 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     }
   } else
 #endif
-  if (addrShape.isContiguous()) {
+  bool byteContiguous = addrShape.hasStride(accessedType->getPrimitiveSizeInBits() / 8);
+  if (!needsMask && (addrShape.isContiguous() || byteContiguous)) {
     // cast pointer to vector-width pointer
     Value *mappedPtr = requestScalarValue(accessedPtr);
     PointerType *vecPtrType = PointerType::getUnqual(vecType);
@@ -501,20 +506,18 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     }
   }
 
-  bool needsMask = false;
-  Value *predicate = vectorizationInfo.getPredicate(*inst->getParent());
-  assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
-  if (!addrShape.isUniform() && !isa<Constant>(predicate)) needsMask = true;
-
   Value *mask = nullptr;
   Value *vecMem = nullptr;
   if (load) {
-
-    if (addrShape.isVarying() || !(addrShape.isUniform() || addrShape.isContiguous()) || needsMask) {
+    if (addrShape.isUniform() || ((addrShape.isContiguous() || byteContiguous) && !needsMask)) {
+      std::string name = addrShape.isUniform() ? "scal_load" : "vec_load";
+      vecMem = builder.CreateLoad(vecPtr, name);
+      cast<LoadInst>(vecMem)->setAlignment(load->getAlignment());
+    } else {
       if (needsMask) mask = requestVectorValue(predicate);
       else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
 
-      if (addrShape.isVarying() || !(addrShape.isUniform() || addrShape.isContiguous())) {
+      if (addrShape.isVarying() || (addrShape.isStrided() && !byteContiguous)) {
         std::vector<Value *> args;
         args.push_back(vecPtr);
         args.push_back(ConstantInt::get(i32Ty, load->getAlignment()));
@@ -526,21 +529,18 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         vecMem = builder.CreateCall(gatherIntr, args, "gather");
       } else
         vecMem = builder.CreateMaskedLoad(vecPtr, load->getAlignment(), mask, 0, "masked_vec_load");
-    } else {
-      std::string name = addrShape.isUniform() ? "scal_load" : "vec_load";
-      vecMem = builder.CreateLoad(vecPtr, name);
-      cast<LoadInst>(vecMem)->setAlignment(load->getAlignment());
     }
-
   } else {
     Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                    : requestVectorValue(storedValue);
-
-    if (addrShape.isVarying() || !(addrShape.isUniform() || addrShape.isContiguous()) || needsMask) {
+    if (addrShape.isUniform() || ((addrShape.isContiguous() || byteContiguous) && !needsMask)) {
+      vecMem = builder.CreateStore(mappedStoredVal, vecPtr);
+      cast<StoreInst>(vecMem)->setAlignment(store->getAlignment());
+    } else {
       if (needsMask) mask = requestVectorValue(predicate);
       else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
 
-      if (addrShape.isVarying() || !(addrShape.isUniform() || addrShape.isContiguous())) {
+      if (addrShape.isVarying() || (addrShape.isStrided() && !byteContiguous)) {
         std::vector<Value *> args;
         args.push_back(mappedStoredVal);
         args.push_back(vecPtr);
@@ -552,9 +552,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         vecMem = builder.CreateCall(scatterIntr, args);
       } else
         vecMem = builder.CreateMaskedStore(mappedStoredVal, vecPtr, store->getAlignment(), mask);
-    } else {
-      vecMem = builder.CreateStore(mappedStoredVal, vecPtr);
-      cast<StoreInst>(vecMem)->setAlignment(store->getAlignment());
     }
   }
 
@@ -600,36 +597,49 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   Value *mappedVal = getScalarValue(value, laneIdx);
   if (mappedVal) return mappedVal;
 
+  // if value is integer type, contiguous and has value for lane 0, add laneIdx
+  Value *reqVal = nullptr;
+  if (vectorizationInfo.hasKnownShape(*value)) {
+    VectorShape shape = vectorizationInfo.getVectorShape(*value);
+    Type *type = value->getType();
+    mappedVal = getScalarValue(value);
+    if (mappedVal && (shape.isContiguous() || shape.isStrided()) && type->isIntegerTy()) {
+      Constant *laneInt = ConstantInt::get(value->getType(), laneIdx * shape.getStride());
+      reqVal = builder.CreateAdd(mappedVal, laneInt, value->getName() + "_lane" + std::to_string(laneIdx));
+    }
+  }
+
   // if value has a vector mapping -> extract from vector. if not -> clone scalar op
-  mappedVal = getVectorValue(value);
-  Value *reqVal;
-  if (mappedVal) {
-    // to avoid dominance problems assume: if we only have a vectorized value and need a scalar one -> do not map!
-    skipMappingWhenDone = true;
-    Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
-    auto oldIP = builder.GetInsertPoint();
-    auto oldIB = builder.GetInsertBlock();
-    if (mappedInst) {
-      if (mappedInst->getParent()->getTerminator())
-        builder.SetInsertPoint(mappedInst->getParent()->getTerminator());
-      else
-        builder.SetInsertPoint(mappedInst->getParent());
+  if (!reqVal) {
+    mappedVal = getVectorValue(value);
+    if (mappedVal) {
+      // to avoid dominance problems assume: if we only have a vectorized value and need a scalar one -> do not map!
+      skipMappingWhenDone = true;
+      Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
+      auto oldIP = builder.GetInsertPoint();
+      auto oldIB = builder.GetInsertBlock();
+      if (mappedInst) {
+        if (mappedInst->getParent()->getTerminator())
+          builder.SetInsertPoint(mappedInst->getParent()->getTerminator());
+        else
+          builder.SetInsertPoint(mappedInst->getParent());
+      }
+
+      reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
+
+      if (reqVal->getType() != value->getType()) {
+        reqVal = builder.CreateBitCast(reqVal, value->getType(), "bc");
+      }
+
+      if (mappedInst)
+        builder.SetInsertPoint(oldIB, oldIP);
+    } else {
+      Instruction *inst = cast<Instruction>(value);
+      Instruction *mapInst;
+      reqVal = mapInst = inst->clone();
+      mapOperandsInto(inst, mapInst, false);
+      builder.Insert(mapInst, inst->getName());
     }
-
-    reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
-
-    if (reqVal->getType() != value->getType()) {
-      reqVal = builder.CreateBitCast(reqVal, value->getType(), "bc");
-    }
-
-    if (mappedInst)
-      builder.SetInsertPoint(oldIB, oldIP);
-  } else {
-    Instruction *inst = cast<Instruction>(value);
-    Instruction *mapInst;
-    reqVal = mapInst = inst->clone();
-    mapOperandsInto(inst, mapInst, false);
-    builder.Insert(mapInst, inst->getName());
   }
 
   // only map if normal request. fresh requests will not get mapped
@@ -734,11 +744,6 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
   } else return nullptr;
 }
 
-const VectorMapping *NatBuilder::getFunctionMapping(Function *func) {
-  // IMPLEMENT ME
-  return nullptr;
-}
-
 unsigned NatBuilder::vectorWidth() {
   return vectorizationInfo.getMapping().vectorWidth;
 }
@@ -771,6 +776,9 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
       if (pty->getElementType()->isVectorTy())
         return false;
     }
+    VectorShape shape = vectorizationInfo.getVectorShape(*gep);
+    if (shape.hasStride(gep->getResultElementType()->getPrimitiveSizeInBits() / 8))
+      return false;
   }
 
   if (vectorizationInfo.hasKnownShape(*inst)) {
@@ -788,31 +796,6 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
     // all operands uniform, should not be vectorized
     return false;
   }
-}
-
-bool NatBuilder::useMappingForCall(const VectorMapping *mapping, CallInst *const scalCall) {
-  // do not use if:
-  // 1. vector width of mapping smaller than current vector width
-  // 2. result shape does not match
-  // 3. argument shapes do not match
-  // 4. types to do match (use element type for vector types)
-  // TODO: implement function to use mappings, then remove this
-  return false;
-
-  if (vectorWidth() > mapping->vectorWidth) return false;
-  if (scalCall->getType()->isVoidTy() != mapping->vectorFn->getReturnType()->isVoidTy()) return false;
-  if (vectorizationInfo.getVectorShape(*scalCall) != mapping->resultShape) return false;
-  for (unsigned i = 0; i < scalCall->getNumArgOperands(); ++i) {
-    Value *operand = scalCall->getOperand(i);
-    Type *paramType = mapping->vectorFn->getFunctionType()->getParamType(i);
-    if (paramType->isVectorTy()) paramType = ((VectorType *) paramType)->getElementType();
-    if (operand->getType() != paramType) return false;
-    if (vectorizationInfo.hasKnownShape(*operand) &&
-        vectorizationInfo.getVectorShape(*operand) == mapping->argShapes[i])
-      return false;
-  }
-
-  return true;
 }
 
 

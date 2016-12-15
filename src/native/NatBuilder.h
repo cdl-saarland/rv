@@ -83,14 +83,11 @@ namespace native {
 
     llvm::Value *createPTest(llvm::Value *vector);
 
-    const rv::VectorMapping *getFunctionMapping(llvm::Function *func);
-
     unsigned vectorWidth();
 
     bool canVectorize(llvm::Instruction *inst);
     bool shouldVectorize(llvm::Instruction *inst);
 
-    bool useMappingForCall(const rv::VectorMapping *mapping, llvm::CallInst *const scalCall);
   };
 }
 
