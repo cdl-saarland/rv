@@ -364,15 +364,12 @@ public:
 
   // update the tracker phi whenever a thread leaves the loop
     // TODO we only need to update trackers if the value is actually live out on the taken exit
-    auto combinedExitMask = ma.getCombinedLoopExitMask(loop);
     IRBuilder<> builder(loop.getLoopLatch(), loop.getLoopLatch()->getTerminator()->getIterator());
-    auto * trackerUpdate = builder.CreateSelect(combinedExitMask, &inst, phi, "update_" + inst.getName());
-    vecInfo.setVectorShape(*trackerUpdate, VectorShape::varying());
 
   // attach trackerPHI inputs
     // all liveouts are initially undef
     phi->addIncoming(UndefValue::get(inst.getType()), &preHeader);
-    phi->addIncoming(trackerUpdate, loop.getLoopLatch());
+    phi->addIncoming(phi, loop.getLoopLatch());
 
     liveOutPhis[&inst] = phi;
 
@@ -398,12 +395,13 @@ public:
     auto * lastTrackerState = tracker.getIncomingValue(latchId);
 
   // get exit predicate
-    // auto & exitMask = getLoopExitMask(exiting);
+    // auto & exitMask = getLoopExitMask(exiting); // predicate on the edge, no?
     auto & exitMask = *ma.getCombinedLoopExitMask(loop);
 
   // chain in the update
     IRBuilder<> builder(&latch, latch.getTerminator()->getIterator());
     auto * updateInst = builder.CreateSelect(&exitMask, &val, lastTrackerState, "update_" + val.getName());
+    vecInfo.setVectorShape(*updateInst, VectorShape::varying());
     tracker.setIncomingValue(latchId, updateInst);
   }
 
@@ -438,11 +436,13 @@ public:
   trackLiveOuts(BasicBlock & exitBlock) {
     auto & exitingBlock = getExitingBlock(exitBlock);
 
-#if 0
-    if (vecInfo.getVectorShape(*exitingBlock.getTerminator()).isUniform()) {
+  // if this branch alwats finishes the loop off
+    bool finalExit = false;
+#if 1
+    if (!vecInfo.isMandatory(&exitBlock)) {
+      finalExit = true;
       // this exit kills the loop so we do not need to track any values for it
       IF_DEBUG_LIN errs() << "kill exit " << exitBlock.getName() << " skipping..\n";
-      return;
     }
 #endif
 
@@ -465,11 +465,16 @@ public:
       // update the tracker with @inInst whenever the exit edge is taken
       addTrackerUpdate(tracker, exitingBlock, exitBlock, *inInst);
 
+      if (finalExit) {
+        continue;
+      }
+
     // replace outside uses with tracker
+      // if this exit branch kills the loop
       auto & liveOut = getTrackerStateForLiveOut(*inInst);
       lcPhi.setIncomingValue(loopIncomingId, &liveOut);
 
-#if 0 // unnecessary
+#if 1 // unnecessary
       auto itUseBegin = inInst->use_begin(), itUseEnd = inInst->use_end();
       for (auto it = itUseBegin; it != itUseEnd; ) {
         auto & use = *(it++);
