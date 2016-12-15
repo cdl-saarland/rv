@@ -15,6 +15,8 @@
 
 namespace rv {
   bool addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2, PlatformInfo &platformInfo);
+  Function *
+  requestSleefFunction(const StringRef &funcName, StringRef &vecFuncName, Module *insertInto, bool doublePrecision);
 }
 
 #endif //RV_SLEEFLIBRARY_H

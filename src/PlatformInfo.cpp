@@ -2,16 +2,8 @@
 // Created by thorsten on 06.10.16.
 //
 
-#include <llvm/Support/SourceMgr.h>
-#include <llvm/IRReader/IRReader.h>
-#include <llvm/Transforms/Utils/Cloning.h>
-#include <llvm/IR/InstIterator.h>
 #include "PlatformInfo.h"
-
-#define SLEEF_FILES RV_SLEEF_BC_DIR
-#define SLEEF_AVX2 SLEEF_FILES"/avx2_sleef.bc"
-#define SLEEF_AVX SLEEF_FILES"/avx_sleef.bc"
-#define SLEEF_SSE SLEEF_FILES"/sse_sleef.bc"
+#include "rv/sleefLibrary.h"
 
 namespace rv {
 
@@ -85,73 +77,11 @@ namespace rv {
     return StringRef();
   }
 
-  Module *createModuleFromFile(const std::string &fileName) {
-    SMDiagnostic diag;
-    auto modPtr = llvm::parseIRFile(fileName, diag, llvm::getGlobalContext());
-    return modPtr.release();
-  }
-
-  Function *cloneFunctionIntoModule(Function *func, Module *cloneInto, StringRef name) {
-    // create function in new module, create the argument mapping, clone function into new function body, return
-    Function *clonedFn = Function::Create(func->getFunctionType(), Function::LinkageTypes::ExternalLinkage,
-                                          name, cloneInto);
-
-    ValueToValueMapTy VMap;
-    auto CI = clonedFn->arg_begin();
-    for (auto I = func->arg_begin(), E = func->arg_end(); I != E; ++I, ++CI) {
-      Argument *arg = &*I, *carg = &*CI;
-      carg->setName(arg->getName());
-      VMap[arg] = carg;
-    }
-    // need to map calls as well
-    for (auto I = inst_begin(func), E = inst_end(func); I != E; ++I) {
-      if (!isa<CallInst>(&*I)) continue;
-      CallInst *callInst = cast<CallInst>(&*I);
-      Function *callee = callInst->getCalledFunction();
-      Function *clonedCallee;
-      if (callee->isIntrinsic())
-        clonedCallee = Intrinsic::getDeclaration(cloneInto, callee->getIntrinsicID());
-      else
-        clonedCallee = cloneInto->getFunction(callee->getName());
-
-      if (!clonedCallee) clonedCallee = cloneFunctionIntoModule(callee, cloneInto, callee->getName());
-      VMap[callee] = clonedCallee;
-    }
-
-    SmallVector<ReturnInst *, 1> Returns; // unused
-
-    CloneFunctionInto(clonedFn, func, VMap, false, Returns);
-    return clonedFn;
-  }
-
-  Function *PlatformInfo::requestVectorizedFunction(StringRef funcName, unsigned vectorWidth, Module *insertInto) {
+  Function *PlatformInfo::requestVectorizedFunction(StringRef funcName, unsigned vectorWidth, Module *insertInto,
+                                                      bool doublePrecision) {
     StringRef vecFuncName = getVectorizedFunction(funcName, vectorWidth);
     if (vecFuncName.empty()) return nullptr;
-
-    // if function already cloned, return
-    Function *clonedFn = insertInto->getFunction(vecFuncName);
-    if (clonedFn) return clonedFn;
-
-    // load module and function, copy function to insertInto, return copy
-    if (vecFuncName.count("avx2")) { // avx2
-      if (!avx2Mod) avx2Mod = createModuleFromFile(SLEEF_AVX2);
-      Function *vecFunc = avx2Mod->getFunction("x" + funcName.str()); // sleef naming: xlog, xtan, xsin, etc
-      assert(vecFunc);
-      clonedFn = cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
-
-    } else if (vecFuncName.count("avx")) { // avx
-      if (!avxMod) avxMod = createModuleFromFile(SLEEF_AVX);
-      Function *vecFunc = avxMod->getFunction("x" + funcName.str());
-      assert(vecFunc);
-      clonedFn = cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
-
-    } else if (vecFuncName.count("sse")) { // sse
-      if (!sseMod) sseMod = createModuleFromFile(SLEEF_SSE);
-      Function *vecFunc = sseMod->getFunction("x" + funcName.str());
-      assert(vecFunc);
-      clonedFn = cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
-    }
-    return clonedFn;
+    return requestSleefFunction(funcName, vecFuncName, insertInto, doublePrecision);
   }
 
 }

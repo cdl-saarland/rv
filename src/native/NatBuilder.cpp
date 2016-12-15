@@ -151,7 +151,9 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     else if (call)
       // calls need special treatment
       if (call->getCalledFunction()->getName() == "rv_any")
-        vectorizeReductionCall(call);
+        vectorizeReductionCall(call, false);
+      else if (call->getCalledFunction()->getName() == "rv_all")
+        vectorizeReductionCall(call, true);
       else if (shouldVectorize(call))
         vectorizeCallInstruction(call);
       else {
@@ -245,7 +247,7 @@ void NatBuilder::copyInstruction(Instruction *const inst, unsigned laneIdx) {
     Value *cond = branch->getCondition();
     VectorShape shape = vectorizationInfo.hasKnownShape(*cond) ? vectorizationInfo.getVectorShape(*cond)
                                                                : VectorShape::uni();
-    cond = shape.isUniform() ? requestScalarValue(cond) : createPTest(requestVectorValue(cond));
+    cond = shape.isUniform() ? requestScalarValue(cond) : createPTest(requestVectorValue(cond), false);
     branch->setCondition(cond);
 
     for (unsigned i = 0; i < branch->getNumSuccessors(); ++i) {
@@ -298,18 +300,18 @@ void NatBuilder::vectorize(Instruction *const inst) {
   mapVectorValue(inst, vecInst);
 }
 
-void NatBuilder::vectorizeReductionCall(CallInst *rvCall) {
+void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
   assert(rvCall->getNumArgOperands() == 1 && "expected only 1 argument for rv_any");
 
   Value *predicate = rvCall->getArgOperand(0);
   assert(vectorizationInfo.hasKnownShape(*predicate) && "predicate has no shape");
   const VectorShape &shape = vectorizationInfo.getVectorShape(*predicate);
-  assert(!shape.isContiguous() && "predicate can't be contigious");
+  assert(!shape.isContiguous() && !shape.isStrided() && "predicate can't be contigious or strided");
 
   Value *reduction;
   if (shape.isVarying()) {
     Value *vecPredicate = requestVectorValue(predicate);
-    reduction = createPTest(vecPredicate);
+    reduction = createPTest(vecPredicate, isRv_all);
   } else {
     reduction = requestScalarValue(predicate);
   }
@@ -328,8 +330,11 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   // is func is vectorizable (standard mapping exists for given vector width), create new call to vector func
   if (platformInfo.isFunctionVectorizable(calleeName, vectorWidth())) {
     CallInst *call = cast<CallInst>(scalCall->clone());
+    bool doublePrecision = false;
+    if (call->getNumArgOperands() > 0)
+      doublePrecision = call->getArgOperand(0)->getType()->isDoubleTy();
     Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
-    Function *simdFunc = platformInfo.requestVectorizedFunction(calleeName, vectorWidth(), mod);
+    Function *simdFunc = platformInfo.requestVectorizedFunction(calleeName, vectorWidth(), mod, doublePrecision);
     call->setCalledFunction(simdFunc);
     call->mutateType(simdFunc->getReturnType());
     mapOperandsInto(scalCall, call, true);
@@ -647,18 +652,24 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   return reqVal;
 }
 
-Value *NatBuilder::createPTest(Value *vector) {
+llvm::Value *NatBuilder::createPTest(llvm::Value *vector, bool isRv_all) {
   assert(vector->getType()->isVectorTy() && "given value is no vector type!");
   assert(cast<VectorType>(vector->getType())->getElementType()->isIntegerTy(1) &&
          "vector elements must have i1 type!");
 
   Type *i32VecType = VectorType::get(i32Ty, vectorWidth());
   Type *intSIMDType = Type::getIntNTy(vector->getContext(), vectorWidth() * 32);
-  Constant *simdFalseConst = ConstantInt::get(vector->getContext(), APInt(vectorWidth() * 32, "0", 10));
+  Constant *simdFalseConst = ConstantInt::get(vector->getContext(), APInt::getMinValue(vectorWidth() * 32));
+  Constant *simdTrueConst = ConstantInt::get(i32VecType, 1);
   Value *sext = builder.CreateSExt(vector, i32VecType, "ptest_sext");
   Value *bc = builder.CreateBitCast(sext, intSIMDType, "ptest_bc");
 
-  return builder.CreateICmpNE(bc, simdFalseConst, "ptest_comp");
+  if (isRv_all) {
+    Value *trueConst = builder.CreateBitCast(simdTrueConst, intSIMDType);
+    return builder.CreateICmpEQ(bc, trueConst, "ptest_comp");
+  }
+  else
+    return builder.CreateICmpNE(bc, simdFalseConst, "ptest_comp");
 }
 
 void NatBuilder::addValuesToPHINodes() {

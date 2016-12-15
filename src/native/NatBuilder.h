@@ -60,7 +60,7 @@ namespace native {
     void vectorizePHIInstruction(llvm::PHINode *const scalPhi);
     void vectorizeMemoryInstruction(llvm::Instruction *const inst);
     void vectorizeCallInstruction(llvm::CallInst *const scalCall);
-    void vectorizeReductionCall(CallInst *rvCall);
+    void vectorizeReductionCall(CallInst *rvCall, bool isRv_all);
 
     void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
     void copyGEPInstruction(llvm::GetElementPtrInst *const gep, unsigned laneIdx = 0);
@@ -81,7 +81,7 @@ namespace native {
     llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
                                     bool skipMappingWhenDone = false);
 
-    llvm::Value *createPTest(llvm::Value *vector);
+    llvm::Value *createPTest(llvm::Value *vector, bool isRv_all);
 
     unsigned vectorWidth();
 

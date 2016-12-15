@@ -38,7 +38,8 @@ namespace rv {
     void addVectorizableFunctions(ArrayRef<VecDesc> funcs);
     bool isFunctionVectorizable(StringRef funcName, unsigned vectorWidth);
     StringRef getVectorizedFunction(StringRef func, unsigned vectorWidth);
-    Function *requestVectorizedFunction(StringRef funcName, unsigned vectorWidth, Module *insertInto);
+    Function *requestVectorizedFunction(StringRef funcName, unsigned vectorWidth, Module *insertInto,
+                                            bool doublePrecision);
 
   private:
     TargetTransformInfo *mTTI;
