@@ -8,11 +8,11 @@
 
 // typedef float float4 __attribute__((ext_vector_type(4)));
 
-extern "C" void foo(float u, float A[4]);
-extern "C" void foo_SIMD(float u, float A[4]);
+extern "C" void foo(int u, float * A);
+extern "C" void foo_SIMD(int u, float * A);
 
 int main(int argc, char ** argv) {
-  const uint vectorWidth = 4;
+  const uint vectorWidth = 8;
   const uint numVectors = 100;
 
   for (unsigned i = 0; i < numVectors; ++i) {
