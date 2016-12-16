@@ -898,6 +898,21 @@ PDA::computeShapeForBinaryInst(const BinaryOperator* I)
 
         //case Instruction::FDiv:
 
+        case Instruction::Shl:
+        {
+            if (shape1.isVarying() || shape2.isVarying()) return VectorShape::varying();
+
+            if (const ConstantInt* c2 = dyn_cast<ConstantInt>(op2))
+            {
+                unsigned shift = static_cast<unsigned>(c2->getZExtValue());
+                int stride = shape1.getStride() << shift;
+                unsigned aligned = alignment1 << shift;
+                return VectorShape::strided(stride, aligned);
+            }
+
+            return VectorShape::varying();
+        }
+
         default:
         {
             if (shape1.isUniform() && shape2.isUniform())
