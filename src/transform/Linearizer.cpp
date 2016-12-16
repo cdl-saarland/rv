@@ -395,8 +395,8 @@ public:
     auto * lastTrackerState = tracker.getIncomingValue(latchId);
 
   // get exit predicate
-    // auto & exitMask = getLoopExitMask(exiting); // predicate on the edge, no?
-    auto & exitMask = *ma.getCombinedLoopExitMask(loop);
+    // auto & exitMask = getLoopExitMask(exiting); // should do the trick if this atually was the edge predicate..
+    auto & exitMask = *ma.getCombinedLoopExitMask(loop); // union of all exit predicates
 
   // chain in the update
     IRBuilder<> builder(&latch, latch.getTerminator()->getIterator());
@@ -436,7 +436,7 @@ public:
   trackLiveOuts(BasicBlock & exitBlock) {
     auto & exitingBlock = getExitingBlock(exitBlock);
 
-  // if this branch alwats finishes the loop off
+  // if this branch always finishes the loop off
     bool finalExit = false;
 #if 1
     if (!vecInfo.isMandatory(&exitBlock)) {
@@ -461,7 +461,7 @@ public:
       if (!inInst || !loop.contains(inInst->getParent())) continue; // live out value not loop carried
 
     // request a tracker PHI for this loop-dependent live out
-      auto & tracker = requestTracker(*inInst);
+      auto & tracker = requestTracker(lcPhi);
       // update the tracker with @inInst whenever the exit edge is taken
       addTrackerUpdate(tracker, exitingBlock, exitBlock, *inInst);
 
@@ -471,54 +471,11 @@ public:
 
     // replace outside uses with tracker
       // if this exit branch kills the loop
-      auto & liveOut = getTrackerStateForLiveOut(*inInst);
+      auto & liveOut = getTrackerStateForLiveOut(lcPhi);
       lcPhi.setIncomingValue(loopIncomingId, &liveOut);
 
-#if 1 // unnecessary
-      auto itUseBegin = inInst->use_begin(), itUseEnd = inInst->use_end();
-      for (auto it = itUseBegin; it != itUseEnd; ) {
-        auto & use = *(it++);
-        auto & user = *cast<Instruction>(use.getUser());
-        int opIdx = use.getOperandNo();
-
-        if (loop.contains(&user)) continue;
-        user.setOperand(opIdx, &liveOut);
-      }
-#endif
-    }
-  }
-
-  // replace all out-of-loop users of tracker values with the last tracker state
-  void
-  replaceLiveOutsWithTrackers(BasicBlock & exitBlock) {
-    auto & exitingBlock = getExitingBlock(exitBlock);
-
-    if (vecInfo.getVectorShape(*exitingBlock.getTerminator()).isUniform()) {
-      // this exit kills the loop so we do not need to track any values for it
-      return;
-    }
-
-    assert(!loop.contains(&exitBlock));
-    auto itBegin = exitBlock.begin(), itEnd = exitBlock.end();
-    for (auto it = itBegin; isa<PHINode>(*it) && it != itEnd; ++it) {
-      auto & lcPhi = cast<PHINode>(*it);
-      assert(lcPhi.getNumIncomingValues() == 1 && "not a LCSSA PHI");
-
-    // do not track non-live carried values
-      int loopIncomingId = getLoopBlockIndex(lcPhi);
-      assert(loopIncomingId >= 0 && "not an LCSSA node");
-
-      auto * inInst = dyn_cast<Instruction>(lcPhi.getIncomingValue(loopIncomingId));
-      if (!inInst || !loop.contains(inInst->getParent())) continue; // live out value not loop carried
-
-    // request a tracker PHI for this loop-dependent live out
-      auto & liveOut = getTrackerStateForLiveOut(*inInst);
-
-      // lcssa PHI (defer this until all updates have been looped in)
-      lcPhi.setIncomingValue(loopIncomingId, &liveOut);
-
-      // scan through all out-of-loop uses and replace with tracker value
-#if 0
+    // TODO find out why this is necessary
+#if 1 // necessary (otherwise misses replacement of %sub6_SIMD in %sub6.lcssa_SIMD = phi <8 x float> [ %sub6_SIMD, %for.inc9.rv ] )
       auto itUseBegin = inInst->use_begin(), itUseEnd = inInst->use_end();
       for (auto it = itUseBegin; it != itUseEnd; ) {
         auto & use = *(it++);
@@ -569,24 +526,18 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   for (auto * exitBlock : loopExitBlocks) {
     auto exitId = getIndex(*exitBlock);
     // all exit blocks must be visited after the loop
+
     loopExitRelay = &addTargetToRelay(loopExitRelay, exitId);
     // track all values that live across this exit edge
 
     auto & exitingBlock = GetExitingBlock(loop, *exitBlock);
     auto * innerMostExitLoop = li.getLoopFor(&exitingBlock);
-    if (innerMostExitLoop == &loop) {
-      IF_DEBUG_LIN errs() << "Processing loop exit from " << exitBlock->getName() << " to " << exitingBlock.getName() << " of loop with header " << innerMostExitLoop->getHeader()->getName() << "\n";
-      // only consider exits of the current loop level
-      liveOutTracker.trackLiveOuts(*exitBlock);
-    }
-  }
+    // if (innerMostExitLoop != &loop) continue; // FIXME breaks test_020
 
-  // replace all outside uses of loop-carried instructions with their last updated state
-#if 0
-  for (auto * exitBlock : loopExitBlocks) {
-     liveOutTracker.replaceLiveOutsWithTrackers(*exitBlock);
+    IF_DEBUG_LIN errs() << "Processing loop exit from " << exitBlock->getName() << " to " << exitingBlock.getName() << " of loop with header " << innerMostExitLoop->getHeader()->getName() << "\n";
+    // only consider exits of the current loop level
+    liveOutTracker.trackLiveOuts(*exitBlock);
   }
-#endif
 
 // move LCSSA nodes to exitBlockRelay
   for (auto * block : loopExitBlocks) {
@@ -646,6 +597,9 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   loop.getExitingBlocks(loopExitingBlocks);
 
   for (auto * exitingBlock : loopExitingBlocks) {
+    // exits from inner loops will be handled by recursive invocations of processLoop
+    if (li.getLoopFor(exitingBlock) != &loop) continue;
+
     dropLoopExit(*exitingBlock, loop);
   }
 
