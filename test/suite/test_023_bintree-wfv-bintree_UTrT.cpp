@@ -6,10 +6,8 @@ struct Node {
 
 extern "C" {
 
-bool rv_any(bool p);
-
 // find
-// uniform stack implementation
+// divergent stack implementation
 int foo(Node * nodes, float elem) {
   int stack[64];
   int top = 1;
@@ -27,11 +25,9 @@ int foo(Node * nodes, float elem) {
       return 1;
     }
 
-    if (left > 0 && rv_any(elem < label)) {
+    if (left > 0 && elem < label) {
       stack[top++] = left;
-    }
-
-    if (right > 0 && rv_any(label < elem)) {
+    } else if (right > 0 && label < elem) {
       stack[top++] = right;
     }
   }
