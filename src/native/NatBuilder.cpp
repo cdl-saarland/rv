@@ -570,8 +570,8 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
   Value *vecValue = getVectorValue(value);
   if (!vecValue) {
     vecValue = getScalarValue(value);
-    // check shape for vecValue. if there is one and it is contiguous, cast to vector and add <0,1,2,...,n-1>
-    VectorShape shape = vectorizationInfo.hasKnownShape(*vecValue) ? vectorizationInfo.getVectorShape(*vecValue)
+    // check shape for value. if there is one and it is contiguous, cast to vector and add <0,1,2,...,n-1>
+    VectorShape shape = vectorizationInfo.hasKnownShape(*value) ? vectorizationInfo.getVectorShape(*value)
                                                                    : VectorShape::uni();
 
     Instruction *vecInst = dyn_cast<Instruction>(vecValue);
@@ -588,7 +588,8 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
     if (shape.isContiguous()) {
       auto *laneTy = vecValue->getType()->getVectorElementType();
       Value *contVec = createContiguousVector(vectorWidth(), laneTy);
-      vecValue = builder.CreateAdd(vecValue, contVec, "contiguous_add");
+      vecValue = laneTy->isFloatingPointTy() ? builder.CreateFAdd(vecValue, contVec, "contiguous_add")
+                                             : builder.CreateAdd(vecValue, contVec, "contiguous_add");
     }
 
     if (vecInst) builder.SetInsertPoint(oldIB, oldIP);
@@ -602,15 +603,20 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   Value *mappedVal = getScalarValue(value, laneIdx);
   if (mappedVal) return mappedVal;
 
-  // if value is integer type, contiguous and has value for lane 0, add laneIdx
+  // if value is integer or floating type, contiguous and has value for lane 0, add laneIdx
   Value *reqVal = nullptr;
   if (vectorizationInfo.hasKnownShape(*value)) {
     VectorShape shape = vectorizationInfo.getVectorShape(*value);
     Type *type = value->getType();
     mappedVal = getScalarValue(value);
-    if (mappedVal && (shape.isContiguous() || shape.isStrided()) && type->isIntegerTy()) {
-      Constant *laneInt = ConstantInt::get(value->getType(), laneIdx * shape.getStride());
-      reqVal = builder.CreateAdd(mappedVal, laneInt, value->getName() + "_lane" + std::to_string(laneIdx));
+    if (mappedVal && (shape.isContiguous() || shape.isStrided()) &&
+        (type->isIntegerTy() || type->isFloatingPointTy())) {
+      Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())
+                                                    : ConstantInt::get(type, laneIdx * shape.getStride());
+      reqVal = type->isFloatingPointTy() ? builder.CreateFAdd(mappedVal, laneInt,
+                                                              value->getName() + "lane" + std::to_string(laneIdx))
+                                         : builder.CreateAdd(mappedVal, laneInt,
+                                                             value->getName() + "_lane" + std::to_string(laneIdx));
     }
   }
 

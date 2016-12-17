@@ -25,7 +25,9 @@ Type *getVectorType(Type *type, unsigned width) {
 Value *createContiguousVector(unsigned width, Type *type, int start) {
   Constant *constants[width];
   for (unsigned i = 0; i < width; ++i) {
-    constants[i] = ConstantInt::get(type, i + start);
+    unsigned int val = i + start;
+    Constant *constant = type->isFloatingPointTy() ? ConstantFP::get(type, val) : ConstantInt::get(type, val);
+    constants[i] = constant;
   }
   return ConstantVector::get(ArrayRef<Constant *>(constants, width));
 }
