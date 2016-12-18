@@ -108,11 +108,13 @@ PDA::fillVectorizationInfo(Function& F)
   for (const BasicBlock& BB : F)
   {
       mVecinfo.setVectorShape(BB, mValue2Shape[&BB]);
-      for (const Instruction& I : BB)
-          if (mValue2Shape.count(&I))
+      for (const Instruction& I : BB) {
+          if (mValue2Shape[&I].isDefined()) {
               mVecinfo.setVectorShape(I, mValue2Shape[&I]);
-      if (!mVecinfo.hasKnownShape(*BB.getTerminator()))
-          mVecinfo.setVectorShape(*BB.getTerminator(), VectorShape::uni());
+          } else {
+              mVecinfo.setVectorShape(I, VectorShape::uni()); // If undefined assume uniform
+          }
+      }
   }
 }
 
@@ -163,6 +165,10 @@ void
 PDA::init(Function& F)
 {
     layout = DataLayout(F.getParent());
+
+    // Initialize with undefined values
+    for (auto& arg : F.args()) mValue2Shape[&arg] = VectorShape::undef();
+    for (auto& BB : F) for (auto& I : BB) mValue2Shape[&I] = VectorShape::undef();
 
     // Update initialized instructions
     for (auto& arg : F.args())
@@ -253,7 +259,7 @@ PDA::init(Function& F)
 void
 PDA::update(const Value* const V, VectorShape AT)
 {
-    const VectorShape& New = joinWithOld(V, AT);
+    const VectorShape& New = VectorShape::join(getShape(V), AT);
 
     if (mValue2Shape.count(V) && mValue2Shape[V] == New)
         return;// nothing changed
@@ -353,9 +359,9 @@ PDA::update(const Value* const V, VectorShape AT)
                 if (endsVaryingLoop->getUniqueExitBlock()) continue;
 
                 // For multiple exits, the loop shall be blackboxed
-                VectorShape CombinedExitShape = combineExitShapes(endsVaryingLoop);
-                causedDivergence = !CombinedExitShape.isUniform();
-                mValue2Shape[BB] = joinWithOld(BB, CombinedExitShape);
+                const VectorShape& JoinedExitShape = joinExitShapes(endsVaryingLoop);
+                causedDivergence = !JoinedExitShape.isUniform();
+                mValue2Shape[BB] = VectorShape::join(getShape(BB), JoinedExitShape);
             }
             else
             {
@@ -462,20 +468,7 @@ PDA::updateOutsideLoopUsesVarying(const Loop* divLoop)
 }
 
 VectorShape
-PDA::joinWithOld(const Value* const V, VectorShape AT)
-{
-    auto found = mValue2Shape.find(V);
-
-    // Has a value to join with
-    if (found != mValue2Shape.end())
-        return VectorShape::join(found->second, AT);
-
-    // Uninitialized/Bottom value
-    return AT;
-}
-
-VectorShape
-PDA::combineExitShapes(const Loop* loop)
+PDA::joinExitShapes(const Loop* loop)
 {
     SmallVector<BasicBlock*, 4> exitingBlocks;
     loop->getExitingBlocks(exitingBlocks);
@@ -484,7 +477,7 @@ PDA::combineExitShapes(const Loop* loop)
     for (BasicBlock* exitingBB : exitingBlocks)
     {
         const TerminatorInst* terminator = exitingBB->getTerminator();
-        CombinedExitShape = joinWithOld(terminator, CombinedExitShape);
+        CombinedExitShape = VectorShape::join(getShape(terminator), CombinedExitShape);
     }
 
     return CombinedExitShape;
@@ -529,7 +522,7 @@ PDA::allOperandsHaveShape(const Instruction* I)
 {
     auto hasKnownShape = [this](Value* op)
     {
-        return !isa<Instruction>(op) || mValue2Shape.count(op);
+        return !isa<Instruction>(op) || mValue2Shape[op].isDefined();
     };
 
     return all_of(I->operands(), hasKnownShape);
@@ -725,25 +718,12 @@ PDA::computeShapeForInst(const Instruction* I)
                 return VectorShape::varying();
             }
 
-            // Collect defined values
-            VectorShapeVec DefinedValues;
+            VectorShape Join = VectorShape::undef();
             for (auto& op : I->operands()) {
-                if (isa<Constant>(op) || mValue2Shape.count(op)) {
-                    DefinedValues.push_back(getShape(op));
-                }
+                Join = VectorShape::join(Join, getShape(op));
             }
 
-            if (DefinedValues.empty()) {
-              return VectorShape::undef();
-            }
-
-            // Join them (non-empty, at least one is defined)
-            assert (!DefinedValues.empty());
-            VectorShape Joined = DefinedValues[0];
-            for (VectorShape shape : DefinedValues)
-                Joined = VectorShape::join(Joined, shape);
-
-            return Joined;
+            return Join;
         }
 
         case Instruction::Load:
@@ -772,11 +752,11 @@ PDA::computeShapeForInst(const Instruction* I)
         // Join all operands
         default:
         {
-            VectorShape ShapeComputed = getShape(*I->op_begin());
+            VectorShape Join = VectorShape::undef();
             for (auto& op : I->operands())
-                ShapeComputed = VectorShape::join(ShapeComputed, getShape(op));
+                Join = VectorShape::join(Join, getShape(op));
 
-            return ShapeComputed;
+            return Join;
         }
     }
 }
@@ -1060,17 +1040,6 @@ PDA::getShape(const Value* const V)
 
     assert (isa<Constant>(V) && "Value is not available");
     return mValue2Shape[V] = VectorShape::uni(getAlignment(cast<Constant>(V)));
-}
-
-inline std::string
-NAME(const llvm::Value* V)
-{
-    if (V->hasName() && V->getName().size() > 0)
-        return V->getName().str();
-    std::string S;
-    llvm::raw_string_ostream O(S);
-    V->print(O);
-    return O.str();
 }
 
 void

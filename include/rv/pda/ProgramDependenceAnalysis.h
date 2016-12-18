@@ -143,11 +143,9 @@ private:
     // Resets the shape of this value and every value in the user graph to bottom
     void eraseUserInfoRecursively(const Value* V);
 
-    // VectorShape::join with adaption to bottom/no value
-    VectorShape joinWithOld(const Value* const V, VectorShape AT);
     // Join shapes of all loop exits
     // FIXME: so maybe call it joinExitShapes?
-    VectorShape combineExitShapes(const Loop* loop);
+    VectorShape joinExitShapes(const Loop* loop);
 
     // Returns true iff all operands currently have a computed shape
     // This is essentially a negated check for bottom

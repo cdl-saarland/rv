@@ -21,16 +21,22 @@ namespace rv {
 
 // describes how the contents of a vector vary with the vectorized dimension
 class VectorShape {
+    bool defined;
 	int stride;
 	bool hasConstantStride;
 	unsigned alignment;
 
 public:
-	// Divergent constructor
-	VectorShape(unsigned _alignment = 1U)
+    // Undefined constructor
+    VectorShape()
+    : defined(false)
+    {}
+
+	VectorShape(unsigned _alignment)
 	: stride(0)
 	, hasConstantStride(false)
 	, alignment(_alignment)
+    , defined(true)
 	{}
 
 	// constant stride constructor
@@ -38,35 +44,30 @@ public:
 	: stride(_stride)
 	, hasConstantStride(true)
 	, alignment(_alignment)
+    , defined(true)
 	{}
 
-  bool isDefined() const { return !(!hasConstantStride && (alignment == 0) && (stride == 0)); }
-  bool hasStride(int testStride) const { return hasConstantStride && stride == testStride; }
-	bool hasStridedShape() const { return hasConstantStride; }
+    bool isDefined() const { return defined; }
+	bool hasStridedShape() const { return defined && hasConstantStride; }
 	int getStride() const { return stride; }
 	unsigned getAlignment() const { return alignment; }
 
-	bool isUniform() const { return hasStridedShape() && getStride() == 0; }
-	bool isStrided() const { return hasStridedShape() && getStride() != 0 && getStride() != 1; }
-	inline bool isContiguous() const { return hasStride(1); }
-	bool isVarying() const { return !hasStridedShape(); }
+	bool isUniform() const { return defined && hasStridedShape() && getStride() == 0; }
+	bool isStrided(int ofStride) const { return defined && hasStridedShape() && stride == ofStride; }
+	inline bool isContiguous() const { return isStrided(1); }
+	bool isVarying() const { return defined && !hasStridedShape(); }
 
 	static VectorShape varying(int aligned = 1) { return VectorShape(aligned); }
 	static VectorShape strided(int stride, int aligned = 1) { return VectorShape(stride, aligned); }
 	static VectorShape uni(int aligned = 1) { return VectorShape(0, aligned); }
 	static VectorShape cont(int aligned = 1) { return VectorShape(1, aligned); }
-	static VectorShape undef(int aligned = 1) { return VectorShape(0); } // bot
+	static VectorShape undef(int aligned = 1) { return VectorShape(); } // bot
 
-        static VectorShape join(VectorShape a, VectorShape b);
+    static VectorShape join(VectorShape a, VectorShape b);
 
 	bool operator==(const VectorShape& a) const;
 	bool operator!=(const VectorShape& a) const;
 	bool operator< (const VectorShape& a) const;
-
-	friend VectorShape operator+(const VectorShape& a, const VectorShape& b);
-	friend VectorShape operator-(const VectorShape& a, const VectorShape& b);
-	friend VectorShape operator*(int strideMultiplier, const VectorShape& a);
-	friend VectorShape operator/(const VectorShape& a, int strideDivisor);
 
 	static VectorShape truncateToTypeSize(const VectorShape& a, unsigned typeSize)
 	{
