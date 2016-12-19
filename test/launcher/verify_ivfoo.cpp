@@ -17,9 +17,10 @@ int main(int argc, char ** argv) {
 
   for (unsigned i = 0; i < numVectors; ++i) {
 
-    float aScalar[vectorWidth];
-    float aVec[vectorWidth];
-    for (uint i = 0; i < vectorWidth; ++i) {
+    const uint padded = 2 * vectorWidth;
+    float aScalar[padded];
+    float aVec[padded];
+    for (uint i = 0; i < padded; ++i) {
       aScalar[i] = (float) rand();
       aVec[i] = aScalar[i];
     }
@@ -32,13 +33,13 @@ int main(int argc, char ** argv) {
       foo(j, aScalar);
     }
 
-    for (uint i = 0; i < vectorWidth; ++i) {
+    for (uint i = 0; i < padded; ++i) {
 
       if (aScalar[i] != aVec[i]) {
         std::cerr << "MISMATCH!\n";
         std::cerr << i << " : s[i] = " << aScalar[i] << " v[i] = " << aVec[i] << "\n";
-        dumpArray(aScalar, vectorWidth); std::cerr << "\n";
-        dumpArray(aVec, vectorWidth); std::cerr << "\n";
+        dumpArray(aScalar, padded); std::cerr << "\n";
+        dumpArray(aVec, padded); std::cerr << "\n";
         return -1;
       }
     }

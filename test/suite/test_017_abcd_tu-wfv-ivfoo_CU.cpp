@@ -7,12 +7,12 @@ void
 foo(int i, float * A) {
   float v = A[i];
 A: // br :T B C
-  if (A[i] > 0.0) goto B; else goto C;
+  if (A[i + 1] > 0.0) goto B; else goto C;
 B: // br :U C D
-  v = A[(2*i % 4)];
-  if (A[0] > 0.0) goto C; else goto D;
+  v = A[i + 2];
+  if (A[i] > 0.0) goto C; else goto D;
 C: // br D
-  v = fabs(A[(i + 1) % 4]);
+  v = fabs(A[i + 3]);
 D:
   A[i] = v * v;
 }
