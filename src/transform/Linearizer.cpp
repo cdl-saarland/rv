@@ -143,7 +143,7 @@ Linearizer::buildBlockIndex() {
 }
 
 Value &
-Linearizer::promoteDefinition(Value & inst, int defBlockId, int destBlockId) {
+Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, int destBlockId) {
   IF_DEBUG_LIN { errs() << "\t\tpromoting value " << inst << " from def block " << defBlockId << " to " << defBlockId << "\n"; }
 
   assert(defBlockId <= destBlockId);
@@ -154,8 +154,10 @@ Linearizer::promoteDefinition(Value & inst, int defBlockId, int destBlockId) {
 
   auto * type = inst.getType();
 
-  std::vector<Value*> defs(span, nullptr);
+  SmallVector<Value*, 16> defs(span + 1, nullptr);
   defs[0] = &inst;
+
+  auto instShape = vecInfo.getVectorShape(inst);
 
   for (int i = 1; i < span + 1; ++i) {
     int blockId = defBlockId + i;
@@ -174,7 +176,7 @@ Linearizer::promoteDefinition(Value & inst, int defBlockId, int destBlockId) {
       Value * inVal = nullptr;
       if (predIndex < defBlockId) {
         // predecessor not in span -> undef
-        inVal = UndefValue::get(type);
+        inVal = &defaultDef;
 
       } else if (predIndex >= blockId) {
         continue; // reaching backedge -> ignore
@@ -185,7 +187,7 @@ Linearizer::promoteDefinition(Value & inst, int defBlockId, int destBlockId) {
         auto * reachingDef = defs[reachingDefId];
         if (!reachingDef) {
           // reaching undef within block range
-          inVal = UndefValue::get(type);
+          inVal = &defaultDef;
         } else {
           inVal = reachingDef;
         }
@@ -200,6 +202,7 @@ Linearizer::promoteDefinition(Value & inst, int defBlockId, int destBlockId) {
       // Otw, we need a phi node
       if (!localPhi) {
         localPhi = PHINode::Create(type, 0, "", &*block.getFirstInsertionPt());
+        vecInfo.setVectorShape(*localPhi, instShape);
         for (auto itPassedPred = itBegin; itPassedPred != it; ++itPassedPred) {
           localPhi->addIncoming(localDef, *itPassedPred);
         }
@@ -321,8 +324,10 @@ InsertAtFront(BasicBlock & block, Instruction & inst) {
 }
 
 class LiveValueTracker {
+  Linearizer & lin;
   VectorizationInfo & vecInfo;
   MaskAnalysis & ma;
+  LoopInfo & li;
   Loop & loop;
   BasicBlock & preHeader;
 
@@ -332,7 +337,7 @@ class LiveValueTracker {
 
   // return the incoming index of the exitblock
   int getLoopBlockIndex(PHINode & lcPhi) {
-    for (int i = 0; i < lcPhi.getNumIncomingValues(); ++i) {
+    for (uint i = 0; i < lcPhi.getNumIncomingValues(); ++i) {
       if (loop.contains(lcPhi.getIncomingBlock(i))) return i;
     }
     return -1;
@@ -345,35 +350,79 @@ class LiveValueTracker {
     else if (loop.contains(branch.getSuccessor(1))) return 0;
     else abort();
   }
+
+  static int GetPreHeaderTrackerIndex() { return 0; }
+  static int GetLatchTrackerIndex() { return 1; }
 public:
-  LiveValueTracker(VectorizationInfo & _vecInfo, MaskAnalysis & _ma, Loop & _loop, BasicBlock & _preHeader)
-  : vecInfo(_vecInfo), ma(_ma), loop(_loop), preHeader(_preHeader)
+  LiveValueTracker(Linearizer & _lin, Loop & _loop, BasicBlock & _preHeader)
+  : lin(_lin), vecInfo(lin.vecInfo), ma(lin.maskAnalysis), li(lin.li), loop(_loop), preHeader(_preHeader)
   {}
 
-  // inserts a tracker PHI into the loop header for this value
+  // inserts a tracker PHI into the loop headers surrounding @defInst
   // returns the tracker update valid at the latch block
   PHINode &
-  requestTracker(Instruction & inst) {
+  requestTracker(Instruction & inst, Instruction & defInst) {
     auto it = liveOutPhis.find(&inst);
     if (it != liveOutPhis.end()) {
       auto & phi = *it->second;
       return phi;
     }
-    auto * phi = PHINode::Create(inst.getType(), 2, "track_" + inst.getName(), &*loop.getHeader()->getFirstInsertionPt());
-    vecInfo.setVectorShape(*phi, VectorShape::varying());
 
-  // update the tracker phi whenever a thread leaves the loop
-    // TODO we only need to update trackers if the value is actually live out on the taken exit
-    IRBuilder<> builder(loop.getLoopLatch(), loop.getLoopLatch()->getTerminator()->getIterator());
+  // create a PHI chain from @defInst up to this loop
+    Loop * defLoop = li.getLoopFor(defInst.getParent());
+    auto * trackedLoop = defLoop;
+    PHINode * nestedTracker = nullptr;
+
+    PHINode * innerTrackerPhi = nullptr;
+
+    auto * undef = UndefValue::get(defInst.getType());
+
+  // create a tracker PHI for loop crossing the exit edge
+    while (
+        trackedLoop &&
+        trackedLoop->getLoopDepth() >= loop.getLoopDepth()
+    ) {
+      auto * trackedLoopHeader = trackedLoop->getHeader();
+      auto * trackedPreHeader = trackedLoop == &loop ? &preHeader : trackedLoop->getLoopPreheader();
+
+    // create a tracker phi in every surrounding loop of @defInst
+      auto * phi = PHINode::Create(defInst.getType(), 2, "track_" + defInst.getName(), &*trackedLoopHeader->getFirstInsertionPt());
+      vecInfo.setVectorShape(*phi, VectorShape::varying());
+
+      // remember inner-most tracker Phi
+      if (!innerTrackerPhi) innerTrackerPhi = phi;
+
+    // preheader input: tracker state of outer phi
+      // attach tracker input to nested tracker PHI
+      if (nestedTracker) {
+        nestedTracker->setIncomingValue(GetPreHeaderTrackerIndex(), phi);
+      }
+
+    // preheader input (undef)
+      phi->addIncoming(undef, trackedPreHeader);
+
+    // latch input: self-loop or tracker state from (inner) nestedPhi
+      // TODO promoteToLatch(liveInState, latchBlock) // make sure a dominating def is available at the latch
+      if (nestedTracker) {
+         phi->addIncoming(nestedTracker, loop.getLoopLatch()); // take the nested value on the latch
+      } else {
+         phi->addIncoming(phi, loop.getLoopLatch()); // create a self loop
+      }
+
+    // next outer loop
+      nestedTracker = phi;
+      trackedLoop = trackedLoop->getParentLoop();
+    }
+
+  // add an undef to the outer-most containin loop
+    nestedTracker->setIncomingValue(GetPreHeaderTrackerIndex(), undef);
+
+    IF_DEBUG_LIN { errs() << "\t- outer-most tracker " << *nestedTracker << "\n"; }
+    IF_DEBUG_LIN { errs() << "\t- inner-most tracker " << *innerTrackerPhi << "\n"; }
 
   // attach trackerPHI inputs
-    // all liveouts are initially undef
-    phi->addIncoming(UndefValue::get(inst.getType()), &preHeader);
-    phi->addIncoming(phi, loop.getLoopLatch());
-
-    liveOutPhis[&inst] = phi;
-
-    return *phi;
+    liveOutPhis[&inst] = innerTrackerPhi;
+    return *innerTrackerPhi;
   }
 
   // return the mask predicate of the loop exit
@@ -387,7 +436,11 @@ public:
   // this inserts a select instruction in the latch that blends in @val into @tracker if the exit is taken
   // FIXME this will only work if the exit predicate and the live-out instruction dominate the latchBlock
   void
-  addTrackerUpdate(PHINode & tracker, BasicBlock & exiting, BasicBlock & exit, Value & val) {
+  addTrackerUpdate(PHINode & tracker, BasicBlock & exiting, BasicBlock & exit, Instruction & val) {
+  // sanitize: the exit edge leaves from inside the current @loop to a block outside of the loop
+    assert(loop.contains(&exiting));
+    assert(!loop.contains(&exit));
+
     auto & latch = *loop.getLoopLatch();
     int latchId = tracker.getBasicBlockIndex(&latch);
 
@@ -398,11 +451,35 @@ public:
     // auto & exitMask = getLoopExitMask(exiting); // should do the trick if this atually was the edge predicate..
     auto & exitMask = *ma.getCombinedLoopExitMask(loop); // union of all exit predicates
 
-  // chain in the update
-    IRBuilder<> builder(&latch, latch.getTerminator()->getIterator());
-    auto * updateInst = builder.CreateSelect(&exitMask, &val, lastTrackerState, "update_" + val.getName());
+  // materialize the update
+    IRBuilder<> builder(&latch, exiting.getTerminator()->getIterator());
+    auto * updateInst = cast<Instruction>(builder.CreateSelect(&exitMask, &val, lastTrackerState, "update_" + val.getName()));
     vecInfo.setVectorShape(*updateInst, VectorShape::varying());
-    tracker.setIncomingValue(latchId, updateInst);
+
+  // promote the partial def to all surrounding loops
+    Value * currentLiveInDef = &tracker;
+    Instruction * currentPartialDef = updateInst;
+    Loop * currentLoop = li.getLoopFor(tracker.getParent());
+
+    int lastDefIndex = lin.getIndex(exiting);
+
+    IF_DEBUG_LIN { errs() << "\tpromoting " << *updateInst << " for exit " << exiting.getName() << " to " << exit.getName() << "\n"; }
+    while (isa<PHINode>(currentLiveInDef)) {
+      auto & currPhi = *cast<PHINode>(currentLiveInDef);
+      IF_DEBUG_LIN { errs() << "\t- partial def: " << currentPartialDef->getName() << " to latch of tracker PHI " << currPhi.getName() << "\n"; }
+
+      assert(currentLoop == li.getLoopFor(currPhi.getParent()) && "curr header PHI and curr loop out of sync");
+      int currLatchIndex = lin.getIndex(*currentLoop->getLoopLatch());
+      auto & promotedUpdate = cast<Instruction>(lin.promoteDefinition(*currentPartialDef, currPhi, lastDefIndex, currLatchIndex));
+
+      currPhi.setIncomingValue(GetLatchTrackerIndex(), &promotedUpdate);
+
+    // advance to next surrounding loop
+      currentLiveInDef = currPhi.getIncomingValue(GetPreHeaderTrackerIndex());
+      currentPartialDef = &promotedUpdate;
+      currentLoop = currentLoop->getParentLoop();
+      lastDefIndex = currLatchIndex + 1; // skip over to the eventual unique loop exit
+    }
   }
 
   // the last update to @tracker
@@ -430,8 +507,6 @@ public:
 
   // adds all live out values on loop-exits to @exitBlock
   // FIXME this currently assumes that all out-of-loop uses pass through LCSSA Phis. However, uses by all out-of-loop instructions are set to use the tracker value instead.
-  // This  (test_021).
-  // either fix LCSSA or scan through all out-of-loop uses to decide to track values
   void
   trackLiveOuts(BasicBlock & exitBlock) {
     auto & exitingBlock = getExitingBlock(exitBlock);
@@ -460,8 +535,8 @@ public:
       auto * inInst = dyn_cast<Instruction>(lcPhi.getIncomingValue(loopIncomingId));
       if (!inInst || !loop.contains(inInst->getParent())) continue; // live out value not loop carried
 
-    // request a tracker PHI for this loop-dependent live out
-      auto & tracker = requestTracker(lcPhi);
+    // fold the data flow through from exiting->exit through all crossing loops
+      auto & tracker = requestTracker(lcPhi, *inInst);
       // update the tracker with @inInst whenever the exit edge is taken
       addTrackerUpdate(tracker, exitingBlock, exitBlock, *inInst);
 
@@ -469,13 +544,13 @@ public:
         continue;
       }
 
-    // replace outside uses with tracker
-      // if this exit branch kills the loop
-      auto & liveOut = getTrackerStateForLiveOut(lcPhi);
-      lcPhi.setIncomingValue(loopIncomingId, &liveOut);
+  // replace outside uses with tracker
+    // if this exit branch kills the loop
+    auto & liveOut = getTrackerStateForLiveOut(lcPhi);
+    lcPhi.setIncomingValue(loopIncomingId, &liveOut);
 
     // TODO find out why this is necessary
-#if 1 // necessary (otherwise misses replacement of %sub6_SIMD in %sub6.lcssa_SIMD = phi <8 x float> [ %sub6_SIMD, %for.inc9.rv ] )
+#if 0 // necessary (otherwise misses replacement of %sub6_SIMD in %sub6.lcssa_SIMD = phi <8 x float> [ %sub6_SIMD, %for.inc9.rv ] )
       auto itUseBegin = inInst->use_begin(), itUseEnd = inInst->use_end();
       for (auto it = itUseBegin; it != itUseEnd; ) {
         auto & use = *(it++);
@@ -508,7 +583,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   auto & preHeader = **pred_begin(relay.block);
 
 // replaces live-out values by explicit tracker PHIs and updates
-  LiveValueTracker liveOutTracker(vecInfo, maskAnalysis, loop, preHeader);
+  LiveValueTracker liveOutTracker(*this, loop, preHeader);
 
 // query the live mask on the latch
   auto & latch = *loop.getLoopLatch();
@@ -532,9 +607,8 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
 
     auto & exitingBlock = GetExitingBlock(loop, *exitBlock);
     auto * innerMostExitLoop = li.getLoopFor(&exitingBlock);
-    // if (innerMostExitLoop != &loop) continue; // FIXME breaks test_020
 
-    IF_DEBUG_LIN errs() << "Processing loop exit from " << exitBlock->getName() << " to " << exitingBlock.getName() << " of loop with header " << innerMostExitLoop->getHeader()->getName() << "\n";
+    IF_DEBUG_LIN errs() << "Processing loop exit from " << exitingBlock.getName() << " to " << exitBlock->getName() << " of loop with header " << innerMostExitLoop->getHeader()->getName() << "\n";
     // only consider exits of the current loop level
     liveOutTracker.trackLiveOuts(*exitBlock);
   }
@@ -577,7 +651,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
         int defIndex = getIndex(*defBlock);
         assert(getIndex(header) <= defIndex && defIndex <= latchIndex && "non-dominating def not in loop");
 
-        auto & dominatingDef = promoteDefinition(*inst, defIndex, latchIndex);
+        auto & dominatingDef = promoteDefinition(*inst, *UndefValue::get(inst->getType()), defIndex, latchIndex);
 
         // replace incoming value with new dominating def
         lcPhi->setIncomingValue(i, &dominatingDef);
@@ -649,7 +723,7 @@ Linearizer::needsFolding(PHINode & phi) {
   }
 
   // or incoming blocks in the PHI node are no longer predecessors
-  for (int i = 0; i < phi.getNumIncomingValues(); ++i) {
+  for (uint i = 0; i < phi.getNumIncomingValues(); ++i) {
     if (!predSet.count(phi.getIncomingBlock(i))) { return true; }
   }
 
@@ -680,7 +754,7 @@ Linearizer::foldPhis(BasicBlock & block) {
     auto * defValue = phi->getIncomingValue(0);
 
     auto phiShape = vecInfo.getVectorShape(*phi);
-    for (int i = 1; i < phi->getNumIncomingValues(); ++i) {
+    for (uint i = 1; i < phi->getNumIncomingValues(); ++i) {
       auto * inBlock = phi->getIncomingBlock(i);
       auto * inVal = phi->getIncomingValue(i);
 

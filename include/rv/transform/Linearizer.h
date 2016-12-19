@@ -37,6 +37,9 @@ namespace rv {
   typedef std::pair<llvm::BasicBlock*, llvm::BasicBlock*> Edge;
   typedef llvm::DenseMap<Edge, llvm::Value*> EdgeMaskCache;
 
+  // internal helper class that tunnels values leaving on divergent loop exits through tracker PHI nodes
+  class LiveValueTracker;
+
   class Linearizer {
 
   // relay logic
@@ -205,9 +208,12 @@ namespace rv {
     void dropLoopExit(BasicBlock & block, Loop & loop);
 
     // make @inst defined in @destBlock by adding PHI nodes with incoming undef edges
-    llvm::Value & promoteDefinition(llvm::Value & inst, int defBlockId, int destBlockId);
+    llvm::Value & promoteDefinition(llvm::Value & inst, llvm::Value & defaultDef, int defBlockId, int destBlockId);
 
   // analysis structures
+  protected:
+    friend class LiveValueTracker;
+
     VectorizationInfo & vecInfo;
     MaskAnalysis & maskAnalysis;
     Region * region;
