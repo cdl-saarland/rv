@@ -57,7 +57,7 @@ int main(int argc, char ** argv) {
   }
 
 
-  const uint rounds = 100;
+  const uint rounds = 10;
 
   for (int i = 0; i < rounds; ++i) {
   // random lookup input
