@@ -18,6 +18,7 @@
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/Verifier.h>
 
 #include <cassert>
 #include <climits>
@@ -206,6 +207,7 @@ Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, 
         for (auto itPassedPred = itBegin; itPassedPred != it; ++itPassedPred) {
           localPhi->addIncoming(localDef, *itPassedPred);
         }
+        IF_DEBUG_LIN { errs() << "\t | partial def PHI @ " << blockId << ", " << block.getName() << " : " << *localPhi << "\n"; }
         localDef = localPhi;
       }
 
@@ -402,20 +404,17 @@ public:
       phi->addIncoming(undef, trackedPreHeader);
 
     // latch input: self-loop or tracker state from (inner) nestedPhi
-      // TODO promoteToLatch(liveInState, latchBlock) // make sure a dominating def is available at the latch
       if (nestedTracker) {
-         phi->addIncoming(nestedTracker, loop.getLoopLatch()); // take the nested value on the latch
+         phi->addIncoming(nestedTracker, trackedLoop->getLoopLatch()); // take the nested value on the latch
       } else {
-         phi->addIncoming(phi, loop.getLoopLatch()); // create a self loop
+         phi->addIncoming(phi, trackedLoop->getLoopLatch()); // create a self loop
       }
+      IF_DEBUG_LIN { errs() << "\t* trackerPHI (w/o liveIn update): " << *phi << "\n"; }
 
     // next outer loop
       nestedTracker = phi;
       trackedLoop = trackedLoop->getParentLoop();
     }
-
-  // add an undef to the outer-most containin loop
-    nestedTracker->setIncomingValue(GetPreHeaderTrackerIndex(), undef);
 
     IF_DEBUG_LIN { errs() << "\t- outer-most tracker " << *nestedTracker << "\n"; }
     IF_DEBUG_LIN { errs() << "\t- inner-most tracker " << *innerTrackerPhi << "\n"; }
@@ -428,8 +427,8 @@ public:
   // return the mask predicate of the loop exit
   Value&
   getLoopExitMask(BasicBlock & exiting) {
-    int exitSuccIdx = getLoopExitIndex(*exiting.getTerminator());
-    return *ma.getExitMask(exiting, exitSuccIdx);
+    // int exitSuccIdx = getLoopExitIndex(*exiting.getTerminator());
+    return *ma.getActualLoopExitMask(exiting);
   }
 
   // updates @tracker in block @src with @val, if the exit predicate is true
@@ -441,18 +440,20 @@ public:
     assert(loop.contains(&exiting));
     assert(!loop.contains(&exit));
 
-    auto & latch = *loop.getLoopLatch();
-    int latchId = tracker.getBasicBlockIndex(&latch);
+  // infer inner loop that is being left
+    auto & leftLoop = *li.getLoopFor(&exiting);
 
   // last tracker state
-    auto * lastTrackerState = tracker.getIncomingValue(latchId);
+    auto * lastTrackerState = tracker.getIncomingValue(GetLatchTrackerIndex());
 
   // get exit predicate
-    // auto & exitMask = getLoopExitMask(exiting); // should do the trick if this atually was the edge predicate..
-    auto & exitMask = *ma.getCombinedLoopExitMask(loop); // union of all exit predicates
+    auto & exitMask = getLoopExitMask(exiting); // should do the trick if this atually was the edge predicate..
+    // auto & exitMask = *ma.getCombinedLoopExitMask(leftLoop); // union of all exit predicates
 
   // materialize the update
-    IRBuilder<> builder(&latch, exiting.getTerminator()->getIterator());
+    // TODO use IRBuilder<> builder(&exiting, exiting.getTerminator()->getIterator()); // exit mask needs to be defined in @exiting
+    auto & leftLoopLatch = *leftLoop.getLoopLatch();
+    IRBuilder<> builder(&leftLoopLatch, leftLoopLatch.getTerminator()->getIterator());
     auto * updateInst = cast<Instruction>(builder.CreateSelect(&exitMask, &val, lastTrackerState, "update_" + val.getName()));
     vecInfo.setVectorShape(*updateInst, VectorShape::varying());
 
@@ -485,9 +486,7 @@ public:
   // the last update to @tracker
   Value &
   getLastTrackerState(PHINode & tracker) {
-    auto & latch = *loop.getLoopLatch();
-    int latchId = tracker.getBasicBlockIndex(&latch);
-    return *tracker.getIncomingValue(latchId);
+    return *tracker.getIncomingValue(GetLatchTrackerIndex());
   }
 
   // get the last tracker state for this live out value (which must be a loop carried instruction)
@@ -518,6 +517,7 @@ public:
       finalExit = true;
       // this exit kills the loop so we do not need to track any values for it
       IF_DEBUG_LIN errs() << "kill exit " << exitBlock.getName() << " skipping..\n";
+      return;
     }
 #endif
 
@@ -539,10 +539,6 @@ public:
       auto & tracker = requestTracker(lcPhi, *inInst);
       // update the tracker with @inInst whenever the exit edge is taken
       addTrackerUpdate(tracker, exitingBlock, exitBlock, *inInst);
-
-      if (finalExit) {
-        continue;
-      }
 
   // replace outside uses with tracker
     // if this exit branch kills the loop
@@ -608,7 +604,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
     auto & exitingBlock = GetExitingBlock(loop, *exitBlock);
     auto * innerMostExitLoop = li.getLoopFor(&exitingBlock);
 
-    IF_DEBUG_LIN errs() << "Processing loop exit from " << exitingBlock.getName() << " to " << exitBlock->getName() << " of loop with header " << innerMostExitLoop->getHeader()->getName() << "\n";
+    IF_DEBUG_LIN errs() << "\tProcessing loop exit from " << exitingBlock.getName() << " to " << exitBlock->getName() << " of loop with header " << innerMostExitLoop->getHeader()->getName() << "\n";
     // only consider exits of the current loop level
     liveOutTracker.trackLiveOuts(*exitBlock);
   }
@@ -672,7 +668,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
 
   for (auto * exitingBlock : loopExitingBlocks) {
     // exits from inner loops will be handled by recursive invocations of processLoop
-    if (li.getLoopFor(exitingBlock) != &loop) continue;
+    // if (li.getLoopFor(exitingBlock) != &loop) continue;
 
     dropLoopExit(*exitingBlock, loop);
   }
@@ -1124,6 +1120,9 @@ Linearizer::verify() {
 
   // check whether the on-the-fly domTree repair worked
   dt.verifyDomTree();
+
+  // generic verification passes
+  llvm::verifyFunction(func, &errs());
 }
 
 void
