@@ -80,6 +80,11 @@ public:
                                    const BasicBlock& direction) const;
     Value* getLoopMaskPhi         (const Loop& loop) const;
     Value* getCombinedLoopExitMask(const Loop& loop) const;
+    // returns the exit mask at @exiting
+    // this will return nullptr, if the exit edge kills the loop
+    // a loop is killed at an exit if all remaining instances leave at the same iteration
+    // In that cast the state of the last iteration can be used by outside users without any masking
+    Value* getActualLoopExitMask(BasicBlock & exiting);
     Value* getLoopExitMaskPhi     (const Loop&       loop,
                                    const BasicBlock& exitingBlock) const;
     Value* getLoopExitMaskUpdate  (const Loop&       loop,

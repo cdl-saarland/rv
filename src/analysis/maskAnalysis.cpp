@@ -1092,6 +1092,43 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
     return;
 }
 
+Value *
+MaskAnalysis::getActualLoopExitMask(BasicBlock & exiting) {
+  auto * loop = mLoopInfo.getLoopFor(&exiting);
+
+  MaskPtr loopExitMask;
+  {
+      LoopExitMaskInfo* exitInfo = mLoopExitMap[&exiting];
+      if (!exitInfo) {
+        return nullptr;
+      }
+      assert (exitInfo);
+
+      // For multi-loop exits, the edges mask is set to the "allexited" mask,
+      // so we first have to get the mask update operation that holds only those
+      // of the current iteration.
+      loopExitMask = exitInfo->mMaskUpdateOpMap[loop];
+      assert (loopExitMask);
+      DEBUG_RV(
+          outs() << "  update operation: ";
+          loopExitMask->print(outs());
+          outs() << "\n";
+      );
+      assert (loopExitMask->mType == LOOPEXITUPDATE);
+      assert (loopExitMask->mOperands[0].lock()->mType == LOOPEXITPHI);
+
+      // We need only those instances that left the loop in the current iteration
+      // of the current loop (which may include multiple iterations of all inner
+      // loops of that exit). These instances are given by the update operation
+      // of the next nested loop or the exit mask if this is the innermost loop.
+      assert (exitInfo->mInnermostLoop == loop ||
+              loopExitMask->mOperands[1].lock()->mType == LOOPEXITUPDATE);
+      loopExitMask = loopExitMask->mOperands[1].lock();
+  }
+
+  return loopExitMask->mValue;
+}
+
 void
 MaskAnalysis::invalidateInsertPoints()
 {
