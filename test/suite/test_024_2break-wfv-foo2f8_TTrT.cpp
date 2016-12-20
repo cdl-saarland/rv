@@ -8,14 +8,13 @@ foo(float a, float b) {
   float x = fabs(a);
   float y = fabs(b);
 
-  float z = a + b;
+  float z = a;
 
   while (x > 0) {
     x = x / 10.0f;
-    z = z + x;
     while (y > 0) {
       y = y / 42.0;
-      z = z - y * x;
+      z = z - y;
       if (z > 1000.0) {
         goto D; // breaks out of both loops
       }
