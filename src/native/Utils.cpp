@@ -23,13 +23,13 @@ Type *getVectorType(Type *type, unsigned width) {
 }
 
 Value *createContiguousVector(unsigned width, Type *type, int start) {
-  Constant *constants[width];
+  std::vector<Constant*> constants(width, nullptr);
   for (unsigned i = 0; i < width; ++i) {
     unsigned int val = i + start;
     Constant *constant = type->isFloatingPointTy() ? ConstantFP::get(type, val) : ConstantInt::get(type, val);
     constants[i] = constant;
   }
-  return ConstantVector::get(ArrayRef<Constant *>(constants, width));
+  return ConstantVector::get(ArrayRef<Constant *>(constants, &width));
 }
 
 BasicBlock *createCascadeBlocks(Function *insertInto, unsigned vectorWidth,

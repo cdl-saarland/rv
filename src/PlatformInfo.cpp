@@ -2,7 +2,7 @@
 // Created by thorsten on 06.10.16.
 //
 
-#include "PlatformInfo.h"
+#include "rv/PlatformInfo.h"
 #include "rv/sleefLibrary.h"
 
 namespace rv {

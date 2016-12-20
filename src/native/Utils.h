@@ -14,7 +14,7 @@
 #include <llvm/IR/Value.h>
 
 #include <vector>
-#include <PlatformInfo.h>
+#include <rv/PlatformInfo.h>
 
 llvm::Type *getVectorType(llvm::Type *type, unsigned width);
 

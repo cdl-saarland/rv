@@ -15,11 +15,11 @@
 #include <rv/rvInfo.h>
 #include <rv/analysis/maskAnalysis.h>
 #include <rv/vectorizationInfo.h>
+#include <rv/PlatformInfo.h>
 
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
-#include <PlatformInfo.h>
 
 namespace rv {
   class Region;

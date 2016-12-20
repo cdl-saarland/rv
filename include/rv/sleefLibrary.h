@@ -10,7 +10,7 @@
 #ifndef RV_SLEEFLIBRARY_H
 #define RV_SLEEFLIBRARY_H
 
-#include <PlatformInfo.h>
+#include <rv/PlatformInfo.h>
 #include "llvm/Analysis/TargetLibraryInfo.h"
 
 namespace rv {

@@ -9,7 +9,7 @@
 #ifndef RV_RV_H
 #define RV_RV_H
 
-#include <PlatformInfo.h>
+#include <rv/PlatformInfo.h>
 #include "rv/vectorizationInfo.h"
 #include "rv/pda/DFG.h"
 #include "rv/analysis/maskAnalysis.h"
