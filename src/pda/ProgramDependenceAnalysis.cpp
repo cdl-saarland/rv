@@ -366,17 +366,9 @@ PDA::update(const Value* const V, VectorShape AT)
             if (causedDivergence)
             {
                 IF_DEBUG_PDA {
-<<<<<<< HEAD
-                        outs() << "\n"
-                               << "The block:\n"
-                               << "    " << BB->getName() << "\n"
-                               << "is divergent because of the non-uniform branch in:\n"
-                               << "    " << endsVarying->getName() << "\n\n";
-=======
-                        outs() << "Block " + BB->getName() +
+                        errs() << "Block " + BB->getName() +
                                   " is divergent since the terminator in " +
                                   endsVarying->getName() + " is varying.\n\n";
->>>>>>> VectorShapes for compares for switch cases no longer missing after mask analysis, pda now supports divergence of blocks because of SwitchInsts
                 }
 
                 // MANDATORY case 2: divergent block
