@@ -29,10 +29,9 @@ so, subject to the following conditions:
       this list of conditions and the following disclaimers in the
       documentation and/or other materials provided with the distribution.
 
-    * Neither the names of the LLVM Team, University of Illinois at
-      Urbana-Champaign, nor the names of its contributors may be used to
-      endorse or promote products derived from this Software without specific
-      prior written permission.
+    * Neither the names of the RV Team, Saarland University, nor the names of
+      its contributors may be used to endorse or promote products derived from
+      this Software without specific prior written permission.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
@@ -43,15 +42,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE
 SOFTWARE.
 
 ==============================================================================
-Copyrights and Licenses for Third Party Software Distributed with LLVM:
+Copyrights and Licenses for Third Party Software Distributed with RV:
 ==============================================================================
-The LLVM software contains code written by third parties.  Such software will
+The RV software contains code written by third parties.  Such software will
 have its own individual LICENSE.TXT file in the directory in which it appears.
 This file will describe the copyrights, license, and restrictions which apply
 to that code.
 
 The disclaimer of warranty in the University of Illinois Open Source License
-applies to all code in the LLVM Distribution, and nothing in any of the
+applies to all code in the RV Distribution, and nothing in any of the
 other licenses gives permission to use the names of the Compiler Design Lab
 or Saarland University to endorse or promote products derived from this
 Software.
@@ -61,4 +60,5 @@ licenses, and/or restrictions:
 
 Program             Directory
 -------             ---------
+SLEEF SIMD library  sleef
 RV SIMD library     rvlibsrc
