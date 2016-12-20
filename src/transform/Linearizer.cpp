@@ -389,9 +389,9 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
       // migrate this PHI node to the loopExitRelay
       IF_DEBUG_LIN { errs() << "\t\tMigrating " << lcPhi->getName() << " from " << lcPhi->getParent()->getName() << " to " << loopExitRelay->block->getName() << "\n"; }
 
-      // FIXME this will generate redundant PHI nodes if the same instruction is liveout on multiple exits
-      lcPhi->removeFromParent();
-      InsertAtFront(*loopExitRelay->block, *lcPhi);
+    // we eliminate LCSSA Phis instead of fixing their predecessor blocks
+      lcPhi->replaceAllUsesWith(lcPhi->getIncomingValue(0));
+      lcPhi->eraseFromParent();
     }
   }
 
