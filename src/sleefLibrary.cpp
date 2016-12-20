@@ -28,7 +28,7 @@ static Module const *avx2ModDP, *avxModDP, *sseModDP;
 
 namespace rv {
   bool addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2, PlatformInfo &platformInfo) {
-    // TODO: sinf, cosf, powf are not precise in SLEEF variant
+    // TODO: sinf, cosf, powf, sqrtf are not precise in SLEEF variant
     if (useAVX2) {
       const VecDesc VecFuncs[] = {
           {"ldexpf", "xldexpf_avx2", 8},
@@ -42,7 +42,7 @@ namespace rv {
           {"acosf", "xacosf_avx2", 8},
           {"logf", "xlogf_avx2", 8},
           {"expf", "xexpf_avx2", 8},
-          {"sqrtf", "xsqrtf_avx2", 8},
+//          {"sqrtf", "xsqrtf_avx2", 8},
           {"cbrtf", "xcbrtf_avx2", 8},
 //          {"powf", "xpowf_avx2", 8},
           {"sinhf", "xsinhf_avx2", 8},
@@ -74,7 +74,7 @@ namespace rv {
           {"acosf", "xacosf_avx", 8},
           {"logf", "xlogf_avx", 8},
           {"expf", "xexpf_avx", 8},
-          {"sqrtf", "xsqrtf_avx", 8},
+//          {"sqrtf", "xsqrtf_avx", 8},
           {"cbrtf", "xcbrtf_avx", 8},
 //          {"powf", "xpowf_avx", 8},
           {"sinhf", "xsinhf_avx", 8},
@@ -106,7 +106,7 @@ namespace rv {
           {"acosf", "xacosf_sse", 4},
           {"logf", "xlogf_sse", 4},
           {"expf", "xexpf_sse", 4},
-          {"sqrtf", "xsqrtf_sse", 4},
+//          {"sqrtf", "xsqrtf_sse", 4},
           {"cbrtf", "xcbrtf_sse", 4},
 //          {"powf", "xpowf_sse", 4},
           {"sinhf", "xsinhf_sse", 4},
