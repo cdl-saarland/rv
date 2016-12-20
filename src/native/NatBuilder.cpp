@@ -491,7 +491,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   } else
 #endif
   bool byteContiguous = addrShape.hasStride(accessedType->getPrimitiveSizeInBits() / 8);
-  if (!needsMask && (addrShape.isContiguous() || byteContiguous)) {
+  if (addrShape.isContiguous() || byteContiguous) {
     // cast pointer to vector-width pointer
     Value *mappedPtr = requestScalarValue(accessedPtr);
     PointerType *vecPtrType = PointerType::getUnqual(vecType);
@@ -499,7 +499,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   } else if (addrShape.isUniform()) {
     vecPtr = requestScalarValue(accessedPtr);
   } else {
-    // varying or masked contiguous. gather the addresses for the lanes
+    // varying or strided. gather the addresses for the lanes
     vecPtr = isa<Argument>(accessedPtr) ? getScalarValue(accessedPtr) : getVectorValue(accessedPtr);
     if (!vecPtr) {
       vecPtr = UndefValue::get(getVectorType(accessedPtr->getType(), vectorWidth()));
