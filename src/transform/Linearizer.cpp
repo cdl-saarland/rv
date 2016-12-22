@@ -363,7 +363,7 @@ public:
   // inserts a tracker PHI into the loop headers surrounding @defInst
   // returns the tracker update valid at the latch block
   PHINode &
-  requestTracker(Instruction & inst, Instruction & defInst) {
+  requestTracker(Instruction & inst, BasicBlock & exiting, Instruction & defInst) {
     auto it = liveOutPhis.find(&inst);
     if (it != liveOutPhis.end()) {
       auto & phi = *it->second;
@@ -371,7 +371,7 @@ public:
     }
 
   // create a PHI chain from @defInst up to this loop
-    Loop * defLoop = li.getLoopFor(defInst.getParent());
+    Loop * defLoop = li.getLoopFor(&exiting);
     auto * trackedLoop = defLoop;
     PHINode * nestedTracker = nullptr;
 
@@ -427,7 +427,6 @@ public:
   // return the mask predicate of the loop exit
   Value&
   getLoopExitMask(BasicBlock & exiting) {
-    // int exitSuccIdx = getLoopExitIndex(*exiting.getTerminator());
     return *ma.getActualLoopExitMask(exiting);
   }
 
@@ -441,20 +440,18 @@ public:
     assert(!loop.contains(&exit));
 
   // infer inner loop that is being left
-    // auto & leftLoop = *li.getLoopFor(&exiting);
 
   // last tracker state
     auto * lastTrackerState = tracker.getIncomingValue(GetLatchTrackerIndex());
 
   // get exit predicate
-    auto & exitMask = getLoopExitMask(exiting); // should do the trick if this atually was the edge predicate..
-    // auto & exitMask = *ma.getCombinedLoopExitMask(leftLoop); // union of all exit predicates
+    // auto & exitMask = getLoopExitMask(exiting); // should do the trick if this atually was the edge predicate..
+    auto & exitMask = *lin.getLoopExitMask(exiting, exit);
 
+    IF_DEBUG_LIN { errs() << "\t-- loop exit mask " << exitMask << "\n"; }
   // materialize the update
-    // TODO use
     IRBuilder<> builder(&exiting, exiting.getTerminator()->getIterator()); // exit mask needs to be defined in @exiting
-    // auto & leftLoopLatch = *leftLoop.getLoopLatch();
-    // IRBuilder<> builder(&leftLoopLatch, leftLoopLatch.getTerminator()->getIterator());
+    int lastDefIndex = lin.getIndex(exiting);
     auto * updateInst = cast<Instruction>(builder.CreateSelect(&exitMask, &val, lastTrackerState, "update_" + val.getName()));
     vecInfo.setVectorShape(*updateInst, VectorShape::varying());
 
@@ -462,8 +459,6 @@ public:
     Value * currentLiveInDef = &tracker;
     Instruction * currentPartialDef = updateInst;
     Loop * currentLoop = li.getLoopFor(tracker.getParent());
-
-    int lastDefIndex = lin.getIndex(exiting);
 
     IF_DEBUG_LIN { errs() << "\tpromoting " << *updateInst << " for exit " << exiting.getName() << " to " << exit.getName() << "\n"; }
     while (isa<PHINode>(currentLiveInDef)) {
@@ -546,7 +541,7 @@ public:
       if (!inInst || !loop.contains(inInst->getParent())) continue; // live out value not loop carried
 
     // fold the data flow through from exiting->exit through all crossing loops
-      auto & tracker = requestTracker(lcPhi, *inInst);
+      auto & tracker = requestTracker(lcPhi, exitingBlock, *inInst);
       // update the tracker with @inInst whenever the exit edge is taken
       addTrackerUpdate(tracker, exitingBlock, exitBlock, *inInst);
 
@@ -689,7 +684,8 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   }
 
 // query exit mask (before dropping the latch which destroys the terminator)
-  Value* liveCond = maskAnalysis.getExitMask(latch, header);
+  // Value* liveCond = maskAnalysis.getExitMask(latch, header); // maskAnalysis is invalid!
+  Value* liveCond = latchMasks[&loop]; // FIXME currently using cached values
 
 // drop old latch
   auto * latchTerm = latch.getTerminator();
@@ -1074,6 +1070,10 @@ Linearizer::run() {
 // early exit on trivial cases
   if (getNumBlocks() <= 1) return;
 
+// FIXME currently maskAnslysis is invalidated as a result of linearization.
+  // We cache the latch masks locally before touching the function as we need those to make divergent loops uniform
+  cacheLatchMasks();
+
 // dump divergent branches / loops
   IF_DEBUG_LIN {
     dt.print(errs());
@@ -1088,6 +1088,11 @@ Linearizer::run() {
       if (loop && loop->getHeader() == &block) {
         if (vecInfo.isDivergentLoop(loop)) {
            errs() << "div-loop header: " << block.getName();
+
+           auto & latch = *loop->getLoopLatch();
+           auto * latchMask = maskAnalysis.getExitMask(latch, block);
+           errs() << "\t latch mask " << *latchMask << "\n";
+
         }
       }
       if (needsFolding(*block.getTerminator())) {
@@ -1139,6 +1144,33 @@ Linearizer::verify() {
 
   // generic verification passes
   llvm::verifyFunction(func, &errs());
+}
+
+void
+Linearizer::cacheLatchMasks(){
+  for (int i = 0; i < getNumBlocks(); ++i) {
+    auto & block = getBlock(i);
+    auto * loop = li.getLoopFor(&block);
+
+    if (loop && loop->getHeader() == &block) {
+      if (!vecInfo.isDivergentLoop(loop)) continue;
+
+    // cache latch masks
+      auto & latch = *loop->getLoopLatch();
+      latchMasks[loop] = maskAnalysis.getExitMask(latch, block);
+
+      SmallVector<BasicBlock*, 6> exitBlocks;
+      loop->getExitBlocks(exitBlocks);
+
+    // cache loop exit masks
+      for (auto * exitBlock : exitBlocks) {
+        auto & exiting = GetExitingBlock(*loop, *exitBlock);
+
+        auto * actualLoopExitMask = maskAnalysis.getActualLoopExitMask(exiting);
+        setLoopExitMask(exiting, *exitBlock, actualLoopExitMask);
+      }
+    }
+  }
 }
 
 void

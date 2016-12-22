@@ -191,7 +191,17 @@ namespace rv {
 
   // phi -> select conversion
     // we invalidate mask analysis's and track edge masks on our own
-    EdgeMaskCache edgeMasks;
+    void cacheLatchMasks();
+
+    DenseMap<llvm::Loop*, llvm::Value*> latchMasks; // masks from the latch to the header (could be merged with edgeMasks)
+
+  // loop exit masks (A is a loop-exiting block and this returns the condition that this exit is taken at this iteration)
+    EdgeMaskCache loopExitMasks;
+    llvm::Value * getLoopExitMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) { return loopExitMasks[Edge(&start, &dest)]; }
+    void setLoopExitMask(llvm::BasicBlock & start, llvm::BasicBlock & dest, llvm::Value * val) { loopExitMasks[Edge(&start, &dest)] = val; }
+
+  // edge masks (if A is a loop-exiting block this is the aggregate of all instances that have left the loop through this exit)
+    EdgeMaskCache edgeMasks; // if true for an edge A->B control proceeds from block A to block B both being executed
     llvm::Value * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) { return edgeMasks[Edge(&start, &dest)]; }
     void setEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest, llvm::Value * val) { edgeMasks[Edge(&start, &dest)] = val; }
 
