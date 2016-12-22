@@ -203,8 +203,8 @@ void PDA::init(Function& F) {
 void PDA::update(const Value* const V, VectorShape AT) {
   const VectorShape& New = VectorShape::join(getShape(V), AT);
 
-  if (mValue2Shape.count(V) && mValue2Shape[V] == New) return;// nothing changed
-  if (mValue2Shape.count(V) && overrides.count(V)) return;//prevented by override
+  if (mValue2Shape[V] == New) return;// nothing changed
+  if (overrides.count(V)) return;//prevented by override
 
   IF_DEBUG_PDA outs() << "Marking " << New << ": " << *V << "\n";
 
