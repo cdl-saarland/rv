@@ -486,7 +486,16 @@ public:
   // the last update to @tracker
   Value &
   getLastTrackerState(PHINode & tracker) {
-    return *tracker.getIncomingValue(GetLatchTrackerIndex());
+  // windup to outer most tracker PHI
+    auto * lastPhi = &tracker;
+    Value * nextPreHeaderInput = lastPhi;
+    while (isa<PHINode>(nextPreHeaderInput)) {
+      lastPhi = cast<PHINode>(nextPreHeaderInput);
+      nextPreHeaderInput = lastPhi->getIncomingValue(GetPreHeaderTrackerIndex());
+
+    }
+  // latch input (outer most update) of outer most tracker PHI
+    return *lastPhi->getIncomingValue(GetLatchTrackerIndex());
   }
 
   // get the last tracker state for this live out value (which must be a loop carried instruction)
@@ -511,10 +520,10 @@ public:
     auto & exitingBlock = getExitingBlock(exitBlock);
 
   // if this branch always finishes the loop off
-    bool finalExit = false;
 #if 1
+    // bool finalExit = false;
     if (!vecInfo.isMandatory(&exitBlock)) {
-      finalExit = true;
+      // finalExit = true;
       // this exit kills the loop so we do not need to track any values for it
       IF_DEBUG_LIN errs() << "kill exit " << exitBlock.getName() << " skipping..\n";
       return;
@@ -657,8 +666,13 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
       IF_DEBUG_LIN { errs() << "\t\tMigrating " << lcPhi->getName() << " from " << lcPhi->getParent()->getName() << " to " << loopExitRelay->block->getName() << "\n"; }
 
     // we eliminate LCSSA Phis instead of fixing their predecessor blocks
+#if 0
       lcPhi->replaceAllUsesWith(lcPhi->getIncomingValue(0));
       lcPhi->eraseFromParent();
+#else
+      lcPhi->removeFromParent();
+      InsertAtFront(*loopExitRelay->block, *lcPhi);
+#endif
     }
   }
 
