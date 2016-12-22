@@ -441,7 +441,7 @@ public:
     assert(!loop.contains(&exit));
 
   // infer inner loop that is being left
-    auto & leftLoop = *li.getLoopFor(&exiting);
+    // auto & leftLoop = *li.getLoopFor(&exiting);
 
   // last tracker state
     auto * lastTrackerState = tracker.getIncomingValue(GetLatchTrackerIndex());
@@ -451,9 +451,10 @@ public:
     // auto & exitMask = *ma.getCombinedLoopExitMask(leftLoop); // union of all exit predicates
 
   // materialize the update
-    // TODO use IRBuilder<> builder(&exiting, exiting.getTerminator()->getIterator()); // exit mask needs to be defined in @exiting
-    auto & leftLoopLatch = *leftLoop.getLoopLatch();
-    IRBuilder<> builder(&leftLoopLatch, leftLoopLatch.getTerminator()->getIterator());
+    // TODO use
+    IRBuilder<> builder(&exiting, exiting.getTerminator()->getIterator()); // exit mask needs to be defined in @exiting
+    // auto & leftLoopLatch = *leftLoop.getLoopLatch();
+    // IRBuilder<> builder(&leftLoopLatch, leftLoopLatch.getTerminator()->getIterator());
     auto * updateInst = cast<Instruction>(builder.CreateSelect(&exitMask, &val, lastTrackerState, "update_" + val.getName()));
     vecInfo.setVectorShape(*updateInst, VectorShape::varying());
 
@@ -699,6 +700,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
 
 // create a new if-all-threads-have-left exit branch cond == rv_any(<loop live mask>)
   auto * anyThreadLiveCond = &createReduction(*liveCond, "rv_any", latch);
+  IF_DEBUG_LIN { errs() << "- trip condition " << *anyThreadLiveCond << "\n"; }
   BranchInst* branch = BranchInst::Create(&header, loopExitRelay->block, anyThreadLiveCond, &latch);
 
 // mark loop and its latch exit as non-divergent
