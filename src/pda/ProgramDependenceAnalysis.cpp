@@ -437,6 +437,12 @@ void PDA::markSuccessorsMandatory(const BasicBlock* endsVarying) {
   }
 }
 
+VectorShape PDA::joinOperands(const Instruction* const I) {
+  VectorShape Join = VectorShape::undef();
+  for (auto& op : I->operands()) Join = VectorShape::join(Join, getShape(op));
+  return Join;
+}
+
 bool PDA::allOperandsHaveShape(const Instruction* I) {
   auto hasKnownShape = [this](Value* op)
   {
@@ -476,8 +482,6 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
       const SwitchInst* sw = cast<SwitchInst>(I);
       return getShape(sw->getCondition());
     }
-      // If both compared values have the same stride the comparison is uniform
-      // This is new and not recognized by the old analysis
     case Instruction::ICmp:
     {
       const Value* op1 = I->getOperand(0);
@@ -486,12 +490,12 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
       const VectorShape& shape1 = getShape(op1);
       const VectorShape& shape2 = getShape(op2);
 
+      // If both operands have the same stride the comparison is uniform
       if (shape1.isVarying() || shape2.isVarying()) return VectorShape::varying();
-
-      // Same shape and not varying
       if (shape1.getStride() == shape2.getStride()) return VectorShape::uni();
 
-      CmpInst::Predicate predicate = cast<CmpInst>(I)->getPredicate();
+      using Pred_t = CmpInst::Predicate;
+      Pred_t predicate = cast<CmpInst>(I)->getPredicate();
       const int strideDiff = shape1.getStride() - shape2.getStride();
 
       const unsigned vectorWidth = mVecinfo.getMapping().vectorWidth;
@@ -499,8 +503,7 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
       const unsigned alignment1 = shape1.getAlignment();
       const unsigned alignment2 = shape2.getAlignment();
 
-      if (predicate == CmpInst::Predicate::ICMP_SLT ||
-          predicate == CmpInst::Predicate::ICMP_ULT) {
+      if (predicate == Pred_t::ICMP_SLT || predicate == Pred_t::ICMP_ULT) {
         // There are 2 possibilities:
         // 1. The first vector1 entry is not smaller than the first vector2 entry
         //    If strideDiff >= 0, the gap does not decrease and so all other entries
@@ -509,20 +512,13 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
         //    If the alignment a is the same, we can at least add a until we are possibly
         //    equal. But since strideDiff * vectorWidth <= a, the accumulated difference
         //    does not exceed a and all entries are pairwise smaller
-        if (strideDiff >= 0 && alignment1 == alignment2 &&
-            strideDiff * vectorWidth <= alignment1)
-        {
+        if (strideDiff >= 0 && alignment1 == alignment2 && strideDiff * vectorWidth <= alignment1)
           return VectorShape::uni();
-        }
       }
-      else if (predicate == CmpInst::Predicate::ICMP_SGT ||
-               predicate == CmpInst::Predicate::ICMP_UGT) {
+      else if (predicate == Pred_t::ICMP_SGT || predicate == Pred_t::ICMP_UGT) {
         // Analogous reasoning to the one above
-        if (strideDiff <= 0 && alignment1 == alignment2 &&
-            -strideDiff * vectorWidth <= alignment1)
-        {
+        if (strideDiff <= 0 && alignment1 == alignment2 && -strideDiff * vectorWidth <= alignment1)
           return VectorShape::uni();
-        }
       }
 
       return VectorShape::varying();
@@ -531,11 +527,9 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
     case Instruction::GetElementPtr:
     {
       const GetElementPtrInst* gep = cast<GetElementPtrInst>(I);
-
       const Value* pointer = gep->getPointerOperand();
 
       VectorShape result = getShape(pointer);
-
       Type* subT = gep->getPointerOperandType();
 
       for (const Value* index : make_range(gep->idx_begin(), gep->idx_end())) {
@@ -580,10 +574,9 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
       const Function* callee = cast<CallInst>(I)->getCalledFunction();
       assert (!callee->getReturnType()->isVoidTy());
 
-      /* Find the shape that is mapped to this function */
+      // Find the shape that is mapped to this function
+      // No mapping -> assume most unprecise, varying
       auto found = mFuncinfo.find(callee);
-
-      /* No mapping -> assume most unprecise, varying */
       if (found == mFuncinfo.end()) return VectorShape::varying();
 
       const VectorMapping* mapping = found->second;
@@ -616,10 +609,7 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
     {
       // If the block is divergent the phi is varying
       if (getShape(I->getParent()).isVarying()) return VectorShape::varying();
-
-      VectorShape Join = VectorShape::undef();
-      for (auto& op : I->operands()) Join = VectorShape::join(Join, getShape(op));
-      return Join;
+      return joinOperands(I);
     }
 
     case Instruction::Load:
@@ -645,9 +635,7 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
 
       // Join all operands
     default:
-      VectorShape Join = VectorShape::undef();
-      for (auto& op : I->operands()) Join = VectorShape::join(Join, getShape(op));
-      return Join;
+      return joinOperands(I);
   }
 }
 

@@ -148,6 +148,8 @@ private:
   // FIXME: so maybe call it joinExitShapes?
   VectorShape joinExitShapes(const Loop* loop);
 
+  VectorShape joinOperands(const Instruction* const I);
+
   // Returns true iff all operands currently have a computed shape
   // This is essentially a negated check for bottom
   bool allOperandsHaveShape(const Instruction* I);
