@@ -47,7 +47,7 @@ bool VectorShape::operator<(const VectorShape &a) const {
   // If both are of the same shape, decide by alignment
   if (!hasConstantStride && !a.hasConstantStride ||
       hasConstantStride && a.hasConstantStride && stride == a.stride)
-      return a.alignment % alignment == 0;
+      return alignment % a.alignment == 0 && alignment > a.alignment;
 
   return false;
 }
