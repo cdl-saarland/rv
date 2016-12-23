@@ -344,11 +344,9 @@ void PDA::updateAllocaOperands(const Instruction* I) {
 }
 
 void PDA::eraseUserInfoRecursively(const Value* V) {
-  auto found = mValue2Shape.find(V);
+  if (!mValue2Shape[V].isDefined()) return;
 
-  if (found == mValue2Shape.end()) return;
-
-  mValue2Shape.erase(found);
+  mValue2Shape[V] = VectorShape::undef();
 
   for (const Value* use : V->users()) {
     eraseUserInfoRecursively(use);
