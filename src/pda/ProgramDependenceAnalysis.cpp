@@ -548,7 +548,7 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
             result = VectorShape::varying(1); // unaligned FIXME
           }
           else {
-            result = VectorShape(result.getStride() + indexStride, 1);
+            result = VectorShape::strided(result.getStride() + indexStride, 1);
           }
         }
         else {
@@ -560,8 +560,8 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
             result = VectorShape::varying(result.getAlignment());
           }
           else {
-            result = VectorShape(result.getStride() + typeSize * indexStride,
-                                 result.getAlignment());
+            result = VectorShape::strided(result.getStride() + typeSize * indexStride,
+                                          result.getAlignment());
           }
         }
       }
@@ -663,7 +663,7 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
 
       if (shape1.isVarying() || shape2.isVarying()) return VectorShape::varying(resAlignment);
 
-      VectorShape res(stride1 + stride2, resAlignment);
+      VectorShape res = VectorShape::strided(stride1 + stride2, resAlignment);
 
       // Only allow strided results for floating point addition if
       // according fast math flags are set
@@ -687,7 +687,7 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
 
       if (shape1.isVarying() || shape2.isVarying()) return VectorShape::varying(resAlignment);
 
-      VectorShape res(stride1 - stride2, resAlignment);
+      VectorShape res = VectorShape::strided(stride1 - stride2, resAlignment);
 
       // Only allow strided results for floating point substraction if
       // according fast math flags are set
@@ -712,13 +712,13 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
       // If the constant is known, compute the new shape directly
       if (const ConstantInt* constantOp = dyn_cast<ConstantInt>(op1)) {
         const int c = (int) constantOp->getSExtValue();
-        return VectorShape(c * stride2, c * alignment2);
+        return VectorShape::strided(c * stride2, c * alignment2);
       }
 
       // Symmetric case
       if (const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2)) {
         const int c = (int) constantOp->getSExtValue();
-        return VectorShape(c * stride1, c * alignment1);
+        return VectorShape::strided(c * stride1, c * alignment1);
       }
 
       return VectorShape::varying();
@@ -731,7 +731,7 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
 
       if (const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2)) {
         const int c = (int) constantOp->getSExtValue();
-        if (stride1 % c == 0) return VectorShape(stride1 / c, alignment1 / c);
+        if (stride1 % c == 0) return VectorShape::strided(stride1 / c, alignment1 / c);
       }
 
       return VectorShape::varying();
@@ -774,7 +774,7 @@ VectorShape PDA::computeShapeForCastInst(const CastInst* castI) {
 
       if (castOpStride % typeSize != 0) return VectorShape::varying();
 
-      return VectorShape(castOpStride / typeSize, 1);
+      return VectorShape::strided(castOpStride / typeSize, 1);
     }
 
     case Instruction::PtrToInt:
@@ -784,7 +784,7 @@ VectorShape PDA::computeShapeForCastInst(const CastInst* castI) {
 
       unsigned typeSize = (unsigned) layout.getTypeStoreSize(SrcPointsTo);
 
-      return VectorShape(typeSize * castOpStride, 1);
+      return VectorShape::strided(typeSize * castOpStride, 1);
     }
 
       // Truncation reinterprets the stride modulo the target type width
@@ -835,7 +835,7 @@ VectorShape PDA::computeShapeForCastInst(const CastInst* castI) {
       int srcElementSize = static_cast<int>(GetReferencedObjectSize(layout, srcPtr));
       int destElementSize = static_cast<int>(GetReferencedObjectSize(layout, destPtr));
 
-      return VectorShape(srcElementSize * castOpStride / destElementSize, 1);
+      return VectorShape::strided(srcElementSize * castOpStride / destElementSize, 1);
     }
 
     default:

@@ -18,9 +18,20 @@
 
 namespace rv {
 
+VectorShape::VectorShape(unsigned _alignment)
+        : stride(0), hasConstantStride(false), alignment(_alignment), defined(true)
+{}
+
+// constant stride constructor
+VectorShape::VectorShape(int _stride, unsigned _alignment)
+        : stride(_stride), hasConstantStride(true), alignment(_alignment), defined(true)
+{}
+
 bool VectorShape::operator==(const VectorShape &a) const {
-  return hasConstantStride == a.hasConstantStride && stride == a.stride &&
-         alignment == a.alignment;
+  return !defined && !a.defined ||
+          defined && a.defined && alignment == a.alignment &&
+         (!hasConstantStride && !a.hasConstantStride ||
+          hasConstantStride && a.hasConstantStride && stride == a.stride);
 }
 
 bool VectorShape::operator!=(const VectorShape &a) const {
@@ -28,15 +39,14 @@ bool VectorShape::operator!=(const VectorShape &a) const {
 }
 
 bool VectorShape::operator<(const VectorShape &a) const {
-  if (!isVarying() && a.isVarying())
-    return true;
+  if (!a.isDefined()) return false; // Cannot be more precise than bottom
+  if (!isDefined()) return true; // Bottom is most precise
+
+  if (!hasConstantStride && a.hasConstantStride) return true; // strided < varying
 
   // If both are of the same shape, decide by alignment
-  if (!hasConstantStride && !a.hasConstantStride)
-    return a.alignment % alignment == 0;
-
-  if (hasConstantStride && a.hasConstantStride)
-    if (stride == a.stride)
+  if (!hasConstantStride && !a.hasConstantStride ||
+      hasConstantStride && a.hasConstantStride && stride == a.stride)
       return a.alignment % alignment == 0;
 
   return false;
@@ -44,17 +54,12 @@ bool VectorShape::operator<(const VectorShape &a) const {
 
 VectorShape
 VectorShape::join(VectorShape a, VectorShape b) {
-  if (!a.isDefined()) {
-    return b;
-  }
-
-  if (!b.isDefined()) {
-    return a;
-  }
+  if (!a.isDefined()) return b;
+  if (!b.isDefined()) return a;
 
   const unsigned aligned = gcd<>(a.alignment, b.alignment);
-  if (a.hasStridedShape() && b.hasStridedShape() && a.getStride() == b.getStride()) {
-    return VectorShape(a.stride, aligned);
+  if (a.hasConstantStride && b.hasConstantStride && a.getStride() == b.getStride()) {
+    return strided(a.stride, aligned);
   } else {
     return varying(aligned);
   }

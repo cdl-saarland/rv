@@ -21,33 +21,18 @@ namespace rv {
 
 // describes how the contents of a vector vary with the vectorized dimension
 class VectorShape {
-    bool defined;
+  bool defined;
 	int stride;
 	bool hasConstantStride;
 	unsigned alignment;
 
+  VectorShape(unsigned _alignment); // varying
+  VectorShape(int _stride, unsigned _alignment); // strided
+
 public:
-    // Undefined constructor
-    VectorShape()
-    : defined(false)
-    {}
+  VectorShape() : defined(false) {} // undefined value/bottom
 
-	VectorShape(unsigned _alignment)
-	: stride(0)
-	, hasConstantStride(false)
-	, alignment(_alignment)
-    , defined(true)
-	{}
-
-	// constant stride constructor
-	VectorShape(int _stride, unsigned _alignment)
-	: stride(_stride)
-	, hasConstantStride(true)
-	, alignment(_alignment)
-    , defined(true)
-	{}
-
-    bool isDefined() const { return defined; }
+  bool isDefined() const { return defined; }
 	bool hasStridedShape() const { return defined && hasConstantStride; }
 	int getStride() const { return stride; }
 	unsigned getAlignment() const { return alignment; }
@@ -59,11 +44,11 @@ public:
 
 	static VectorShape varying(int aligned = 1) { return VectorShape(aligned); }
 	static VectorShape strided(int stride, int aligned = 1) { return VectorShape(stride, aligned); }
-	static VectorShape uni(int aligned = 1) { return VectorShape(0, aligned); }
-	static VectorShape cont(int aligned = 1) { return VectorShape(1, aligned); }
+	static inline VectorShape uni(int aligned = 1) { return strided(0, aligned); }
+	static inline VectorShape cont(int aligned = 1) { return strided(1, aligned); }
 	static VectorShape undef(int aligned = 1) { return VectorShape(); } // bot
 
-    static VectorShape join(VectorShape a, VectorShape b);
+  static VectorShape join(VectorShape a, VectorShape b);
 
 	bool operator==(const VectorShape& a) const;
 	bool operator!=(const VectorShape& a) const;
