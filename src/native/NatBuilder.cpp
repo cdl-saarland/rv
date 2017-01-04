@@ -319,7 +319,7 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
   Value *predicate = rvCall->getArgOperand(0);
   assert(vectorizationInfo.hasKnownShape(*predicate) && "predicate has no shape");
   const VectorShape &shape = vectorizationInfo.getVectorShape(*predicate);
-  assert((shape.isUniform() || shape.isVarying()) && "predicate can't be contigious or strided");
+  assert((shape.isVarying() || shape.isUniform()) && "predicate can't be contigious or strided");
 
   Value *reduction;
   if (shape.isVarying()) {
@@ -494,7 +494,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 #if 0
   uint scalarBytes = accessedType->getPrimitiveSizeInBits() / 8;
 
-  if (addrShape.isStrided(scalarBytes)) {
+  if (addrShape.hasStridedShape(scalarBytes)) {
     if (accessedType->isPointerTy())
       vecPtr = requestScalarValue(accessedPtr);
     else {
