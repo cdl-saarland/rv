@@ -479,7 +479,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 #if 0
   uint scalarBytes = accessedType->getPrimitiveSizeInBits() / 8;
 
-  if (addrShape.hasStride(scalarBytes)) {
+  if (addrShape.isStrided(scalarBytes)) {
     if (accessedType->isPointerTy())
       vecPtr = requestScalarValue(accessedPtr);
     else {
@@ -490,7 +490,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     }
   } else
 #endif
-  bool byteContiguous = addrShape.hasStride(accessedType->getPrimitiveSizeInBits() / 8);
+  bool byteContiguous = addrShape.isStrided(accessedType->getPrimitiveSizeInBits() / 8);
   if (addrShape.isContiguous() || byteContiguous) {
     // cast pointer to vector-width pointer
     Value *mappedPtr = requestScalarValue(accessedPtr);
@@ -522,7 +522,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       if (needsMask) mask = requestVectorValue(predicate);
       else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
 
-      if (addrShape.isVarying() || (addrShape.isStrided() && !byteContiguous)) {
+      if (addrShape.isVarying() || (addrShape.hasStridedShape() && !byteContiguous)) {
         std::vector<Value *> args;
         args.push_back(vecPtr);
         args.push_back(ConstantInt::get(i32Ty, load->getAlignment()));
@@ -545,7 +545,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       if (needsMask) mask = requestVectorValue(predicate);
       else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
 
-      if (addrShape.isVarying() || (addrShape.isStrided() && !byteContiguous)) {
+      if (addrShape.isVarying() || (addrShape.hasStridedShape() && !byteContiguous)) {
         std::vector<Value *> args;
         args.push_back(mappedStoredVal);
         args.push_back(vecPtr);
@@ -609,7 +609,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     VectorShape shape = vectorizationInfo.getVectorShape(*value);
     Type *type = value->getType();
     mappedVal = getScalarValue(value);
-    if (mappedVal && (shape.isContiguous() || shape.isStrided()) &&
+    if (mappedVal && (shape.isContiguous() || shape.hasStridedShape()) &&
         (type->isIntegerTy() || type->isFloatingPointTy())) {
       Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())
                                                     : ConstantInt::get(type, laneIdx * shape.getStride());
@@ -794,7 +794,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
         return false;
     }
     VectorShape shape = vectorizationInfo.getVectorShape(*gep);
-    if (shape.hasStride(gep->getResultElementType()->getPrimitiveSizeInBits() / 8))
+    if (shape.isStrided(gep->getResultElementType()->getPrimitiveSizeInBits() / 8))
       return false;
   }
 
