@@ -306,7 +306,7 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
   Value *predicate = rvCall->getArgOperand(0);
   assert(vectorizationInfo.hasKnownShape(*predicate) && "predicate has no shape");
   const VectorShape &shape = vectorizationInfo.getVectorShape(*predicate);
-  assert(!shape.isContiguous() && !shape.isStrided() && "predicate can't be contigious or strided");
+  assert((shape.isUniform() || shape.isVarying()) && "predicate can't be contigious or strided");
 
   Value *reduction;
   if (shape.isVarying()) {

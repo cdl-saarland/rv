@@ -30,23 +30,23 @@ class VectorShape {
   VectorShape(int _stride, unsigned _alignment); // strided
 
 public:
-  VectorShape() : defined(false) {} // undefined value/bottom
+  VectorShape(); // undef
 
   bool isDefined() const { return defined; }
-	bool hasStridedShape() const { return defined && hasConstantStride; }
 	int getStride() const { return stride; }
 	unsigned getAlignment() const { return alignment; }
 
-	bool isUniform() const { return defined && hasStridedShape() && getStride() == 0; }
-	bool isStrided(int ofStride) const { return defined && hasStridedShape() && stride == ofStride; }
+	bool isVarying() const { return defined && !hasConstantStride; }
+	bool hasStridedShape() const { return defined && hasConstantStride; }
+	bool isStrided(int ofStride) const { return hasStridedShape() && stride == ofStride; }
+	bool isUniform() const { return isStrided(0); }
 	inline bool isContiguous() const { return isStrided(1); }
-	bool isVarying() const { return defined && !hasStridedShape(); }
 
 	static VectorShape varying(int aligned = 1) { return VectorShape(aligned); }
 	static VectorShape strided(int stride, int aligned = 1) { return VectorShape(stride, aligned); }
 	static inline VectorShape uni(int aligned = 1) { return strided(0, aligned); }
 	static inline VectorShape cont(int aligned = 1) { return strided(1, aligned); }
-	static VectorShape undef(int aligned = 1) { return VectorShape(); } // bot
+	static VectorShape undef() { return VectorShape(); } // bot
 
   static VectorShape join(VectorShape a, VectorShape b);
 
