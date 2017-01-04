@@ -662,7 +662,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
       IF_DEBUG_LIN { errs() << "\t\tMigrating " << lcPhi->getName() << " from " << lcPhi->getParent()->getName() << " to " << loopExitRelay->block->getName() << "\n"; }
 
     // we eliminate LCSSA Phis instead of fixing their predecessor blocks
-#if 0
+#if 1
       lcPhi->replaceAllUsesWith(lcPhi->getIncomingValue(0));
       lcPhi->eraseFromParent();
 #else
@@ -704,11 +704,13 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   vecInfo.setLoopDivergence(loop, false);
 
 // Update mask analysis information.
+#if 0
   Value* loopExitCond = maskAnalysis.getCombinedLoopExitMask(loop);
   maskAnalysis.updateExitMasks(latch,
                                  anyThreadLiveCond,
                                  loopExitCond,
                                  &*(latch.getFirstInsertionPt()));
+#endif
 
   return *loopExitRelay;
 }
