@@ -522,7 +522,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       if (needsMask) mask = requestVectorValue(predicate);
       else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
 
-      if (addrShape.isVarying() || (addrShape.hasStridedShape() && !byteContiguous)) {
+      if (addrShape.isVarying() || (addrShape.isStrided() && !byteContiguous)) {
         std::vector<Value *> args;
         args.push_back(vecPtr);
         args.push_back(ConstantInt::get(i32Ty, load->getAlignment()));
@@ -545,7 +545,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       if (needsMask) mask = requestVectorValue(predicate);
       else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
 
-      if (addrShape.isVarying() || (addrShape.hasStridedShape() && !byteContiguous)) {
+      if (addrShape.isVarying() || (addrShape.isStrided() && !byteContiguous)) {
         std::vector<Value *> args;
         args.push_back(mappedStoredVal);
         args.push_back(vecPtr);
@@ -609,7 +609,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     VectorShape shape = vectorizationInfo.getVectorShape(*value);
     Type *type = value->getType();
     mappedVal = getScalarValue(value);
-    if (mappedVal && (shape.isContiguous() || shape.hasStridedShape()) &&
+    if (mappedVal && (shape.isContiguous() || shape.isStrided()) &&
         (type->isIntegerTy() || type->isFloatingPointTy())) {
       Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())
                                                     : ConstantInt::get(type, laneIdx * shape.getStride());
@@ -747,11 +747,6 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
     VectorShape shape;
     if (vectorizationInfo.hasKnownShape(*value)) {
       shape = vectorizationInfo.getVectorShape(*value);
-      if (shape.isUniform()) laneIdx = 0;
-    } else if (isa<Argument>(*value)) { // TODO: REMOVE ONCE FIXED IN RV
-      Argument *arg = cast<Argument>(value);
-      unsigned i = arg->getArgNo();
-      shape = vectorizationInfo.getMapping().argShapes[i];
       if (shape.isUniform()) laneIdx = 0;
     }
 

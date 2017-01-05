@@ -37,7 +37,7 @@ namespace rv {
 
     void addVectorizableFunctions(ArrayRef<VecDesc> funcs);
     bool isFunctionVectorizable(StringRef funcName, unsigned vectorWidth);
-    StringRef getVectorizedFunction(StringRef func, unsigned vectorWidth);
+    StringRef getVectorizedFunction(StringRef func, unsigned vectorWidth, bool *isInTLI = nullptr);
     Function *requestVectorizedFunction(StringRef funcName, unsigned vectorWidth, Module *insertInto,
                                             bool doublePrecision);
 

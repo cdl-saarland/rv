@@ -63,9 +63,15 @@ namespace rv {
     return !getVectorizedFunction(funcName, vectorWidth).empty();
   }
 
-  StringRef PlatformInfo::getVectorizedFunction(StringRef funcName, unsigned vectorWidth) {
+  StringRef PlatformInfo::getVectorizedFunction(StringRef funcName, unsigned vectorWidth, bool *isInTLI) {
     if (funcName.empty())
       return funcName;
+
+    StringRef tliFnName = mTLI->getVectorizedFunction(funcName, vectorWidth);
+    if (!tliFnName.empty()) {
+      if (isInTLI) *isInTLI = true;
+      return tliFnName;
+    }
 
     auto I = std::lower_bound(commonVectorMappings.begin(), commonVectorMappings.end(), funcName,
                               compareWithScalarFnName);
@@ -79,9 +85,14 @@ namespace rv {
 
   Function *PlatformInfo::requestVectorizedFunction(StringRef funcName, unsigned vectorWidth, Module *insertInto,
                                                       bool doublePrecision) {
-    StringRef vecFuncName = getVectorizedFunction(funcName, vectorWidth);
+    bool isInTLI = false;
+    StringRef vecFuncName = getVectorizedFunction(funcName, vectorWidth, &isInTLI);
     if (vecFuncName.empty()) return nullptr;
-    return requestSleefFunction(funcName, vecFuncName, insertInto, doublePrecision);
+
+    if (isInTLI)
+      return insertInto->getFunction(vecFuncName);
+    else
+      return requestSleefFunction(funcName, vecFuncName, insertInto, doublePrecision);
   }
 
 }

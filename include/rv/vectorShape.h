@@ -39,6 +39,7 @@ public:
 	bool isVarying() const { return defined && !hasConstantStride; }
 	bool hasStridedShape() const { return defined && hasConstantStride; }
 	bool isStrided(int ofStride) const { return hasStridedShape() && stride == ofStride; }
+	bool isStrided() const { return hasStridedShape() && stride != 0 && stride != 1; }
 	bool isUniform() const { return isStrided(0); }
 	inline bool isContiguous() const { return isStrided(1); }
 
