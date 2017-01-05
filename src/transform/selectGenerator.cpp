@@ -216,10 +216,18 @@ SelectGenerator::generatePhiSelects(Function& f)
             //       preceding control flow.
             //assert (!rv::hasMetadata(phi, rv::RV_METADATA_MASK) &&
                     //"there is a mask phi where there should not be one");
-            assert (!mvecInfo.getVectorShape(*phi).isUniform() &&
-                    "phi in DIVERGENT block must not be uniform!");
+            Value* blendedValue = nullptr;
 
-            Value* blendedValue = generateSelectFromPhi(phi);
+            if (mvecInfo.getVectorShape(*phi).isUniform()) {
+              IF_DEBUG_SG errs() << "SG: Divergent PHI with single incoming value from multiple predecessors: " << *phi << "\n";
+              // TODO assert that there is only a single incoming value from all predecessors
+              blendedValue = phi->getIncomingValue(0);
+              phi->replaceAllUsesWith(blendedValue);
+            } else {
+              assert (!mvecInfo.getVectorShape(*phi).isUniform() && "phi in DIVERGENT block must not be uniform!");
+
+              blendedValue = generateSelectFromPhi(phi);
+            }
 
             // Update loop live value analysis.
             if (Instruction* blendedInst = dyn_cast<Instruction>(blendedValue))
