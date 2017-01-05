@@ -605,8 +605,20 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
 
     case Instruction::PHI:
     {
+      // check if this PHINode actually joins different values
+      bool mixingPhi = false;
+      auto * phi = cast<PHINode>(I);
+      Value * singleVal = phi->getIncomingValue(0);
+      for (int i = 1; i < phi->getNumIncomingValues(); ++i) {
+        if (singleVal != phi->getIncomingValue(i)) {
+          mixingPhi = true;
+          break;
+        }
+      }
+
+      // the PHI node is not actually varying iff all input operands are the same
       // If the block is divergent the phi is varying
-      if (getShape(I->getParent()).isVarying()) return VectorShape::varying();
+      if (mixingPhi && getShape(I->getParent()).isVarying()) return VectorShape::varying();
       return joinOperands(I);
     }
 
