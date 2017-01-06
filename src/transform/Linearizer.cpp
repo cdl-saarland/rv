@@ -424,10 +424,43 @@ public:
     return *innerTrackerPhi;
   }
 
+  static int
+  GetExitIndex(BasicBlock & exiting, Loop & loop) {
+    auto & term = *exiting.getTerminator();
+    for (int i = 0; i < term.getNumSuccessors(); ++i) {
+      if (!loop.contains(term.getSuccessor(i))) {
+        return i;
+      }
+    }
+    abort();
+  }
+
   // return the mask predicate of the loop exit
   Value&
-  getLoopExitMask(BasicBlock & exiting) {
-    return *ma.getActualLoopExitMask(exiting);
+  getLoopExitMask(BasicBlock & exiting, Loop & loop) {
+    int exitIndex = GetExitIndex(exiting, loop);
+
+#if 0
+    return *ma.getExitMask(exiting, exitIndex);
+#else
+    auto & context = exiting.getContext();
+    Value * blockMask = ma.getEntryMask(exiting);
+
+    IRBuilder<> builder(exiting.getTerminator());
+
+    auto & branch = *cast<BranchInst>(exiting.getTerminator());
+
+    Value * exitCondition = branch.getCondition();
+    auto exitShape = lin.vecInfo.getVectorShape(*exitCondition);
+    if (exitIndex != 0) {
+      exitCondition = builder.CreateXor(branch.getCondition(), ConstantInt::get(Type::getInt1Ty(context), -1));
+      vecInfo.setVectorShape(*exitCondition, exitShape);
+    }
+
+    auto * exitingMask = builder.CreateAnd(exitCondition, blockMask);
+    vecInfo.setVectorShape(*exitingMask, exitShape);
+    return *exitingMask;
+#endif
   }
 
   // updates @tracker in block @src with @val, if the exit predicate is true
@@ -445,8 +478,8 @@ public:
     auto * lastTrackerState = tracker.getIncomingValue(GetLatchTrackerIndex());
 
   // get exit predicate
-    // auto & exitMask = getLoopExitMask(exiting); // should do the trick if this atually was the edge predicate..
-    auto & exitMask = *lin.getLoopExitMask(exiting, exit);
+    auto & exitMask = getLoopExitMask(exiting, loop); // should do the trick if this atually was the edge predicate..
+    // auto & exitMask = *lin.getLoopExitMask(exiting, exit);
 
     IF_DEBUG_LIN { errs() << "\t-- loop exit mask " << exitMask << "\n"; }
   // materialize the update
