@@ -14,7 +14,8 @@
 #include "llvm/Analysis/TargetLibraryInfo.h"
 
 namespace rv {
-  bool addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2, PlatformInfo &platformInfo);
+  bool addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2, PlatformInfo &platformInfo,
+                          bool useImpreciseFunctions);
   Function *
   requestSleefFunction(const StringRef &funcName, StringRef &vecFuncName, Module *insertInto, bool doublePrecision);
 }

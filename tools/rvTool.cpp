@@ -152,7 +152,8 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     const bool useSSE = false;
     const bool useAVX = true;
     const bool useAVX2 = false;
-    addSleefMappings(useSSE, useAVX, useAVX2, platformInfo);
+    const bool useImpreciseFunctions = false;
+  addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
 
     // configure initial shape for induction variable
     auto* header = loop.getHeader();
@@ -304,7 +305,8 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     const bool useSSE = false;
     const bool useAVX = true;
     const bool useAVX2 = false;
-    addSleefMappings(useSSE, useAVX, useAVX2, platformInfo);
+    const bool useImpreciseFunctions = false;
+    addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
 #endif
 
     // build Analysis

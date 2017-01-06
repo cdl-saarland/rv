@@ -27,7 +27,8 @@ static Module const *avx2ModSP, *avxModSP, *sseModSP;
 static Module const *avx2ModDP, *avxModDP, *sseModDP;
 
 namespace rv {
-  bool addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2, PlatformInfo &platformInfo) {
+  bool addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2, PlatformInfo &platformInfo,
+                          bool useImpreciseFunctions) {
     if (useAVX2) {
       const VecDesc VecFuncs[] = {
 //          {"ldexpf", "xldexpf_avx2", 8},
@@ -56,8 +57,27 @@ namespace rv {
           {"log10f", "xlog10f_avx2", 8},
           {"log1pf", "xlog1pf_avx2", 8}
       };
-
       platformInfo.addVectorizableFunctions(VecFuncs);
+
+      if (useImpreciseFunctions) {
+        const VecDesc ImprecVecFuncs[] = {
+            {"ldexpf", "xldexpf_avx2", 8},
+            {"sinf", "xsinf_avx2", 8},
+            {"cosf", "xcosf_avx2", 8},
+            {"sincosf", "xsincosf_avx2", 8},
+            {"tanf", "xtanf_avx2", 8},
+            {"atan2f", "xatan2f_avx2", 8},
+            {"logf", "xlogf_avx2", 8},
+            {"expf", "xexpf_avx2", 8},
+            {"cbrtf", "xcbrtf_avx2", 8},
+            {"powf", "xpowf_avx2", 8},
+            {"sinhf", "xsinhf_avx2", 8},
+            {"coshf", "xcoshf_avx2", 8},
+            {"asinhf", "xasinhf_avx2", 8},
+            {"acoshf", "xacoshf_avx2", 8}
+        };
+        platformInfo.addVectorizableFunctions(ImprecVecFuncs);
+      }
     }
 
     if (useAVX) {
@@ -88,8 +108,27 @@ namespace rv {
           {"log10f", "xlog10f_avx", 8},
           {"log1pf", "xlog1pf_avx", 8},
       };
-
       platformInfo.addVectorizableFunctions(VecFuncs);
+
+      if (useImpreciseFunctions) {
+        const VecDesc ImprecVecFuncs[] = {
+            {"ldexpf", "xldexpf_avx", 8},
+            {"sinf", "xsinf_avx", 8},
+            {"cosf", "xcosf_avx", 8},
+            {"sincosf", "xsincosf_avx", 8},
+            {"tanf", "xtanf_avx", 8},
+            {"atan2f", "xatan2f_avx", 8},
+            {"logf", "xlogf_avx", 8},
+            {"expf", "xexpf_avx", 8},
+            {"cbrtf", "xcbrtf_avx", 8},
+            {"powf", "xpowf_avx", 8},
+            {"sinhf", "xsinhf_avx", 8},
+            {"coshf", "xcoshf_avx", 8},
+            {"asinhf", "xasinhf_avx", 8},
+            {"acoshf", "xacoshf_avx", 8}
+        };
+        platformInfo.addVectorizableFunctions(ImprecVecFuncs);
+      }
     }
 
     if (useSSE || useAVX || useAVX2) {
@@ -120,8 +159,27 @@ namespace rv {
           {"log10f", "xlog10f_sse", 4},
           {"log1pf", "xlog1pf_sse", 4}
       };
-
       platformInfo.addVectorizableFunctions(VecFuncs);
+
+      if (useImpreciseFunctions) {
+        const VecDesc ImprecVecFuncs[] = {
+            {"ldexpf", "xldexpf_sse", 8},
+            {"sinf", "xsinf_sse", 8},
+            {"cosf", "xcosf_sse", 8},
+            {"sincosf", "xsincosf_sse", 8},
+            {"tanf", "xtanf_sse", 8},
+            {"atan2f", "xatan2f_sse", 8},
+            {"logf", "xlogf_sse", 8},
+            {"expf", "xexpf_sse", 8},
+            {"cbrtf", "xcbrtf_sse", 8},
+            {"powf", "xpowf_sse", 8},
+            {"sinhf", "xsinhf_sse", 8},
+            {"coshf", "xcoshf_sse", 8},
+            {"asinhf", "xasinhf_sse", 8},
+            {"acoshf", "xacoshf_sse", 8}
+        };
+        platformInfo.addVectorizableFunctions(ImprecVecFuncs);
+      }
     }
     return useAVX || useAVX2 || useSSE;
   }

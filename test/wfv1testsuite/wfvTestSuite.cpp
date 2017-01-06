@@ -85,7 +85,8 @@
         const bool useSSE = false; \
         const bool useAVX = true; \
         const bool useAVX2 = false; \
-        addSleefMappings(useSSE, useAVX, useAVX2, platformInfo); \
+        const bool useImpreciseFunctions = false; \
+        addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions); \
         \
         DominatorTree domTree(*scalarCopy); \
         PostDominatorTree postDomTree; \
@@ -190,7 +191,8 @@
         const bool useSSE = false; \
         const bool useAVX = true; \
         const bool useAVX2 = false; \
-        addSleefMappings(useSSE, useAVX, useAVX2, platformInfo); \
+        const bool useImpreciseFunctions = false; \
+        addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions); \
         \
         DominatorTree domTree(*scalarCopy); \
         PostDominatorTree postDomTree; \
