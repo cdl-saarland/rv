@@ -163,12 +163,14 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       // phis need special treatment as they might contain not-yet mapped instructions
       vectorizePHIInstruction(phi);
     else if (alloca && shouldVectorize(inst)) {
-      // TODO: instead of 4 x alloca float do alloca <4 x float> (if type allows it)
-      // note to above comment: this is ONLY allowed IFF
+      // note: this is ONLY allowed IFF
       // (1) no calls that have alloca instructions as arguments OR
       // (2) there exists a function mapping which allows that. e.g.: float * -> <4 x float> *
-      for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
-        copyInstruction(inst, lane);
+      if (canVectorize(inst))
+        vectorize(inst);
+      else
+        for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
+          copyInstruction(inst, lane);
       }
     } else if (gep) {
       unsigned laneEnd = shouldVectorize(gep) ? vectorWidth() : 1;
@@ -783,7 +785,16 @@ bool NatBuilder::canVectorize(Instruction *const inst) {
 
   // whitelisting approach. for direct vectorization we support:
   // binary operations (normal & bitwise), memory access operations, conversion operations and other operations
-  return isSupportedOperation(inst);
+
+  // for AllocaInst: vectorize if not used in calls. replicate else
+  if (isa<AllocaInst>(inst)) {
+    for (auto user : inst->users()) {
+      if (isa<CallInst>(user) || isa<InvokeInst>(user))
+        return false;
+    }
+    return true;
+  } else
+    return isSupportedOperation(inst);
 }
 
 bool NatBuilder::shouldVectorize(Instruction *inst) {
