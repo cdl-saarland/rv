@@ -462,19 +462,18 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     accessedType = storedValue->getType();
     accessedPtr = store->getPointerOperand();
   }
-  Type *vecType = getVectorType(accessedType, vectorWidth());
 
   assert(vectorizationInfo.hasKnownShape(*accessedPtr) && "no shape for accessed pointer!");
   VectorShape addrShape = vectorizationInfo.getVectorShape(*accessedPtr);
 
   // address: uniform -> scalar op. contiguous -> scalar from vector-width address. varying -> scatter/gather
-  // exception: address is an argument that is a vector -> vector load/store.
   Value *vecPtr = nullptr;
 
-  bool needsMask = false;
   Value *predicate = vectorizationInfo.getPredicate(*inst->getParent());
   assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
-  if (!addrShape.isUniform() && !isa<Constant>(predicate)) needsMask = true;
+  bool needsMask = !isa<Constant>(predicate);
+
+  Type *vecType = getVectorType(accessedType, addrShape.isUniform() ? 1 : vectorWidth());
 
 #if 0
   uint scalarBytes = accessedType->getPrimitiveSizeInBits() / 8;
@@ -491,8 +490,9 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   } else
 #endif
   bool byteContiguous = addrShape.isStrided(accessedType->getPrimitiveSizeInBits() / 8);
-  if (addrShape.isContiguous() || byteContiguous) {
+  if (addrShape.isContiguous() || byteContiguous || (needsMask && addrShape.isUniform())) {
     // cast pointer to vector-width pointer
+    // uniform-with-mask case needs to be included as scalar masked load/store is not allowed!
     Value *mappedPtr = requestScalarValue(accessedPtr);
     PointerType *vecPtrType = PointerType::getUnqual(vecType);
     vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
@@ -514,7 +514,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   Value *mask = nullptr;
   Value *vecMem = nullptr;
   if (load) {
-    if (addrShape.isUniform() || ((addrShape.isContiguous() || byteContiguous) && !needsMask)) {
+    if ((addrShape.isUniform() || addrShape.isContiguous() || byteContiguous) && !needsMask) {
       std::string name = addrShape.isUniform() ? "scal_load" : "vec_load";
       vecMem = builder.CreateLoad(vecPtr, name);
       cast<LoadInst>(vecMem)->setAlignment(load->getAlignment());
@@ -532,13 +532,21 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Function *gatherIntr = Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, vecType);
         assert(gatherIntr && "masked gather not found!");
         vecMem = builder.CreateCall(gatherIntr, args, "gather");
-      } else
+      } else {
+        if (addrShape.isUniform()) {
+          mask = createPTest(mask, false);
+          mask = builder.CreateBitCast(mask, getVectorType(i1Ty, 1), "uni_load_mask_cast");
+        }
         vecMem = builder.CreateMaskedLoad(vecPtr, load->getAlignment(), mask, 0, "masked_vec_load");
+        if (addrShape.isUniform())
+          vecMem = builder.CreateExtractElement(vecMem, (uint64_t) 0, "uni_load_extract");
+      }
     }
   } else {
     Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                    : requestVectorValue(storedValue);
-    if (addrShape.isUniform() || ((addrShape.isContiguous() || byteContiguous) && !needsMask)) {
+
+    if ((addrShape.isUniform() || addrShape.isContiguous() || byteContiguous) && !needsMask) {
       vecMem = builder.CreateStore(mappedStoredVal, vecPtr);
       cast<StoreInst>(vecMem)->setAlignment(store->getAlignment());
     } else {
@@ -555,8 +563,14 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Function *scatterIntr = Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, vecType);
         assert(scatterIntr && "masked scatter not found!");
         vecMem = builder.CreateCall(scatterIntr, args);
-      } else
+      } else {
+        if (addrShape.isUniform()) {
+          mask = createPTest(mask, false);
+          mask = builder.CreateBitCast(mask, getVectorType(i1Ty, 1), "uni_store_mask_cast");
+          mappedStoredVal = builder.CreateBitCast(mappedStoredVal, vecType, "uni_store_cast");
+        }
         vecMem = builder.CreateMaskedStore(mappedStoredVal, vecPtr, store->getAlignment(), mask);
+      }
     }
   }
 
