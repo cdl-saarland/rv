@@ -495,10 +495,11 @@ MaskGenerator::materializeMask(MaskPtr maskPtr)
         case PHI:
         {
             const unsigned numIncVals = mask.mOperands.size();
+            auto * defBlock = mask.mInsertPoint->getParent();
             PHINode* phi = PHINode::Create(Type::getInt1Ty(*mInfo.mContext),
                                            numIncVals,
                                            "maskPhi",
-                                           mask.mInsertPoint);
+                                           &*defBlock->getFirstInsertionPt());
 
             for (unsigned i=0; i<numIncVals; ++i)
             {
@@ -743,10 +744,11 @@ MaskGenerator::createSelect(Value*       operand0,
 Value*
 MaskGenerator::createPhi(Mask& mask, const Twine& name)
 {
+    auto * defBlock = mask.mInsertPoint->getParent();
     PHINode* phi = PHINode::Create(Type::getInt1Ty(*mInfo.mContext),
                                    2,
                                    name,
-                                   mask.mInsertPoint);
+                                   &*defBlock->getFirstInsertionPt());
 
     Value*      preheaderMask = mask.mOperands[0].lock()->mValue;
     BasicBlock* preheaderBB   = mask.mIncomingDirs[0];
