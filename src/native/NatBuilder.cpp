@@ -498,7 +498,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   } else
 #endif
   bool byteContiguous = addrShape.isStrided(static_cast<int>(layout.getTypeStoreSize(accessedType)));
-  if (addrShape.isContiguous() || byteContiguous || (needsMask && addrShape.isUniform())) {
+  if (addrShape.isContiguous() || byteContiguous) {
     // cast pointer to vector-width pointer
     // uniform-with-mask case needs to be included as scalar masked load/store is not allowed!
     Value *mappedPtr = requestScalarValue(accessedPtr);
@@ -522,11 +522,33 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   Value *mask = nullptr;
   Value *vecMem = nullptr;
   if (load) {
-    if ((addrShape.isUniform() || addrShape.isContiguous() || byteContiguous) && !needsMask) {
+    if (addrShape.isUniform() && needsMask) {
+      // create two new basic blocks
+      mask = createPTest(requestVectorValue(predicate), false);
+      BasicBlock *loadBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "load_block",
+                                                 &vectorizationInfo.getVectorFunction());
+      BasicBlock *continueBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "cont_block",
+                                                     &vectorizationInfo.getVectorFunction());
+      mapVectorValue(builder.GetInsertBlock(), loadBlock);
+      mapVectorValue(builder.GetInsertBlock(), continueBlock);
+
+      // conditionally branch to both
+      builder.CreateCondBr(mask, loadBlock, continueBlock);
+      builder.SetInsertPoint(loadBlock);
+
+      vecMem = builder.CreateLoad(vecPtr, "scal_mask_load");
+      cast<LoadInst>(vecMem)->setAlignment(load->getAlignment());
+
+      builder.CreateBr(continueBlock);
+      builder.SetInsertPoint(continueBlock);
+
+    } else if ((addrShape.isUniform() || addrShape.isContiguous() || byteContiguous) && !needsMask) {
       std::string name = addrShape.isUniform() ? "scal_load" : "vec_load";
       vecMem = builder.CreateLoad(vecPtr, name);
       cast<LoadInst>(vecMem)->setAlignment(load->getAlignment());
+
     } else {
+
       if (needsMask) mask = requestVectorValue(predicate);
       else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
 
@@ -540,23 +562,39 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Function *gatherIntr = Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, vecType);
         assert(gatherIntr && "masked gather not found!");
         vecMem = builder.CreateCall(gatherIntr, args, "gather");
-      } else {
-        if (addrShape.isUniform()) {
-          mask = createPTest(mask, false);
-          mask = builder.CreateBitCast(mask, getVectorType(i1Ty, 1), "uni_load_mask_cast");
-        }
+
+      } else
         vecMem = builder.CreateMaskedLoad(vecPtr, load->getAlignment(), mask, 0, "masked_vec_load");
-        if (addrShape.isUniform())
-          vecMem = builder.CreateExtractElement(vecMem, (uint64_t) 0, "uni_load_extract");
-      }
     }
   } else {
+
     Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                    : requestVectorValue(storedValue);
 
-    if ((addrShape.isUniform() || addrShape.isContiguous() || byteContiguous) && !needsMask) {
+    if (addrShape.isUniform() && needsMask) {
+      // create two new basic blocks
+      mask = createPTest(requestVectorValue(predicate), false);
+      BasicBlock *storeBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "store_block",
+                                                 &vectorizationInfo.getVectorFunction());
+      BasicBlock *continueBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "cont_block",
+                                                     &vectorizationInfo.getVectorFunction());
+      mapVectorValue(builder.GetInsertBlock(), storeBlock);
+      mapVectorValue(builder.GetInsertBlock(), continueBlock);
+
+      // conditionally branch to both
+      builder.CreateCondBr(mask, storeBlock, continueBlock);
+      builder.SetInsertPoint(storeBlock);
+
       vecMem = builder.CreateStore(mappedStoredVal, vecPtr);
       cast<StoreInst>(vecMem)->setAlignment(store->getAlignment());
+
+      builder.CreateBr(continueBlock);
+      builder.SetInsertPoint(continueBlock);
+
+    } else if ((addrShape.isUniform() || addrShape.isContiguous() || byteContiguous) && !needsMask) {
+      vecMem = builder.CreateStore(mappedStoredVal, vecPtr);
+      cast<StoreInst>(vecMem)->setAlignment(store->getAlignment());
+
     } else {
       if (needsMask) mask = requestVectorValue(predicate);
       else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
@@ -571,14 +609,9 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Function *scatterIntr = Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, vecType);
         assert(scatterIntr && "masked scatter not found!");
         vecMem = builder.CreateCall(scatterIntr, args);
-      } else {
-        if (addrShape.isUniform()) {
-          mask = createPTest(mask, false);
-          mask = builder.CreateBitCast(mask, getVectorType(i1Ty, 1), "uni_store_mask_cast");
-          mappedStoredVal = builder.CreateBitCast(mappedStoredVal, vecType, "uni_store_cast");
-        }
+
+      } else
         vecMem = builder.CreateMaskedStore(mappedStoredVal, vecPtr, store->getAlignment(), mask);
-      }
     }
   }
 
