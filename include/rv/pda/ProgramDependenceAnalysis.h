@@ -119,9 +119,13 @@ private:
   bool isInRegion(const BasicBlock* BB);
   bool isInRegion(const Instruction& inst);
 
+  // specialized transfer functions
   VectorShape computeShapeForInst(const Instruction* I);
   VectorShape computeShapeForBinaryInst(const BinaryOperator* I);
   VectorShape computeShapeForCastInst(const CastInst* I);
+
+  // generic (fallback) transfer function for instructions w/o side effects
+  VectorShape computeGenericArithmeticTransfer(const Instruction & I);
 
   // Update a value with its new computed shape, recursing into users if it has changed
   void update(const Value* const V, VectorShape AT);

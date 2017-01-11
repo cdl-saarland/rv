@@ -22,6 +22,25 @@
 #define IF_DEBUG_PDA if (false)
 #endif
 
+//
+//
+// generic transfer functions
+rv::VectorShape
+GenericTransfer(rv::VectorShape a) {
+  return a;
+}
+
+template<class ... Shapes>
+rv::VectorShape
+GenericTransfer(rv::VectorShape a, Shapes... nextShapes) {
+  if (!a.isUniform()) return rv::VectorShape::varying();
+  else return GenericTransfer(nextShapes...);
+}
+
+
+
+
+
 namespace rv {
 
 using ValueMap = std::map<const Value*, VectorShape>;
@@ -643,10 +662,23 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
       return VectorShape::join(sel1Shape, sel2Shape);
     }
 
-      // Join all operands
+      // use the generic transfer
     default:
-      return joinOperands(I);
+      break;
   }
+
+  return computeGenericArithmeticTransfer(*I);
+}
+
+
+VectorShape
+PDA::computeGenericArithmeticTransfer(const Instruction & I) {
+  assert(I.getNumOperands() > 0 && "can not compute arithmetic transfer for instructions w/o operands");
+  // generic transfer function
+  for (uint i = 0; i < I.getNumOperands(); ++i) {
+    if (!getShape(I.getOperand(i)).isUniform()) return VectorShape::varying();
+  }
+  return VectorShape::uni();
 }
 
 VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
@@ -734,6 +766,50 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
       return VectorShape::varying();
     }
 
+    case Instruction::Or: {
+    // try to match and Add that as been lowered to an Or
+      int constOpId = 0;
+      if (isa<Constant>(I->getOperand(0))) {
+        constOpId = 0;
+      } else if (isa<Constant>(I->getOperand(1))) {
+        constOpId = 1;
+      } else {
+        break;
+      }
+
+      uint orConst = cast<ConstantInt>(I->getOperand(constOpId))->getZExtValue();
+      int otherOpId = 1 - constOpId;
+      VectorShape otherShape = getShape(I->getOperand(otherOpId));
+
+      if (!otherShape.hasStridedShape()) {
+        break;
+      }
+
+      // the or-ed constant is smaller than the alignment
+      // in this case we can interpret as an add
+      if (otherShape.getAlignment() > orConst) {
+        auto resAlignment = gcd<uint>(orConst, otherShape.getAlignment());
+        return VectorShape::strided(otherShape.getStride(), resAlignment);
+      } else {
+        break;
+      }
+    }
+
+    case Instruction::Shl: {
+      // interpret shift by constans as multiplication
+      if (isa<Constant>(I->getOperand(1))) {
+          auto * shiftConst = cast<ConstantInt>(I->getOperand(1));
+          int shiftAmount = (int) shiftConst->getSExtValue();
+          const auto valShape = getShape(I->getOperand(0));
+          if (shiftAmount > 0 && valShape.hasStridedShape()) {
+            int factor = 1 << shiftAmount;
+            return VectorShape::strided(valShape.getStride() * factor, valShape.getAlignment() * factor);
+          } else {
+            break;
+          }
+      }
+    }
+
     case Instruction::SDiv:
     case Instruction::UDiv:
     {
@@ -748,8 +824,9 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
     }
 
     default:
-      return shape1.isUniform() && shape2.isUniform() ? VectorShape::uni() : VectorShape::varying();
+      break;
   }
+  return GenericTransfer(shape1, shape2);
 }
 
 static unsigned GetReferencedObjectSize(const DataLayout& layout, Type* ptrType) {
@@ -765,7 +842,6 @@ VectorShape PDA::computeShapeForCastInst(const CastInst* castI) {
   const Value* castOp = castI->getOperand(0);
   const VectorShape& castOpShape = getShape(castOp);
   const int castOpStride = castOpShape.getStride();
-  const int castOpAlignment = castOpShape.getAlignment();
   const DataLayout layout(castI->getModule());
 
   const int aligned = !rv::returnsVoidPtr(*castI) ? castOpShape.getAlignment() : 1;
