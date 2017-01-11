@@ -44,6 +44,8 @@ namespace native {
 
     rv::Region *region;
 
+    bool useScatterGatherIntrinsics;
+
 
   public:
     NatBuilder(rv::PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
@@ -76,6 +78,8 @@ namespace native {
     void mapOperandsInto(llvm::Instruction *const scalInst, llvm::Instruction *inst, bool vectorizedInst,
                          unsigned laneIdx = 0);
 
+    llvm::DenseMap<unsigned, llvm::Function *> cascadeLoadMap;
+    llvm::DenseMap<unsigned, llvm::Function *> cascadeStoreMap;
     llvm::DenseMap<const llvm::Value *, llvm::Value *> vectorValueMap;
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
@@ -84,6 +88,15 @@ namespace native {
     llvm::Value *requestVectorValue(llvm::Value *const value);
     llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
                                     bool skipMappingWhenDone = false);
+    llvm::Value *requestCascadeLoad(llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
+    llvm::Value *requestCascadeStore(llvm::Value *vecVal, llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
+    llvm::Function *createCascadeMemory(llvm::VectorType *pointerVectorType, unsigned alignment,
+                                        llvm::VectorType *maskType, bool store);
+
+    void mapCascadeFunction(unsigned bitWidth, llvm::Function *function, bool store);
+    llvm::Function *getCascadeFunction(unsigned bitWidth, bool store);
+
+    BasicBlockVector &getAllBasicBlocksFor(llvm::BasicBlock *basicBlock);
 
     llvm::Value *createPTest(llvm::Value *vector, bool isRv_all);
 

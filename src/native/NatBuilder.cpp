@@ -25,17 +25,20 @@ using namespace rv;
 NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
                        const DominatorTree &dominatorTree) :
     builder(vectorizationInfo.getMapping().vectorFn->getContext()),
-    vectorValueMap(),
-    scalarValueMap(),
-    basicBlockMap(),
-    phiVector(),
     platformInfo(platformInfo),
     vectorizationInfo(vectorizationInfo),
     dominatorTree(dominatorTree),
     layout(vectorizationInfo.getScalarFunction().getParent()),
     i1Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
-    region(vectorizationInfo.getRegion()) {}
+    region(vectorizationInfo.getRegion()),
+    useScatterGatherIntrinsics(false),
+    cascadeLoadMap(),
+    cascadeStoreMap(),
+    vectorValueMap(),
+    scalarValueMap(),
+    basicBlockMap(),
+    phiVector() {}
 
 void NatBuilder::vectorize() {
   const Function *func = vectorizationInfo.getMapping().scalarFn;
@@ -174,7 +177,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       else
         for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
           copyInstruction(inst, lane);
-      }
+        }
     } else if (gep) {
       unsigned laneEnd = shouldVectorize(gep) ? vectorWidth() : 1;
       for (unsigned lane = 0; lane < laneEnd; ++lane) {
@@ -230,7 +233,7 @@ void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
 void NatBuilder::copyGEPInstruction(GetElementPtrInst *const gep, unsigned laneIdx) {
   assert(gep->getNumOperands() - 1 == gep->getNumIndices() && "LLVM Code for GEP changed!");
   Value *ptr = requestScalarValue(gep->getPointerOperand(), laneIdx);
-  Value *idxList[gep->getNumIndices()];
+  Value **idxList = new Value *[gep->getNumIndices()];
   for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
     idxList[i] = requestScalarValue(gep->getOperand(i + 1), laneIdx);
   }
@@ -238,6 +241,7 @@ void NatBuilder::copyGEPInstruction(GetElementPtrInst *const gep, unsigned laneI
       builder.CreateGEP(ptr, ArrayRef<Value *>(idxList, gep->getNumIndices()), gep->getName()));
   cgep->setIsInBounds(gep->isInBounds());
   mapScalarValue(gep, cgep, laneIdx);
+  delete idxList;
 }
 
 /* expects that builder has valid insertion point set */
@@ -529,8 +533,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
                                                  &vectorizationInfo.getVectorFunction());
       BasicBlock *continueBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "cont_block",
                                                      &vectorizationInfo.getVectorFunction());
-      mapVectorValue(builder.GetInsertBlock(), loadBlock);
-      mapVectorValue(builder.GetInsertBlock(), continueBlock);
+      BasicBlock *origBlock = load->getParent();
 
       // conditionally branch to both
       builder.CreateCondBr(mask, loadBlock, continueBlock);
@@ -541,6 +544,15 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
       builder.CreateBr(continueBlock);
       builder.SetInsertPoint(continueBlock);
+
+      BasicBlock *vecOrigBlock = cast<BasicBlock>(getVectorValue(origBlock, true));
+      PHINode *phi = builder.CreatePHI(accessedType, 2, "scal_mask_load_phi");
+      phi->addIncoming(vecMem, loadBlock);
+      phi->addIncoming(UndefValue::get(accessedType), vecOrigBlock);
+
+      vecMem = phi;
+      mapVectorValue(origBlock, loadBlock);
+      mapVectorValue(origBlock, continueBlock);
 
     } else if ((addrShape.isUniform() || addrShape.isContiguous() || byteContiguous) && !needsMask) {
       std::string name = addrShape.isUniform() ? "scal_load" : "vec_load";
@@ -553,15 +565,18 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
 
       if (addrShape.isVarying() || (addrShape.isStrided() && !byteContiguous)) {
-        std::vector<Value *> args;
-        args.push_back(vecPtr);
-        args.push_back(ConstantInt::get(i32Ty, load->getAlignment()));
-        args.push_back(mask);
-        args.push_back(UndefValue::get(vecType));
-        Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
-        Function *gatherIntr = Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, vecType);
-        assert(gatherIntr && "masked gather not found!");
-        vecMem = builder.CreateCall(gatherIntr, args, "gather");
+        if (useScatterGatherIntrinsics) {
+          std::vector<Value *> args;
+          args.push_back(vecPtr);
+          args.push_back(ConstantInt::get(i32Ty, load->getAlignment()));
+          args.push_back(mask);
+          args.push_back(UndefValue::get(vecType));
+          Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
+          Function *gatherIntr = Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, vecType);
+          assert(gatherIntr && "masked gather not found!");
+          vecMem = builder.CreateCall(gatherIntr, args, "gather");
+        } else
+          vecMem = requestCascadeLoad(vecPtr, load->getAlignment(), mask);
 
       } else
         vecMem = builder.CreateMaskedLoad(vecPtr, load->getAlignment(), mask, 0, "masked_vec_load");
@@ -575,11 +590,10 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       // create two new basic blocks
       mask = createPTest(requestVectorValue(predicate), false);
       BasicBlock *storeBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "store_block",
-                                                 &vectorizationInfo.getVectorFunction());
+                                                  &vectorizationInfo.getVectorFunction());
       BasicBlock *continueBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "cont_block",
                                                      &vectorizationInfo.getVectorFunction());
-      mapVectorValue(builder.GetInsertBlock(), storeBlock);
-      mapVectorValue(builder.GetInsertBlock(), continueBlock);
+      BasicBlock *origBlock = store->getParent();
 
       // conditionally branch to both
       builder.CreateCondBr(mask, storeBlock, continueBlock);
@@ -591,6 +605,9 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       builder.CreateBr(continueBlock);
       builder.SetInsertPoint(continueBlock);
 
+      mapVectorValue(origBlock, storeBlock);
+      mapVectorValue(origBlock, continueBlock);
+
     } else if ((addrShape.isUniform() || addrShape.isContiguous() || byteContiguous) && !needsMask) {
       vecMem = builder.CreateStore(mappedStoredVal, vecPtr);
       cast<StoreInst>(vecMem)->setAlignment(store->getAlignment());
@@ -600,15 +617,18 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
 
       if (addrShape.isVarying() || (addrShape.isStrided() && !byteContiguous)) {
-        std::vector<Value *> args;
-        args.push_back(mappedStoredVal);
-        args.push_back(vecPtr);
-        args.push_back(ConstantInt::get(i32Ty, store->getAlignment()));
-        args.push_back(mask);
-        Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
-        Function *scatterIntr = Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, vecType);
-        assert(scatterIntr && "masked scatter not found!");
-        vecMem = builder.CreateCall(scatterIntr, args);
+        if (useScatterGatherIntrinsics) {
+          std::vector<Value *> args;
+          args.push_back(mappedStoredVal);
+          args.push_back(vecPtr);
+          args.push_back(ConstantInt::get(i32Ty, store->getAlignment()));
+          args.push_back(mask);
+          Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
+          Function *scatterIntr = Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, vecType);
+          assert(scatterIntr && "masked scatter not found!");
+          vecMem = builder.CreateCall(scatterIntr, args);
+        } else
+          vecMem = requestCascadeStore(mappedStoredVal, vecPtr, store->getAlignment(), mask);
 
       } else
         vecMem = builder.CreateMaskedStore(mappedStoredVal, vecPtr, store->getAlignment(), mask);
@@ -627,7 +647,7 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
     vecValue = getScalarValue(value);
     // check shape for value. if there is one and it is contiguous, cast to vector and add <0,1,2,...,n-1>
     VectorShape shape = vectorizationInfo.hasKnownShape(*value) ? vectorizationInfo.getVectorShape(*value)
-                                                                   : VectorShape::uni();
+                                                                : VectorShape::uni();
 
     Instruction *vecInst = dyn_cast<Instruction>(vecValue);
     auto oldIP = builder.GetInsertPoint();
@@ -713,6 +733,190 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   return reqVal;
 }
 
+Value *NatBuilder::requestCascadeLoad(Value *vecPtr, unsigned alignment, Value *mask) {
+  Type *elementPtrType = cast<VectorType>(vecPtr->getType())->getElementType();
+  Type *accessedType = cast<PointerType>(elementPtrType)->getElementType();
+  unsigned bitWidth = accessedType->getScalarSizeInBits();
+
+  Function *func = getCascadeFunction(bitWidth, false);
+  if (!func) {
+    func = createCascadeMemory(cast<VectorType>(vecPtr->getType()), alignment, cast<VectorType>(mask->getType()),
+                               false);
+    mapCascadeFunction(bitWidth, func, false);
+  }
+
+  // cast call argument to correct type if needed
+  Argument *ptrArg = &*func->getArgumentList().begin();
+  Value *callPtr = vecPtr;
+
+  if (ptrArg->getType() != vecPtr->getType()) {
+    callPtr = builder.CreateBitCast(callPtr, ptrArg->getType(), "bc");
+  }
+
+  std::vector<Value *> args;
+  args.push_back(callPtr);
+  args.push_back(mask);
+  Value *ret = builder.CreateCall(func, args, "cascade_load");
+  // cast call result to correct type if needed
+  Type *vecType = getVectorType(accessedType, vectorWidth());
+  if (ret->getType() != vecType) {
+    ret = builder.CreateBitCast(ret, vecType, "bc");
+  }
+  return ret;
+}
+
+Value *NatBuilder::requestCascadeStore(Value *vecVal, Value *vecPtr, unsigned alignment, Value *mask) {
+  unsigned bitWidth = vecVal->getType()->getScalarSizeInBits();
+
+  Function *func = getCascadeFunction(bitWidth, true);
+  if (!func) {
+    func = createCascadeMemory(cast<VectorType>(vecPtr->getType()), alignment, cast<VectorType>(mask->getType()),
+                               true);
+    mapCascadeFunction(bitWidth, func, true);
+  }
+
+  // cast call arguments to correct type if needed
+  auto argIt = func->getArgumentList().begin();
+  Argument *valArg = &*argIt++;
+  Argument *ptrArg = &*argIt;
+  Value *callVal = vecVal;
+  Value *callPtr = vecPtr;
+
+  if (valArg->getType() != callVal->getType()) {
+    callVal = builder.CreateBitCast(callVal, valArg->getType());
+  }
+  if (ptrArg->getType() != callPtr->getType()) {
+    callPtr = builder.CreateBitCast(callPtr, ptrArg->getType());
+  }
+
+  std::vector<Value *> args;
+  args.push_back(callVal);
+  args.push_back(callPtr);
+  args.push_back(mask);
+  return builder.CreateCall(func, args);
+}
+
+Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigned alignment, VectorType *maskType,
+                                          bool store) {
+  assert(cast<VectorType>(pointerVectorType)->getElementType()->isPointerTy()
+         && "pointerVectorType must be of type vector of pointer!");
+  assert(cast<VectorType>(maskType)->getElementType()->isIntegerTy(1)
+         && "maskType must be of type vector of i1!");
+
+
+  Module *mod = vectorizationInfo.getScalarFunction().getParent();
+  IRBuilder<> builder(mod->getContext());
+
+  // create function
+  Type *accessedType = cast<PointerType>(pointerVectorType->getElementType())->getElementType();
+  Type *resType = store ? Type::getVoidTy(mod->getContext()) : getVectorType(accessedType, vectorWidth());
+  std::vector<Type *> argTypes;
+  if (store) {
+    Type *valType = getVectorType(accessedType, vectorWidth());
+    argTypes.push_back(valType);
+  }
+  argTypes.push_back(pointerVectorType);
+  argTypes.push_back(maskType);
+
+  std::string name = store ? "nativeCascadeStoreFn" : "nativeCascadeLoadFn";
+  FunctionType *fnType = FunctionType::get(resType, argTypes, false);
+  Function *func = Function::Create(fnType, GlobalValue::LinkageTypes::ExternalLinkage, name, mod);
+
+  auto argIt = func->getArgumentList().begin();
+  Argument *valVec = nullptr;
+  if (store) {
+    valVec = &*argIt++;
+    valVec->setName("valVec");
+  }
+  Argument *ptrVec = &*argIt++;
+  Argument *mask = &*argIt;
+
+  ptrVec->setName("ptrVec");
+  mask->setName("mask");
+
+  // create body
+  // following function:
+  // vector a, mask m, vector r = undef
+  // if(m) r = *a; (vector load)
+  // else
+  // if(m.x) r.x = *(a.x);
+  // if(m.y) r.y = *(a.y);
+  // if(m.z) r.z = *(a.z);
+  // if(m.w) r.w = *(a.w);
+  // return r;
+  // example assumes vector width 4 and load. store basically the same
+
+  // create blocks. we need <vectorWidth> load blocks, <vectorWidth> condition blocks and one return block
+  std::vector<BasicBlock *> condBlocks;
+  std::vector<BasicBlock *> loadBlocks;
+  BasicBlock *ret = createCascadeBlocks(func, vectorWidth(), condBlocks, loadBlocks);
+
+  // insert result vector in 1st block
+  BasicBlock *entry = condBlocks[0];
+  builder.SetInsertPoint(entry);
+  Value *resVec = store ? nullptr : UndefValue::get(resType);
+
+  // fill cond and load blocks
+  for (unsigned i = 0; i < vectorWidth(); ++i) {
+    BasicBlock *cond = condBlocks[i];
+    BasicBlock *masked = loadBlocks[i];
+    BasicBlock *nextBlock = i == vectorWidth() - 1 ? ret : condBlocks[i + 1];
+
+    // code for cond block: extract mask lane i, branch to masked or next
+    Value *maskLaneVal = builder.CreateExtractElement(mask, ConstantInt::get(i32Ty, i),
+                                                      "mask_lane_" + std::to_string(i));
+    builder.CreateCondBr(maskLaneVal, masked, nextBlock);
+
+    // code for masked block: extract pointer lane i, ...
+    builder.SetInsertPoint(masked);
+    Value *pointerLaneVal = builder.CreateExtractElement(ptrVec, ConstantInt::get(i32Ty, i),
+                                                         "ptr_lane_" + std::to_string(i));
+    Value *insert = nullptr;
+
+    if (store) {
+      // ... extract value lane i, store val to ptr, branch to next
+      Value *storeLaneVal = builder.CreateExtractElement(valVec, ConstantInt::get(i32Ty, i),
+                                                         "val_lane_" + std::to_string(i));
+      builder.CreateStore(storeLaneVal, pointerLaneVal);
+    } else {
+      // ... load from pointer, insert to result vector, branch to next
+      Value *loadInst = builder.CreateLoad(pointerLaneVal, "load_lane_" + std::to_string(i));
+      cast<LoadInst>(loadInst)->setAlignment(alignment);
+      insert = builder.CreateInsertElement(resVec, loadInst, ConstantInt::get(i32Ty, i),
+                                           "insert_lane_" + std::to_string(i));
+    }
+    builder.CreateBr(nextBlock);
+    builder.SetInsertPoint(nextBlock);
+
+    // ONLY IF LOAD: code for next block: phi <resVec, cond> <insert, masked>
+    if (!store) {
+      PHINode *phi = builder.CreatePHI(insert->getType(), 2);
+      phi->addIncoming(resVec, cond);
+      phi->addIncoming(insert, masked);
+      resVec = phi;
+    }
+  }
+
+  // fill result block
+  // code for result block: return resVec or return void
+  if (store) builder.CreateRetVoid();
+  else builder.CreateRet(resVec);
+
+  return func;
+}
+
+void NatBuilder::mapCascadeFunction(unsigned bitWidth, llvm::Function *function, bool store) {
+  if (store) cascadeStoreMap[bitWidth] = function;
+  else cascadeLoadMap[bitWidth] = function;
+}
+
+llvm::Function *NatBuilder::getCascadeFunction(unsigned bitWidth, bool store) {
+  auto mapIt = store ? cascadeStoreMap.find(bitWidth) : cascadeLoadMap.find(bitWidth);
+  auto mapEt = store ? cascadeStoreMap.end() : cascadeLoadMap.end();
+  if (mapIt != mapEt) return mapIt->second;
+  return nullptr;
+}
+
 llvm::Value *NatBuilder::createPTest(llvm::Value *vector, bool isRv_all) {
   assert(vector->getType()->isVectorTy() && "given value is no vector type!");
   assert(cast<VectorType>(vector->getType())->getElementType()->isIntegerTy(1) &&
@@ -728,8 +932,7 @@ llvm::Value *NatBuilder::createPTest(llvm::Value *vector, bool isRv_all) {
   if (isRv_all) {
     Value *trueConst = builder.CreateBitCast(simdTrueConst, intSIMDType);
     return builder.CreateICmpEQ(bc, trueConst, "ptest_comp");
-  }
-  else
+  } else
     return builder.CreateICmpNE(bc, simdFalseConst, "ptest_comp");
 }
 
@@ -824,6 +1027,12 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
     if (laneValues.size() > laneIdx) return laneValues[laneIdx];
     else return nullptr;
   } else return nullptr;
+}
+
+BasicBlockVector &NatBuilder::getAllBasicBlocksFor(llvm::BasicBlock *basicBlock) {
+  auto blockIt = basicBlockMap.find(basicBlock);
+  assert(blockIt != basicBlockMap.end() && "blocks must already exist for basicBlock!");
+  return blockIt->second;
 }
 
 unsigned NatBuilder::vectorWidth() {
