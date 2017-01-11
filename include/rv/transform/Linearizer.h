@@ -202,7 +202,7 @@ namespace rv {
 
   // edge masks (if A is a loop-exiting block this is the aggregate of all instances that have left the loop through this exit)
     EdgeMaskCache edgeMasks; // if true for an edge A->B control proceeds from block A to block B both being executed
-    llvm::Value * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) { return edgeMasks[Edge(&start, &dest)]; }
+    llvm::Value * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) { assert(edgeMasks.count(Edge(&start, &dest))); return edgeMasks[Edge(&start, &dest)]; }
     void setEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest, llvm::Value * val) { edgeMasks[Edge(&start, &dest)] = val; }
 
     // will replace all Phis in @block with select insts using edge masks
