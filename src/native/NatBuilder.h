@@ -28,6 +28,7 @@ namespace rv {
 namespace native {
   typedef std::map<const llvm::Function *, const rv::VectorMapping *> VectorMappingMap;
   typedef std::vector<llvm::Value *> LaneValueVector;
+  typedef std::vector<llvm::BasicBlock *> BasicBlockVector;
 
   class NatBuilder {
     llvm::IRBuilder<> builder;
@@ -35,6 +36,8 @@ namespace native {
     rv::PlatformInfo &platformInfo;
     rv::VectorizationInfo &vectorizationInfo;
     const llvm::DominatorTree &dominatorTree;
+
+    llvm::DataLayout layout;
 
     llvm::Type *i1Ty;
     llvm::Type *i32Ty;
@@ -51,7 +54,7 @@ namespace native {
     void mapVectorValue(const llvm::Value *const value, llvm::Value *vecValue);
     void mapScalarValue(const llvm::Value *const value, llvm::Value *mapValue, unsigned laneIdx = 0);
 
-    llvm::Value *getVectorValue(llvm::Value *const value);
+    llvm::Value *getVectorValue(llvm::Value *const value, bool getLastBlock = false);
     llvm::Value *getScalarValue(llvm::Value *const value, unsigned laneIdx = 0);
 
   private:
@@ -75,6 +78,7 @@ namespace native {
 
     llvm::DenseMap<const llvm::Value *, llvm::Value *> vectorValueMap;
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
+    std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
     std::vector<llvm::PHINode *> phiVector;
 
     llvm::Value *requestVectorValue(llvm::Value *const value);

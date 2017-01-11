@@ -27,9 +27,12 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     builder(vectorizationInfo.getMapping().vectorFn->getContext()),
     vectorValueMap(),
     scalarValueMap(),
+    basicBlockMap(),
+    phiVector(),
     platformInfo(platformInfo),
     vectorizationInfo(vectorizationInfo),
     dominatorTree(dominatorTree),
+    layout(vectorizationInfo.getScalarFunction().getParent()),
     i1Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
     region(vectorizationInfo.getRegion()) {}
@@ -322,7 +325,7 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
 }
 
 static bool HasSideEffects(CallInst &call) {
-  return false; // FIXME
+  return call.mayHaveSideEffects();
 }
 
 void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
@@ -331,6 +334,7 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
 
   // is func is vectorizable (standard mapping exists for given vector width), create new call to vector func
   if (platformInfo.isFunctionVectorizable(calleeName, vectorWidth())) {
+
     CallInst *call = cast<CallInst>(scalCall->clone());
     bool doublePrecision = false;
     if (call->getNumArgOperands() > 0)
@@ -342,12 +346,14 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     mapOperandsInto(scalCall, call, true);
     mapVectorValue(scalCall, call);
     builder.Insert(call, scalCall->getName());
+
   } else {
+
     // check if we need cascade first
     Value *predicate = vectorizationInfo.getPredicate(*scalCall->getParent());
     assert(predicate && "expected predicate!");
     assert(predicate->getType()->isIntegerTy(1) && "predicate must be i1 type!");
-    bool needCascade = HasSideEffects(*scalCall);
+    bool needCascade = !isa<Constant>(predicate) && HasSideEffects(*scalCall);
 
     // if we need cascading, we need the vectorized predicate and the cascading blocks
     std::vector<BasicBlock *> condBlocks;
@@ -362,11 +368,11 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       builder.SetInsertPoint(condBlocks[0]);
     }
 
-    // type of the call. we don't need to construct a result if void
+    // type of the call. we don't need to construct a result if void, vector or struct
     Type *callType = scalCall->getType();
-    Value *resVec = (callType->isVoidTy() || callType->isVectorTy() || callType->isStructTy()) ? nullptr
-                                                                                               : UndefValue::get(
-            getVectorType(callType, vectorWidth()));
+    Value *resVec = (callType->isVoidTy() || callType->isVectorTy() || callType->isStructTy())
+                    ? nullptr
+                    : UndefValue::get(getVectorType(callType, vectorWidth()));
 
     // create <vector_width> scalar calls
     for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
@@ -491,7 +497,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     }
   } else
 #endif
-  bool byteContiguous = addrShape.isStrided(accessedType->getPrimitiveSizeInBits() / 8);
+  bool byteContiguous = addrShape.isStrided(static_cast<int>(layout.getTypeStoreSize(accessedType)));
   if (addrShape.isContiguous() || byteContiguous || (needsMask && addrShape.isUniform())) {
     // cast pointer to vector-width pointer
     // uniform-with-mask case needs to be included as scalar masked load/store is not allowed!
@@ -713,7 +719,7 @@ void NatBuilder::addValuesToPHINodes() {
           !shape.isVarying() || replicate ? getScalarValue(scalPhi, lane) : getVectorValue(scalPhi));
       for (unsigned i = 0; i < scalPhi->getNumIncomingValues(); ++i) {
         // set insertion point to before Terminator of incoming block
-        BasicBlock *incVecBlock = cast<BasicBlock>(getVectorValue(scalPhi->getIncomingBlock(i)));
+        BasicBlock *incVecBlock = cast<BasicBlock>(getVectorValue(scalPhi->getIncomingBlock(i), true));
         builder.SetInsertPoint(incVecBlock->getTerminator());
 
         Value *val = !shape.isVarying() || replicate ? requestScalarValue(scalPhi->getIncomingValue(i), lane)
@@ -728,12 +734,27 @@ void NatBuilder::addValuesToPHINodes() {
 }
 
 void NatBuilder::mapVectorValue(const Value *const value, Value *vecValue) {
-  vectorValueMap[value] = vecValue;
+  if (isa<BasicBlock>(value)) {
+    const BasicBlock *const block = cast<const BasicBlock>(value);
+    BasicBlock *vecBlock = cast<BasicBlock>(vecValue);
+    BasicBlockVector &vectorBlocks = basicBlockMap[block];
+    vectorBlocks.push_back(vecBlock);
+  } else
+    vectorValueMap[value] = vecValue;
 }
 
-Value *NatBuilder::getVectorValue(Value *const value) {
-  if (isa<BasicBlock>(value) && region && !region->contains(cast<BasicBlock>(value))) {
-    return value; // preserve BBs outside of the region
+Value *NatBuilder::getVectorValue(Value *const value, bool getLastBlock) {
+  if (isa<BasicBlock>(value)) {
+    if (region && !region->contains(cast<BasicBlock>(value))) {
+      return value; // preserve BBs outside of the region
+    }
+
+    BasicBlock *const block = cast<BasicBlock>(value);
+    auto blockIt = basicBlockMap.find(block);
+    if (blockIt != basicBlockMap.end()) {
+      BasicBlockVector &blocks = blockIt->second;
+      return getLastBlock ? blocks.back() : blocks.front();
+    }
   }
 
   auto vecIt = vectorValueMap.find(value);

@@ -35,14 +35,14 @@ Value *createContiguousVector(unsigned width, Type *type, int start) {
 BasicBlock *createCascadeBlocks(Function *insertInto, unsigned vectorWidth,
                                 std::vector<BasicBlock *> &condBlocks,
                                 std::vector<BasicBlock *> &maskedBlocks) {
-  BasicBlock *cond, *load;
+  BasicBlock *cond, *mask;
   for (unsigned lane = 0; lane < vectorWidth; ++lane) {
     cond = BasicBlock::Create(insertInto->getContext(), "cascade_cond_" + std::to_string(lane),
                               insertInto);
-    load = BasicBlock::Create(insertInto->getContext(), "cascade_masked_" + std::to_string(lane),
+    mask = BasicBlock::Create(insertInto->getContext(), "cascade_masked_" + std::to_string(lane),
                               insertInto);
     condBlocks.push_back(cond);
-    maskedBlocks.push_back(load);
+    maskedBlocks.push_back(mask);
   }
   return BasicBlock::Create(insertInto->getContext(), "cascade_end", insertInto);
 }
