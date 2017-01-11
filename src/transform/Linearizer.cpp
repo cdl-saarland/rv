@@ -145,13 +145,13 @@ Linearizer::buildBlockIndex() {
 
 Value &
 Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, int destBlockId) {
-  IF_DEBUG_LIN { errs() << "\t\tpromoting value " << inst << " from def block " << defBlockId << " to " << defBlockId << "\n"; }
+  IF_DEBUG_LIN { errs() << "\t* promoting value " << inst << " from def block " << defBlockId << " to " << destBlockId << "\n"; }
 
   assert(defBlockId <= destBlockId);
 
   if (defBlockId == destBlockId) return inst;
 
-  const int span = destBlockId - defBlockId + 1;
+  const int span = destBlockId - defBlockId;
 
   auto * type = inst.getType();
 
@@ -216,9 +216,11 @@ Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, 
     }
 
     // register as final definition at this point
+    IF_DEBUG_LIN { errs() << "\t- localDef @ " << (blockId) << " " << *localDef << "\n"; }
     defs[i] = localDef;
   }
 
+  IF_DEBUG_LIN { errs() << "\tdefs[" << span << "] " << *defs[span] << "\n"; }
   return *defs[span];
 }
 
@@ -310,8 +312,8 @@ Linearizer::dropLoopExit(BasicBlock & block, Loop & loop) {
       break;
     }
   }
-  assert(uniqueLoopSucc && "could not find successor within loop");
 
+  assert(uniqueLoopSucc && "could not find successor within loop");
 // send all loop exiting edges to that successor inside the loop
   // replace this node with a single successor node
   auto * loopBranch = BranchInst::Create(uniqueLoopSucc, &term);
@@ -493,7 +495,7 @@ public:
     Instruction * currentPartialDef = updateInst;
     Loop * currentLoop = li.getLoopFor(tracker.getParent());
 
-    IF_DEBUG_LIN { errs() << "\tpromoting " << *updateInst << " for exit " << exiting.getName() << " to " << exit.getName() << "\n"; }
+    IF_DEBUG_LIN { errs() << "\ttracker promotion " << *updateInst << " for exit " << exiting.getName() << " to " << exit.getName() << "\n"; }
     while (isa<PHINode>(currentLiveInDef)) {
       auto & currPhi = *cast<PHINode>(currentLiveInDef);
       IF_DEBUG_LIN { errs() << "\t- partial def: " << currentPartialDef->getName() << " to latch of tracker PHI " << currPhi.getName() << "\n"; }
@@ -502,6 +504,7 @@ public:
       int currLatchIndex = lin.getIndex(*currentLoop->getLoopLatch());
       auto & promotedUpdate = cast<Instruction>(lin.promoteDefinition(*currentPartialDef, currPhi, lastDefIndex, currLatchIndex));
 
+      IF_DEBUG_LIN { errs() << "\tsetting update of PHI " << currPhi << " to promoted def " << promotedUpdate << "\n"; }
       currPhi.setIncomingValue(GetLatchTrackerIndex(), &promotedUpdate);
 
     // advance to next surrounding loop
@@ -737,6 +740,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   vecInfo.setLoopDivergence(loop, false);
 
 // Update mask analysis information.
+  // all threads entering this loop will leave through the latch again
 #if 0
   Value* loopExitCond = maskAnalysis.getCombinedLoopExitMask(loop);
   maskAnalysis.updateExitMasks(latch,
