@@ -68,7 +68,7 @@ namespace native {
     void vectorizeReductionCall(CallInst *rvCall, bool isRv_all);
 
     void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
-    void copyGEPInstruction(llvm::GetElementPtrInst *const gep, unsigned laneIdx = 0);
+    void copyGEPInstruction(GetElementPtrInst *const gep, unsigned laneIdx, bool vectorizeOperands);
     void copyCallInstruction(llvm::CallInst *const scalCall, unsigned laneIdx = 0);
 
     void fallbackVectorize(llvm::Instruction *const inst);

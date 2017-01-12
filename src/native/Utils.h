@@ -18,7 +18,7 @@
 
 llvm::Type *getVectorType(llvm::Type *type, unsigned width);
 
-llvm::Value *createContiguousVector(unsigned width, llvm::Type *type, int start = 0);
+Value *createContiguousVector(unsigned width, Type *type, int start, int stride);
 
 
 llvm::BasicBlock *createCascadeBlocks(llvm::Function *insertInto, unsigned vectorWidth,

@@ -181,7 +181,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     } else if (gep) {
       unsigned laneEnd = shouldVectorize(gep) ? vectorWidth() : 1;
       for (unsigned lane = 0; lane < laneEnd; ++lane) {
-        copyGEPInstruction(gep, lane);
+        copyGEPInstruction(gep, lane, laneEnd == vectorWidth());
       }
     } else if (canVectorize(inst) && shouldVectorize(inst))
       vectorize(inst);
@@ -230,12 +230,16 @@ void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
   phiVector.push_back(scalPhi);
 }
 
-void NatBuilder::copyGEPInstruction(GetElementPtrInst *const gep, unsigned laneIdx) {
+void NatBuilder::copyGEPInstruction(GetElementPtrInst *const gep, unsigned laneIdx, bool vectorizeOperands) {
   assert(gep->getNumOperands() - 1 == gep->getNumIndices() && "LLVM Code for GEP changed!");
   Value *ptr = requestScalarValue(gep->getPointerOperand(), laneIdx);
   Value **idxList = new Value *[gep->getNumIndices()];
   for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
-    idxList[i] = requestScalarValue(gep->getOperand(i + 1), laneIdx);
+    // vectorize operands once
+    Value *operand = gep->getOperand(i + 1);
+    if (laneIdx == 0 && vectorizeOperands)
+      requestVectorValue(operand);
+    idxList[i] = requestScalarValue(operand, laneIdx);
   }
   GetElementPtrInst *cgep = cast<GetElementPtrInst>(
       builder.CreateGEP(ptr, ArrayRef<Value *>(idxList, gep->getNumIndices()), gep->getName()));
@@ -660,9 +664,9 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
     }
 
     vecValue = builder.CreateVectorSplat(vectorWidth(), vecValue);
-    if (shape.isContiguous()) {
+    if (shape.isContiguous() || shape.isStrided()) {
       auto *laneTy = vecValue->getType()->getVectorElementType();
-      Value *contVec = createContiguousVector(vectorWidth(), laneTy);
+      Value *contVec = createContiguousVector(vectorWidth(), laneTy, 0, shape.getStride());
       vecValue = laneTy->isFloatingPointTy() ? builder.CreateFAdd(vecValue, contVec, "contiguous_add")
                                              : builder.CreateAdd(vecValue, contVec, "contiguous_add");
     }
@@ -680,20 +684,6 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
 
   // if value is integer or floating type, contiguous and has value for lane 0, add laneIdx
   Value *reqVal = nullptr;
-  if (vectorizationInfo.hasKnownShape(*value)) {
-    VectorShape shape = vectorizationInfo.getVectorShape(*value);
-    Type *type = value->getType();
-    mappedVal = getScalarValue(value);
-    if (mappedVal && (shape.isContiguous() || shape.isStrided()) &&
-        (type->isIntegerTy() || type->isFloatingPointTy())) {
-      Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())
-                                                    : ConstantInt::get(type, laneIdx * shape.getStride());
-      reqVal = type->isFloatingPointTy() ? builder.CreateFAdd(mappedVal, laneInt,
-                                                              value->getName() + "lane" + std::to_string(laneIdx))
-                                         : builder.CreateAdd(mappedVal, laneInt,
-                                                             value->getName() + "_lane" + std::to_string(laneIdx));
-    }
-  }
 
   // if value has a vector mapping -> extract from vector. if not -> clone scalar op
   if (!reqVal) {
@@ -720,11 +710,28 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
       if (mappedInst)
         builder.SetInsertPoint(oldIB, oldIP);
     } else {
-      Instruction *inst = cast<Instruction>(value);
-      Instruction *mapInst;
-      reqVal = mapInst = inst->clone();
-      mapOperandsInto(inst, mapInst, false);
-      builder.Insert(mapInst, inst->getName());
+      if (vectorizationInfo.hasKnownShape(*value)) {
+        VectorShape shape = vectorizationInfo.getVectorShape(*value);
+        Type *type = value->getType();
+        mappedVal = getScalarValue(value);
+        if (mappedVal && (shape.isContiguous() || shape.isStrided()) &&
+            (type->isIntegerTy() || type->isFloatingPointTy())) {
+          Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())
+                                                        : ConstantInt::get(type, laneIdx * shape.getStride());
+          reqVal = type->isFloatingPointTy() ? builder.CreateFAdd(mappedVal, laneInt,
+                                                                  value->getName() + "lane" + std::to_string(laneIdx))
+                                             : builder.CreateAdd(mappedVal, laneInt,
+                                                                 value->getName() + "_lane" + std::to_string(laneIdx));
+        }
+      }
+
+      if (!reqVal) {
+        Instruction *inst = cast<Instruction>(value);
+        Instruction *mapInst;
+        reqVal = mapInst = inst->clone();
+        mapOperandsInto(inst, mapInst, false);
+        builder.Insert(mapInst, inst->getName());
+      }
     }
   }
 
@@ -1065,6 +1072,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
   // 1) varying vector shape OR
   // 2) Alloca AND contiguous
   // 3) no vector shape && one or more operands varying
+  // 4) GEP that is strided or varying
   // EXCEPTION: GEP with vector-pointer base
 
   if (isa<GetElementPtrInst>(inst)) {
@@ -1079,6 +1087,8 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
     VectorShape shape = vectorizationInfo.getVectorShape(*gep);
     if (shape.isStrided(gep->getResultElementType()->getPrimitiveSizeInBits() / 8))
       return false;
+    else if (shape.isStrided() || shape.isVarying())
+      return true;
   }
 
   if (vectorizationInfo.hasKnownShape(*inst)) {

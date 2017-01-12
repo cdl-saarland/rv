@@ -22,10 +22,10 @@ Type *getVectorType(Type *type, unsigned width) {
     return VectorType::get(type, width);
 }
 
-Value *createContiguousVector(unsigned width, Type *type, int start) {
+Value *createContiguousVector(unsigned width, Type *type, int start, int stride) {
   std::vector<Constant*> constants(width, nullptr);
   for (unsigned i = 0; i < width; ++i) {
-    unsigned int val = i + start;
+    unsigned int val = i*stride + start;
     Constant *constant = type->isFloatingPointTy() ? ConstantFP::get(type, val) : ConstantInt::get(type, val);
     constants[i] = constant;
   }
