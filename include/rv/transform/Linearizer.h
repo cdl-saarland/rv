@@ -265,6 +265,16 @@ namespace rv {
     // b) the function, domTree and loop tree are consistent
     void verify();
 
+  // late SSA repair support
+    // each incoming block and value of a repairPHI represents a definition of the repairPHI
+    PHINode & createRepairPhi(Value & val, BasicBlock & destBlock);
+    DenseSet<PHINode*> repairPhis;
+    bool isRepairPhi(PHINode & val) const { return repairPhis.count(&val); }
+
+    // repair the data flow graph denoted by repairPhis
+    // we run SSA repair with these definitions and replace all uses of the repairPhi with the new value
+    void resolveRepairPhis();
+
   // mask reduction helper
     Instruction & createReduction(Value & pred, const std::string & name, BasicBlock & atEnd);
     Function * requestReductionFunc(llvm::Module & mod, const std::string & name);

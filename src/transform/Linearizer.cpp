@@ -426,10 +426,10 @@ public:
     return *innerTrackerPhi;
   }
 
-  static int
+  static uint
   GetExitIndex(BasicBlock & exiting, Loop & loop) {
     auto & term = *exiting.getTerminator();
-    for (int i = 0; i < term.getNumSuccessors(); ++i) {
+    for (uint i = 0; i < term.getNumSuccessors(); ++i) {
       if (!loop.contains(term.getSuccessor(i))) {
         return i;
       }
@@ -474,8 +474,6 @@ public:
     assert(loop.contains(&exiting));
     assert(!loop.contains(&exit));
 
-  // infer inner loop that is being left
-
   // last tracker state
     auto * lastTrackerState = tracker.getIncomingValue(GetLatchTrackerIndex());
 
@@ -502,16 +500,37 @@ public:
 
       assert(currentLoop == li.getLoopFor(currPhi.getParent()) && "curr header PHI and curr loop out of sync");
       int currLatchIndex = lin.getIndex(*currentLoop->getLoopLatch());
-      auto & promotedUpdate = cast<Instruction>(lin.promoteDefinition(*currentPartialDef, currPhi, lastDefIndex, currLatchIndex));
+
+      Instruction * promotedUpdate = nullptr;
+
+      // we need to promote the live out tracker to its user outside of thsi loop
+      // However we have two definitions for this value: the tracker PHI and its update operation
+      // Hence, we need to repair SSA form on the way down to the user
+      auto * currLoopHeader = currPhi.getParent();
+      auto * innerLatchBlock = &lin.getBlock(lastDefIndex);
+
+      if (currLoopHeader != innerLatchBlock) {
+        // we need a dominating definition for the latch of THIS loop
+        auto & repairPhi = lin.createRepairPhi(val, *currentLoop->getLoopLatch());
+
+        // if the latch of the NESTED loop was executed we should see the tracker update in THIS loop
+        repairPhi.addIncoming(currentPartialDef, &lin.getBlock(lastDefIndex)); // we add this first to signal that this is the prefered definition
+        // if the latch of the NESTED loop was not executed, we should see the same old tracker state
+        repairPhi.addIncoming(&currPhi, currPhi.getParent()); // add this last to signal that this is the fallback definition
+
+        promotedUpdate = &repairPhi;
+      } else {
+        promotedUpdate = currentPartialDef;
+      }
 
       IF_DEBUG_LIN { errs() << "\tsetting update of PHI " << currPhi << " to promoted def " << promotedUpdate << "\n"; }
-      currPhi.setIncomingValue(GetLatchTrackerIndex(), &promotedUpdate);
+      currPhi.setIncomingValue(GetLatchTrackerIndex(), promotedUpdate);
 
     // advance to next surrounding loop
       currentLiveInDef = currPhi.getIncomingValue(GetPreHeaderTrackerIndex());
-      currentPartialDef = &promotedUpdate;
+      currentPartialDef = promotedUpdate;
       currentLoop = currentLoop->getParentLoop();
-      lastDefIndex = currLatchIndex + 1; // skip over to the eventual unique loop exit
+      lastDefIndex = currLatchIndex; // skip over to the eventual unique loop exit
     }
   }
 
@@ -566,7 +585,8 @@ public:
     auto itBegin = exitBlock.begin(), itEnd = exitBlock.end();
     for (auto it = itBegin; isa<PHINode>(*it) && it != itEnd; ++it) {
       auto & lcPhi = cast<PHINode>(*it);
-      assert(lcPhi.getNumIncomingValues() == 1 && "not a LCSSA PHI");
+      if (lin.isRepairPhi(lcPhi)) continue; // not a PHI node of the original program
+      assert(lcPhi.getNumIncomingValues() == 1 && "neither a late repair PHI nor a LCSSA PHI");
 
     // do not track non-live carried values
       int loopIncomingId = getLoopBlockIndex(lcPhi);
@@ -660,9 +680,13 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
 
     // check if we need to repair any LCSSA phi nodes
     // FIXME we should really do this on the final dom tree AFTER the loop body was normalized
-    for (auto it = block->begin(); isa<PHINode>(it) && it != block->end(); it = block->begin()) {
+    for (auto it = block->begin(); isa<PHINode>(it) && it != block->end(); ) {
       auto * lcPhi = &cast<PHINode>(*it);
       if (!lcPhi) break;
+      if (isRepairPhi(*lcPhi)) {
+        ++it; // skip this one
+        continue;
+      }
 
       // for all exiting edges
       for (uint i = 0; i < lcPhi->getNumIncomingValues(); ++i) {
@@ -699,6 +723,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
 
     // we eliminate LCSSA Phis instead of fixing their predecessor blocks
 #if 1
+      it++; // skip over this one
       lcPhi->replaceAllUsesWith(lcPhi->getIncomingValue(0));
       lcPhi->eraseFromParent();
 #else
@@ -795,6 +820,8 @@ Linearizer::foldPhis(BasicBlock & block) {
   for (auto it = itStart; it != itEnd; ) {
     auto * phi = dyn_cast<PHINode>(&*it++);
     if (!phi) break;
+    if (phi->getNumIncomingValues() == 1) continue; // LCSSA
+    if (isRepairPhi(*phi)) continue; // only a placeholder for defered SSA repair
 
     IRBuilder<> builder(&block, block.getFirstInsertionPt());
 
@@ -1146,6 +1173,9 @@ Linearizer::run() {
 // simplify branches
   cleanup();
 
+// repair SSA form on the linearized CFG
+  resolveRepairPhis();
+
 // verify control integrity
   IF_DEBUG_LIN verify();
 }
@@ -1160,6 +1190,39 @@ Linearizer::linearizeControl() {
   assert(lastId  == getNumBlocks());
 
   IF_DEBUG_LIN {  errs() << "\n-- LIN: linearization finished --\n"; }
+}
+
+PHINode &
+Linearizer::createRepairPhi(Value & val, BasicBlock & destBlock) {
+  auto & repairPhi = *PHINode::Create(val.getType(), 2, "repairPhi_" + val.getName(), &*destBlock.getFirstInsertionPt());
+  vecInfo.setVectorShape(repairPhi, vecInfo.getVectorShape(val));
+  repairPhis.insert(&repairPhi);
+  return repairPhi;
+}
+
+void
+Linearizer::resolveRepairPhis() {
+  IF_DEBUG_LIN { errs() << "-- resolving repair PHIs --\n"; }
+  for (auto * repairPHI : repairPhis) {
+    assert(repairPHI->getNumIncomingValues() == 2);
+    auto * innerBlock = repairPHI->getIncomingBlock(0);
+    auto * innerVal = repairPHI->getIncomingValue(0);
+    auto * outerVal = repairPHI->getIncomingValue(1);
+
+    uint startIndex = getIndex(*innerBlock);
+    uint destIndex = getIndex(*repairPHI->getParent());
+
+    IF_DEBUG_LIN { errs() << " repair " << *repairPHI << " on range " << startIndex << " to " << destIndex << "\n"; }
+    auto & promotedDef = promoteDefinition(*innerVal, *outerVal, startIndex, destIndex);
+    repairPHI->replaceAllUsesWith(&promotedDef);
+    vecInfo.dropVectorShape(*repairPHI);
+    repairPHI->eraseFromParent();
+  }
+#if 0
+  errs() << "-- func with stuff --\n";
+  func.dump();
+  abort();
+#endif
 }
 
 void
