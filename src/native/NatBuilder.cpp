@@ -39,7 +39,7 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     scalarValueMap(),
     basicBlockMap(),
     phiVector(),
-    lazyMemInstructions() {}
+    lazyInstructions() {}
 
 void NatBuilder::vectorize() {
   const Function *func = vectorizationInfo.getMapping().scalarFn;
@@ -149,12 +149,9 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     // generate all lazy instructions first if it is the terminator
     if (inst == bb->getTerminator()) {
       // vectorize any left-over lazy instructions
-      while (!lazyMemInstructions.empty()) {
-        Instruction *lazyMemInstr = lazyMemInstructions.front();
-        lazyMemInstructions.pop_front();
-        vectorizeMemoryInstruction(lazyMemInstr);
-      }
-      assert(lazyMemInstructions.empty() && "not all lazy instructions vectorized!!");
+      if (!lazyInstructions.empty())
+        requestLazyInstructions(lazyInstructions.back());
+      assert(lazyInstructions.empty() && "not all lazy instructions vectorized!!");
     }
 
     PHINode *phi = dyn_cast<PHINode>(inst);
@@ -167,19 +164,21 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     // loads and stores need special treatment (masking, shuffling, etc) (build them lazily)
     if (load || store)
 //      vectorizeMemoryInstruction(inst);
-      lazyMemInstructions.push_back(inst);
-    else if (call)
+      lazyInstructions.push_back(inst);
+    else if (call) {
       // calls need special treatment
       if (call->getCalledFunction()->getName() == "rv_any")
         vectorizeReductionCall(call, false);
       else if (call->getCalledFunction()->getName() == "rv_all")
         vectorizeReductionCall(call, true);
-      else if (shouldVectorize(call))
-        vectorizeCallInstruction(call);
-      else {
-        copyCallInstruction(call);
-      }
-    else if (phi)
+      else
+        lazyInstructions.push_back(inst);
+//      else if (shouldVectorize(call))
+//        vectorizeCallInstruction(call);
+//      else {
+//        copyCallInstruction(call);
+//      }
+    } else if (phi)
       // phis need special treatment as they might contain not-yet mapped instructions
       vectorizePHIInstruction(phi);
     else if (alloca && shouldVectorize(inst)) {
@@ -659,31 +658,43 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     mapVectorValue(inst, vecMem);
 }
 
-void NatBuilder::requestLazyMemory(Instruction *const upToInstruction) {
-  assert(!lazyMemInstructions.empty() && "no lazy instructions to generate!");
+void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
+  assert(!lazyInstructions.empty() && "no lazy instructions to generate!");
 
-  Instruction *lazyMemInstr = lazyMemInstructions.front();
-  lazyMemInstructions.pop_front();
+  Instruction *lazyInstr = lazyInstructions.front();
+  lazyInstructions.pop_front();
 
-  while (lazyMemInstr != upToInstruction) {
-    vectorizeMemoryInstruction(lazyMemInstr);
+  while (lazyInstr != upToInstruction) {
+    if (isa<CallInst>(lazyInstr)) {
+      if (shouldVectorize(lazyInstr))
+        vectorizeCallInstruction(cast<CallInst>(lazyInstr));
+      else
+        copyCallInstruction(cast<CallInst>(lazyInstr));
+    } else
+      vectorizeMemoryInstruction(lazyInstr);
 
-    assert(!lazyMemInstructions.empty() && "no more lazy instructions left to generate!");
+    assert(!lazyInstructions.empty() && "no more lazy instructions left to generate!");
 
-    lazyMemInstr = lazyMemInstructions.front();
-    lazyMemInstructions.pop_front();
+    lazyInstr = lazyInstructions.front();
+    lazyInstructions.pop_front();
   }
 
-  assert(lazyMemInstr == upToInstruction && "something went wrong during lazy generation!");
+  assert(lazyInstr == upToInstruction && "something went wrong during lazy generation!");
 
-  vectorizeMemoryInstruction(lazyMemInstr);
+  if (isa<CallInst>(lazyInstr)) {
+    if (shouldVectorize(lazyInstr))
+      vectorizeCallInstruction(cast<CallInst>(lazyInstr));
+    else
+      copyCallInstruction(cast<CallInst>(lazyInstr));
+  } else
+    vectorizeMemoryInstruction(lazyInstr);
 }
 
 Value *NatBuilder::requestVectorValue(Value *const value) {
   if (isa<Instruction>(value)) {
     Instruction *lazyMemInstr = cast<Instruction>(value);
-    if (std::find(lazyMemInstructions.begin(), lazyMemInstructions.end(), lazyMemInstr) != lazyMemInstructions.end())
-      requestLazyMemory(lazyMemInstr);
+    if (std::find(lazyInstructions.begin(), lazyInstructions.end(), lazyMemInstr) != lazyInstructions.end())
+      requestLazyInstructions(lazyMemInstr);
   }
 
   Value *vecValue = getVectorValue(value);
@@ -721,8 +732,8 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
 Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool skipMappingWhenDone) {
   if (isa<Instruction>(value)) {
     Instruction *lazyMemInstr = cast<Instruction>(value);
-    if (std::find(lazyMemInstructions.begin(), lazyMemInstructions.end(), lazyMemInstr) != lazyMemInstructions.end())
-      requestLazyMemory(lazyMemInstr);
+    if (std::find(lazyInstructions.begin(), lazyInstructions.end(), lazyMemInstr) != lazyInstructions.end())
+      requestLazyInstructions(lazyMemInstr);
   }
 
   Value *mappedVal = getScalarValue(value, laneIdx);

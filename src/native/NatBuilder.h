@@ -83,9 +83,9 @@ namespace native {
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
     std::vector<llvm::PHINode *> phiVector;
-    std::deque<llvm::Instruction *> lazyMemInstructions;
+    std::deque<llvm::Instruction *> lazyInstructions;
 
-    void requestLazyMemory(llvm::Instruction *const upToInstruction);
+    void requestLazyInstructions(llvm::Instruction *const upToInstruction);
     llvm::Value *requestVectorValue(llvm::Value *const value);
     llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
                                     bool skipMappingWhenDone = false);
