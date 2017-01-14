@@ -10,12 +10,15 @@
 #define NATIVE_NATBUILDER_H
 
 
+#include "MemoryAccessGrouper.h"
+
 #include <vector>
 
 #include <rv/analysis/maskAnalysis.h>
 #include <rv/vectorizationInfo.h>
 #include <rv/PlatformInfo.h>
 
+#include <llvm/Analysis/MemoryDependenceAnalysis.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
@@ -35,6 +38,8 @@ namespace native {
     rv::PlatformInfo &platformInfo;
     rv::VectorizationInfo &vectorizationInfo;
     const llvm::DominatorTree &dominatorTree;
+    llvm::MemoryDependenceAnalysis &memDepAnalysis;
+    llvm::ScalarEvolution &SE;
 
     llvm::DataLayout layout;
 
@@ -48,7 +53,8 @@ namespace native {
 
   public:
     NatBuilder(rv::PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
-               const llvm::DominatorTree &dominatorTree);
+               const llvm::DominatorTree &dominatorTree, llvm::MemoryDependenceAnalysis &memDepAnalysis,
+               llvm::ScalarEvolution &SE);
 
     void vectorize();
 
@@ -82,8 +88,11 @@ namespace native {
     llvm::DenseMap<const llvm::Value *, llvm::Value *> vectorValueMap;
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
+    std::map<const llvm::Type *, MemoryAccessGrouper> grouperMap;
     std::vector<llvm::PHINode *> phiVector;
     std::deque<llvm::Instruction *> lazyInstructions;
+
+    void groupLazyLoads();
 
     void requestLazyInstructions(llvm::Instruction *const upToInstruction);
     llvm::Value *requestVectorValue(llvm::Value *const value);

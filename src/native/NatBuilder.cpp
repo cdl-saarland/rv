@@ -23,11 +23,14 @@ using namespace llvm;
 using namespace rv;
 
 NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
-                       const DominatorTree &dominatorTree) :
+                       const DominatorTree &dominatorTree, MemoryDependenceAnalysis &memDepAnalysis,
+                       ScalarEvolution &SE) :
     builder(vectorizationInfo.getMapping().vectorFn->getContext()),
     platformInfo(platformInfo),
     vectorizationInfo(vectorizationInfo),
     dominatorTree(dominatorTree),
+    memDepAnalysis(memDepAnalysis),
+    SE(SE),
     layout(vectorizationInfo.getScalarFunction().getParent()),
     i1Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
@@ -38,6 +41,7 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     vectorValueMap(),
     scalarValueMap(),
     basicBlockMap(),
+    grouperMap(),
     phiVector(),
     lazyInstructions() {}
 
@@ -729,8 +733,50 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     mapVectorValue(inst, vecMem);
 }
 
+void NatBuilder::groupLazyLoads() {
+  // run over lazy memory instructions and try to group the load instructions
+  // is groupable if the following conditions are met
+  // 1. strided shape
+  // 2. same type
+  // 3. no dependent memory instruction in-between
+  std::vector<Instruction *> seenStoresAndCalls;
+  LoadInst *load;
+  StoreInst *store;
+  CallInst *call;
+
+  for (Instruction *instr : lazyInstructions) {
+    load = dyn_cast<LoadInst>(instr);
+    store = dyn_cast<StoreInst>(instr);
+    call = dyn_cast<CallInst>(instr);
+
+    if (!(load || store || call))
+      continue;
+
+    if (load) {
+      Type *loadType = load->getType();
+      VectorShape shape = vectorizationInfo.getVectorShape(*load);
+      unsigned byteSize = static_cast<int>(layout.getTypeStoreSize(loadType));
+      bool byteContiguous = shape.isStrided(byteSize);
+
+      if (!shape.isStrided() || byteContiguous)
+        continue;
+
+      auto groupIt = grouperMap.find(loadType);
+      if (groupIt == grouperMap.end())
+        grouperMap[loadType] = MemoryAccessGrouper(SE, byteSize);
+
+      MemoryAccessGrouper &memGrouper = grouperMap[loadType];
+      memGrouper.add(load);
+      // TODO: the code above is not correct. maybe modify MemoryAccessGrouper to avoid grouping twice?
+    }
+  }
+}
+
 void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
   assert(!lazyInstructions.empty() && "no lazy instructions to generate!");
+
+  // group lazy loads first
+  groupLazyLoads();
 
   Instruction *lazyInstr = lazyInstructions.front();
   lazyInstructions.pop_front();
