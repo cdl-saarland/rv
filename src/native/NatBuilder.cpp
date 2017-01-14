@@ -38,7 +38,8 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     vectorValueMap(),
     scalarValueMap(),
     basicBlockMap(),
-    phiVector() {}
+    phiVector(),
+    lazyMemInstructions() {}
 
 void NatBuilder::vectorize() {
   const Function *func = vectorizationInfo.getMapping().scalarFn;
@@ -144,6 +145,18 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
   builder.SetInsertPoint(vecBlock);
   for (BasicBlock::iterator it = bb->begin(), ie = bb->end(); it != ie; ++it) {
     Instruction *inst = &*it;
+
+    // generate all lazy instructions first if it is the terminator
+    if (inst == bb->getTerminator()) {
+      // vectorize any left-over lazy instructions
+      while (!lazyMemInstructions.empty()) {
+        Instruction *lazyMemInstr = lazyMemInstructions.front();
+        lazyMemInstructions.pop_front();
+        vectorizeMemoryInstruction(lazyMemInstr);
+      }
+      assert(lazyMemInstructions.empty() && "not all lazy instructions vectorized!!");
+    }
+
     PHINode *phi = dyn_cast<PHINode>(inst);
     LoadInst *load = dyn_cast<LoadInst>(inst);
     StoreInst *store = dyn_cast<StoreInst>(inst);
@@ -151,9 +164,10 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(inst);
     AllocaInst *alloca = dyn_cast<AllocaInst>(inst);
 
-    // loads and stores need special treatment (masking, shuffling, etc)
+    // loads and stores need special treatment (masking, shuffling, etc) (build them lazily)
     if (load || store)
-      vectorizeMemoryInstruction(inst);
+//      vectorizeMemoryInstruction(inst);
+      lazyMemInstructions.push_back(inst);
     else if (call)
       // calls need special treatment
       if (call->getCalledFunction()->getName() == "rv_any")
@@ -645,7 +659,33 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     mapVectorValue(inst, vecMem);
 }
 
+void NatBuilder::requestLazyMemory(Instruction *const upToInstruction) {
+  assert(!lazyMemInstructions.empty() && "no lazy instructions to generate!");
+
+  Instruction *lazyMemInstr = lazyMemInstructions.front();
+  lazyMemInstructions.pop_front();
+
+  while (lazyMemInstr != upToInstruction) {
+    vectorizeMemoryInstruction(lazyMemInstr);
+
+    assert(!lazyMemInstructions.empty() && "no more lazy instructions left to generate!");
+
+    lazyMemInstr = lazyMemInstructions.front();
+    lazyMemInstructions.pop_front();
+  }
+
+  assert(lazyMemInstr == upToInstruction && "something went wrong during lazy generation!");
+
+  vectorizeMemoryInstruction(lazyMemInstr);
+}
+
 Value *NatBuilder::requestVectorValue(Value *const value) {
+  if (isa<Instruction>(value)) {
+    Instruction *lazyMemInstr = cast<Instruction>(value);
+    if (std::find(lazyMemInstructions.begin(), lazyMemInstructions.end(), lazyMemInstr) != lazyMemInstructions.end())
+      requestLazyMemory(lazyMemInstr);
+  }
+
   Value *vecValue = getVectorValue(value);
   if (!vecValue) {
     vecValue = getScalarValue(value);
@@ -679,6 +719,12 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
 }
 
 Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool skipMappingWhenDone) {
+  if (isa<Instruction>(value)) {
+    Instruction *lazyMemInstr = cast<Instruction>(value);
+    if (std::find(lazyMemInstructions.begin(), lazyMemInstructions.end(), lazyMemInstr) != lazyMemInstructions.end())
+      requestLazyMemory(lazyMemInstr);
+  }
+
   Value *mappedVal = getScalarValue(value, laneIdx);
   if (mappedVal) return mappedVal;
 
@@ -945,8 +991,8 @@ llvm::Value *NatBuilder::createPTest(llvm::Value *vector, bool isRv_all) {
 
 void NatBuilder::addValuesToPHINodes() {
   // save current insertion point before continuing
-  auto IB = builder.GetInsertBlock();
-  auto IP = builder.GetInsertPoint();
+//  auto IB = builder.GetInsertBlock();
+//  auto IP = builder.GetInsertPoint();
 
   for (PHINode *scalPhi : phiVector) {
     assert(vectorizationInfo.hasKnownShape(*scalPhi) && "no VectorShape for PHINode available!");
@@ -973,7 +1019,7 @@ void NatBuilder::addValuesToPHINodes() {
   }
 
   // restore insertion point
-  builder.SetInsertPoint(IB, IP);
+//  builder.SetInsertPoint(IB, IP);
 }
 
 void NatBuilder::mapVectorValue(const Value *const value, Value *vecValue) {
