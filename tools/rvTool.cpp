@@ -160,8 +160,8 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     PHINode* xPhi = cast<PHINode>(&*header->begin());
     auto* xPhiInit = GetInitValue(loop, *xPhi);
     errs() << "Vectorizing loop with induction variable " << *xPhi << "\n";
-    vecInfo.setVectorShape(*xPhi, rv::VectorShape::strided(1, vectorWidth));
-    vecInfo.setVectorShape(*xPhiInit, rv::VectorShape::strided(1, vectorWidth));
+    vecInfo.setVectorShape(*xPhi, rv::VectorShape::cont(vectorWidth));
+    vecInfo.setVectorShape(*xPhiInit, rv::VectorShape::cont(vectorWidth));
 
     // configure exit condition to be non-divergent in any case
     auto* exitBlock = loop.getExitingBlock();

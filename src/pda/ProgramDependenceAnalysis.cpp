@@ -158,6 +158,20 @@ void PDA::init(Function& F) {
   for (auto& arg : F.args()) mValue2Shape[&arg] = VectorShape::undef();
   for (auto& BB : F) for (auto& I : BB) mValue2Shape[&I] = VectorShape::undef();
 
+  // bootstrap with user defined shapes
+  for (auto& BB : F) {
+    for (auto& I : BB) {
+      if (mVecinfo.hasKnownShape(I)) {
+        overrides.insert(&I);
+        update(&I, mVecinfo.getVectorShape(I));
+        mVecinfo.dropVectorShape(I);
+      }
+      else {
+        mVecinfo.setVectorShape(I, VectorShape::uni());
+      }
+    }
+  }
+
   // Update initialized instructions
   for (auto& arg : F.args()) {
     if (mVecinfo.hasKnownShape(arg)) {
@@ -174,20 +188,6 @@ void PDA::init(Function& F) {
       assert(mRegion && "will only default function args if in region mode");
       // set argument shapes to uniform if not known better
       update(&arg, VectorShape::uni());
-    }
-  }
-
-  // bootstrap with user defined shapes
-  for (auto& BB : F) {
-    for (auto& I : BB) {
-      if (mVecinfo.hasKnownShape(I)) {
-        overrides.insert(&I);
-        update(&I, mVecinfo.getVectorShape(I));
-        mVecinfo.dropVectorShape(I);
-      }
-      else {
-        mVecinfo.setVectorShape(I, VectorShape::uni());
-      }
     }
   }
 
@@ -223,7 +223,7 @@ void PDA::update(const Value* const V, VectorShape AT) {
   const VectorShape& New = VectorShape::join(getShape(V), AT);
 
   if (mValue2Shape[V] == New) return;// nothing changed
-  if (overrides.count(V)) return;//prevented by override
+  if (overrides.count(V) && getShape(V).isDefined()) return;//prevented by override
 
   IF_DEBUG_PDA outs() << "Marking " << New << ": " << *V << "\n";
 
