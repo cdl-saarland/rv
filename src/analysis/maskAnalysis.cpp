@@ -20,7 +20,6 @@
 
 #include "utils/stringUtils.h"
 #include "utils/rvTools.h"
-#include "utils/metadata.h"
 
 #include "rvConfig.h"
 

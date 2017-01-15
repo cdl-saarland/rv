@@ -20,7 +20,6 @@
 #include <rv/analysis/MetadataMaskAnalyzer.h>
 #include <rv/transform/maskGenerator.h>
 #include <rv/analysis/vectorizationAnalysis.h>
-#include <rv/transform/selectGenerator.h>
 #include <rv/transform/loopExitCanonicalizer.h>
 #include <rv/pda/ABAAnalysis.h>
 
@@ -29,7 +28,6 @@
 #include <native/nativeBackendPass.h>
 #include <native/NatBuilder.h>
 
-#include "utils/metadata.h"
 
 #include "rvConfig.h"
 
@@ -133,7 +131,6 @@ VectorizerInterface::VectorizerInterface(RVInfo& rvInfo, Function* scalarCopy)
     }
 
     mInfo.configure();
-    rv::setUpMetadata(mInfo.mModule);
 
     addPredicateInstrinsics();
 }
@@ -316,21 +313,6 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
                                   PostDominatorTree& postDomTree,
                                   DominatorTree& domTree)
 {
-#if 0
-    LoopLiveValueAnalysis loopLiveValueAnalysis(mInfo,
-                                                loopInfo,
-                                                vectorizationInfo);
-
-    SelectGenerator selectgenerator(mInfo,
-                                    loopInfo,
-                                    maskAnalysis,
-                                    loopLiveValueAnalysis,
-                                    vectorizationInfo);
-
-    loopLiveValueAnalysis.run(*mScalarFn);
-    selectgenerator.generate(*mScalarFn);
-#endif
-
     // use a fresh domtree here
     DominatorTree fixedDomTree(vectorizationInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
     domTree.recalculate(vectorizationInfo.getScalarFunction());
@@ -354,6 +336,7 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
 bool
 VectorizerInterface::vectorize(PlatformInfo &platformInfo, VectorizationInfo &vecInfo, const DominatorTree &domTree)
 {
+#if 0
     // Strip legacy metadata calls
     std::vector<Instruction *> killList;
     for (auto &block : *vecInfo.getMapping().scalarFn) {
@@ -368,6 +351,7 @@ VectorizerInterface::vectorize(PlatformInfo &platformInfo, VectorizationInfo &ve
         }
     }
     for (auto *inst : killList) inst->eraseFromParent();
+#endif
 
     // vectorize with native
     native::NatBuilder natBuilder(platformInfo, vecInfo, domTree);
@@ -392,9 +376,7 @@ VectorizerInterface::finalize()
 
     assert (finalFn);
     assert (!finalFn->isDeclaration());
-    rv::removeAllMetadata(mScalarFn);
 
-    rv::removeAllMetadata(finalFn);
     IF_DEBUG {
       rv::writeFunctionToFile(*finalFn, (finalFn->getName() + ".ll").str());
     }

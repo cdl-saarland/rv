@@ -35,7 +35,6 @@
 
 #include "rvConfig.h"
 #include "rv/rvInfo.h"
-#include "metadata.h"
 
 #include "analysis/analysisCfg.h"
 
@@ -561,15 +560,6 @@ rv::createPointerCast(Value * pointer, unsigned factor, Instruction * insertBefo
                                               "pktPtrCast",
                                               insertBefore);
 
-    rv::setMetadata(pktPtrCast, rv::RV_METADATA_PKT_PTR_CAST);
-    rv::setMetadata(pktPtrCast, rv::RV_METADATA_RES_VECTOR);
-    rv::setMetadata(pktPtrCast, rv::RV_METADATA_OP_UNIFORM);
-    rv::setMetadata(pktPtrCast, rv::RV_METADATA_INDEX_CONSECUTIVE);
-    if (rv::hasMetadata(pointer, rv::RV_METADATA_ALIGNED_TRUE))
-        rv::setMetadata(pktPtrCast, rv::RV_METADATA_ALIGNED_TRUE);
-    else
-        rv::setMetadata(pktPtrCast, rv::RV_METADATA_ALIGNED_FALSE);
-
     IF_DEBUG {
       outs() << "  inserted new pointer cast: "
             << *pktPtrCast << "\n";
@@ -597,7 +587,6 @@ rv::InsertBroadcast(Value * value, unsigned simdFactor, Instruction & insertBefo
 		Value * lastVec = ConstantVector::getNullValue(vecType);
 		for (unsigned i = 0; i < simdFactor; ++i) {
 			 Instruction * insertInst = InsertElementInst::Create(lastVec, value, ConstantInt::get(idxType, i), "", &insertBefore);
-			 rv::markMaskOperation(insertInst);
 			 lastVec = insertInst;
 		}
 		return lastVec;

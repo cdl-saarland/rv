@@ -19,7 +19,6 @@
 #include <rv/VectorizationInfoProxyPass.h>
 #include <rv/Region/Region.h>
 
-#include "utils/metadata.h"
 #include "rvConfig.h"
 
 using namespace rv;

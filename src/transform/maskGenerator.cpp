@@ -17,7 +17,6 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Verifier.h> // verifyFunction()
 
-#include "utils/metadata.h"
 #include "rvConfig.h"
 
 
@@ -36,7 +35,6 @@ MaskGenerator::markMaskOperation(Instruction& maskOp) {
 
 
   // inlined: rv::markMaskOperation(&maskOp); // TODO only for legacy backend
-    assert (rv::isMetadataSetUp() && "metadata not initialized, call setUpMetadata() first!");
 
     // Mark new mask operation as OP_VARYING/RES_VECTOR/MASK
     // or OP_UNIFORM/RES_VECTOR/MASK in case of a phi.
