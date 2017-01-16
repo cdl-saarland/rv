@@ -72,10 +72,10 @@ namespace LLVMWrapper {
 //
 
 Module*
-createModuleFromFile(const std::string & fileName)
+createModuleFromFile(const std::string & fileName, LLVMContext & context)
 {
    SMDiagnostic diag;
-   auto modPtr = llvm::parseIRFile(fileName, diag, llvm::getGlobalContext());
+   auto modPtr = llvm::parseIRFile(fileName, diag, context);
    return modPtr.release();
 }
 

@@ -43,10 +43,10 @@
 using namespace llvm;
 
 Module*
-createModuleFromFile(const std::string& fileName)
+createModuleFromFile(const std::string& fileName, LLVMContext & context)
 {
     SMDiagnostic diag;
-    auto modPtr = llvm::parseIRFile(fileName, diag, llvm::getGlobalContext());
+    auto modPtr = llvm::parseIRFile(fileName, diag, context);
     return modPtr.release();
 }
 
@@ -467,8 +467,10 @@ int main(int argc, char** argv)
         return -1;
     }
 
+    LLVMContext context;
+
     // Load module
-    llvm::Module* mod = createModuleFromFile(inFile);
+    llvm::Module* mod = createModuleFromFile(inFile, context);
     if (!mod)
     {
         errs() << "Could not load module " << inFile << ". Aborting!\n";

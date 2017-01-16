@@ -231,7 +231,7 @@
     ((void)0)
 
 #define RV_SETUP_TESTSUITE(fileName) \
-    llvm::Module* module = LLVMWrapper::createModuleFromFile(fileName); \
+    llvm::Module* module = LLVMWrapper::createModuleFromFile(fileName, context); \
     if (!module) return -1; \
     \
     if (optimize) \
@@ -314,6 +314,8 @@
 		exitCode = LLVMWrapper::executeMain(mainPtr, argc, argv); \
 		if (exitCode != 0) return exitCode; \
 	}
+
+LLVMContext context;
 
 
 int
