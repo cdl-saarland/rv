@@ -1091,26 +1091,9 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
     return;
 }
 
-static int
-GetExitIndex(BasicBlock & exiting, Loop & loop) {
-  auto & term = *exiting.getTerminator();
-  for (int i = 0; i < term.getNumSuccessors(); ++i) {
-    if (!loop.contains(term.getSuccessor(i))) {
-      return i;
-    }
-  }
-  abort();
-}
-
 Value *
 MaskAnalysis::getActualLoopExitMask(BasicBlock & exiting) {
   auto * loop = mLoopInfo.getLoopFor(&exiting);
-
-#if 0
-  int index = GetExitIndex(exiting, *loop);
-
-  return getExitMask(exiting, index);
-#endif
 
   MaskPtr loopExitMask;
   {
