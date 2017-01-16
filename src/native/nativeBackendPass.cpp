@@ -8,6 +8,7 @@
 // @author simon
 
 #include "rv/VectorizationInfoProxyPass.h"
+#include <llvm/Analysis/MemoryDependenceAnalysis.h>
 
 #include "NatBuilder.h"
 #include "nativeBackendPass.h"

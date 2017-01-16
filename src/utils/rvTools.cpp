@@ -25,7 +25,6 @@
 #include <llvm/Analysis/LoopInfo.h> // Loop
 #include <llvm/IR/CallSite.h>
 
-#include <llvm/Bitcode/ReaderWriter.h> // ParseBitcodeFile
 #include <llvm/Support/MemoryBuffer.h> // MemoryBuffer
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Support/SourceMgr.h>

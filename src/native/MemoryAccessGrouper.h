@@ -55,7 +55,7 @@ namespace native {
     InstructionGroup(llvm::Instruction *element);
     InstructionGroup();
 
-    bool insert(llvm::Instruction *element, llvm::MemoryDependenceAnalysis &MDA);
+    bool insert(llvm::Instruction *element, llvm::MemoryDependenceResults &MDR);
     unsigned long size() const { return elements.size(); }
 
     std::vector<llvm::Instruction *>::iterator begin();
@@ -66,7 +66,7 @@ namespace native {
   public:
     std::vector<InstructionGroup> instructionGroups;
 
-    void add(llvm::Instruction *instr, llvm::MemoryDependenceAnalysis &MDA);
+    void add(llvm::Instruction *instr, llvm::MemoryDependenceResults &MDR);
     void clearAll();
     bool empty();
     InstructionGroup getInstructionGroup(llvm::Instruction *instr);

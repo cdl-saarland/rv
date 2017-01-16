@@ -50,7 +50,7 @@ public:
         if (forward)
             Info.addRequired<DominatorTreeWrapperPass>();
         else
-            Info.addRequired<PostDominatorTree>();
+            Info.addRequired<PostDominatorTreeWrapperPass>();
 
         Info.setPreservesAll();
     }

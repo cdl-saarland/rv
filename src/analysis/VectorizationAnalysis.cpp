@@ -60,7 +60,7 @@ VAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
   Info.addRequired<LoopInfoWrapperPass>();
   Info.addRequired<VectorizationInfoProxyPass>();
   Info.addRequired<DominatorTreeWrapperPass>();
-  Info.addRequired<PostDominatorTree>();
+  Info.addRequired<PostDominatorTreeWrapperPass>();
 
   Info.setPreservesAll();
 }
@@ -74,7 +74,7 @@ VAWrapperPass::runOnFunction(Function& F) {
   const DFG& dfg = *getAnalysis<llvm::DFGWrapper>().getDFG();
   const LoopInfo& LoopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   const auto & domTree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  const auto & postDomTree = getAnalysis<PostDominatorTree>();
+  const auto & postDomTree = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
 
   VectorizationAnalysis vea(platInfo, Vecinfo, cdg, dfg, LoopInfo, domTree, postDomTree);
   vea.analyze(F);
@@ -631,7 +631,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
           result.setAlignment(newalignment);
         }
         else {
-          subT = cast<SequentialType>(subT)->getPointerElementType();
+          subT = isa<PointerType>(subT) ? subT->getPointerElementType() : subT->getSequentialElementType();
 
           unsigned typeSize = (unsigned) layout.getTypeStoreSize(subT);
 

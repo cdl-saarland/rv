@@ -12,8 +12,8 @@ template<bool forward>
 bool DFGBaseWrapper<forward>::runOnFunction(Function& F)
 {
     DominatorTreeBase<BasicBlock>& tree = forward ?
-                                          getAnalysis<DominatorTreeWrapperPass>().getDomTree() :
-                                          *getAnalysis<PostDominatorTree>().DT;
+                                          static_cast<DominatorTreeBase<BasicBlock>&>(getAnalysis<DominatorTreeWrapperPass>().getDomTree()) :
+                                          static_cast<DominatorTreeBase<BasicBlock>&>(getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree());
 
     mDFGBase = new DFGBase<forward>(tree);
     mDFGBase->create(F);

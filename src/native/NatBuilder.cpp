@@ -642,7 +642,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   } else if (addrShape.isStrided()) {
     // group memory instructions based on their dependencies
     InstructionGrouper instructionGrouper;
-    instructionGrouper.add(inst, memDepAnalysis);
+    instructionGrouper.add(inst, memDepAnalysis.getResults());
     for (Instruction *instr : lazyInstructions) {
       instructionGrouper.add(instr, memDepAnalysis);
     }

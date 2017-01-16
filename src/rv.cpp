@@ -15,6 +15,7 @@
 #include <llvm/IR/Dominators.h>
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Analysis/MemoryDependenceAnalysis.h>
 
 #include "rv/rv.h"
 #include "rv/analysis/DFG.h"

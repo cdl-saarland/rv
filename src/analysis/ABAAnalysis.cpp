@@ -26,7 +26,7 @@ void
 ABAAnalysisWrapper::getAnalysisUsage(AnalysisUsage& Info) const
 {
     Info.addRequired<DominatorTreeWrapperPass>();
-    Info.addRequired<PostDominatorTree>();
+    Info.addRequired<PostDominatorTreeWrapperPass>();
     Info.addRequired<LoopInfoWrapperPass>();
     Info.addRequired<VectorizationInfoProxyPass>();
 
@@ -39,7 +39,7 @@ ABAAnalysisWrapper::runOnFunction(Function& F)
     auto& vecInfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
     auto& platInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
     const LoopInfo& loopInfo             = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-    const PostDominatorTree& postDomTree = getAnalysis<PostDominatorTree>();
+    const PostDominatorTree& postDomTree = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
     const DominatorTree& domTree         = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
 
     rv::ABAAnalysis Analysis(platInfo,

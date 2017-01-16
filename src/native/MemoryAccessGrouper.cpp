@@ -10,6 +10,7 @@
 #include "MemoryAccessGrouper.h"
 
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
+#include <llvm/Analysis/MemoryDependenceAnalysis.h>
 
 using namespace llvm;
 using namespace native;
@@ -158,7 +159,7 @@ InstructionGroup::InstructionGroup() :
   elements(0),
   passedMemoryAndCallInstructions(0) {}
 
-bool InstructionGroup::insert(Instruction *element, MemoryDependenceAnalysis &MDA) {
+bool InstructionGroup::insert(Instruction *element, MemoryDependenceResults &MDR) {
   const LoadInst *load = dyn_cast<LoadInst>(element);
   const CallInst *call = dyn_cast<CallInst>(element);
   if ((load && isStoreGroup) || (!load && !isStoreGroup) || call) {
@@ -171,7 +172,7 @@ bool InstructionGroup::insert(Instruction *element, MemoryDependenceAnalysis &MD
   if (groupType != elementType)
     return false;
 
-  Instruction *dependentInst = MDA.getDependency(element).getInst();
+  Instruction *dependentInst = MDR.getDependency(element).getInst();
   auto findIt = std::find(passedMemoryAndCallInstructions.begin(), passedMemoryAndCallInstructions.end(), dependentInst);
   if (findIt != passedMemoryAndCallInstructions.end())
     return false;
@@ -192,10 +193,10 @@ std::vector<llvm::Instruction *>::iterator InstructionGroup::end() {
 
 // InstructionGrouper_BEGIN
 
-void InstructionGrouper::add(Instruction *instr, MemoryDependenceAnalysis &MDA) {
+void InstructionGrouper::add(Instruction *instr, MemoryDependenceResults &MDR) {
   // try to find existing group
   for (InstructionGroup &instrGroup : instructionGroups) {
-    if (instrGroup.insert(instr, MDA))
+    if (instrGroup.insert(instr, MDR))
       return;
   }
 

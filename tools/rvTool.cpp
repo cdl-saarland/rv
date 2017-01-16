@@ -17,7 +17,6 @@
 #include "llvm/IR/Constants.h"
 
 #include <llvm/IR/Module.h>
-#include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/IRReader/IRReader.h>
@@ -154,10 +153,13 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     rv::Region loopRegion(loopRegionImpl);
     rv::VectorizationInfo vecInfo(parentFn, vectorWidth, loopRegion);
 
+    FunctionAnalysisManager fam;
+    ModuleAnalysisManager mam;
+
     TargetIRAnalysis irAnalysis;
-    TargetTransformInfo tti = irAnalysis.run(parentFn);
+    TargetTransformInfo tti = irAnalysis.run(parentFn, fam);
     TargetLibraryAnalysis libAnalysis;
-    TargetLibraryInfo tli = libAnalysis.run(*parentFn.getParent());
+    TargetLibraryInfo tli = libAnalysis.run(*parentFn.getParent(), mam);
     rv::PlatformInfo platformInfo(mod, &tti, &tli);
 
     // link in SIMD library
@@ -224,7 +226,7 @@ vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
     // build Analysis
     DominatorTree domTree(parentFn);
     PostDominatorTree postDomTree;
-    postDomTree.runOnFunction(parentFn);
+    postDomTree.recalculate(parentFn);
     LoopInfo loopInfo(domTree);
 
     // Dominance Frontier Graph
@@ -232,7 +234,7 @@ vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
     dfg.create(parentFn);
 
     // Control Dependence Graph
-    CDG cdg(*postDomTree.DT);
+    CDG cdg(postDomTree);
     cdg.create(parentFn);
 
     // normalize loop exits
@@ -263,7 +265,10 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
 
     // clone source function for transformations
     ValueToValueMapTy valueMap;
-    Function* scalarCopy = CloneFunction(scalarFn, valueMap, false);
+    Function* scalarCopy = CloneFunction(scalarFn, valueMap, nullptr);
+
+    FunctionAnalysisManager fam;
+    ModuleAnalysisManager mam;
 
     assert (scalarCopy);
     scalarCopy->setCallingConv(scalarFn->getCallingConv());
@@ -271,16 +276,15 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     scalarCopy->setAlignment(scalarFn->getAlignment());
     scalarCopy->setLinkage(GlobalValue::InternalLinkage);
     scalarCopy->setName(scalarFn->getName() + ".vectorizer.tmp");
-    mod.getFunctionList().push_back(scalarCopy);
 
     // normalize
     normalizeFunction(*scalarCopy);
 
     // platform API
     TargetIRAnalysis irAnalysis;
-    TargetTransformInfo tti = irAnalysis.run(*scalarCopy);
+    TargetTransformInfo tti = irAnalysis.run(*scalarCopy, fam);
     TargetLibraryAnalysis libAnalysis;
-    TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent());
+    TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent(), mam);
     rv::PlatformInfo platformInfo(mod, &tti, &tli);
 
     rv::VectorizerInterface vectorizer(platformInfo);
@@ -300,7 +304,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     // build Analysis
     DominatorTree domTree(*scalarCopy);
     PostDominatorTree postDomTree;
-    postDomTree.runOnFunction(*scalarCopy);
+    postDomTree.recalculate(*scalarCopy);
     LoopInfo loopInfo(domTree);
 
     // Dominance Frontier Graph
@@ -308,7 +312,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     dfg.create(*scalarCopy);
 
     // Control Dependence Graph
-    CDG cdg(*postDomTree.DT);
+    CDG cdg(postDomTree);
     cdg.create(*scalarCopy);
 
     // normalize loop exits
