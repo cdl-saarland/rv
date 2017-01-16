@@ -3,7 +3,7 @@ PROJECT ( RV )
 CMAKE_MINIMUM_REQUIRED ( VERSION 2.8.1 FATAL_ERROR )
 
 ### configure LLVM ###
-FIND_PACKAGE(LLVM 3.8 REQUIRED)
+FIND_PACKAGE(LLVM 4.0 REQUIRED)
 
 # find out if this is a shared library build of LLVM
 get_target_property(t LLVMPasses TYPE)
