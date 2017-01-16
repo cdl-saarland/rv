@@ -21,10 +21,10 @@ namespace rv {
 
 // describes how the contents of a vector vary with the vectorized dimension
 class VectorShape {
+  int stride;
+  bool hasConstantStride;
+  unsigned alignment;
   bool defined;
-	int stride;
-	bool hasConstantStride;
-	unsigned alignment;
 
   VectorShape(unsigned _alignment); // varying
   VectorShape(int _stride, unsigned _alignment); // strided
