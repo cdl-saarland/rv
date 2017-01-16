@@ -172,9 +172,7 @@ private:
   void fillVectorizationInfo(Function& F);
 };
 
-static FunctionPass* createNewVectorizationAnalysisPass() {
-  return new PDAWrapperPass();
-}
+FunctionPass* createVectorizationAnalysisPass();
 
 }
 

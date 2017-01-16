@@ -320,4 +320,10 @@ bool ABAAnalysis::isABAONSESEExit(BasicBlock& block)
     return false;
 }
 
-};
+
+FunctionPass*
+createABAAnalysisPass() {
+    return new ABAAnalysisWrapper();
+}
+
+}

@@ -959,4 +959,11 @@ typename ValueMap::iterator PDA::end() { return mValue2Shape.end(); }
 typename ValueMap::const_iterator PDA::begin() const { return mValue2Shape.begin(); }
 typename ValueMap::const_iterator PDA::end() const { return mValue2Shape.end(); }
 
+
+FunctionPass*
+createVectorizationAnalysisPass() {
+  return new PDAWrapperPass();
+}
+
+
 }

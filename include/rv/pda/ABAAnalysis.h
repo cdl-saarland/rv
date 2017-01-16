@@ -60,8 +60,8 @@ private:
     VectorizationInfo&           mVecinfo;
     native::VectorMappingMap&    mFuncinfo;
     const LoopInfo&              mLoopInfo;
-    const DominatorTree&         mDomTree;
     const PostDominatorTree&     mPostDomTree;
+    const DominatorTree&         mDomTree;
     const Region*                mRegion;
 
     // Always-by-all/Always-by-all-or-none analysis
@@ -74,10 +74,7 @@ private:
     void checkEquivalentToOldAnalysis(Function& F);
 };
 
-static FunctionPass* createABAAnalysisPass()
-{
-    return new ABAAnalysisWrapper();
-}
+FunctionPass* createABAAnalysisPass();
 
 }
 
