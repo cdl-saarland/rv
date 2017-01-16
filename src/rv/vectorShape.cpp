@@ -55,7 +55,7 @@ bool VectorShape::operator<(const VectorShape &a) const {
   if (!a.isDefined()) return false; // Cannot be more precise than bottom
   if (!isDefined()) return true; // Bottom is more precise then any defined shape
 
-  if (!hasConstantStride && a.hasConstantStride) return true; // strided < varying
+  if (hasConstantStride && !a.hasConstantStride) return true; // strided < varying
 
   // If both are of the same shape, decide by alignment
   if ((!hasConstantStride && !a.hasConstantStride) ||
