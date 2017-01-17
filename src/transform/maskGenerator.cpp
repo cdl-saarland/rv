@@ -11,11 +11,12 @@
 #include "rv/transform/maskGenerator.h"
 
 #include <stdexcept>
-#include <rv/rvInfoProxyPass.h>
 
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Verifier.h> // verifyFunction()
+#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/IR/Constants.h>
 
 #include "rvConfig.h"
 
@@ -47,7 +48,6 @@ char MaskGeneratorWrapper::ID = 0;
 // NOTE: The order of initialized dependencies is important
 //       to prevent 'Unable to schedule' errors!
 INITIALIZE_PASS_BEGIN(MaskGeneratorWrapper, "maskGenerator", "MaskGenerator", false, false)
-INITIALIZE_PASS_DEPENDENCY(RVInfoProxyPass)
 INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(MaskAnalysisWrapper)
 INITIALIZE_PASS_END(MaskGeneratorWrapper, "maskGenerator", "MaskGenerator", false, false)
@@ -66,15 +66,20 @@ MaskGeneratorWrapper::MaskGeneratorWrapper() : FunctionPass(ID)
     initializeMaskGeneratorWrapperPass(*PassRegistry::getPassRegistry());
 }
 
-MaskGenerator::MaskGenerator(RVInfo& RVinfo,
-                             VectorizationInfo& Vecinfo,
+MaskGenerator::MaskGenerator(VectorizationInfo& Vecinfo,
                              MaskAnalysis& MaskAnalysis,
                              const LoopInfo& Loopinfo)
-        : mInfo(RVinfo),
+        : mvecInfo(Vecinfo),
           mMaskAnalysis(MaskAnalysis),
-          mvecInfo(Vecinfo),
-          mLoopInfo(Loopinfo)
+          mLoopInfo(Loopinfo),
+          boolTy(nullptr),
+          mConstBoolTrue(nullptr),
+          mConstBoolFalse(nullptr)
 {
+  auto & context = Vecinfo.getContext();
+  boolTy = Type::getInt1Ty(context);
+  mConstBoolTrue = ConstantInt::getTrue(context);
+  mConstBoolFalse = ConstantInt::getFalse(context);
 }
 
 MaskGenerator::~MaskGenerator()
@@ -89,10 +94,6 @@ MaskGeneratorWrapper::releaseMemory()
 void
 MaskGeneratorWrapper::getAnalysisUsage(AnalysisUsage &AU) const
 {
-    AU.addRequired<RVInfoProxyPass>();
-    AU.addPreserved<RVInfoProxyPass>();
-
-    AU.addRequired<VectorizationInfoProxyPass>();
     AU.addPreserved<VectorizationInfoProxyPass>();
 
     AU.addRequired<LoopInfoWrapperPass>();
@@ -121,14 +122,13 @@ MaskGeneratorWrapper::doFinalization(Module& M)
 bool
 MaskGeneratorWrapper::runOnFunction(Function& F)
 {
-    RVInfo& RVinfo           = getAnalysis<RVInfoProxyPass>().getInfo();
     VectorizationInfo& Vecinfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
     MaskAnalysis* MaskAnalysis = getAnalysis<MaskAnalysisWrapper>().getMaskAnalysis();
     const LoopInfo& Loopinfo   = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 
     assert (MaskAnalysis);
 
-    MaskGenerator Generator(RVinfo, Vecinfo, *MaskAnalysis, Loopinfo);
+    MaskGenerator Generator(Vecinfo, *MaskAnalysis, Loopinfo);
 
     return Generator.generate(F);
 }
@@ -215,8 +215,8 @@ MaskGenerator::materializeMasks(Function& f)
             if (isa<Instruction>(newEntryMask) &&
                 cast<Instruction>(newEntryMask)->getParent() != &BB)
             {
-                Function* entryMaskUseFn = f.getParent()->getFunction("entryMaskUseFn");
 #if 0
+                Function* entryMaskUseFn = f.getParent()->getFunction("entryMaskUseFn");
                 if (!entryMaskUseFn)
                 {
                     // Create function that simply returns the argument.
@@ -494,7 +494,7 @@ MaskGenerator::materializeMask(MaskPtr maskPtr)
         {
             const unsigned numIncVals = mask.mOperands.size();
             auto * defBlock = mask.mInsertPoint->getParent();
-            PHINode* phi = PHINode::Create(Type::getInt1Ty(*mInfo.mContext),
+            PHINode* phi = PHINode::Create(boolTy,
                                            numIncVals,
                                            "maskPhi",
                                            &*defBlock->getFirstInsertionPt());
@@ -570,11 +570,11 @@ MaskGenerator::createNeg(Value*       operand,
 {
     assert (operand && insertPoint);
 
-    assert (operand->getType() == Type::getInt1Ty(operand->getContext()) &&
+    assert (operand->getType() == boolTy &&
             "trying to create bit-operation of non-boolean type!");
 
-    if (operand == mInfo.mConstBoolTrue) return mInfo.mConstBoolFalse;
-    if (operand == mInfo.mConstBoolFalse) return mInfo.mConstBoolTrue;
+    if (operand == mConstBoolTrue) return mConstBoolFalse;
+    if (operand == mConstBoolFalse) return mConstBoolTrue;
 
     if (Instruction* maskInstr = dyn_cast<Instruction>(operand))
     {
@@ -582,17 +582,17 @@ MaskGenerator::createNeg(Value*       operand,
         {
             Value* op0 = maskInstr->getOperand(0);
             Value* op1 = maskInstr->getOperand(1);
-            if (op0 == mInfo.mConstBoolTrue)
+            if (op0 == mConstBoolTrue)
             {
                 return op1; //found not, return op
             }
-            else if (op1 == mInfo.mConstBoolTrue)
+            else if (op1 == mConstBoolTrue)
             {
                 return op0; //found not, return op
             }
             else if (op0 == op1)
             {
-                return mInfo.mConstBoolTrue; //found 'zero', return 'one'
+                return mConstBoolTrue; //found 'zero', return 'one'
             }
         }
     }
@@ -614,9 +614,9 @@ MaskGenerator::createAnd(Value*       operand0,
 {
     assert (operand0 && operand1 && insertPoint);
 
-    assert (operand0->getType() == Type::getInt1Ty(operand0->getContext()) &&
+    assert (operand0->getType() == boolTy &&
             "trying to create bit-operation on non-boolean type!");
-    assert (operand1->getType() == Type::getInt1Ty(operand1->getContext()) &&
+    assert (operand1->getType() == boolTy &&
             "trying to create bit-operation on non-boolean type!");
 
     if (operand0 == operand1)
@@ -624,18 +624,18 @@ MaskGenerator::createAnd(Value*       operand0,
         return operand0;
     }
 
-    if (operand0 == mInfo.mConstBoolFalse ||
-        operand1 == mInfo.mConstBoolFalse)
+    if (operand0 == mConstBoolFalse ||
+        operand1 == mConstBoolFalse)
     {
-        return mInfo.mConstBoolFalse;
+        return mConstBoolFalse;
     }
 
-    if (operand0 == mInfo.mConstBoolTrue)
+    if (operand0 == mConstBoolTrue)
     {
         return operand1;
     }
 
-    if (operand1 == mInfo.mConstBoolTrue)
+    if (operand1 == mConstBoolTrue)
     {
         return operand0;
     }
@@ -660,9 +660,9 @@ MaskGenerator::createOr(Value*       operand0,
 {
     assert (operand0 && operand1 && insertPoint);
 
-    assert (operand0->getType() == Type::getInt1Ty(operand0->getContext()) &&
+    assert (operand0->getType() == boolTy &&
             "trying to create bit-operation on non-boolean type!");
-    assert (operand1->getType() == Type::getInt1Ty(operand1->getContext()) &&
+    assert (operand1->getType() == boolTy &&
             "trying to create bit-operation on non-boolean type!");
 
     if (operand0 == operand1)
@@ -670,18 +670,18 @@ MaskGenerator::createOr(Value*       operand0,
         return operand0;
     }
 
-    if (operand0 == mInfo.mConstBoolTrue ||
-        operand1 == mInfo.mConstBoolTrue)
+    if (operand0 == mConstBoolTrue ||
+        operand1 == mConstBoolTrue)
     {
-        return mInfo.mConstBoolTrue;
+        return mConstBoolTrue;
     }
 
-    if (operand0 == mInfo.mConstBoolFalse)
+    if (operand0 == mConstBoolFalse)
     {
         return operand1;
     }
 
-    if (operand1 == mInfo.mConstBoolFalse)
+    if (operand1 == mConstBoolFalse)
     {
         return operand0;
     }
@@ -706,11 +706,11 @@ MaskGenerator::createSelect(Value*       operand0,
 {
     assert (operand0 && operand1 && operand2 && insertPoint);
 
-    assert (operand0->getType() == Type::getInt1Ty(operand0->getContext()) &&
+    assert (operand0->getType() == boolTy &&
             "trying to create mask operation on non-boolean type!");
-    assert (operand1->getType() == Type::getInt1Ty(operand1->getContext()) &&
+    assert (operand1->getType() == boolTy &&
             "trying to create mask operation on non-boolean type!");
-    assert (operand2->getType() == Type::getInt1Ty(operand2->getContext()) &&
+    assert (operand2->getType() == boolTy &&
             "trying to create mask operation on non-boolean type!");
 
     if (operand1 == operand2)
@@ -718,12 +718,12 @@ MaskGenerator::createSelect(Value*       operand0,
         return operand1;
     }
 
-    if (operand0 == mInfo.mConstBoolTrue)
+    if (operand0 == mConstBoolTrue)
     {
         return operand1;
     }
 
-    if (operand0 == mInfo.mConstBoolFalse)
+    if (operand0 == mConstBoolFalse)
     {
         return operand2;
     }
@@ -743,7 +743,7 @@ Value*
 MaskGenerator::createPhi(Mask& mask, const Twine& name)
 {
     auto * defBlock = mask.mInsertPoint->getParent();
-    PHINode* phi = PHINode::Create(Type::getInt1Ty(*mInfo.mContext),
+    PHINode* phi = PHINode::Create(boolTy,
                                    2,
                                    name,
                                    &*defBlock->getFirstInsertionPt());

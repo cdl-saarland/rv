@@ -9,21 +9,19 @@
 #ifndef INCLUDE_RV_VECTORIZATIONINFO_H_
 #define INCLUDE_RV_VECTORIZATIONINFO_H_
 
-namespace llvm
-{
-class BasicBlock;
-
-class Instruction;
-
-class Value;
-
-class Loop;
+namespace llvm {
+  class LLVMContext;
+  class BasicBlock;
+  class Instruction;
+  class Value;
+  class Loop;
 }
 
 using namespace llvm;
 
 #include "vectorShape.h"
 #include "vectorMapping.h"
+
 #include <unordered_map>
 #include <set>
 
@@ -105,6 +103,7 @@ public:
     void markMandatory(const BasicBlock* block);
     void markMetadataMask(const Instruction* inst);
 
+    LLVMContext & getContext() const;
     Function & getScalarFunction() { return *mapping.scalarFn; }
     Function & getVectorFunction() { return *mapping.vectorFn; }
 };

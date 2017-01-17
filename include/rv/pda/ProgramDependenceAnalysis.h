@@ -32,8 +32,8 @@
 #include "rv/vectorMapping.h"
 #include "rv/rvInfo.h"
 #include "rv/VectorizationInfoProxyPass.h"
-#include "rv/rvInfoProxyPass.h"
 #include "rv/Region/Region.h"
+#include "rv/PlatformInfo.h"
 
 namespace rv {
 
@@ -49,7 +49,6 @@ public:
     Info.addRequired<PostDominatorTree>();
     Info.addRequired<DFGBaseWrapper<true>>();
     Info.addRequired<DFGBaseWrapper<false>>();
-    Info.addRequired<RVInfoProxyPass>();
     Info.addRequired<LoopInfoWrapperPass>();
     Info.addRequired<VectorizationInfoProxyPass>();
 
@@ -68,12 +67,11 @@ class PDA {
 public:
   using ValueMap          = std::map<const Value*, VectorShape>;
   using InstructionSet    = llvm::SmallPtrSet<const Instruction*, 32>;
-  using FuncInfo          = native::VectorMappingMap;
 
-  PDA(VectorizationInfo& VecInfo,
+  PDA(PlatformInfo & platInfo,
+      VectorizationInfo& VecInfo,
       const CDG& cdg,
       const DFG& dfg,
-      const FuncInfo& Funcinfo,
       const LoopInfo& LoopInfo);
 
   PDA(const PDA&) = delete;
@@ -97,7 +95,7 @@ private:
   const CDG& mCDG;      // Preserves CDG
   const DFG& mDFG;      // Preserves DFG
   const LoopInfo& mLoopInfo; // Preserves LoopInfo
-  const FuncInfo& mFuncinfo;
+  const VectorFuncMap& mFuncinfo;
 
   Region* mRegion;
 

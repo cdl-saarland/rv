@@ -18,6 +18,7 @@ void initializeVectorizationInfoProxyPassPass(PassRegistry&);
 
 namespace rv {
   class VectorizationInfo;
+  class PlatformInfo;
 }
 
 
@@ -27,12 +28,14 @@ class VectorizationInfoProxyPass : public llvm::ImmutablePass {
     static char ID;
 
   private:
-    rv::VectorizationInfo * vectorizationInfo;
+    rv::VectorizationInfo * vecInfo;
+    rv::PlatformInfo * platInfo;
 
   public:
     VectorizationInfoProxyPass();
-    VectorizationInfoProxyPass(rv::VectorizationInfo * _vi);
+    VectorizationInfoProxyPass(rv::PlatformInfo & _platInfo, rv::VectorizationInfo & _vecInfo);
     rv::VectorizationInfo & getInfo() const;
+    rv::PlatformInfo & getPlatformInfo() const;
 };
 
 #endif //RV_VECTORIZATIONINFOPROXYPASS_H

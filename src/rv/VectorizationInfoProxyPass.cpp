@@ -21,15 +21,18 @@ INITIALIZE_PASS(VectorizationInfoProxyPass,
 // VectorizationInfoProxyPass
 char VectorizationInfoProxyPass::ID = 0;
 
-VectorizationInfoProxyPass::VectorizationInfoProxyPass() : ImmutablePass(ID),
-                                                           vectorizationInfo(nullptr)
+VectorizationInfoProxyPass::VectorizationInfoProxyPass()
+: ImmutablePass(ID),
+  vecInfo(nullptr),
+  platInfo(nullptr)
 {
     initializeVectorizationInfoProxyPassPass(*PassRegistry::getPassRegistry());
 }
 
-VectorizationInfoProxyPass::VectorizationInfoProxyPass(rv::VectorizationInfo* _vi) :
+VectorizationInfoProxyPass::VectorizationInfoProxyPass(rv::PlatformInfo & _platInfo, rv::VectorizationInfo & _vecInfo) :
         ImmutablePass(ID),
-        vectorizationInfo(_vi)
+        vecInfo(&_vecInfo),
+        platInfo(&_platInfo)
 {
     initializeVectorizationInfoProxyPassPass(*PassRegistry::getPassRegistry());
 }
@@ -38,6 +41,11 @@ VectorizationInfoProxyPass::VectorizationInfoProxyPass(rv::VectorizationInfo* _v
 rv::VectorizationInfo&
 VectorizationInfoProxyPass::getInfo() const
 {
-    return *vectorizationInfo;
+    return *vecInfo;
 }
 
+
+rv::PlatformInfo &
+VectorizationInfoProxyPass::getPlatformInfo() const {
+  return *platInfo;
+}

@@ -22,7 +22,7 @@ namespace rv {
 struct VectorMapping {
 	llvm::Function * scalarFn;
 	llvm::Function * vectorFn;
-	unsigned vectorWidth;
+	unsigned vectorWidth; // == 0 implies that this mapping is sound for all vectorWidths (no varying shapes), otw this mapping is only applicable for the specified width
 	int maskPos; // < 0 => no mask argument, otw position of mask argument
 	VectorShapeVec argShapes;
 	VectorShape resultShape;

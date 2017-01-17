@@ -91,18 +91,18 @@ VectorizationInfo::dump() const
 }
 
 VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, uint vectorWidth, Region& _region)
-        : mapping(&parentFn, &parentFn, vectorWidth), region(&_region)
+: mapping(&parentFn, &parentFn, vectorWidth), region(&_region)
 {
     mapping.resultShape = VectorShape::uni();
-    for (auto& arg : parentFn.getArgumentList())
-    {
-        mapping.argShapes.push_back(VectorShape::uni());
+    for (auto& arg : parentFn.getArgumentList()) {
+      (void) arg;
+      mapping.argShapes.push_back(VectorShape::uni());
     }
 }
 
 // VectorizationInfo
 VectorizationInfo::VectorizationInfo(VectorMapping _mapping)
-        : mapping(_mapping), region(nullptr)
+: mapping(_mapping), region(nullptr)
 {
   assert(mapping.argShapes.size() == mapping.scalarFn->getArgumentList().size());
   auto& argList = mapping.scalarFn->getArgumentList();
@@ -256,6 +256,8 @@ VectorizationInfo::isMetadataMask(const Instruction* inst) const
     return (bool) MetadataMaskInsts.count(inst);
 }
 
+LLVMContext &
+VectorizationInfo::getContext() const { return mapping.scalarFn->getContext(); }
 
 } /* namespace rv */
 

@@ -88,27 +88,27 @@ IF (IS_DIRECTORY ${RV_LIB_SLEEF_DIR})
   SET( RVLIB_BUILD_OPTS -O3 )
   ADD_CUSTOM_COMMAND (
           OUTPUT ${SLEEF_BC_AVX2_SP}
-          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall ${RVLIB_BUILD_OPTS} -march=haswell -mavx2 -mfma -DENABLE_AVX2=ON -o ${SLEEF_BC_AVX2_SP}
+          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -march=haswell -mavx2 -mfma -DENABLE_AVX2=ON -o ${SLEEF_BC_AVX2_SP}
   )
   ADD_CUSTOM_COMMAND (
           OUTPUT ${SLEEF_BC_AVX_SP}
-          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall ${RVLIB_BUILD_OPTS} -mavx -DENABLE_AVX=ON -o ${SLEEF_BC_AVX_SP}
+          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -mavx -DENABLE_AVX=ON -o ${SLEEF_BC_AVX_SP}
   )
   ADD_CUSTOM_COMMAND (
           OUTPUT ${SLEEF_BC_SSE_SP}
-          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${SLEEF_BC_SSE_SP}
+          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${SLEEF_BC_SSE_SP}
   )
   ADD_CUSTOM_COMMAND (
           OUTPUT ${SLEEF_BC_AVX2_DP}
-          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall ${RVLIB_BUILD_OPTS} -march=haswell -mavx2 -mfma -DENABLE_AVX2=ON -o ${SLEEF_BC_AVX2_DP}
+          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -march=haswell -mavx2 -mfma -DENABLE_AVX2=ON -o ${SLEEF_BC_AVX2_DP}
   )
   ADD_CUSTOM_COMMAND (
           OUTPUT ${SLEEF_BC_AVX_DP}
-          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall ${RVLIB_BUILD_OPTS} -mavx -DENABLE_AVX=ON -o ${SLEEF_BC_AVX_DP}
+          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -mavx -DENABLE_AVX=ON -o ${SLEEF_BC_AVX_DP}
   )
   ADD_CUSTOM_COMMAND (
           OUTPUT ${SLEEF_BC_SSE_DP}
-          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${SLEEF_BC_SSE_DP}
+          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${SLEEF_BC_SSE_DP}
   )
   ADD_DEPENDENCIES ( ${LIBRARY_NAME} libsleef_x64 )
 ELSE()

@@ -7,7 +7,6 @@
 //
 // @author simon
 
-#include "rv/rvInfoProxyPass.h"
 #include "rv/VectorizationInfoProxyPass.h"
 #include "rv/rvInfo.h"
 
@@ -31,13 +30,13 @@ namespace rv {
   void
   NativeBackendPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {
     AU.addRequired<VectorizationInfoProxyPass>();
-    AU.addRequired<RVInfoProxyPass>();
     AU.addRequired<DominatorTreeWrapperPass>();
   }
 
   bool
   NativeBackendPass::runOnFunction(llvm::Function &F) {
-    auto &vi = getAnalysis<VectorizationInfoProxyPass>().getInfo();
+    auto & vi = getAnalysis<VectorizationInfoProxyPass>().getInfo();
+    auto & platformInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
 
 // Strip legacy metadata calls
     std::vector<Instruction *> killList;
@@ -54,14 +53,6 @@ namespace rv {
     }
 
     for (auto *inst : killList) inst->eraseFromParent();
-
-// Fetch platform info
-    TargetIRAnalysis irAnalysis;
-    TargetTransformInfo tti = irAnalysis.run(*vi.getMapping().scalarFn);
-    TargetLibraryAnalysis libAnalysis;
-    TargetLibraryInfo tli = libAnalysis.run(*vi.getMapping().scalarFn->getParent());
-    PlatformInfo platformInfo(&tti, &tli);
-    // mappings[vi->getMapping().scalarFn] = &vi->getMapping();
 
 // Get dominator tree
     auto &dtree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();

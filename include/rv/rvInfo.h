@@ -91,6 +91,7 @@ public:
     // legacy code adapter
     rv::VectorMapping inferTargetMapping(Function * actualScalarFn);
 
+#if 0
     // add a new SIMD function mapping
     bool addSIMDMapping(rv::VectorMapping & mapping);
 
@@ -98,6 +99,7 @@ public:
                         const Function& simdFunction,
                         const int       maskPosition,
                         const bool      mayHaveSideEffects);
+#endif
 
     Module*              mModule;
     LLVMContext*         mContext;

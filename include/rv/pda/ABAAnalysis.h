@@ -26,6 +26,7 @@
 #include "rv/rvInfo.h"
 #include "rv/VectorizationInfoProxyPass.h"
 #include "rv/Region/Region.h"
+#include "rv/PlatformInfo.h"
 
 namespace rv {
 
@@ -46,8 +47,8 @@ public:
  */
 class ABAAnalysis {
 public:
-    ABAAnalysis(VectorizationInfo& vecInfo,
-                native::VectorMappingMap& funcInfo,
+    ABAAnalysis(PlatformInfo & platInfo,
+                VectorizationInfo& vecInfo,
                 const LoopInfo& loopInfo,
                 const PostDominatorTree& postDomTree,
                 const DominatorTree& domTree);
@@ -58,7 +59,7 @@ public:
 
 private:
     VectorizationInfo&           mVecinfo;
-    native::VectorMappingMap&    mFuncinfo;
+    VectorFuncMap&               mFuncinfo;
     const LoopInfo&              mLoopInfo;
     const PostDominatorTree&     mPostDomTree;
     const DominatorTree&         mDomTree;

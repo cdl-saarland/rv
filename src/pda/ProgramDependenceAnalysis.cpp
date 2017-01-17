@@ -44,7 +44,6 @@ GenericTransfer(rv::VectorShape a, Shapes... nextShapes) {
 namespace rv {
 
 using ValueMap = std::map<const Value*, VectorShape>;
-using FuncInfo = native::VectorMappingMap;
 
 // #define BYTE_SIZE 8
 
@@ -52,23 +51,23 @@ char PDAWrapperPass::ID = 0;
 
 bool
 PDAWrapperPass::runOnFunction(Function& F) {
-  VectorizationInfo& Vecinfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
+  auto& Vecinfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
+  auto& platInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
 
   const CDG& cdg = *getAnalysis<llvm::CDGWrapper>().getDFG();
   const DFG& dfg = *getAnalysis<llvm::DFGWrapper>().getDFG();
-  const FuncInfo& FuncInfo = getAnalysis<RVInfoProxyPass>().getInfo().getVectorFuncMap();
   const LoopInfo& LoopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 
-  PDA pda(Vecinfo, cdg, dfg, FuncInfo, LoopInfo);
+  PDA pda(platInfo, Vecinfo, cdg, dfg, LoopInfo);
   pda.analyze(F);
 
   return false;
 }
 
-PDA::PDA(VectorizationInfo& VecInfo,
+PDA::PDA(PlatformInfo & platInfo,
+         VectorizationInfo& VecInfo,
          const CDG& cdg,
          const DFG& dfg,
-         const FuncInfo& Funcinfo,
          const LoopInfo& LoopInfo)
 
         : layout(""),
@@ -76,7 +75,7 @@ PDA::PDA(VectorizationInfo& VecInfo,
           mCDG(cdg),
           mDFG(dfg),
           mLoopInfo(LoopInfo),
-          mFuncinfo(Funcinfo),
+          mFuncinfo(platInfo.getFunctionMappings()),
           mRegion(mVecinfo.getRegion())
 { }
 
@@ -552,7 +551,6 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
       for (const Value* index : make_range(gep->idx_begin(), gep->idx_end())) {
         const VectorShape& indexShape = getShape(index);
         const int indexStride = indexShape.getStride();
-        const int indexAlignment = indexShape.getAlignment();
 
         if (indexShape.isVarying()) return VectorShape::varying();
 
@@ -628,7 +626,7 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
       bool mixingPhi = false;
       auto * phi = cast<PHINode>(I);
       Value * singleVal = phi->getIncomingValue(0);
-      for (int i = 1; i < phi->getNumIncomingValues(); ++i) {
+      for (uint i = 1; i < phi->getNumIncomingValues(); ++i) {
         if (singleVal != phi->getIncomingValue(i)) {
           mixingPhi = true;
           break;

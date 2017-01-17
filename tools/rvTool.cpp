@@ -35,7 +35,6 @@
 
 #include "rv/rv.h"
 #include "rv/vectorMapping.h"
-#include "rv/rvInfo.h"
 #include "rv/sleefLibrary.h"
 #include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/Region/LoopRegion.h"
@@ -123,17 +122,6 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     // assert: function is already normalized
 
     Module& mod = *parentFn.getParent();
-    auto* rvInfo = new rv::RVInfo(&mod,
-                                  &mod.getContext(),
-                                  &parentFn,
-                                  &parentFn,
-                                  vectorWidth,
-                                  -1, // mask position
-                                  false /* disableMemAccessAnalysis */,
-                                  false /* disableControlFlowDivAnalysis */,
-                                  false /* disableAllAnalyses */,
-                                  false,
-                                  nullptr);
 
     // set-up for loop vectorization
     rv::VectorMapping targetMapping(&parentFn, &parentFn, vectorWidth);
@@ -146,14 +134,14 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     TargetTransformInfo tti = irAnalysis.run(parentFn);
     TargetLibraryAnalysis libAnalysis;
     TargetLibraryInfo tli = libAnalysis.run(*parentFn.getParent());
-    rv::PlatformInfo platformInfo(&tti, &tli);
+    rv::PlatformInfo platformInfo(mod, &tti, &tli);
 
     // link in SIMD library
     const bool useSSE = false;
     const bool useAVX = true;
     const bool useAVX2 = false;
     const bool useImpreciseFunctions = false;
-  addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
+    addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
 
     // configure initial shape for induction variable
     auto* header = loop.getHeader();
@@ -173,7 +161,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     bool matched = AdjustStride(loop, *xPhi, vectorWidth);
     assert(matched && "could not match ++i loop pattern");
 
-    rv::VectorizerInterface vectorizer(*rvInfo, &parentFn);
+    rv::VectorizerInterface vectorizer(platformInfo);
 
     // vectorizationAnalysis
     vectorizer.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
@@ -188,20 +176,18 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     assert(genMaskOk);
 
     // control conversion
-    bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, postDomTree,
-                                               domTree);
+    bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, domTree);
     assert(linearizeOk);
 
     const DominatorTree domTreeNew(*vecInfo.getMapping()
                                            .scalarFn); // Control conversion does not preserve the domTree so we have to rebuild it for now
-    bool vectorizeOk = vectorizer.vectorize(platformInfo, vecInfo, domTreeNew);
+    bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew);
     assert(vectorizeOk);
 
     // cleanup
-    vectorizer.finalize();
+    vectorizer.finalize(vecInfo);
 
     delete maskAnalysis;
-    delete rvInfo;
 }
 
 // Use case: Outer-loop Vectorizer
@@ -249,20 +235,7 @@ void
 vectorizeFunction(rv::VectorMapping& vectorizerJob)
 {
     Function* scalarFn = vectorizerJob.scalarFn;
-    Function* vectorFn = vectorizerJob.vectorFn;
     Module& mod = *scalarFn->getParent();
-
-    auto* rvInfo = new rv::RVInfo(&mod,
-                                  &mod.getContext(),
-                                  scalarFn,
-                                  vectorFn,
-                                  vectorizerJob.vectorWidth,
-                                  -1, // mask position
-                                  false /* disableMemAccessAnalysis */,
-                                  false /* disableControlFlowDivAnalysis */,
-                                  false /* disableAllAnalyses */,
-                                  false,
-                                  nullptr);
 
     // clone source function for transformations
     ValueToValueMapTy valueMap;
@@ -279,35 +252,26 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     // normalize
     normalizeFunction(*scalarCopy);
 
-    // set-up vectorizer
-    rv::VectorMapping targetMapping = vectorizerJob;
-    targetMapping.scalarFn = scalarCopy;
-    VectorizationInfo vecInfo(targetMapping);
-
-    rv::VectorizerInterface vectorizer(*rvInfo, scalarCopy);
-
+    // platform API
     TargetIRAnalysis irAnalysis;
     TargetTransformInfo tti = irAnalysis.run(*scalarCopy);
     TargetLibraryAnalysis libAnalysis;
     TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent());
-    rv::PlatformInfo platformInfo(&tti, &tli);
+    rv::PlatformInfo platformInfo(mod, &tti, &tli);
 
-#if 0
-    // link in SIMD library
-    const bool useSSE = false;
-    const bool useSSE41 = false;
-    const bool useSSE42 = false;
-    const bool useNEON = false;
-    const bool useAVX = true;
-    rvInfo->addCommonMappings(useSSE, useSSE41, useSSE42, useAVX, useNEON);
-#else
+    rv::VectorizerInterface vectorizer(platformInfo);
+
     // link in SIMD library
     const bool useSSE = false;
     const bool useAVX = true;
     const bool useAVX2 = false;
     const bool useImpreciseFunctions = false;
     addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
-#endif
+
+    // set-up vecInfo overlay and define vectorization job (mapping)
+    rv::VectorMapping targetMapping = vectorizerJob;
+    targetMapping.scalarFn = scalarCopy;
+    VectorizationInfo vecInfo(targetMapping);
 
     // build Analysis
     DominatorTree domTree(*scalarCopy);
@@ -339,17 +303,16 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     assert(genMaskOk);
 
     // control conversion
-    bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, postDomTree,
-                                               domTree);
+    bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, domTree);
     assert(linearizeOk);
 
-    const DominatorTree domTreeNew(*vecInfo.getMapping()
-                                           .scalarFn); // Control conversion does not preserve the domTree so we have to rebuild it for now
-    bool vectorizeOk = vectorizer.vectorize(platformInfo, vecInfo, domTreeNew);
+    // Control conversion does not preserve the domTree so we have to rebuild it for now
+    const DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn);
+    bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew);
     assert(vectorizeOk);
 
     // cleanup
-    vectorizer.finalize();
+    vectorizer.finalize(vecInfo);
 
     delete maskAnalysis;
     scalarCopy->eraseFromParent();

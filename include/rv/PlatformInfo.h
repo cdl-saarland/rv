@@ -19,10 +19,12 @@ namespace rv {
     unsigned vectorWidth;
   };
 
+  typedef std::map<const Function *, const VectorMapping *> VectorFuncMap;
+
   class PlatformInfo {
-    typedef std::map<const Function *, const VectorMapping *> FuncToVecMapping;
   public:
-    PlatformInfo(TargetTransformInfo *TTI, TargetLibraryInfo *TLI);
+    PlatformInfo(Module & mod, TargetTransformInfo *TTI, TargetLibraryInfo *TLI);
+    ~PlatformInfo();
 
     void addMapping(const Function *function, const VectorMapping *mapping);
 
@@ -41,11 +43,26 @@ namespace rv {
     Function *requestVectorizedFunction(StringRef funcName, unsigned vectorWidth, Module *insertInto,
                                             bool doublePrecision);
 
+    VectorFuncMap & getFunctionMappings() { return funcMappings; }
+
+    Module & getModule() const { return mod; }
+    LLVMContext & getContext() const { return mod.getContext(); }
+
+    // add a new SIMD function mapping
+    bool addSIMDMapping(rv::VectorMapping & mapping);
+
+    bool addSIMDMapping(const Function& scalarFunction,
+                        const Function& simdFunction,
+                        const int       maskPosition,
+                        const bool      mayHaveSideEffects);
   private:
+    VectorMapping * inferMapping(llvm::Function & scalarFnc, llvm::Function & simdFnc, int maskPos);
+
+    Module & mod;
     TargetTransformInfo *mTTI;
     TargetLibraryInfo *mTLI;
     Module *avx2Mod, *avxMod, *sseMod;
-    FuncToVecMapping funcMappings;
+    VectorFuncMap funcMappings;
     std::vector<VecDesc> commonVectorMappings;
   };
 

@@ -10,7 +10,6 @@
 #ifndef _MASKANALYSIS_H
 #define _MASKANALYSIS_H
 
-#include "rv/rvInfo.h"
 #include "rv/VectorizationInfoProxyPass.h"
 #include "rv/vectorizationInfo.h"
 #include "rv/Region/Region.h"
@@ -18,6 +17,8 @@
 
 #include <llvm/Pass.h>
 #include <llvm/ADT/SmallVector.h>
+#include <llvm/ADT/DenseSet.h>
+#include <llvm/Transforms/Utils/ValueMapper.h>
 
 #include <memory> // shared_ptr, weak_ptr
 
@@ -25,11 +26,13 @@ namespace llvm {
 class Value;
 class BasicBlock;
 class Loop;
+class LoopInfo;
 }
 
 using namespace llvm;
 using namespace rv::MaskGraphUtils;
 using rv::VectorizationInfo;
+using rv::PlatformInfo;
 
 class MaskAnalysis;
 
@@ -50,19 +53,23 @@ public:
 	virtual void print           (raw_ostream& O, const Module* M) const;
 };
 
+namespace rv {
+  class PlatformInfo;
+}
+
 class MaskAnalysis
 {
 public:
-    MaskAnalysis(VectorizationInfo& Vecinfo,
-				 const rv::RVInfo&     RVinfo,
-				 const LoopInfo&    Loopinfo);
-	~MaskAnalysis();
+    MaskAnalysis(PlatformInfo & platInfo,
+                 VectorizationInfo& vecInfo,
+		 const LoopInfo&    Loopinfo);
+    ~MaskAnalysis();
 
-	bool analyze(Function& F);
+    bool analyze(Function& F);
 
-	void print(raw_ostream& O, const Module* M) const;
+    void print(raw_ostream& O, const Module* M) const;
 
-	void invalidateInsertPoints();
+    void invalidateInsertPoints();
 
     typedef DenseMap<const Value*, Value*> MaskValueMapType;
     // This function maps mask values according to the given map.
@@ -141,14 +148,17 @@ public:
     MaskPtr getCombinedLoopExitMaskPtr(const Loop& loop) const;
 
 private:
-	VectorizationInfo& mvInfo;
-    const rv::RVInfo&  mInfo;
+    const rv::PlatformInfo & platInfo;
+    VectorizationInfo& vecInfo;
     const LoopInfo&    mLoopInfo;
 
     DenseMap<const BasicBlock*, BlockMaskInfo*>    mBlockMap;
     DenseMap<const Loop*,       LoopMaskInfo*>     mLoopMaskMap;
     DenseMap<const BasicBlock*, LoopExitMaskInfo*> mLoopExitMap;
     std::vector<MaskPtr>                           mMasks;
+
+    Value * mConstBoolFalse;
+    Value * mConstBoolTrue;
 
     inline MaskPtr createMask(const NodeType type,
                               Instruction*   insertPoint);

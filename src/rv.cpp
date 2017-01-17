@@ -34,10 +34,9 @@
 
 namespace {
 
-void removeTempFunction(Module* mod, const std::string& name)
+void removeTempFunction(Module& mod, const std::string& name)
 {
-    assert (mod);
-    if (Function* tmpFn = mod->getFunction(name))
+    if (Function* tmpFn = mod.getFunction(name))
     {
         assert (tmpFn->use_empty());
         tmpFn->eraseFromParent();
@@ -45,11 +44,11 @@ void removeTempFunction(Module* mod, const std::string& name)
 }
 
 void
-removeUnusedRVLibFunctions(Module* mod)
+removeUnusedRVLibFunctions(Module& mod)
 {
 #define REMOVE_LIB_FN(name) \
     { \
-        Function* fn = mod->getFunction(#name); \
+        Function* fn = mod.getFunction(#name); \
         if (fn && fn->use_empty()) \
         { \
             fn->eraseFromParent(); \
@@ -83,183 +82,34 @@ removeUnusedRVLibFunctions(Module* mod)
 
 namespace rv {
 
-VectorizerInterface::VectorizerInterface(RVInfo& rvInfo, Function* scalarCopy)
-        : mInfo(rvInfo), mScalarFn(scalarCopy)
+VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo)
+        : platInfo(_platInfo)
 {
-    const Function& scalarFunction = *rvInfo.mScalarFunction;
-    const Function& simdFunction = *rvInfo.mSimdFunction;
-    const std::string& scalarName = scalarFunction.getName();
-    const std::string& simdName = simdFunction.getName();
-
-    if (&scalarFunction != &simdFunction) {
-      if (scalarFunction.isVarArg())
-      {
-          throw std::logic_error("ERROR while vectorizing function in module '"
-          + mInfo.mModule->getModuleIdentifier() + "': function '"
-          + scalarName + "' has a variable argument list (not supported)!");
-      }
-
-      if (scalarFunction.isDeclaration())
-      {
-          throw std::logic_error("ERROR while vectorizing function in module '"
-          + mInfo.mModule->getModuleIdentifier() + "': scalar source function '"
-          + scalarName + "' has no body!");
-      }
-
-      if (!simdFunction.isDeclaration())
-      {
-          assert (!simdFunction.getBasicBlockList().empty() &&
-                  "Function is no declaration but does not have basic blocks?!");
-          throw std::logic_error("ERROR while vectorizing function in module '"
-          + mInfo.mModule->getModuleIdentifier() + "': extern target function '"
-          + simdName + "' must not have a body!");
-      }
-
-      if (!verifyFunctionSignaturesMatch(*mScalarFn, simdFunction))
-      {
-          throw std::logic_error("ERROR: Function signatures do not match!\n");
-      }
-    }
-
-    IF_DEBUG {
-      scalarFunction.print(outs());
-      rv::writeFunctionToFile(scalarFunction, scalarName+".ll");
-      rv::writeModuleToFile(*mInfo.mModule, scalarName+".mod.ll");
-      verifyFunction(scalarFunction);
-
-      simdFunction.print(outs());
-    }
-
-    mInfo.configure();
-
-    addPredicateInstrinsics();
-}
-
-/* VectorizerInterface::~VectorizerInterface()
-{
-    // Delete the copy
-    delete mScalarFn;
-}*/
-
-bool
-VectorizerInterface::addSIMDSemantics(const Function& f,
-                                      const bool      isOpUniform,
-                                      const bool      isOpVarying,
-                                      const bool      isOpSequential,
-                                      const bool      isOpSequentialGuarded,
-                                      const bool      isResultUniform,
-                                      const bool      isResultVector,
-                                      const bool      isResultScalars,
-                                      const bool      isAligned,
-                                      const bool      isIndexSame,
-                                      const bool      isIndexConsecutive)
-{
-    // We also map the function to itself so that instruction vectorization
-    // "knows" it and replaces it by itself.
-    const bool mayHaveSideEffects = !isOpUniform && !isResultUniform;
-    mInfo.addSIMDMapping(f, f, -1, mayHaveSideEffects);
-
-    return mInfo.addSIMDSemantics(f,
-                                  isOpUniform,
-                                  isOpVarying,
-                                  isOpSequential,
-                                  isOpSequentialGuarded,
-                                  isResultUniform,
-                                  isResultVector,
-                                  isResultScalars,
-                                  isAligned,
-                                  isIndexSame,
-                                  isIndexConsecutive);
+  addPredicateIntrinsics();
 }
 
 void
-VectorizerInterface::addPredicateInstrinsics() {
-    FunctionType * simdPredTy = FunctionType::get(mInfo.mScalarBoolTy, ArrayRef<Type*>(mInfo.mVectorTyBoolSIMD), false);
-    IF_DEBUG errs() << "SIMD Mapping for mask intrinsic: " << *simdPredTy << "\n";
-    for (Function & func : *mInfo.mModule) {
+VectorizerInterface::addPredicateIntrinsics() {
+    for (Function & func : platInfo.getModule()) {
         bool isMaskPredicate = false;
         if (func.getName() == "rv_any") {
             isMaskPredicate = true;
-            // Function * anySimdFunc = cast<Function>(mInfo->mModule->getOrInsertFunction("rv_any_simd", simdPredTy));
-            // addSIMDMapping(func, *anySimdFunc, -1, false);
         } else if ((func.getName() == "rv_all")) {
             isMaskPredicate = true;
-            // Function * allSimdFunc = cast<Function>(mInfo->mModule->getOrInsertFunction("rv_all_simd", simdPredTy));
-            // addSIMDMapping(func, *allSimdFunc, -1, false);
         }
 
         if (isMaskPredicate) {
-            addSIMDSemantics(func,
-                             true, // isOpUniform
-                             false,// isOpVarying
-                             false,// isOpSequential
-                             false,// isOpSequentialGuarded
-                             true, // isResultUniform
-                             false,// isResultVector
-                             false,// isResultScalars
-                             true, // isAligned
-                             true, // isIndexSame
-                             false // isIndexConsecutive
-            );
+          VectorMapping predMapping(
+                              &func,
+                              &func,
+                              0, // no specific vector width
+                              -1, //
+                              VectorShape::uni(),
+                              {VectorShape::varying()}
+                              );
+          platInfo.addSIMDMapping(predMapping);
         }
     }
-}
-
-bool
-VectorizerInterface::verifyVectorizedType(Type* scalarType, Type* vecType)
-{
-    // Check for uniform equivalence.
-    if (scalarType == vecType) return true;
-    if (rv::typesMatch(scalarType, vecType)) return true;
-
-    // Check for varying equivalence.
-    Type* vectorizedType = rv::vectorizeSIMDType(scalarType, mInfo.mVectorizationFactor);
-    if (rv::typesMatch(vecType, vectorizedType)) return true;
-
-    return false;
-}
-
-bool
-VectorizerInterface::verifyFunctionSignaturesMatch(const Function& f,
-                                                   const Function& f_SIMD)
-{
-    if (f.arg_size() != f_SIMD.arg_size())
-    {
-        errs() << "ERROR: number of function arguments does not match!\n";
-        return false;
-    }
-
-    // check argument and return types
-    Type* scalarReturnType      = f.getReturnType();
-    Type* foundVectorReturnType = f_SIMD.getReturnType();
-
-    if (!verifyVectorizedType(scalarReturnType, foundVectorReturnType))
-    {
-        errs()
-        << "ERROR: return type does not match!\n"
-        << "       scalar      : " << *scalarReturnType << "\n"
-        << "       vec found   : " << *foundVectorReturnType << "\n";
-        return false;
-    }
-
-    for (auto A = f.arg_begin(), extA = f_SIMD.arg_begin();
-         A != f.arg_end() && extA != f_SIMD.arg_end();
-         ++A, ++extA)
-    {
-        Type* scalarType = A->getType();
-        Type* foundVectorType = extA->getType();
-
-        if (!verifyVectorizedType(scalarType, foundVectorType))
-        {
-            errs()
-            << "ERROR: argument type does not match: " << *A << "\n"
-            << "       scalar      : " << *scalarType << "\n"
-            << "       vec found   : " << *foundVectorType << "\n";
-            return false;
-        }
-    }
-
-    return true;
 }
 
 void
@@ -272,45 +122,45 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
 {
     MetadataMaskAnalyzer maskAnalyzer(vectorizationInfo);
 
-    PDA programDependenceAnalysis(vectorizationInfo,
+    PDA programDependenceAnalysis(platInfo,
+                                  vectorizationInfo,
                                   cdg,
                                   dfg,
-                                  mInfo.getVectorFuncMap(),
                                   loopInfo);
 
-    ABAAnalysis abaAnalysis(vectorizationInfo,
-                            mInfo.getVectorFuncMap(),
+    ABAAnalysis abaAnalysis(platInfo,
+                            vectorizationInfo,
                             loopInfo,
                             postDomTree,
                             domTree);
 
-    programDependenceAnalysis.analyze(*mScalarFn);
-    abaAnalysis.analyze(*mScalarFn);
-    maskAnalyzer.markMasks(*mScalarFn);
+    auto & scalarFn = vectorizationInfo.getScalarFunction();
+    programDependenceAnalysis.analyze(scalarFn);
+    abaAnalysis.analyze(scalarFn);
+    maskAnalyzer.markMasks(scalarFn);
 }
 
 MaskAnalysis*
 VectorizerInterface::analyzeMasks(VectorizationInfo& vectorizationInfo, const LoopInfo& loopinfo)
 {
-    MaskAnalysis* maskAnalysis = new MaskAnalysis(vectorizationInfo, mInfo, loopinfo);
-    maskAnalysis->analyze(*mScalarFn);
+    MaskAnalysis* maskAnalysis = new MaskAnalysis(platInfo, vectorizationInfo, loopinfo);
+    maskAnalysis->analyze(vectorizationInfo.getScalarFunction());
     return maskAnalysis;
 }
 
 bool
-VectorizerInterface::generateMasks(VectorizationInfo& vectorizationInfo,
+VectorizerInterface::generateMasks(VectorizationInfo& vecInfo,
                                    MaskAnalysis& maskAnalysis,
                                    const LoopInfo& loopInfo)
 {
-    MaskGenerator maskgenerator(mInfo, vectorizationInfo, maskAnalysis, loopInfo);
-    return maskgenerator.generate(*mScalarFn);
+    MaskGenerator maskgenerator(vecInfo, maskAnalysis, loopInfo);
+    return maskgenerator.generate(vecInfo.getScalarFunction());
 }
 
 bool
 VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
                                   MaskAnalysis& maskAnalysis,
                                   LoopInfo& loopInfo,
-                                  PostDominatorTree& postDomTree,
                                   DominatorTree& domTree)
 {
     // use a fresh domtree here
@@ -334,7 +184,7 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
 }
 
 bool
-VectorizerInterface::vectorize(PlatformInfo &platformInfo, VectorizationInfo &vecInfo, const DominatorTree &domTree)
+VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree)
 {
 #if 0
     // Strip legacy metadata calls
@@ -354,7 +204,7 @@ VectorizerInterface::vectorize(PlatformInfo &platformInfo, VectorizationInfo &ve
 #endif
 
     // vectorize with native
-    native::NatBuilder natBuilder(platformInfo, vecInfo, domTree);
+    native::NatBuilder natBuilder(platInfo, vecInfo, domTree);
     natBuilder.vectorize();
 
     return true;
@@ -368,26 +218,25 @@ IsPredicateIntrinsic(Function & func) {
 }
 
 void
-VectorizerInterface::finalize()
+VectorizerInterface::finalize(VectorizationInfo & vecInfo)
 {
-    const auto & scalarName = mScalarFn->getName();
+    const auto & scalarName = vecInfo.getScalarFunction().getName();
 
-    Function* finalFn = mInfo.mSimdFunction;
+    Function& finalFn = vecInfo.getVectorFunction();
 
-    assert (finalFn);
-    assert (!finalFn->isDeclaration());
+    assert (!finalFn.isDeclaration());
 
     IF_DEBUG {
-      rv::writeFunctionToFile(*finalFn, (finalFn->getName() + ".ll").str());
+      rv::writeFunctionToFile(finalFn, (finalFn.getName() + ".ll").str());
     }
     // Remove all functions that were linked in but are not used.
     // TODO: This is a very bad temporary hack to get the "noise" project
     //       running. We should add functions lazily.
-    removeUnusedRVLibFunctions(mInfo.mModule);
+    removeUnusedRVLibFunctions(platInfo.getModule());
 
     // Remove temporary functions if inserted during mask generation.
-    removeTempFunction(mInfo.mModule, "entryMaskUseFn");
-    removeTempFunction(mInfo.mModule, "entryMaskUseFnSIMD");
+    removeTempFunction(platInfo.getModule(), "entryMaskUseFn");
+    removeTempFunction(platInfo.getModule(), "entryMaskUseFnSIMD");
 
     IF_DEBUG {
             outs() << "### Whole-Function Vectorization of function '" << scalarName

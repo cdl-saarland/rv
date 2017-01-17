@@ -13,7 +13,6 @@
 #include "rv/vectorizationInfo.h"
 #include "rv/pda/DFG.h"
 #include "rv/analysis/maskAnalysis.h"
-#include "rv/analysis/loopLiveValueAnalysis.h"
 #include "rv/rvInfo.h"
 
 using namespace llvm;
@@ -34,7 +33,7 @@ namespace rv {
  */
 class VectorizerInterface {
 public:
-    VectorizerInterface(RVInfo& F, Function* scalarCopy);
+    VectorizerInterface(PlatformInfo & _platform);
     //~VectorizerInterface();
 
     /*
@@ -71,41 +70,24 @@ public:
     bool linearizeCFG(VectorizationInfo& vectorizationInfo,
                       MaskAnalysis& maskAnalysis,
                       LoopInfo& loopInfo,
-                      PostDominatorTree& postDomTree,
                       DominatorTree& domTree);
 
     /*
      * Produce vectorized instructions
      */
     bool
-    vectorize(PlatformInfo &platformInfo, VectorizationInfo &vecInfo,
-              const DominatorTree &domTree);
+    vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree);
 
     /*
      * Ends the vectorization process on this function, removes metadata and
      * writes the function to a file
      */
-    void finalize();
-
-    bool addSIMDSemantics(const Function& f,
-                          const bool      isOpUniform,
-                          const bool      isOpVarying,
-                          const bool      isOpSequential,
-                          const bool      isOpSequentialGuarded,
-                          const bool      isResultUniform,
-                          const bool      isResultVector,
-                          const bool      isResultScalars,
-                          const bool      isAligned,
-                          const bool      isIndexSame,
-                          const bool      isIndexConsecutive);
+    void finalize(VectorizationInfo & vecInfo);
 
 private:
-    RVInfo&                       mInfo;
-    Function*                      mScalarFn;
+    PlatformInfo platInfo;
 
-    bool verifyVectorizedType(Type* scalarType, Type* vecType);
-    bool verifyFunctionSignaturesMatch(const Function& F1, const Function& F2);
-    void addPredicateInstrinsics();
+    void addPredicateIntrinsics();
 };
 
 

@@ -18,7 +18,6 @@
 #include <llvm/IR/Instructions.h>
 
 #include "rv/rvInfo.h"
-#include "rv/rvInfoProxyPass.h"
 
 #include "utils/rvTools.h"
 #include "rvConfig.h"

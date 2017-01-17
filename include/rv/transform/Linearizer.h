@@ -26,6 +26,7 @@
 #include <unordered_map>
 
 namespace llvm {
+  class PHINode;
   class LoopInfo;
   class Loop;
   class BasicBlock;

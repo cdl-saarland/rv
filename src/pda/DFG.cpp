@@ -17,6 +17,7 @@ bool DFGBaseWrapper<forward>::runOnFunction(Function& F)
 
     mDFGBase = new DFGBase<forward>(tree);
     mDFGBase->create(F);
+    return false;
 }
 
 template<bool forward>

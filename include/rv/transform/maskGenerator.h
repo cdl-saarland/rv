@@ -11,7 +11,6 @@
 
 #include <llvm/Pass.h>
 
-#include "rv/rvInfo.h"
 #include "rv/analysis/maskAnalysis.h"
 
 
@@ -40,16 +39,19 @@ public:
 class MaskGenerator
 {
 public:
-    MaskGenerator(rv::RVInfo&, VectorizationInfo&, MaskAnalysis&, const LoopInfo&);
+    MaskGenerator(VectorizationInfo&, MaskAnalysis&, const LoopInfo&);
 	~MaskGenerator();
 
     bool generate(Function& F);
 
 private:
-    rv::RVInfo&        	mInfo;
     VectorizationInfo& 	mvecInfo;
     MaskAnalysis&   	mMaskAnalysis;
     const LoopInfo& 	mLoopInfo;
+
+    Type * boolTy;
+    Value * mConstBoolTrue;
+    Value * mConstBoolFalse;
 
     void markMaskOperation(Instruction& maskOp);
     void materializeMasks(Function& f);

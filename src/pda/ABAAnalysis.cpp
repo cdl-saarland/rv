@@ -8,7 +8,6 @@
 // @authors kloessner
 //
 
-#include "rv/rvInfoProxyPass.h"
 #include "rv/pda/ABAAnalysis.h"
 
 #include "rvConfig.h"
@@ -29,7 +28,6 @@ ABAAnalysisWrapper::getAnalysisUsage(AnalysisUsage& Info) const
     Info.addRequired<PostDominatorTree>();
     Info.addRequired<LoopInfoWrapperPass>();
     Info.addRequired<VectorizationInfoProxyPass>();
-    Info.addRequired<RVInfoProxyPass>();
 
     Info.setPreservesAll();
 }
@@ -37,14 +35,14 @@ ABAAnalysisWrapper::getAnalysisUsage(AnalysisUsage& Info) const
 bool
 ABAAnalysisWrapper::runOnFunction(Function& F)
 {
-    VectorizationInfo& vectorizationInfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
-    native::VectorMappingMap& funcInfo   = getAnalysis<RVInfoProxyPass>().getInfo().getVectorFuncMap();
+    auto& vecInfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
+    auto& platInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
     const LoopInfo& loopInfo             = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
     const PostDominatorTree& postDomTree = getAnalysis<PostDominatorTree>();
     const DominatorTree& domTree         = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
 
-    ABAAnalysis Analysis(vectorizationInfo,
-                         funcInfo,
+    ABAAnalysis Analysis(platInfo,
+                         vecInfo,
                          loopInfo,
                          postDomTree,
                          domTree);
@@ -54,13 +52,13 @@ ABAAnalysisWrapper::runOnFunction(Function& F)
     return false;
 }
 
-ABAAnalysis::ABAAnalysis(VectorizationInfo& vecInfo,
-                         native::VectorMappingMap& funcInfo,
+ABAAnalysis::ABAAnalysis(PlatformInfo & platInfo,
+                         VectorizationInfo& vecInfo,
                          const LoopInfo& loopInfo,
                          const PostDominatorTree& postDomTree,
                          const DominatorTree& domTree)
         : mVecinfo(vecInfo),
-          mFuncinfo(funcInfo),
+          mFuncinfo(platInfo.getFunctionMappings()),
           mLoopInfo(loopInfo),
           mPostDomTree(postDomTree),
           mDomTree(domTree),
