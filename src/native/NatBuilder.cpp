@@ -32,7 +32,7 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     i1Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
     region(vectorizationInfo.getRegion()),
-    useScatterGatherIntrinsics(false),
+    useScatterGatherIntrinsics(true),
     cascadeLoadMap(),
     cascadeStoreMap(),
     vectorValueMap(),
