@@ -160,6 +160,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     bool matched = AdjustStride(loop, *xPhi, vectorWidth);
     assert(matched && "could not match ++i loop pattern");
+    if (!matched) abort();
 
     rv::VectorizerInterface vectorizer(platformInfo);
 
@@ -174,15 +175,18 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     // mask generator
     bool genMaskOk = vectorizer.generateMasks(vecInfo, *maskAnalysis, loopInfo);
     assert(genMaskOk);
+    if (!genMaskOk) abort();
 
     // control conversion
     bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, domTree);
     assert(linearizeOk);
+    if (!linearizeOk) abort();
 
     const DominatorTree domTreeNew(*vecInfo.getMapping()
                                            .scalarFn); // Control conversion does not preserve the domTree so we have to rebuild it for now
     bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew);
     assert(vectorizeOk);
+    if (!vectorizeOk) abort();
 
     // cleanup
     vectorizer.finalize(vecInfo);
@@ -301,15 +305,18 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     // mask generator
     bool genMaskOk = vectorizer.generateMasks(vecInfo, *maskAnalysis, loopInfo);
     assert(genMaskOk);
+    if (!genMaskOk) abort();
 
     // control conversion
     bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, domTree);
     assert(linearizeOk);
+    if (!linearizeOk) abort();
 
     // Control conversion does not preserve the domTree so we have to rebuild it for now
     const DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn);
     bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew);
     assert(vectorizeOk);
+    if (!vectorizeOk) abort();
 
     // cleanup
     vectorizer.finalize(vecInfo);

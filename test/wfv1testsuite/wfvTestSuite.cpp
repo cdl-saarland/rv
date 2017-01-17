@@ -123,11 +123,14 @@ inferTargetMapping(Function * scalarFn, Function * simdFn, uint vectorWidth, int
         MaskAnalysis* maskAnalysis = wfv.analyzeMasks(vecInfo, loopInfo);\
         assert(maskAnalysis); \
         bool genMaskOk = wfv.generateMasks(vecInfo, *maskAnalysis, loopInfo); \
+        (void) genMaskOk; \
         assert(genMaskOk); \
         bool linearizeOk = wfv.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, domTree); \
+        (void) linearizeOk; \
         assert(linearizeOk); \
 	    DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn); \
         bool vectorizeOk = wfv.vectorize(vecInfo, domTreeNew); \
+        (void) vectorizeOk; \
         assert(vectorizeOk); \
         wfv.finalize(vecInfo); \
         delete maskAnalysis; \
@@ -212,11 +215,14 @@ inferTargetMapping(Function * scalarFn, Function * simdFn, uint vectorWidth, int
         MaskAnalysis* maskAnalysis = wfv.analyzeMasks(vecInfo, loopInfo); \
         assert(maskAnalysis); \
         bool genMaskOk = wfv.generateMasks(vecInfo, *maskAnalysis, loopInfo); \
+        (void) genMaskOk; \
         assert(genMaskOk); \
         bool linearizeOk = wfv.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, domTree); \
+        (void) linearizeOk; \
         assert(linearizeOk); \
         DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn); \
         bool vectorizeOk = wfv.vectorize(vecInfo, domTreeNew); \
+        (void) vectorizeOk; \
         assert(vectorizeOk); \
         wfv.finalize(vecInfo); \
         delete maskAnalysis; \
@@ -534,10 +540,12 @@ main(int argc, char** argv)
         // Create "native" functions for call9/call10.
         llvm::Function* noinlinecall2      = LLVMWrapper::getFunction("noinlinecall2",
                                                                       module);
+        (void) noinlinecall2;
         llvm::Function* noinlinecall2_SIMD = LLVMWrapper::getFunction("noinlinecall2_SIMD",
                                                                       module);
         llvm::Function* noinlinecall3      = LLVMWrapper::getFunction("noinlinecall3",
                                                                       module);
+        (void) noinlinecall3;
         llvm::Function* noinlinecall3_SIMD = LLVMWrapper::getFunction("noinlinecall3_SIMD",
                                                                       module);
         assert (noinlinecall2 && noinlinecall2_SIMD &&
