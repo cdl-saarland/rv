@@ -156,6 +156,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       if (!lazyInstructions.empty())
         requestLazyInstructions(lazyInstructions.back());
       assert(lazyInstructions.empty() && "not all lazy instructions vectorized!!");
+      instructionGrouper.clearAll();
     }
 
     PHINode *phi = dyn_cast<PHINode>(inst);
@@ -733,50 +734,13 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     mapVectorValue(inst, vecMem);
 }
 
-void NatBuilder::groupLazyLoads() {
-  // run over lazy memory instructions and try to group the load instructions
-  // is groupable if the following conditions are met
-  // 1. strided shape
-  // 2. same type
-  // 3. no dependent memory instruction in-between
-  std::vector<Instruction *> seenStoresAndCalls;
-  LoadInst *load;
-  StoreInst *store;
-  CallInst *call;
-
-  for (Instruction *instr : lazyInstructions) {
-    load = dyn_cast<LoadInst>(instr);
-    store = dyn_cast<StoreInst>(instr);
-    call = dyn_cast<CallInst>(instr);
-
-    if (!(load || store || call))
-      continue;
-
-    if (load) {
-      Type *loadType = load->getType();
-      VectorShape shape = vectorizationInfo.getVectorShape(*load);
-      unsigned byteSize = static_cast<int>(layout.getTypeStoreSize(loadType));
-      bool byteContiguous = shape.isStrided(byteSize);
-
-      if (!shape.isStrided() || byteContiguous)
-        continue;
-
-      auto groupIt = grouperMap.find(loadType);
-      if (groupIt == grouperMap.end())
-        grouperMap[loadType] = MemoryAccessGrouper(SE, byteSize);
-
-      MemoryAccessGrouper &memGrouper = grouperMap[loadType];
-      memGrouper.add(load);
-      // TODO: the code above is not correct. maybe modify MemoryAccessGrouper to avoid grouping twice?
-    }
-  }
-}
-
 void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
   assert(!lazyInstructions.empty() && "no lazy instructions to generate!");
 
   // group lazy loads first
-  groupLazyLoads();
+  for (Instruction *instr : lazyInstructions) {
+    instructionGrouper.add(instr, memDepAnalysis);
+  }
 
   Instruction *lazyInstr = lazyInstructions.front();
   lazyInstructions.pop_front();

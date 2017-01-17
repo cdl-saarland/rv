@@ -49,6 +49,7 @@ namespace native {
     rv::Region *region;
 
     bool useScatterGatherIntrinsics;
+    InstructionGrouper instructionGrouper;
 
 
   public:
@@ -91,8 +92,6 @@ namespace native {
     std::map<const llvm::Type *, MemoryAccessGrouper> grouperMap;
     std::vector<llvm::PHINode *> phiVector;
     std::deque<llvm::Instruction *> lazyInstructions;
-
-    void groupLazyLoads();
 
     void requestLazyInstructions(llvm::Instruction *const upToInstruction);
     llvm::Value *requestVectorValue(llvm::Value *const value);

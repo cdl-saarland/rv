@@ -133,3 +133,54 @@ bool MemoryAccessGrouper::getConstantOffset(const SCEV *a, const SCEV *b, int &o
 }
 
 // MemoryAccessGrouper_END
+
+// InstructionGroup_BEGIN
+
+InstructionGroup::InstructionGroup(Instruction *element) :
+  isStoreGroup(isa<StoreInst>(element)),
+  elements(1, element),
+  passedMemoryAndCallInstructions(0) {}
+
+InstructionGroup::InstructionGroup() :
+  isStoreGroup(false),
+  elements(0),
+  passedMemoryAndCallInstructions(0) {}
+
+bool InstructionGroup::insert(Instruction *element, MemoryDependenceAnalysis &MDA) {
+  const LoadInst *load = dyn_cast<LoadInst>(element);
+  const CallInst *call = dyn_cast<CallInst>(element);
+  if ((load && isStoreGroup) || (!load && !isStoreGroup) || call) {
+    passedMemoryAndCallInstructions.push_back(element);
+    return false;
+  }
+
+  Instruction *dependentInst = MDA.getDependency(element).getInst();
+  auto findIt = std::find(passedMemoryAndCallInstructions.begin(), passedMemoryAndCallInstructions.end(), dependentInst);
+  if (findIt != passedMemoryAndCallInstructions.end())
+    return false;
+
+  elements.push_back(element);
+  return true;
+}
+
+// InstructionGroup_END
+
+// InstructionGrouper_BEGIN
+
+void InstructionGrouper::add(Instruction *instr, MemoryDependenceAnalysis &MDA) {
+  // try to find existing group
+  for (InstructionGroup instrGroup : instructionGroups) {
+    if (instrGroup.insert(instr, MDA))
+      return;
+  }
+
+  // new group
+  InstructionGroup freshGroup(instr);
+  instructionGroups.push_back(freshGroup);
+}
+
+void InstructionGrouper::clearAll() {
+  instructionGroups = std::vector<InstructionGroup>();
+}
+
+// InstructionGrouper_END
