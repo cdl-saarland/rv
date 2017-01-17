@@ -192,10 +192,11 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
           copyInstruction(inst, lane);
         }
     } else if (gep) {
-      unsigned laneEnd = shouldVectorize(gep) ? vectorWidth() : 1;
-      for (unsigned lane = 0; lane < laneEnd; ++lane) {
-        copyGEPInstruction(gep, lane, laneEnd == vectorWidth());
-      }
+//      unsigned laneEnd = shouldVectorize(gep) ? vectorWidth() : 1;
+//      for (unsigned lane = 0; lane < laneEnd; ++lane) {
+//        vectorizeGEPInstruction(gep, lane, laneEnd == vectorWidth());
+//      }
+      vectorizeGEPInstruction(gep, shouldVectorize(gep));
     } else if (canVectorize(inst) && shouldVectorize(inst))
       vectorize(inst);
     else if (!canVectorize(inst) && shouldVectorize(inst))
@@ -243,21 +244,21 @@ void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
   phiVector.push_back(scalPhi);
 }
 
-void NatBuilder::copyGEPInstruction(GetElementPtrInst *const gep, unsigned laneIdx, bool vectorizeOperands) {
+void NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const gep, bool buildVectorGEP) {
   assert(gep->getNumOperands() - 1 == gep->getNumIndices() && "LLVM Code for GEP changed!");
-  Value *ptr = requestScalarValue(gep->getPointerOperand(), laneIdx);
+  Value *ptr = requestScalarValue(gep->getPointerOperand());
   Value **idxList = new Value *[gep->getNumIndices()];
   for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
-    // vectorize operands once
     Value *operand = gep->getOperand(i + 1);
-    if (laneIdx == 0 && vectorizeOperands)
-      requestVectorValue(operand);
-    idxList[i] = requestScalarValue(operand, laneIdx);
+    idxList[i] = buildVectorGEP ? requestVectorValue(operand) : requestScalarValue(operand);
   }
   GetElementPtrInst *cgep = cast<GetElementPtrInst>(
       builder.CreateGEP(ptr, ArrayRef<Value *>(idxList, gep->getNumIndices()), gep->getName()));
   cgep->setIsInBounds(gep->isInBounds());
-  mapScalarValue(gep, cgep, laneIdx);
+  if (buildVectorGEP)
+    mapVectorValue(gep, cgep);
+  else
+    mapScalarValue(gep, cgep);
   delete [] idxList;
 }
 
