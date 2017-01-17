@@ -10,6 +10,9 @@
 
 #include "rv/pda/ABAAnalysis.h"
 
+#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/IR/Dominators.h>
+
 #include "rvConfig.h"
 
 namespace rv {

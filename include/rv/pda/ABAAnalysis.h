@@ -23,10 +23,15 @@
 #include "DFG.h"
 
 #include "rv/vectorizationInfo.h"
-#include "rv/rvInfo.h"
 #include "rv/VectorizationInfoProxyPass.h"
 #include "rv/Region/Region.h"
 #include "rv/PlatformInfo.h"
+
+namespace llvm {
+  class LoopInfo;
+  class PostDominatorTree;
+  class DominatorTree;
+}
 
 namespace rv {
 

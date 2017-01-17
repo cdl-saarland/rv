@@ -16,6 +16,8 @@
 #include "utils/rvTools.h"
 #include "rv/utils/mathUtils.h"
 
+#include <llvm/Analysis/LoopInfo.h>
+
 #if 1
 #define IF_DEBUG_PDA IF_DEBUG
 #else
@@ -48,6 +50,18 @@ using ValueMap = std::map<const Value*, VectorShape>;
 // #define BYTE_SIZE 8
 
 char PDAWrapperPass::ID = 0;
+
+void
+PDAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
+  Info.addRequired<DominatorTreeWrapperPass>();
+  Info.addRequired<PostDominatorTree>();
+  Info.addRequired<DFGBaseWrapper<true>>();
+  Info.addRequired<DFGBaseWrapper<false>>();
+  Info.addRequired<LoopInfoWrapperPass>();
+  Info.addRequired<VectorizationInfoProxyPass>();
+
+  Info.setPreservesAll();
+}
 
 bool
 PDAWrapperPass::runOnFunction(Function& F) {

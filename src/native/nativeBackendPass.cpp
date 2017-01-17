@@ -8,7 +8,6 @@
 // @author simon
 
 #include "rv/VectorizationInfoProxyPass.h"
-#include "rv/rvInfo.h"
 
 #include "NatBuilder.h"
 #include "nativeBackendPass.h"

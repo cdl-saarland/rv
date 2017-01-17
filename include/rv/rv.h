@@ -13,7 +13,6 @@
 #include "rv/vectorizationInfo.h"
 #include "rv/pda/DFG.h"
 #include "rv/analysis/maskAnalysis.h"
-#include "rv/rvInfo.h"
 
 using namespace llvm;
 
@@ -97,6 +96,7 @@ private:
   void lowerPredicateIntrinsics(Function & scalarFunc);
   void lowerPredicateIntrinsics(Module & mod);
 
+  bool typesMatch(llvm::Type* t1, llvm::Type* t2);
 }
 
 #endif // RV_RV_H

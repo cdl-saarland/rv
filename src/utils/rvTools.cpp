@@ -34,7 +34,6 @@
 #include <llvm/Support/raw_ostream.h>
 
 #include "rvConfig.h"
-#include "rv/rvInfo.h"
 
 #include "analysis/analysisCfg.h"
 
@@ -341,31 +340,6 @@ rv::HasVaryingBranch(const llvm::BasicBlock & block, const VectorizationInfo& ve
             !vecInfo.getVectorShape(*term).isUniform());
 }
 
-
-// Find out which parameters of the scalar function remain scalar in the simd function.
-void
-rv::findUniformArguments(const Function&          scalarFn,
-                          const Function&          vectorFn,
-                          SmallVector<bool, 4>&    uniformArgs,
-                          const rv::ValueInfoMap* valueInfoMap,
-                          const int                maskIndex)
-{
-    uniformArgs.resize(scalarFn.getArgumentList().size(), false);
-
-    int i = 0;
-    Function::const_arg_iterator A_SCALAR = scalarFn.arg_begin();
-
-    for (Function::const_arg_iterator A = vectorFn.arg_begin(),
-            AE = vectorFn.arg_end(); A != AE; ++A, ++A_SCALAR, ++i)
-    {
-        if (i == maskIndex) continue;
-        uniformArgs[i] = rv::typesMatch(A_SCALAR->getType(), A->getType());
-        if (uniformArgs[i]) errs() << *A_SCALAR << " to " << *A << " uniform\n";
-        if (!valueInfoMap || !uniformArgs[i]) continue;
-        if (!valueInfoMap->hasMapping(*A_SCALAR)) continue;
-        uniformArgs[i] = valueInfoMap->get(*A_SCALAR).mIsResultUniform;
-    }
-}
 
 bool
 rv::hasUniformReturn(const Function& scalarFn,
@@ -1356,51 +1330,6 @@ rv::findTopLevelLoopOfExit(Loop*           loop,
 
     // Otherwise, recurse into parent loop.
     return findTopLevelLoopOfExit(parentLoop, exitingBlock, exitBlock, loopInfo);
-}
-
-Instruction*
-rv::generateAlignedAlloc(Type*          targetType,
-                          const RVInfo& mInfo,
-                          Instruction*   insertBefore)
-{
-    assert (targetType && insertBefore);
-
-    // Always generate alloca's in entry block of function.
-    insertBefore = insertBefore->getParent()->getParent()->getEntryBlock().getTerminator();
-    assert (insertBefore);
-
-    AllocaInst* structPtr = new AllocaInst(targetType,
-                                           mInfo.mConstInt32Two,
-                                           mInfo.mAlignmentSIMD,
-                                           "",
-                                           insertBefore);
-
-    IntegerType* intPtrType = mInfo.mDataLayout->getIntPtrType(*mInfo.mContext);
-    PtrToIntInst* ptr2IntInst = new PtrToIntInst(structPtr,
-                                                 intPtrType,
-                                                 "",
-                                                 insertBefore);
-
-    ConstantInt* intMinus16 = ConstantInt::get(intPtrType, -16, true);
-    BinaryOperator* andInst = BinaryOperator::Create(Instruction::And,
-                                                     ptr2IntInst,
-                                                     intMinus16,
-                                                     "",
-                                                     insertBefore);
-
-    ConstantInt* intPlus16 = ConstantInt::get(intPtrType, 16, true);
-    BinaryOperator* addInst = BinaryOperator::Create(Instruction::Add,
-                                                     andInst,
-                                                     intPlus16,
-                                                     "",
-                                                     insertBefore);
-
-    IntToPtrInst* int2PtrInst = new IntToPtrInst(addInst,
-                                                 structPtr->getType(),
-                                                 "",
-                                                 insertBefore);
-
-    return int2PtrInst;
 }
 
 Module*

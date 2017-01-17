@@ -17,8 +17,6 @@
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/Instructions.h>
 
-#include "rv/rvInfo.h"
-
 #include "utils/rvTools.h"
 #include "rvConfig.h"
 

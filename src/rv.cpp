@@ -9,8 +9,11 @@
 //
 
 #include <llvm/Transforms/Utils/Cloning.h>
-#include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/LegacyPassManager.h>
+
+#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/IR/Dominators.h>
+#include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Verifier.h>
 
 #include <rv/rv.h>
@@ -19,9 +22,9 @@
 #include <rv/analysis/maskAnalysis.h>
 #include <rv/analysis/MetadataMaskAnalyzer.h>
 #include <rv/transform/maskGenerator.h>
-#include <rv/analysis/vectorizationAnalysis.h>
 #include <rv/transform/loopExitCanonicalizer.h>
 #include <rv/pda/ABAAnalysis.h>
+#include "utils/rvTools.h"
 
 #include "rv/transform/Linearizer.h"
 

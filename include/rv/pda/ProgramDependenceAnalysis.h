@@ -30,10 +30,13 @@
 
 #include "rv/vectorizationInfo.h"
 #include "rv/vectorMapping.h"
-#include "rv/rvInfo.h"
 #include "rv/VectorizationInfoProxyPass.h"
 #include "rv/Region/Region.h"
 #include "rv/PlatformInfo.h"
+
+namespace llvm {
+  class LoopInfo;
+}
 
 namespace rv {
 
@@ -44,17 +47,7 @@ public:
   PDAWrapperPass(const PDAWrapperPass&) = delete;
   PDAWrapperPass& operator=(PDAWrapperPass) = delete;
 
-  void getAnalysisUsage(AnalysisUsage& Info) const override {
-    Info.addRequired<DominatorTreeWrapperPass>();
-    Info.addRequired<PostDominatorTree>();
-    Info.addRequired<DFGBaseWrapper<true>>();
-    Info.addRequired<DFGBaseWrapper<false>>();
-    Info.addRequired<LoopInfoWrapperPass>();
-    Info.addRequired<VectorizationInfoProxyPass>();
-
-    Info.setPreservesAll();
-  }
-
+  void getAnalysisUsage(AnalysisUsage& Info) const override;
   bool runOnFunction(Function& F) override;
 
   // void print(llvm::raw_ostream& O, const Module* M) const override;

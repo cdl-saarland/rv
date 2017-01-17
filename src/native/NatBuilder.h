@@ -12,7 +12,6 @@
 
 #include <vector>
 
-#include <rv/rvInfo.h>
 #include <rv/analysis/maskAnalysis.h>
 #include <rv/vectorizationInfo.h>
 #include <rv/PlatformInfo.h>

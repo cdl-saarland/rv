@@ -13,7 +13,6 @@
 #include <string.h> //strcmp
 #include <iostream>
 
-#include <rv/rvInfo.h>
 #include "llvmWrapper.h"
 
 #include <llvm/IR/Verifier.h>
@@ -24,6 +23,33 @@
 #include <rv/transform/loopExitCanonicalizer.h>
 #include <rv/vectorMapping.h>
 #include <rv/sleefLibrary.h>
+
+rv::VectorMapping
+inferTargetMapping(Function * scalarFn, Function * simdFn, uint vectorWidth, int maskPos = -1) {
+  using namespace rv;
+
+  VectorShape resultShape;
+  VectorShapeVec argShapes;
+
+  auto itVectorArg = simdFn->getArgumentList().begin();
+  for (const Argument & arg : scalarFn->getArgumentList()) {
+    VectorShape shape;
+    Type* vectorArgTy = itVectorArg->getType();
+    Type* scalarType = arg.getType();
+    const bool isUniform  = typesMatch(scalarType, vectorArgTy);
+
+    if (isUniform) {
+      shape = VectorShape::uni();
+    } else {
+      shape = VectorShape::varying();
+    }
+
+    argShapes.push_back(shape);
+    ++itVectorArg;
+  }
+
+  return VectorMapping(scalarFn, simdFn, vectorWidth, maskPos, resultShape, argShapes);
+}
 
 #define RV_RUN_ON_FUNCTION_NEW_INTERFACE_BEGIN(scalarName) \
     Function* scalarName = LLVMWrapper::getFunction(#scalarName, module); \
@@ -45,21 +71,8 @@
         FPM.add(createLCSSAPass()); \
         FPM.run(*scalarName); \
         \
-        TimerGroup* timer = new TimerGroup("Whole-Function Vectorization"); \
-        rv::RVInfo* rvInfo = new rv::RVInfo(module, \
-                                       &module->getContext(), \
-                                       scalarName, \
-                                       scalarName##_SIMD, \
-                                       vectorizationFactor, \
-                                       -1, \
-                                       disableMemAccessAnalysis, \
-                                       disableControlFlowDivAnalysis, \
-                                       disableAllAnalyses, \
-                                       verbose, \
-                                       timer); \
-        \
         ValueToValueMapTy valueMap; \
-        const Function* scalarFunction = rvInfo->mScalarFunction; \
+        const Function* scalarFunction = module->getFunction(#scalarName); \
         Function* scalarCopy = llvm::CloneFunction(scalarFunction, valueMap, false); \
         \
         assert (scalarCopy); \
@@ -68,19 +81,18 @@
         scalarCopy->setAlignment(scalarFunction->getAlignment()); \
         scalarCopy->setLinkage(GlobalValue::InternalLinkage); \
         scalarCopy->setName(scalarFunction->getName()+".wfv.tmp"); \
-        rvInfo->mModule->getFunctionList().push_back(scalarCopy); \
+        module->getFunctionList().push_back(scalarCopy); \
         \
         /* Map all user-defined uniform/consecutive/aligned values */ \
         /* from the original scalar source function to the function */ \
         /* that we will be working on (tempF). */ \
-        rvInfo->mValueInfoMap.mapValueInformation(valueMap); \
         \
         TargetIRAnalysis irAnalysis; \
         TargetTransformInfo tti = irAnalysis.run(*scalarCopy); \
         TargetLibraryAnalysis libAnalysis; \
         TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent()); \
-        rv::PlatformInfo platformInfo(&tti, &tli); \
-        rv::VectorizerInterface wfv(*rvInfo, scalarCopy); \
+        rv::PlatformInfo platformInfo(*module, &tti, &tli); \
+        rv::VectorizerInterface wfv(platformInfo); \
         /* link in SIMD library */ \
         const bool useSSE = false; \
         const bool useAVX = true; \
@@ -104,7 +116,7 @@
 
 
 #define RV_RUN_ON_FUNCTION_NEW_INTERFACE_END(scalarName) \
-        rv::VectorMapping targetMapping = rvInfo->inferTargetMapping(scalarCopy); \
+        rv::VectorMapping targetMapping = inferTargetMapping(scalarCopy, scalarName##_SIMD, vectorizationFactor); \
         VectorizationInfo vecInfo(targetMapping); \
         \
         wfv.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);\
@@ -112,12 +124,12 @@
         assert(maskAnalysis); \
         bool genMaskOk = wfv.generateMasks(vecInfo, *maskAnalysis, loopInfo); \
         assert(genMaskOk); \
-        bool linearizeOk = wfv.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, postDomTree, domTree); \
+        bool linearizeOk = wfv.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, domTree); \
         assert(linearizeOk); \
 	    DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn); \
-        bool vectorizeOk = wfv.vectorize(platformInfo, vecInfo, domTreeNew); \
+        bool vectorizeOk = wfv.vectorize(vecInfo, domTreeNew); \
         assert(vectorizeOk); \
-        wfv.finalize(); \
+        wfv.finalize(vecInfo); \
         delete maskAnalysis; \
         scalarCopy->eraseFromParent(); \
     } \
@@ -151,21 +163,8 @@
     } \
     if (scalarName && scalarName##_SIMD) \
     { \
-        TimerGroup* timer = new TimerGroup("Whole-Function Vectorization"); \
-        rv::RVInfo* rvInfo = new rv::RVInfo(module, \
-                                       &module->getContext(), \
-                                       scalarName, \
-                                       scalarName##_SIMD, \
-                                       vectorizationFactor, \
-                                       -1, \
-                                       disableMemAccessAnalysis, \
-                                       disableControlFlowDivAnalysis, \
-                                       disableAllAnalyses, \
-                                       verbose, \
-                                       timer); \
-        \
         ValueToValueMapTy valueMap; \
-        const Function* scalarFunction = rvInfo->mScalarFunction; \
+        const Function* scalarFunction = module->getFunction(#scalarName); \
         Function* scalarCopy = llvm::CloneFunction(scalarFunction, valueMap, false); \
         \
         assert (scalarCopy); \
@@ -174,19 +173,17 @@
         scalarCopy->setAlignment(scalarFunction->getAlignment()); \
         scalarCopy->setLinkage(GlobalValue::InternalLinkage); \
         scalarCopy->setName(scalarFunction->getName()+".wfv.tmp"); \
-        rvInfo->mModule->getFunctionList().push_back(scalarCopy); \
+        module->getFunctionList().push_back(scalarCopy); \
         \
         /* Map all user-defined uniform/consecutive/aligned values */ \
         /* from the original scalar source function to the function */ \
         /* that we will be working on (tempF). */ \
-        rvInfo->mValueInfoMap.mapValueInformation(valueMap); \
-        \
         TargetIRAnalysis irAnalysis; \
         TargetTransformInfo tti = irAnalysis.run(*scalarCopy); \
         TargetLibraryAnalysis libAnalysis; \
         TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent()); \
-        rv::PlatformInfo platformInfo(&tti, &tli); \
-        rv::VectorizerInterface wfv(*rvInfo, scalarCopy); \
+        rv::PlatformInfo platformInfo(*module, &tti, &tli); \
+        rv::VectorizerInterface wfv(platformInfo); \
         /* link in SIMD library */ \
         const bool useSSE = false; \
         const bool useAVX = true; \
@@ -208,9 +205,7 @@
         LoopExitCanonicalizer canonicalizer(loopInfo); \
         canonicalizer.canonicalize(*scalarCopy); \
         \
-        rvInfo->addSIMDMapping(*calledFnName, *calledFnName##_SIMD, maskIndex, true); \
-        \
-        rv::VectorMapping targetMapping = rvInfo->inferTargetMapping(scalarCopy); \
+        rv::VectorMapping targetMapping = inferTargetMapping(scalarCopy, scalarName##_SIMD, vectorizationFactor, maskIndex); \
         VectorizationInfo vecInfo(targetMapping); \
         \
         wfv.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree); \
@@ -218,12 +213,12 @@
         assert(maskAnalysis); \
         bool genMaskOk = wfv.generateMasks(vecInfo, *maskAnalysis, loopInfo); \
         assert(genMaskOk); \
-        bool linearizeOk = wfv.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, postDomTree, domTree); \
+        bool linearizeOk = wfv.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, domTree); \
         assert(linearizeOk); \
         DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn); \
-        bool vectorizeOk = wfv.vectorize(platformInfo, vecInfo, domTreeNew); \
+        bool vectorizeOk = wfv.vectorize(vecInfo, domTreeNew); \
         assert(vectorizeOk); \
-        wfv.finalize(); \
+        wfv.finalize(vecInfo); \
         delete maskAnalysis; \
         scalarCopy->eraseFromParent(); \
         if (verifyFunction(*calledFnName##_SIMD)) abort(); \
@@ -337,11 +332,7 @@ main(int argc, char** argv)
     //                           read arguments                              //
     ///////////////////////////////////////////////////////////////////////////
 
-    bool        verbose                       = false;
     bool        useAVX                        = false;
-    bool        disableMemAccessAnalysis      = false;
-    bool        disableControlFlowDivAnalysis = false;
-    bool        disableAllAnalyses            = false;
     bool        optimize                      = true;
     bool        verify                        = true;
     bool        dump                          = false;
@@ -367,26 +358,6 @@ main(int argc, char** argv)
         if (strcmp(argv[i], "-no-avx") == 0)
         {
             useAVX = false;
-            continue;
-        }
-        if (strcmp(argv[i], "-no-mem-analysis") == 0)
-        {
-            disableMemAccessAnalysis = true;
-            continue;
-        }
-        if (strcmp(argv[i], "-no-cf-analysis") == 0)
-        {
-            disableControlFlowDivAnalysis = true;
-            continue;
-        }
-        if (strcmp(argv[i], "-no-analyses") == 0)
-        {
-            disableAllAnalyses = true;
-            continue;
-        }
-        if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "-verbose") == 0)
-        {
-            verbose = true;
             continue;
         }
         if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "-dump") == 0)
@@ -442,13 +413,9 @@ main(int argc, char** argv)
     {
         std::cerr << "Usage: " << argv[0] << "\n"
                   << "Options:\n"
-                  << "  -no-mem-analysis : disable memory access analysis\n"
-                  << "  -no-cf-analysis  : disable control flow divergence analysis\n"
-                  << "  -no-analyses     : disable all analyses\n"
                   << "  -no-sse41        : disable generation of SSE4.1 intrinsics\n"
                   << "  -mavx            : enable generation of AVX intrinsics\n"
                   << "  -no-avx          : disable generation of AVX intrinsics\n"
-                  << "  -v -verbose      : enable verbose output (only valid for debug builds)\n"
                   << "  -O0 -no-opt      : disable module optimization after WFV\n"
                   << "  -no-verify       : disable verification of module after WFV\n"
                   << "  -d -dump         : enable dumping of test module\n"
@@ -577,7 +544,7 @@ main(int argc, char** argv)
                 noinlinecall3 && noinlinecall3_SIMD);
 
         RV_RUN_ON_FUNCTION_NEW_INTERFACE_WITH_SINGLE_CALL(test_081_call09, noinlinecall2, -1);
-        RV_RUN_ON_FUNCTION_NEW_INTERFACE_WITH_SINGLE_CALL(test_082_call10, noinlinecall3, 1);
+        RV_RUN_ON_FUNCTION_NEW_INTERFACE_WITH_SINGLE_CALL(test_082_call10, noinlinecall3, -1);
 
         // misc tests
         RV_RUN_ON_FUNCTION(test_083_misc);

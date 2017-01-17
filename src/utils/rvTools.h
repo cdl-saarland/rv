@@ -40,7 +40,6 @@ class LoopInfo;
 }
 
 namespace rv {
-  class RVInfo;
   class ValueInfoMap;
   class VectorizationInfo;
 }
@@ -247,12 +246,6 @@ findTopLevelLoopOfExit(Loop*           loop,
                        BasicBlock*     exitingBlock,
                        BasicBlock*     exitBlock,
                        const LoopInfo& loopInfo);
-
-Instruction*
-generateAlignedAlloc(Type*          targetType,
-                     const RVInfo& mInfo,
-                     Instruction*   insertBefore);
-
 
 Module*
 createModuleFromFile(const std::string & fileName, LLVMContext & context);
