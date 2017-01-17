@@ -245,7 +245,7 @@ void NatBuilder::copyGEPInstruction(GetElementPtrInst *const gep, unsigned laneI
       builder.CreateGEP(ptr, ArrayRef<Value *>(idxList, gep->getNumIndices()), gep->getName()));
   cgep->setIsInBounds(gep->isInBounds());
   mapScalarValue(gep, cgep, laneIdx);
-  delete idxList;
+  delete [] idxList;
 }
 
 /* expects that builder has valid insertion point set */
