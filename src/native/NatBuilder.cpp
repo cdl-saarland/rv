@@ -246,7 +246,12 @@ void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
 
 void NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const gep, bool buildVectorGEP) {
   assert(gep->getNumOperands() - 1 == gep->getNumIndices() && "LLVM Code for GEP changed!");
-  Value *ptr = requestScalarValue(gep->getPointerOperand());
+  Value *scalPtr = gep->getPointerOperand();
+  if (isa<Instruction>(scalPtr))
+    assert(vectorizationInfo.hasKnownShape(*scalPtr) && "no shape for instruction!!");
+  VectorShape shape = vectorizationInfo.hasKnownShape(*scalPtr) ? vectorizationInfo.getVectorShape(*scalPtr)
+                                                                : VectorShape::uni();
+  Value *ptr = shape.isUniform() ? requestScalarValue(scalPtr) : requestVectorValue(scalPtr);
   Value **idxList = new Value *[gep->getNumIndices()];
   for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
     Value *operand = gep->getOperand(i + 1);
@@ -758,7 +763,8 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
         else
           builder.SetInsertPoint(mappedInst->getParent());
       }
-
+      // extract from GEPs are not allowed
+      assert(!isa<GetElementPtrInst>(mappedVal) && "Extract from GEPs are not allowed!!");
       reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
 
       if (reqVal->getType() != value->getType()) {
