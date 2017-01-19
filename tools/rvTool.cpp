@@ -39,6 +39,13 @@
 #include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/Region/LoopRegion.h"
 
+static void
+fail(const char * errMsg = nullptr) {
+  if (errMsg) std::cerr << errMsg << "\bnAbort!\n";
+  assert(false); // preserve the stack frame in dbg builds
+  exit(-1);
+}
+
 using namespace llvm;
 
 Module*
@@ -59,7 +66,7 @@ writeModuleToFile(Module* mod, const std::string& fileName)
     if (EC)
     {
         errs() << "ERROR: printing module to file failed: " << EC.message() << "\n";
-        return;
+        fail();
     }
     file.close();
 }
@@ -105,10 +112,10 @@ AdjustStride(Loop& loop, PHINode& phi, uint vectorWidth)
     }
 
     // bump up loop increment to vector width
-    assert(increment);
+    if (!increment) fail("could not identify increment add in vectorized loop.");
     uint constPos = isa<Constant>(increment->getOperand(1)) ? 1 : 0;
     auto* incStep = cast<ConstantInt>(increment->getOperand(constPos));
-    assert(incStep->getLimitedValue() == 1);
+    if (incStep->getLimitedValue() != 1) fail("increment != +1 currently unsupported!");
     auto* vectorIncStep = ConstantInt::getSigned(incStep->getType(), vectorWidth);
     increment->setOperand(constPos, vectorIncStep);
 
@@ -153,14 +160,13 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     // configure exit condition to be non-divergent in any case
     auto* exitBlock = loop.getExitingBlock();
-    assert(exitBlock && "does not have a unique exit block!");
+    if (!exitBlock) fail("loop does not have a unique exit block!");
     vecInfo.setVectorShape(*exitBlock->getTerminator(), rv::VectorShape::uni());
     vecInfo.setVectorShape(*cast<BranchInst>(exitBlock->getTerminator())->getOperand(0),
                            rv::VectorShape::uni());
 
     bool matched = AdjustStride(loop, *xPhi, vectorWidth);
-    assert(matched && "could not match ++i loop pattern");
-    if (!matched) abort();
+    if (!matched) fail("could not match ++i loop pattern");
 
     rv::VectorizerInterface vectorizer(platformInfo);
 
@@ -174,19 +180,16 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     // mask generator
     bool genMaskOk = vectorizer.generateMasks(vecInfo, *maskAnalysis, loopInfo);
-    assert(genMaskOk);
-    if (!genMaskOk) abort();
+    if (!genMaskOk) fail("mask generation failed.");
 
     // control conversion
     bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, domTree);
-    assert(linearizeOk);
-    if (!linearizeOk) abort();
+    if (!linearizeOk) fail("linearization failed.");
 
     const DominatorTree domTreeNew(*vecInfo.getMapping()
                                            .scalarFn); // Control conversion does not preserve the domTree so we have to rebuild it for now
     bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew);
-    assert(vectorizeOk);
-    if (!vectorizeOk) abort();
+    if (!vectorizeOk) fail("vector code generation failed");
 
     // cleanup
     vectorizer.finalize(vecInfo);
@@ -304,19 +307,16 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
 
     // mask generator
     bool genMaskOk = vectorizer.generateMasks(vecInfo, *maskAnalysis, loopInfo);
-    assert(genMaskOk);
-    if (!genMaskOk) abort();
+    if (!genMaskOk) fail("mask generation failed.");
 
     // control conversion
     bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, domTree);
-    assert(linearizeOk);
-    if (!linearizeOk) abort();
+    if (!linearizeOk) fail("linearization failed.");
 
     // Control conversion does not preserve the domTree so we have to rebuild it for now
     const DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn);
     bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew);
-    assert(vectorizeOk);
-    if (!vectorizeOk) abort();
+    if (!vectorizeOk) fail("vector code generation failed.");
 
     // cleanup
     vectorizer.finalize(vecInfo);
@@ -394,7 +394,7 @@ decodeShape(std::string shapeText, unsigned& pos)
     // For 'S' a following stride is expected
     if (c == 'S')
     {
-        assert (isdigit(shapeText[pos]) && "expected a stride after 'S'!");
+        if (!isdigit(shapeText[pos])) fail("expected a stride after 'S'!");
         stridedOf = readNumber(shapeText, pos);
     }
 
@@ -475,7 +475,7 @@ int main(int argc, char** argv)
         }
         if (shapeText.size() > i)
         { // return shape
-            assert(shapeText[i] == 'r' && "expected return shape");
+            if (shapeText[i] != 'r') fail("expected return shape");
             ++i;
             resShape = decodeShape(shapeText, i);
         }
