@@ -491,7 +491,14 @@ void PDA::compute(Function& F) {
     // Skip until all operands have a shape
     if (!isa<PHINode>(I) && !allOperandsHaveShape(I)) continue;
 
-    const VectorShape& New = computeShapeForInst(I);
+    VectorShape New = computeShapeForInst(I);
+
+    // adjust result type to match alignment
+    if (I->getType()->isPointerTy()) {
+      uint minAlignment = getBaseAlignment(*I, layout);
+      New.setAlignment(std::max<uint>(minAlignment, New.getAlignment()));
+    }
+
     update(I, New);
   }
 }
@@ -593,6 +600,7 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
           }
         }
       }
+
 
       return result;
     }

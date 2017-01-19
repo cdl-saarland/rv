@@ -23,6 +23,7 @@
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/Analysis/LoopInfo.h> // Loop
+#include <llvm/IR/CallSite.h>
 
 #include <llvm/Bitcode/ReaderWriter.h> // ParseBitcodeFile
 #include <llvm/Support/MemoryBuffer.h> // MemoryBuffer
@@ -1500,4 +1501,47 @@ rv::insertPrintf(const std::string& message,
                                           "",
                                           insertBefore);
 	return int32_51;
+}
+
+
+// migrated over from llvm/Analysis/ValueTracker.cpp (release_38 version)
+unsigned
+rv::getBaseAlignment(const Value & V, const DataLayout &DL) {
+  unsigned Align = 0;
+  if (auto *GO = dyn_cast<GlobalObject>(&V)) {
+    Align = GO->getAlignment();
+    if (Align == 0) {
+      if (auto *GVar = dyn_cast<GlobalVariable>(GO)) {
+        Type *ObjectType = GVar->getType()->getElementType();
+        if (ObjectType->isSized()) {
+          // If the object is defined in the current Module, we'll be giving
+          // it the preferred alignment. Otherwise, we have to assume that it
+          // may only have the minimum ABI alignment.
+          if (GVar->isStrongDefinitionForLinker())
+            Align = DL.getPreferredAlignment(GVar);
+          else
+            Align = DL.getABITypeAlignment(ObjectType);
+        }
+      }
+    }
+  } else if (const Argument *A = dyn_cast<Argument>(&V)) {
+    Align = A->getType()->isPointerTy() ? A->getParamAlignment() : 0;
+
+    if (!Align && A->hasStructRetAttr()) {
+      // An sret parameter has at least the ABI alignment of the return type.
+      Type *EltTy = cast<PointerType>(A->getType())->getElementType();
+      if (EltTy->isSized())
+        Align = DL.getABITypeAlignment(EltTy);
+    }
+  } else if (const AllocaInst *AI = dyn_cast<AllocaInst>(&V))
+    Align = AI->getAlignment();
+  else if (auto CS = ImmutableCallSite(&V))
+    Align = CS.getAttributes().getParamAlignment(AttributeSet::ReturnIndex);
+  else if (const LoadInst *LI = dyn_cast<LoadInst>(&V))
+    if (MDNode *MD = LI->getMetadata(LLVMContext::MD_align)) {
+      ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
+      Align = CI->getLimitedValue();
+    }
+
+  return Align;
 }

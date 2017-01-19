@@ -269,6 +269,11 @@ insertPrintf(const std::string& message,
              const bool         endLine,
              Instruction*       insertBefore);
 
+// returns the minimal guaranteed (ptr) alignment for @V
+// Otw, returns 0 if the alignment is unknown
+unsigned
+getBaseAlignment(const Value & V, const DataLayout &DL);
+
 } // namespace rv
 
 
