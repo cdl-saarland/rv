@@ -190,10 +190,16 @@ void PDA::init(Function& F) {
     if (mVecinfo.hasKnownShape(arg)) {
       VectorShape argShape = mVecinfo.getVectorShape(arg);
 
-      /* Adjust pointer arguments to continous stride */
-      if (arg.getType()->isPointerTy() && argShape.isVarying()) {
-        argShape = VectorShape::cont();
+      if (arg.getType()->isPointerTy()) {
+        uint minAlignment = getBaseAlignment(arg, layout);
+        argShape.setAlignment(std::max<uint>(minAlignment, argShape.getAlignmentFirst()));
+        // max is the more precise one
       }
+
+      /* Adjust pointer arguments to continous stride */
+      //if (arg.getType()->isPointerTy() && argShape.isVarying()) {
+      //  argShape = VectorShape::cont();
+      //}
 
       update(&arg, argShape);
     }
@@ -371,7 +377,7 @@ void PDA::updateAllocaOperands(const Instruction* I) {
 
     update(op, Vectorizable ?
                VectorShape::strided(typeStoreSize, alignment) :
-               VectorShape::varying(alignment));
+               VectorShape::varying());
   }
 }
 
@@ -496,7 +502,7 @@ void PDA::compute(Function& F) {
     // adjust result type to match alignment
     if (I->getType()->isPointerTy()) {
       uint minAlignment = getBaseAlignment(*I, layout);
-      New.setAlignment(std::max<uint>(minAlignment, New.getAlignment()));
+      New.setAlignment(std::max<uint>(minAlignment, New.getAlignmentFirst()));
     }
 
     update(I, New);
@@ -536,8 +542,8 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
 
       const unsigned vectorWidth = mVecinfo.getMapping().vectorWidth;
 
-      const unsigned alignment1 = shape1.getAlignment();
-      const unsigned alignment2 = shape2.getAlignment();
+      const unsigned alignment1 = shape1.getAlignmentFirst();
+      const unsigned alignment2 = shape2.getAlignmentFirst();
 
       const int mingap = int(gcd(alignment1, alignment2));
 
@@ -591,12 +597,9 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
 
           unsigned typeSize = (unsigned) layout.getTypeStoreSize(subT);
 
-          if (result.isVarying()) {
-            result = VectorShape::varying(result.getAlignment());
-          }
-          else {
+          if (!result.isVarying()) {
             result = VectorShape::strided(result.getStride() + typeSize * indexStride,
-                                          result.getAlignment());
+                                          result.getAlignmentFirst());
           }
         }
       }
@@ -632,7 +635,7 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
         // The strides must be the same
         // and alignment has to be strict enough
         if (expected.getStride() != actual.getStride() ||
-            actual.getAlignment() % expected.getAlignment() == 0)
+                actual.getAlignmentFirst() % expected.getAlignmentFirst() == 0)
         {
           return VectorShape::varying();
         }
@@ -710,8 +713,11 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
   const int stride1 = shape1.getStride();
   const int stride2 = shape2.getStride();
 
-  const unsigned alignment1 = shape1.getAlignment();
-  const unsigned alignment2 = shape2.getAlignment();
+  const unsigned alignment1 = shape1.getAlignmentFirst();
+  const unsigned alignment2 = shape2.getAlignmentFirst();
+
+  const unsigned generalalignment1 = shape1.getAlignmentGeneral();
+  const unsigned generalalignment2 = shape2.getAlignmentGeneral();
 
   switch (I->getOpcode()) {
     // Addition can be optimized in case of strided shape (adding strides)
@@ -722,7 +728,8 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
 
       const unsigned resAlignment = gcd(alignment1, alignment2);
 
-      if (shape1.isVarying() || shape2.isVarying()) return VectorShape::varying(resAlignment);
+      if (shape1.isVarying() || shape2.isVarying())
+        return VectorShape::varying(gcd(generalalignment1, generalalignment2));
 
       VectorShape res = VectorShape::strided(stride1 + stride2, resAlignment);
 
@@ -746,7 +753,8 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
 
       const unsigned resAlignment = gcd(alignment1, alignment2);
 
-      if (shape1.isVarying() || shape2.isVarying()) return VectorShape::varying(resAlignment);
+      if (shape1.isVarying() || shape2.isVarying())
+        return VectorShape::varying(gcd(generalalignment1, generalalignment2));
 
       VectorShape res = VectorShape::strided(stride1 - stride2, resAlignment);
 
@@ -767,7 +775,9 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
     // Alignment constants are multiplied
     case Instruction::Mul:
     {
-      if (shape1.isVarying() || shape2.isVarying()) return VectorShape::varying();
+      if (shape1.isVarying() || shape2.isVarying())
+        return VectorShape::varying(generalalignment1 * generalalignment2);
+
       if (shape1.isUniform() && shape2.isUniform()) return VectorShape::uni(alignment1 * alignment2);
 
       // If the constant is known, compute the new shape directly
@@ -782,7 +792,7 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
         return VectorShape::strided(c * stride1, c * alignment1);
       }
 
-      return VectorShape::varying();
+      return VectorShape::varying(generalalignment1 * generalalignment2);
     }
 
     case Instruction::Or: {
@@ -806,8 +816,8 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
 
       // the or-ed constant is smaller than the alignment
       // in this case we can interpret as an add
-      if (otherShape.getAlignment() > orConst) {
-        auto resAlignment = gcd<uint>(orConst, otherShape.getAlignment());
+      if (otherShape.getAlignmentFirst() > orConst) {
+        auto resAlignment = gcd<uint>(orConst, otherShape.getAlignmentFirst());
         return VectorShape::strided(otherShape.getStride(), resAlignment);
       } else {
         break;
@@ -815,14 +825,15 @@ VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
     }
 
     case Instruction::Shl: {
-      // interpret shift by constans as multiplication
+      // interpret shift by constant as multiplication
       if (isa<Constant>(I->getOperand(1))) {
           auto * shiftConst = cast<ConstantInt>(I->getOperand(1));
           int shiftAmount = (int) shiftConst->getSExtValue();
           const auto valShape = getShape(I->getOperand(0));
           if (shiftAmount > 0 && valShape.hasStridedShape()) {
             int factor = 1 << shiftAmount;
-            return VectorShape::strided(valShape.getStride() * factor, valShape.getAlignment() * factor);
+            return VectorShape::strided(valShape.getStride() * factor,
+                                        valShape.getAlignmentFirst() * factor);
           } else {
             break;
           }
@@ -863,7 +874,7 @@ VectorShape PDA::computeShapeForCastInst(const CastInst* castI) {
   const int castOpStride = castOpShape.getStride();
   const DataLayout layout(castI->getModule());
 
-  const int aligned = !rv::returnsVoidPtr(*castI) ? castOpShape.getAlignment() : 1;
+  const int aligned = !rv::returnsVoidPtr(*castI) ? castOpShape.getAlignmentFirst() : 1;
 
   switch (castI->getOpcode()) {
     case Instruction::IntToPtr:

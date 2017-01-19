@@ -9,6 +9,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <cmath>
 
 #include "rv/utils/mathUtils.h"
 
@@ -29,6 +30,19 @@ VectorShape::VectorShape(uint _alignment)
 VectorShape::VectorShape(int _stride, unsigned _alignment)
     : stride(_stride), hasConstantStride(true), alignment(_alignment),
       defined(true) {}
+
+unsigned VectorShape::getAlignmentGeneral() const {
+  assert(defined && "alignment function called on undef value");
+
+  if (hasConstantStride) {
+    if (stride == 0)
+      return alignment;
+    else
+      return gcd(alignment, (unsigned) std::abs(stride));
+  }
+  else
+    return alignment; // General alignment in case of varying shape
+}
 
 bool VectorShape::operator==(const VectorShape &a) const {
   return
@@ -72,12 +86,10 @@ VectorShape VectorShape::join(VectorShape a, VectorShape b) {
   if (!b.isDefined())
     return a;
 
-  const unsigned aligned = gcd<>(a.alignment, b.alignment);
-  if (a.hasConstantStride && b.hasConstantStride &&
-      a.getStride() == b.getStride()) {
-    return strided(a.stride, aligned);
+  if (a.hasConstantStride && b.hasConstantStride && a.getStride() == b.getStride()) {
+    return strided(a.stride, gcd<>(a.alignment, b.alignment));
   } else {
-    return varying(aligned);
+    return varying(gcd(a.getAlignmentGeneral(), b.getAlignmentGeneral()));
   }
 }
 
@@ -98,7 +110,7 @@ std::string VectorShape::str() const {
   }
 
   if (alignment > 1) {
-    ss << ", alignment(" << alignment << ")";
+    ss << ", alignment(" << alignment << ", " << getAlignmentGeneral() << ")";
   }
 
   return ss.str();

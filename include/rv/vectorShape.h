@@ -21,7 +21,7 @@ namespace rv {
 class VectorShape {
   int stride;
   bool hasConstantStride;
-  unsigned alignment;
+  unsigned alignment; // NOTE: General alignment if not hasConstantStride, else alignment of first
   bool defined;
 
   VectorShape(unsigned _alignment);              // varying
@@ -32,7 +32,10 @@ public:
 
   bool isDefined() const { return defined; }
   int getStride() const { return stride; }
-  unsigned getAlignment() const { return alignment; }
+  unsigned getAlignmentFirst() const { return alignment; }
+
+  // The maximum common alignment for every possible entry (<6, 8, 10, ...> -> 2)
+  unsigned getAlignmentGeneral() const;
 
   void setAlignment(unsigned newAlignment) { alignment = newAlignment; }
   void setStride(int newStride) { hasConstantStride = true; stride = newStride; }
