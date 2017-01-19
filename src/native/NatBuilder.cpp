@@ -247,18 +247,63 @@ void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
 void NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const gep, bool buildVectorGEP) {
   assert(gep->getNumOperands() - 1 == gep->getNumIndices() && "LLVM Code for GEP changed!");
   Value *scalPtr = gep->getPointerOperand();
+
   if (isa<Instruction>(scalPtr))
     assert(vectorizationInfo.hasKnownShape(*scalPtr) && "no shape for instruction!!");
+
+  // we need to build an expanded GEP if we are building a vector GEP and the base pointer is also a GEP
+  // expanded GEP means: base pointer of used GEP, indices of used GEP, then indices of current GEP
+
+  // ptr expansion
+  GetElementPtrInst *baseGEP = dyn_cast<GetElementPtrInst>(scalPtr);
+  if (buildVectorGEP && baseGEP)
+    scalPtr = baseGEP->getPointerOperand();
+
   VectorShape shape = vectorizationInfo.hasKnownShape(*scalPtr) ? vectorizationInfo.getVectorShape(*scalPtr)
                                                                 : VectorShape::uni();
-  Value *ptr = shape.isUniform() ? requestScalarValue(scalPtr) : requestVectorValue(scalPtr);
-  Value **idxList = new Value *[gep->getNumIndices()];
-  for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
+  Value *ptr = (shape.isUniform() || !buildVectorGEP) ? requestScalarValue(scalPtr) : requestVectorValue(scalPtr);
+
+
+  // index expansion
+  unsigned offset = 0;
+  unsigned start = 0;
+  unsigned numIndices = (buildVectorGEP && baseGEP) ? (gep->getNumIndices() + baseGEP->getNumIndices() - 1)
+                                                  : gep->getNumIndices();
+  Value **idxList = new Value *[numIndices];
+  if (buildVectorGEP && baseGEP) {
+    for (unsigned i = 0; i < gep->getNumIndices() - 1; ++i) {
+      Value *operand = baseGEP->getOperand(i + 1);
+      shape = vectorizationInfo.hasKnownShape(*operand) ? vectorizationInfo.getVectorShape(*operand)
+                                                                    : VectorShape::uni();
+      idxList[i] = shape.isUniform() ? requestScalarValue(operand) : requestVectorValue(operand);
+    }
+    offset = baseGEP->getNumIndices() - 1;
+    Value *lastOp = baseGEP->getOperand(baseGEP->getNumIndices());
+    Value *firstOp = gep->getOperand(1);
+    VectorShape shape1 = vectorizationInfo.hasKnownShape(*lastOp) ? vectorizationInfo.getVectorShape(*lastOp)
+                                                                  : VectorShape::uni();
+    VectorShape shape2 = vectorizationInfo.hasKnownShape(*firstOp) ? vectorizationInfo.getVectorShape(*firstOp)
+                                                                  : VectorShape::uni();
+    if (shape1.isUniform() && shape2.isUniform()) {
+      lastOp = requestScalarValue(lastOp);
+      firstOp = requestScalarValue(firstOp);
+    } else {
+      lastOp = requestVectorValue(lastOp);
+      firstOp = requestVectorValue(firstOp);
+    }
+
+    idxList[offset] = builder.CreateAdd(lastOp, firstOp);
+    start = 1;
+  }
+
+  for (unsigned i = start; i < gep->getNumIndices(); ++i) {
     Value *operand = gep->getOperand(i + 1);
-    idxList[i] = buildVectorGEP ? requestVectorValue(operand) : requestScalarValue(operand);
+    shape = vectorizationInfo.hasKnownShape(*operand) ? vectorizationInfo.getVectorShape(*operand)
+                                                      : VectorShape::uni();
+    idxList[i + offset] = buildVectorGEP && !shape.isUniform() ? requestVectorValue(operand) : requestScalarValue(operand);
   }
   GetElementPtrInst *cgep = cast<GetElementPtrInst>(
-      builder.CreateGEP(ptr, ArrayRef<Value *>(idxList, gep->getNumIndices()), gep->getName()));
+      builder.CreateGEP(ptr, ArrayRef<Value *>(idxList, numIndices), gep->getName()));
   cgep->setIsInBounds(gep->isInBounds());
   if (buildVectorGEP)
     mapVectorValue(gep, cgep);
