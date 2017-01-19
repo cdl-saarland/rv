@@ -19,32 +19,30 @@
 namespace rv {
 
 VectorShape::VectorShape()
-        : stride(0), hasConstantStride(false), alignment(0), defined(false)
-{}
+    : stride(0), hasConstantStride(false), alignment(0), defined(false) {}
 
 VectorShape::VectorShape(uint _alignment)
-        : stride(0), hasConstantStride(false), alignment(_alignment), defined(true)
-{}
+    : stride(0), hasConstantStride(false), alignment(_alignment),
+      defined(true) {}
 
 // constant stride constructor
 VectorShape::VectorShape(int _stride, unsigned _alignment)
-        : stride(_stride), hasConstantStride(true), alignment(_alignment), defined(true)
-{}
+    : stride(_stride), hasConstantStride(true), alignment(_alignment),
+      defined(true) {}
 
 bool VectorShape::operator==(const VectorShape &a) const {
   return
-    // both undef
-    (!defined && !a.defined) ||
+      // both undef
+      (!defined && !a.defined) ||
 
-    // both are defined shapes
-    (defined && a.defined &&
-     alignment == a.alignment && (
-        // either both shapes are varying (with same alignment)
-        (!hasConstantStride && !a.hasConstantStride) ||
-        // both shapes are strided with same alignment
-        (hasConstantStride && a.hasConstantStride && stride == a.stride)
-      )
-    );
+      // both are defined shapes
+      (defined && a.defined && alignment == a.alignment && (
+           // either both shapes are varying (with same alignment)
+           (!hasConstantStride && !a.hasConstantStride) ||
+           // both shapes are strided with same alignment
+           (hasConstantStride && a.hasConstantStride && stride == a.stride)
+        )
+      );
 }
 
 bool VectorShape::operator!=(const VectorShape &a) const {
@@ -52,26 +50,31 @@ bool VectorShape::operator!=(const VectorShape &a) const {
 }
 
 bool VectorShape::operator<(const VectorShape &a) const {
-  if (!a.isDefined()) return false; // Cannot be more precise than bottom
-  if (!isDefined()) return true; // Bottom is more precise then any defined shape
+  if (!a.isDefined())
+    return false; // Cannot be more precise than bottom
+  if (!isDefined())
+    return true; // Bottom is more precise then any defined shape
 
-  if (hasConstantStride && !a.hasConstantStride) return true; // strided < varying
+  if (hasConstantStride && !a.hasConstantStride)
+    return true; // strided < varying
 
   // If both are of the same shape, decide by alignment
   if ((!hasConstantStride && !a.hasConstantStride) ||
       (hasConstantStride && a.hasConstantStride && stride == a.stride))
-      return alignment % a.alignment == 0 && alignment > a.alignment;
+    return alignment % a.alignment == 0 && alignment > a.alignment;
 
   return false;
 }
 
-VectorShape
-VectorShape::join(VectorShape a, VectorShape b) {
-  if (!a.isDefined()) return b;
-  if (!b.isDefined()) return a;
+VectorShape VectorShape::join(VectorShape a, VectorShape b) {
+  if (!a.isDefined())
+    return b;
+  if (!b.isDefined())
+    return a;
 
   const unsigned aligned = gcd<>(a.alignment, b.alignment);
-  if (a.hasConstantStride && b.hasConstantStride && a.getStride() == b.getStride()) {
+  if (a.hasConstantStride && b.hasConstantStride &&
+      a.getStride() == b.getStride()) {
     return strided(a.stride, aligned);
   } else {
     return varying(aligned);
@@ -100,5 +103,4 @@ std::string VectorShape::str() const {
 
   return ss.str();
 }
-
 }
