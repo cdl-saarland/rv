@@ -292,6 +292,15 @@ void NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const gep, bool buil
       firstOp = requestVectorValue(firstOp);
     }
 
+    Type *lastType = lastOp->getType();
+    Type *firstType = firstOp->getType();
+    if (lastType != firstType) {
+      unsigned lastSize = lastType->getScalarSizeInBits(), firstSize = firstType->getScalarSizeInBits();
+      if (lastSize > firstSize)
+        firstOp = builder.CreateSExt(firstOp, lastType);
+      else
+        lastOp = builder.CreateSExt(lastOp, firstType);
+    }
     idxList[offset] = builder.CreateAdd(lastOp, firstOp);
     start = 1;
   }
