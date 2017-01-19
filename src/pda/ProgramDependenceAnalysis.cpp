@@ -526,30 +526,29 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
 
       using Pred_t = CmpInst::Predicate;
       Pred_t predicate = cast<CmpInst>(I)->getPredicate();
-      const int strideDiff = shape1.getStride() - shape2.getStride();
 
       const unsigned vectorWidth = mVecinfo.getMapping().vectorWidth;
 
       const unsigned alignment1 = shape1.getAlignment();
       const unsigned alignment2 = shape2.getAlignment();
 
+      const int mingap = int(gcd(alignment1, alignment2));
+
+      int strideDiff;
       if (predicate == Pred_t::ICMP_SLT || predicate == Pred_t::ICMP_ULT) {
-        // There are 2 possibilities:
-        // 1. The first vector1 entry is not smaller than the first vector2 entry
-        //    If strideDiff >= 0, the gap does not decrease and so all other entries
-        //    are pairwise not smaller
-        // 2. The first vector1 entry is smaller...
-        //    If the alignment a is the same, we can at least add a until we are possibly
-        //    equal. But since strideDiff * vectorWidth <= a, the accumulated difference
-        //    does not exceed a and all entries are pairwise smaller
-        if (strideDiff >= 0 && alignment1 == alignment2 && strideDiff * vectorWidth <= alignment1)
-          return VectorShape::uni();
+        strideDiff = shape1.getStride() - shape2.getStride();
       }
       else if (predicate == Pred_t::ICMP_SGT || predicate == Pred_t::ICMP_UGT) {
-        // Analogous reasoning to the one above
-        if (strideDiff <= 0 && alignment1 == alignment2 && -strideDiff * vectorWidth <= alignment1)
-          return VectorShape::uni();
+        strideDiff = shape2.getStride() - shape1.getStride();
       }
+      else {
+        return VectorShape::varying();
+      }
+
+      int maxincrease = strideDiff * int(vectorWidth);
+      // If the gap cannot get zero along the stride we stay less
+      if (maxincrease >= 0 && mingap - maxincrease >= 0)
+        return VectorShape::uni();
 
       return VectorShape::varying();
     }
