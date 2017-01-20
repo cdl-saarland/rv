@@ -577,6 +577,8 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
       for (const Value* index : make_range(gep->idx_begin(), gep->idx_end())) {
         const VectorShape& indexShape = getShape(index);
         const int indexStride = indexShape.getStride();
+        const unsigned indexalignmentFirst = indexShape.getAlignmentFirst();
+        const unsigned indexalignmentGeneral = indexShape.getAlignmentGeneral();
 
         if (indexShape.isVarying()) return VectorShape::varying();
 
@@ -598,9 +600,15 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
 
           unsigned typeSize = (unsigned) layout.getTypeStoreSize(subT);
 
-          if (!result.isVarying()) {
-            result = VectorShape::strided(result.getStride() + typeSize * indexStride,
-                                          result.getAlignmentFirst());
+          int offsetstride = typeSize * indexStride;
+          unsigned offsetAlignmentFirst = typeSize * indexalignmentFirst;
+          unsigned offsetAlignmentGeneral = typeSize * indexalignmentGeneral;
+
+          if (result.isVarying()) {
+            result = VectorShape::varying(gcd(result.getAlignmentGeneral(), offsetAlignmentGeneral));
+          } else {
+            result = VectorShape::strided(result.getStride() + offsetstride,
+                                          gcd(result.getAlignmentFirst(), offsetAlignmentFirst));
           }
         }
       }
