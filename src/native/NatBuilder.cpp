@@ -554,6 +554,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
   assert(vectorizationInfo.hasKnownShape(*accessedPtr) && "no shape for accessed pointer!");
   VectorShape addrShape = vectorizationInfo.getVectorShape(*accessedPtr);
+  VectorShape instrShape = load ? vectorizationInfo.getVectorShape(*load) : vectorizationInfo.getVectorShape(*store);
 
   // address: uniform -> scalar op. contiguous -> scalar from vector-width address. varying -> scatter/gather
   Value *vecPtr = nullptr;
@@ -578,6 +579,9 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     }
   } else
 #endif
+
+  unsigned origAlignment = load ? load->getAlignment() : store->getAlignment();
+  unsigned alignment;
   bool byteContiguous = addrShape.isStrided(static_cast<int>(layout.getTypeStoreSize(accessedType)));
   if (addrShape.isContiguous() || byteContiguous) {
     // cast pointer to vector-width pointer
@@ -585,8 +589,10 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     Value *mappedPtr = requestScalarValue(accessedPtr);
     PointerType *vecPtrType = PointerType::getUnqual(vecType);
     vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
+    alignment = instrShape.getAlignmentFirst();
   } else if (addrShape.isUniform()) {
     vecPtr = requestScalarValue(accessedPtr);
+    alignment = instrShape.getAlignmentFirst();
   } else {
     // varying or strided. gather the addresses for the lanes
     vecPtr = isa<Argument>(accessedPtr) ? getScalarValue(accessedPtr) : getVectorValue(accessedPtr);
@@ -598,7 +604,10 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       }
       mapVectorValue(accessedPtr, vecPtr);
     }
+    alignment = instrShape.getAlignmentGeneral();
   }
+
+  assert(origAlignment >= alignment);
 
   Value *mask = nullptr;
   Value *vecMem = nullptr;
@@ -617,7 +626,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       builder.SetInsertPoint(loadBlock);
 
       vecMem = builder.CreateLoad(vecPtr, "scal_mask_load");
-      cast<LoadInst>(vecMem)->setAlignment(load->getAlignment());
+      cast<LoadInst>(vecMem)->setAlignment(alignment);
 
       builder.CreateBr(continueBlock);
       builder.SetInsertPoint(continueBlock);
@@ -634,7 +643,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     } else if ((addrShape.isUniform() || addrShape.isContiguous() || byteContiguous) && !needsMask) {
       std::string name = addrShape.isUniform() ? "scal_load" : "vec_load";
       vecMem = builder.CreateLoad(vecPtr, name);
-      cast<LoadInst>(vecMem)->setAlignment(load->getAlignment());
+      cast<LoadInst>(vecMem)->setAlignment(alignment);
 
     } else {
 
@@ -645,7 +654,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         if (useScatterGatherIntrinsics) {
           std::vector<Value *> args;
           args.push_back(vecPtr);
-          args.push_back(ConstantInt::get(i32Ty, load->getAlignment()));
+          args.push_back(ConstantInt::get(i32Ty, alignment));
           args.push_back(mask);
           args.push_back(UndefValue::get(vecType));
           Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
@@ -653,10 +662,10 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
           assert(gatherIntr && "masked gather not found!");
           vecMem = builder.CreateCall(gatherIntr, args, "gather");
         } else
-          vecMem = requestCascadeLoad(vecPtr, load->getAlignment(), mask);
+          vecMem = requestCascadeLoad(vecPtr, alignment, mask);
 
       } else
-        vecMem = builder.CreateMaskedLoad(vecPtr, load->getAlignment(), mask, 0, "masked_vec_load");
+        vecMem = builder.CreateMaskedLoad(vecPtr, alignment, mask, 0, "masked_vec_load");
     }
   } else {
 
@@ -677,7 +686,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       builder.SetInsertPoint(storeBlock);
 
       vecMem = builder.CreateStore(mappedStoredVal, vecPtr);
-      cast<StoreInst>(vecMem)->setAlignment(store->getAlignment());
+      cast<StoreInst>(vecMem)->setAlignment(alignment);
 
       builder.CreateBr(continueBlock);
       builder.SetInsertPoint(continueBlock);
@@ -687,7 +696,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
     } else if ((addrShape.isUniform() || addrShape.isContiguous() || byteContiguous) && !needsMask) {
       vecMem = builder.CreateStore(mappedStoredVal, vecPtr);
-      cast<StoreInst>(vecMem)->setAlignment(store->getAlignment());
+      cast<StoreInst>(vecMem)->setAlignment(alignment);
 
     } else {
       if (needsMask) mask = requestVectorValue(predicate);
@@ -698,17 +707,17 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
           std::vector<Value *> args;
           args.push_back(mappedStoredVal);
           args.push_back(vecPtr);
-          args.push_back(ConstantInt::get(i32Ty, store->getAlignment()));
+          args.push_back(ConstantInt::get(i32Ty, alignment));
           args.push_back(mask);
           Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
           Function *scatterIntr = Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, vecType);
           assert(scatterIntr && "masked scatter not found!");
           vecMem = builder.CreateCall(scatterIntr, args);
         } else
-          vecMem = requestCascadeStore(mappedStoredVal, vecPtr, store->getAlignment(), mask);
+          vecMem = requestCascadeStore(mappedStoredVal, vecPtr, alignment, mask);
 
       } else
-        vecMem = builder.CreateMaskedStore(mappedStoredVal, vecPtr, store->getAlignment(), mask);
+        vecMem = builder.CreateMaskedStore(mappedStoredVal, vecPtr, alignment, mask);
     }
   }
 
