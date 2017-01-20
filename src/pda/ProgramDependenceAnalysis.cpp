@@ -583,14 +583,15 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
         if (isa<StructType>(subT)) {
           if (!isa<ConstantInt>(index)) return VectorShape::varying();
 
+          auto structlayout = layout.getStructLayout(cast<StructType>(subT));
+          unsigned indexconstant = static_cast<uint>(cast<ConstantInt>(index)->getSExtValue());
+          unsigned elemoffset = static_cast<uint>(structlayout->getElementOffset(indexconstant));
+
           subT = cast<StructType>(subT)->getTypeAtIndex(index);
 
-          if (result.isVarying()) {
-            result = VectorShape::varying(1); // unaligned FIXME
-          }
-          else {
-            result = VectorShape::strided(result.getStride() + indexStride, 1);
-          }
+          // Behaves like addition, pointer + offset and offset is uniform, hence the stride stays
+          unsigned newalignment = gcd(result.getAlignmentFirst(), elemoffset);
+          result.setAlignment(newalignment);
         }
         else {
           subT = cast<SequentialType>(subT)->getPointerElementType();
