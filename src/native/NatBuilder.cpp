@@ -607,7 +607,8 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     alignment = instrShape.getAlignmentGeneral();
   }
 
-  assert(origAlignment >= alignment);
+  // take greatest available alignment
+  alignment = std::max<uint>(origAlignment, alignment);
 
   Value *mask = nullptr;
   Value *vecMem = nullptr;
