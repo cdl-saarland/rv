@@ -1047,18 +1047,20 @@ llvm::Value *NatBuilder::createPTest(llvm::Value *vector, bool isRv_all) {
   assert(cast<VectorType>(vector->getType())->getElementType()->isIntegerTy(1) &&
          "vector elements must have i1 type!");
 
+  // rv_all(x) == !rv_any(!x)
   Type *i32VecType = VectorType::get(i32Ty, vectorWidth());
   Type *intSIMDType = Type::getIntNTy(vector->getContext(), vectorWidth() * 32);
   Constant *simdFalseConst = ConstantInt::get(vector->getContext(), APInt::getMinValue(vectorWidth() * 32));
-  Constant *simdTrueConst = ConstantInt::get(i32VecType, 1);
-  Value *sext = builder.CreateSExt(vector, i32VecType, "ptest_sext");
-  Value *bc = builder.CreateBitCast(sext, intSIMDType, "ptest_bc");
+  if (isRv_all)
+    vector = builder.CreateNot(vector, "rvall_cond_not");
+  Value *zext = builder.CreateZExt(vector, i32VecType, "ptest_zext");
+  Value *bc = builder.CreateBitCast(zext, intSIMDType, "ptest_bc");
+  Value *ptest = builder.CreateICmpNE(bc, simdFalseConst, "ptest_comp");
 
-  if (isRv_all) {
-    Value *trueConst = builder.CreateBitCast(simdTrueConst, intSIMDType);
-    return builder.CreateICmpEQ(bc, trueConst, "ptest_comp");
-  } else
-    return builder.CreateICmpNE(bc, simdFalseConst, "ptest_comp");
+  if (isRv_all)
+    ptest = builder.CreateNot(ptest, "rvall_not");
+
+  return ptest;
 }
 
 void NatBuilder::addValuesToPHINodes() {
