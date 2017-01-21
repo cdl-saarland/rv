@@ -49,7 +49,6 @@ namespace native {
     rv::Region *region;
 
     bool useScatterGatherIntrinsics;
-    InstructionGrouper instructionGrouper;
 
 
   public:

@@ -33,7 +33,7 @@ void MemoryGroup::insert(const SCEV *scev, int offset) {
 
   } else if (offset >= 0) {
     // resize if necessary
-    if(offset > topIdx)
+    if(offset >= static_cast<int>(topIdx))
       elements.resize(std::max<unsigned>((unsigned) (elements.size() * 2), (unsigned) offset + 1), nullptr);
 
     elements[offset] = scev;
@@ -65,7 +65,7 @@ MemoryAccessGrouper::MemoryAccessGrouper(ScalarEvolution &SE, unsigned laneByteS
   laneFloatTy(laneByteSize == 4 ? Type::getFloatTy(SE.getContext())
                                 : Type::getDoubleTy(SE.getContext())),
   laneIntTy(Type::getIntNTy(SE.getContext(), laneByteSize * 8)) {
-  assert(laneByteSize == 4 || laneByteSize == 8 && "unsupported lane size");
+  assert((laneByteSize == 4 || laneByteSize == 8) && "unsupported lane size");
 }
 
 const SCEV *MemoryAccessGrouper::add(Value *addrVal) {
@@ -132,17 +132,29 @@ bool MemoryAccessGrouper::getConstantOffset(const SCEV *a, const SCEV *b, int &o
   return true;
 }
 
+MemoryGroup MemoryAccessGrouper::getMemoryGroup(const SCEV *scev) {
+  for (MemoryGroup &group : memoryGroups) {
+    auto findIt = std::find(group.begin(), group.end(), scev);
+    if (findIt != group.end())
+      return group;
+  }
+  return MemoryGroup();
+}
+
 // MemoryAccessGrouper_END
 
 // InstructionGroup_BEGIN
 
 InstructionGroup::InstructionGroup(Instruction *element) :
   isStoreGroup(isa<StoreInst>(element)),
+  groupType(isStoreGroup ? cast<StoreInst>(element)->getValueOperand()->getType()
+                         : cast<LoadInst>(element)->getType()),
   elements(1, element),
   passedMemoryAndCallInstructions(0) {}
 
 InstructionGroup::InstructionGroup() :
   isStoreGroup(false),
+  groupType(0),
   elements(0),
   passedMemoryAndCallInstructions(0) {}
 
@@ -154,6 +166,11 @@ bool InstructionGroup::insert(Instruction *element, MemoryDependenceAnalysis &MD
     return false;
   }
 
+  Type *elementType = isStoreGroup ? cast<StoreInst>(element)->getValueOperand()->getType()
+                                   : cast<LoadInst>(element)->getType();
+  if (groupType != elementType)
+    return false;
+
   Instruction *dependentInst = MDA.getDependency(element).getInst();
   auto findIt = std::find(passedMemoryAndCallInstructions.begin(), passedMemoryAndCallInstructions.end(), dependentInst);
   if (findIt != passedMemoryAndCallInstructions.end())
@@ -163,13 +180,21 @@ bool InstructionGroup::insert(Instruction *element, MemoryDependenceAnalysis &MD
   return true;
 }
 
+std::vector<llvm::Instruction *>::iterator InstructionGroup::begin() {
+  return elements.begin();
+}
+
+std::vector<llvm::Instruction *>::iterator InstructionGroup::end() {
+  return elements.end();
+}
+
 // InstructionGroup_END
 
 // InstructionGrouper_BEGIN
 
 void InstructionGrouper::add(Instruction *instr, MemoryDependenceAnalysis &MDA) {
   // try to find existing group
-  for (InstructionGroup instrGroup : instructionGroups) {
+  for (InstructionGroup &instrGroup : instructionGroups) {
     if (instrGroup.insert(instr, MDA))
       return;
   }
@@ -181,6 +206,19 @@ void InstructionGrouper::add(Instruction *instr, MemoryDependenceAnalysis &MDA) 
 
 void InstructionGrouper::clearAll() {
   instructionGroups = std::vector<InstructionGroup>();
+}
+
+bool InstructionGrouper::empty() {
+  return instructionGroups.empty();
+}
+
+InstructionGroup InstructionGrouper::getInstructionGroup(llvm::Instruction *instr) {
+  for (InstructionGroup &group: instructionGroups) {
+    auto findIt = std::find(group.begin(), group.end(), instr);
+    if (findIt != group.end())
+      return group;
+  }
+  return InstructionGroup();
 }
 
 // InstructionGrouper_END

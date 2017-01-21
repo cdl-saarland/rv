@@ -147,7 +147,6 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       if (!lazyInstructions.empty())
         requestLazyInstructions(lazyInstructions.back());
       assert(lazyInstructions.empty() && "not all lazy instructions vectorized!!");
-      instructionGrouper.clearAll();
     }
 
     PHINode *phi = dyn_cast<PHINode>(inst);
@@ -563,8 +562,12 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   Type *vecType = getVectorType(accessedType, addrShape.isUniform() ? 1 : vectorWidth());
 
   unsigned origAlignment = load ? load->getAlignment() : store->getAlignment();
-  unsigned alignment;
+  unsigned alignment = 0;
   bool byteContiguous = addrShape.isStrided(static_cast<int>(layout.getTypeStoreSize(accessedType)));
+  bool isInterleaved = false;
+  MemoryGroup memGroup;
+  std::map<const SCEV *, Instruction *> scevInstrMap;
+
   if (addrShape.isContiguous() || byteContiguous) {
     // cast pointer to vector-width pointer
     // uniform-with-mask case needs to be included as scalar masked load/store is not allowed!
@@ -572,11 +575,51 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     PointerType *vecPtrType = PointerType::getUnqual(vecType);
     vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
     alignment = instrShape.getAlignmentFirst();
+
   } else if (addrShape.isUniform()) {
     vecPtr = requestScalarValue(accessedPtr);
     alignment = instrShape.getAlignmentFirst();
-  } else {
-    // varying or strided. gather the addresses for the lanes
+
+  } else if (addrShape.isStrided()) {
+    // group memory instructions based on their dependencies
+    InstructionGrouper instructionGrouper;
+    instructionGrouper.add(inst, memDepAnalysis);
+    for (Instruction *instr : lazyInstructions) {
+      instructionGrouper.add(instr, memDepAnalysis);
+    }
+    InstructionGroup instrGroup = instructionGrouper.getInstructionGroup(inst);
+    if (instrGroup.size() > 1) {
+      // group our group based on memory layout next
+      MemoryAccessGrouper memoryGrouper(SE, static_cast<unsigned>(layout.getTypeStoreSize(accessedType)));
+      std::map<Value *, const SCEV *> addrSCEVMap;
+      for (Instruction *instr : instrGroup) {
+        Value *addrVal = getPointerOperand(instr);
+        assert(addrVal && "grouped instruction was not a memory instruction!!");
+        const SCEV *scev = memoryGrouper.add(addrVal);
+        addrSCEVMap[addrVal] = scev;
+        scevInstrMap[scev] = instr;
+      }
+      
+      // check if there is an interleaved memory group for our base address
+      memGroup = memoryGrouper.getMemoryGroup(addrSCEVMap[accessedPtr]);
+      bool hasGaps = false;
+      for (unsigned i = 0; i < memGroup.size(); ++i) {
+        if (!memGroup[i]) {
+          hasGaps = true;
+          break;
+        }
+      }
+
+      // we have found a memory group if it has no gaps and the size is bigger than 1
+      isInterleaved = !hasGaps && memGroup.size() > 1;
+    }
+
+    alignment = instrShape.getAlignmentGeneral();
+    // TODO: FINISH CODEGEN FOR INTERLEAVED
+  }
+
+  if (addrShape.isVarying() || (!byteContiguous && addrShape.isStrided()/* && !isInterleaved*/)) {
+    // varying or non-interleaved strided. gather the addresses for the lanes
     vecPtr = isa<Argument>(accessedPtr) ? getScalarValue(accessedPtr) : getVectorValue(accessedPtr);
     if (!vecPtr) {
       vecPtr = UndefValue::get(getVectorType(accessedPtr->getType(), vectorWidth()));
@@ -595,7 +638,11 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   Value *mask = nullptr;
   Value *vecMem = nullptr;
   if (load) {
-    if (addrShape.isUniform() && needsMask) {
+    /*if (isInterleaved) {
+      // build as many contiguous loads as there memory group elements and shuffle them
+
+
+    } else*/ if (addrShape.isUniform() && needsMask) {
       // create two new basic blocks
       mask = createPTest(requestVectorValue(predicate), false);
       BasicBlock *loadBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "load_block",
@@ -712,11 +759,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
 void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
   assert(!lazyInstructions.empty() && "no lazy instructions to generate!");
-
-  // group lazy loads first
-  for (Instruction *instr : lazyInstructions) {
-    instructionGrouper.add(instr, memDepAnalysis);
-  }
 
   Instruction *lazyInstr = lazyInstructions.front();
   lazyInstructions.pop_front();

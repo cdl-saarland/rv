@@ -32,6 +32,15 @@ Value *createContiguousVector(unsigned width, Type *type, int start, int stride)
   return ConstantVector::get(ArrayRef<Constant *>(constants, &width));
 }
 
+Value *getPointerOperand(Instruction *instr) {
+  LoadInst *load = dyn_cast<LoadInst>(instr);
+  StoreInst *store = dyn_cast<StoreInst>(instr);
+
+  if (load) return load->getPointerOperand();
+  else if (store) return store->getPointerOperand();
+  else return nullptr;
+}
+
 BasicBlock *createCascadeBlocks(Function *insertInto, unsigned vectorWidth,
                                 std::vector<BasicBlock *> &condBlocks,
                                 std::vector<BasicBlock *> &maskedBlocks) {

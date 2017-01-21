@@ -25,6 +25,8 @@ namespace native {
     void insert(const llvm::SCEV *scev, int offset);
     const llvm::SCEV *operator[](int i) const { return elements[i]; }
     unsigned size() const { return topIdx; }
+    std::vector<const llvm::SCEV *>::iterator begin() { return elements.begin(); }
+    std::vector<const llvm::SCEV *>::iterator end() { return elements.end(); }
   };
 
   class MemoryAccessGrouper {
@@ -40,10 +42,12 @@ namespace native {
 
     MemoryAccessGrouper(llvm::ScalarEvolution &SE, unsigned laneByteSize);
     const llvm::SCEV *add(llvm::Value *addrVal);
+    MemoryGroup getMemoryGroup(const llvm::SCEV *scev);
   };
 
   class InstructionGroup {
     bool isStoreGroup;
+    llvm::Type *groupType;
     std::vector<llvm::Instruction *> elements;
     std::vector<llvm::Instruction *> passedMemoryAndCallInstructions;
 
@@ -52,6 +56,10 @@ namespace native {
     InstructionGroup();
 
     bool insert(llvm::Instruction *element, llvm::MemoryDependenceAnalysis &MDA);
+    unsigned long size() const { return elements.size(); }
+
+    std::vector<llvm::Instruction *>::iterator begin();
+    std::vector<llvm::Instruction *>::iterator end();
   };
 
   class InstructionGrouper {
@@ -60,6 +68,8 @@ namespace native {
 
     void add(llvm::Instruction *instr, llvm::MemoryDependenceAnalysis &MDA);
     void clearAll();
+    bool empty();
+    InstructionGroup getInstructionGroup(llvm::Instruction *instr);
   };
 }
 
