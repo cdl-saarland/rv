@@ -19,7 +19,18 @@ namespace rv {
   char NativeBackendPass::ID = 0;
 
   NativeBackendPass::NativeBackendPass()
-      : FunctionPass(ID) {
+      : FunctionPass(ID),
+        vi(0),
+        pi(0),
+        domTree(0) {
+
+  }
+
+  NativeBackendPass::NativeBackendPass(VectorizationInfo *vi, PlatformInfo *pi, DominatorTree const *domTree)
+      : FunctionPass(ID),
+        vi(vi),
+        pi(pi),
+        domTree(domTree) {
 
   }
 
@@ -28,14 +39,18 @@ namespace rv {
 
   void
   NativeBackendPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {
-    AU.addRequired<VectorizationInfoProxyPass>();
-    AU.addRequired<DominatorTreeWrapperPass>();
+    if (!(vi && pi && domTree)) {
+      AU.addRequired<VectorizationInfoProxyPass>();
+      AU.addRequired<DominatorTreeWrapperPass>();
+    }
+    AU.addRequired<MemoryDependenceAnalysis>();
+    AU.addRequired<ScalarEvolutionWrapperPass>();
   }
 
   bool
   NativeBackendPass::runOnFunction(llvm::Function &F) {
-    auto & vi = getAnalysis<VectorizationInfoProxyPass>().getInfo();
-    auto & platformInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
+    auto & vecInfo = vi ? *vi : getAnalysis<VectorizationInfoProxyPass>().getInfo();
+    auto & platformInfo = pi ? *pi : getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
 
 // Strip legacy metadata calls
     std::vector<Instruction *> killList;
@@ -53,15 +68,18 @@ namespace rv {
 
     for (auto *inst : killList) inst->eraseFromParent();
 
-// Get dominator tree
-    auto &dtree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+// Get dominator tree and analyses
+    auto &dtree = domTree ? *domTree : getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+    auto &mda = getAnalysis<MemoryDependenceAnalysis>();
+    auto &se = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
 
 // invoke native
-    assert(vi.getMapping().scalarFn && "no scalar function to vectorize provided");
-    assert(vi.getMapping().vectorFn && "user has to provide empty simd function");
-    assert(vi.getMapping().scalarFn != vi.getMapping().vectorFn &&
-           "scalar function and simd function must not be the same");
-    native::NatBuilder builder(platformInfo, vi, dtree);
+    assert(vecInfo.getMapping().scalarFn && "no scalar function to vectorize provided");
+    assert(vecInfo.getMapping().vectorFn && "user has to provide simd function");
+    assert((vecInfo.getRegion() ||
+               (!vecInfo.getRegion() && (vecInfo.getMapping().scalarFn != vecInfo.getMapping().vectorFn)))
+               && "scalar function and simd function must not be the same");
+    native::NatBuilder builder(platformInfo, vecInfo, dtree, mda, se);
     builder.vectorize();
 
     return true;

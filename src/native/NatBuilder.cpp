@@ -754,12 +754,15 @@ void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
     } else
       vectorizeMemoryInstruction(lazyInstr);
 
-    assert(!lazyInstructions.empty() && "no more lazy instructions left to generate!");
+    // interleaved memory generation might cause the queue to empty already at this point
+    if (lazyInstructions.empty())
+      return;
 
     lazyInstr = lazyInstructions.front();
     lazyInstructions.pop_front();
   }
 
+  // if we reach this point this should be guaranteed:
   assert(lazyInstr == upToInstruction && "something went wrong during lazy generation!");
 
   if (isa<CallInst>(lazyInstr)) {

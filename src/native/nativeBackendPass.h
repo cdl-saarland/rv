@@ -15,10 +15,15 @@ namespace rv {
 
 // wrapper pass for Montadas NaTIVE backend
   class NativeBackendPass : public llvm::FunctionPass {
+    VectorizationInfo *vi;
+    PlatformInfo *pi;
+    DominatorTree const *domTree;
+
   public:
     static char ID;
 
     NativeBackendPass();
+    NativeBackendPass(VectorizationInfo *vi, PlatformInfo *pi, DominatorTree const *domTree);
 
     ~NativeBackendPass();
 

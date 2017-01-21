@@ -203,8 +203,15 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
 #endif
 
     // vectorize with native
-    native::NatBuilder natBuilder(platInfo, vecInfo, domTree);
-    natBuilder.vectorize();
+//    native::NatBuilder natBuilder(platInfo, vecInfo, domTree);
+//    natBuilder.vectorize();
+  legacy::FunctionPassManager fpm(vecInfo.getScalarFunction().getParent());
+  fpm.add(new MemoryDependenceAnalysis());
+  fpm.add(new ScalarEvolutionWrapperPass());
+  fpm.add(new NativeBackendPass(&vecInfo, &platInfo, &domTree));
+  fpm.doInitialization();
+  fpm.run(vecInfo.getScalarFunction());
+  fpm.doFinalization();
 
     return true;
 }
