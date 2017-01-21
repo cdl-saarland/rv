@@ -79,15 +79,6 @@ void NatBuilder::vectorize() {
     mapVectorValue(&block, vecBlock);
   }
 
-#if 0
-  // traverse func in reverse-post order to ensure all uses have definition vectorized first
-  ReversePostOrderTraversal<Function *> RPOT(func);
-  for (ReversePostOrderTraversal<Function *>::rpo_iterator it = RPOT.begin(); it != RPOT.end(); ++it) {
-      BasicBlock *bb = *it;
-      BasicBlock *vecBlock = cast<BasicBlock>(getVectorValue(bb));
-      vectorize(bb, vecBlock);
-  }
-#endif
   // traverse dominator tree in pre-order to ensure all uses have definitions vectorized first
   std::deque<const DomTreeNode *> nodeQueue;
   const DomTreeNode *rootNode = region ? dominatorTree.getNode(&region->getRegionEntry()) : dominatorTree.getRootNode();
@@ -570,21 +561,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   bool needsMask = !isa<Constant>(predicate);
 
   Type *vecType = getVectorType(accessedType, addrShape.isUniform() ? 1 : vectorWidth());
-
-#if 0
-  uint scalarBytes = accessedType->getPrimitiveSizeInBits() / 8;
-
-  if (addrShape.hasStridedShape(scalarBytes)) {
-    if (accessedType->isPointerTy())
-      vecPtr = requestScalarValue(accessedPtr);
-    else {
-      // cast pointer to vector-width pointer
-      Value *mappedPtr = requestScalarValue(accessedPtr);
-      PointerType *vecPtrType = PointerType::getUnqual(vecType);
-      vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
-    }
-  } else
-#endif
 
   unsigned origAlignment = load ? load->getAlignment() : store->getAlignment();
   unsigned alignment;
@@ -1191,12 +1167,6 @@ unsigned NatBuilder::vectorWidth() {
 }
 
 bool NatBuilder::canVectorize(Instruction *const inst) {
-#if 0
-  if (isa<CallInst>(inst))
-    return !inst->getType()->isVectorTy() && !inst->getType()->isStructTy();
-  return !(isa<TerminatorInst>(inst) && !isa<ReturnInst>(inst));
-#endif
-
   // whitelisting approach. for direct vectorization we support:
   // binary operations (normal & bitwise), memory access operations, conversion operations and other operations
 
