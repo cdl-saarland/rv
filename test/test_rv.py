@@ -38,16 +38,28 @@ def outerLoopVectorize(srcFile, loopDesc):
   return destFile if ret == 0 else None
 
 def executeWFVTest(scalarLL, options):
-  sigInfo = options.split("_")
-  launchCode = sigInfo[0]
-  shapes = sigInfo[1]
+  sigInfo = options.split(",")
+
+  for option in sigInfo:
+    opSplit = option.split(":")
+    if opSplit[0].strip() == "LaunchCode":
+      launchCode = opSplit[1].strip()
+    elif opSplit[0].strip() == "Shapes":
+      shapes = opSplit[1].strip()
+
   testBC = wholeFunctionVectorize(scalarLL, shapes)
   return runWFVTest(testBC, launchCode) if testBC else False
 
 def executeOuterLoopTest(scalarLL, options):
-  sigInfo = options.split("_")
-  launchCode = sigInfo[0]
-  loopHint = sigInfo[1]
+  sigInfo = options.split(",")
+  # launchCode = options.split("-k")[1].split("-")[0].strip()
+
+  for option in sigInfo:
+    opSplit = option.split(":")
+    if opSplit[0].strip() == "LaunchCode":
+      launchCode = opSplit[1].strip()
+    elif opSplit[0].strip() == "LoopHint":
+      loopHint = opSplit[1].strip()
 
   vectorIR = outerLoopVectorize(scalarLL, loopHint)
   if vectorIR is None:
@@ -68,11 +80,14 @@ for pattern in patterns:
   tests.sort()
   for testCase in tests:
     baseName = path.basename(testCase)
+
+    with open("suite/" + baseName, 'r') as f:
+      options = f.readline().strip("//").strip("\n").strip()
+
     print("{:60}".format("- {}".format(baseName)), end="")
-    parts = baseName.split("-")
-    options = parts[-1].split(".")[0]
-    mode = parts[-2]
-    rest = "-".join(parts[0:-2])
+    parts = baseName.split(".")[0].split("-")
+    mode = parts[-1]
+    rest = "-".join(parts[0:-1])
 
     scalarLL = buildScalarIR(testCase)
 
