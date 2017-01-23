@@ -133,6 +133,54 @@ MaskAnalysisWrapper::print(raw_ostream& O, const Module* M) const
 
 }
 
+
+static
+Loop*
+findNextNestedLoopOfExit(Loop*       loop,
+                              BasicBlock* exitingBlock)
+{
+    assert (loop && exitingBlock);
+    assert (loop->isLoopExiting(exitingBlock));
+
+    for (auto &SL : *loop)
+    {
+        if (!SL->contains(exitingBlock)) continue;
+        if (SL->isLoopExiting(exitingBlock)) return SL;
+    }
+
+    return nullptr;
+}
+
+static
+Loop*
+findTopLevelLoopOfExit(Loop*           loop,
+                            BasicBlock*     exitingBlock,
+                            BasicBlock*     exitBlock,
+                            const LoopInfo& loopInfo)
+{
+    assert (loop && exitingBlock && exitBlock);
+    assert (loop->isLoopExiting(exitingBlock));
+    assert (exitBlock->getUniquePredecessor() == exitingBlock); // LoopSimplify allows this.
+
+    Loop* parentLoop = loop->getParentLoop();
+    Loop* exitLoop   = loopInfo.getLoopFor(exitBlock);
+
+    // If there is no parent loop, the exit block can not be in a loop either.
+    assert (parentLoop || !exitLoop);
+
+    // If there is no parent loop, this is the top level loop of the exit.
+    if (!parentLoop) return loop;
+
+    // If the parent loop equals the loop of the exit block, the current loop
+    // is the top level loop of this exit.
+    if (parentLoop == exitLoop) return loop;
+
+    // Otherwise, recurse into parent loop.
+    return findTopLevelLoopOfExit(parentLoop, exitingBlock, exitBlock, loopInfo);
+}
+
+
+
 MaskAnalysis::MaskAnalysis(PlatformInfo & _platInfo,
                            VectorizationInfo& _vecInfo,
                            const LoopInfo&    Loopinfo)
@@ -486,8 +534,6 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
     //       successor of two varying branches (if the "connecting" branch above
     //       is uniform).
 
-    // assert(rv::hasMetadata(block, rv::WFV_METADATA_DIVERGENT_FALSE) == vecInfo.getVectorShape(*block).isUniform());
-
     if (vecInfo.getVectorShape(*block).isUniform())
     {
         assert (pred_begin(block) != pred_end(block) &&
@@ -510,7 +556,6 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
     assert (vecInfo.getVectorShape(*block).isVarying());
     assert (vecInfo.isMandatory(block));
     assert (!block->getUniquePredecessor());
-    assert (rv::getNumIncomingEdges(*block) > 1);
 
     // The mask is the disjunction of the exit masks of all predecessors.
     // NOTE: We might have more than two incoming edges if there
@@ -849,7 +894,7 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
             //       multiple loops, but the exit does not necessarily also leave the
             //       parent of the current loop.
             Loop* innermostLoop = mLoopInfo.getLoopFor(exitingBlock);
-            Loop* topLevelLoop  = rv::findTopLevelLoopOfExit(loop,
+            Loop* topLevelLoop  = findTopLevelLoopOfExit(loop,
                                                               exitingBlock,
                                                               exitBlock,
                                                               mLoopInfo);
@@ -958,7 +1003,7 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
 
         if (exitsMultipleLoops && !isInnermostLoopOfExit)
         {
-            Loop* nextNestedLoop = rv::findNextNestedLoopOfExit(loop, exitingBlock);
+            Loop* nextNestedLoop = findNextNestedLoopOfExit(loop, exitingBlock);
             assert (nextNestedLoop);
             DEBUG_RV( outs() << "    next nested loop: "
                 << nextNestedLoop->getHeader()->getName() << "\n"; );
@@ -1329,8 +1374,6 @@ MaskPtr
 MaskAnalysis::getLoopExitMaskPtrPhi(const Loop&       loop,
                                     const BasicBlock& exitingBlock) const
 {
-    // assert (!rv::hasMetadata(rv::getExitBlock(&exitingBlock, mLoopInfo),                             rv::WFV_METADATA_OPTIONAL) ==            !vecInfo.getVectorShape(*exitingBlock.getTerminator()).isUniform());
-
     assert (!vecInfo.getVectorShape(*exitingBlock.getTerminator()).isUniform() &&
             "must not query loop exit mask phi of OPTIONAL exit!");
     assert (mLoopExitMap.count(&exitingBlock));
@@ -1344,8 +1387,6 @@ MaskPtr
 MaskAnalysis::getLoopExitMaskPtrUpdate(const Loop&       loop,
                                        const BasicBlock& exitingBlock) const
 {
-    // assert (!rv::hasMetadata(rv::getExitBlock(&exitingBlock, mLoopInfo),                              rv::WFV_METADATA_OPTIONAL) ==            !vecInfo.getVectorShape(*exitingBlock.getTerminator()).isUniform());
-
     assert (!vecInfo.getVectorShape(*exitingBlock.getTerminator()).isUniform() &&
             "must not query loop exit mask update of OPTIONAL exit!");
     assert (mLoopExitMap.count(&exitingBlock));

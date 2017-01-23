@@ -120,21 +120,7 @@ rv::typesMatch(Type* t1, Type* t2)
 
 #undef MATCH_RETURN
 }
-Loop*
-rv::findNextNestedLoopOfExit(Loop*       loop,
-                              BasicBlock* exitingBlock)
-{
-    assert (loop && exitingBlock);
-    assert (loop->isLoopExiting(exitingBlock));
 
-    for (auto &SL : *loop)
-    {
-        if (!SL->contains(exitingBlock)) continue;
-        if (SL->isLoopExiting(exitingBlock)) return SL;
-    }
-
-    return nullptr;
-}
 Module*
 rv::createModuleFromFile(const std::string & fileName, LLVMContext & context) {
     SMDiagnostic smDiag;
@@ -197,33 +183,6 @@ rv::getExitingBlocks(BasicBlock*                  exitBlock,
         assert (loopInfo.getLoopFor(exitingBB) == commonLoop);
         assert (commonLoop->contains(exitingBB));
     }
-}
-
-Loop*
-rv::findTopLevelLoopOfExit(Loop*           loop,
-                            BasicBlock*     exitingBlock,
-                            BasicBlock*     exitBlock,
-                            const LoopInfo& loopInfo)
-{
-    assert (loop && exitingBlock && exitBlock);
-    assert (loop->isLoopExiting(exitingBlock));
-    assert (exitBlock->getUniquePredecessor() == exitingBlock); // LoopSimplify allows this.
-
-    Loop* parentLoop = loop->getParentLoop();
-    Loop* exitLoop   = loopInfo.getLoopFor(exitBlock);
-
-    // If there is no parent loop, the exit block can not be in a loop either.
-    assert (parentLoop || !exitLoop);
-
-    // If there is no parent loop, this is the top level loop of the exit.
-    if (!parentLoop) return loop;
-
-    // If the parent loop equals the loop of the exit block, the current loop
-    // is the top level loop of this exit.
-    if (parentLoop == exitLoop) return loop;
-
-    // Otherwise, recurse into parent loop.
-    return findTopLevelLoopOfExit(parentLoop, exitingBlock, exitBlock, loopInfo);
 }
 
 bool

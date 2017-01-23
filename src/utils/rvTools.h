@@ -54,13 +54,6 @@ getExitingBlocks(BasicBlock*                  exitBlock,
 bool
 returnsVoidPtr(const Instruction& inst);
 
-Loop*
-findNestedLoopOfInst(Loop* parentLoop, Instruction* inst);
-
-Loop*
-findNextNestedLoopOfExit(Loop*       loop,
-                         BasicBlock* exitingBlock);
-
 Module*
 createModuleFromFile(const std::string & fileName, LLVMContext & context);
 
@@ -69,25 +62,6 @@ writeModuleToFile(const Module& mod, const std::string& fileName);
 
 void
 writeFunctionToFile(const Function& f, const std::string& fileName);
-
-// insert print statement that prints 'value' preceeded by 'DEBUG: `message`'
-// example what can be generated:
-// declare i32 @printf(i8* noalias nocapture, ...) nounwind
-// @.str1 = private constant [19 x i8] c"DEBUG: indexA: %d\0A\00", align 1 ; <[19 x i8]*> [#uses=1]
-// %printf1 = tail call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([19 x i8]* @.str1, i64 0, i64 0), i32 %call) ; <i32> [#uses=0]
-// Usage Example:
-// insertPrintf("else-block executed! - pointerIdx: ", pointerIdx, true, (*elseBB)->getTerminator());
-CallInst*
-insertPrintf(const std::string& message,
-             Value*             value,
-             const bool         endLine,
-             Instruction*       insertBefore);
-
-Loop*
-findTopLevelLoopOfExit(Loop*           loop,
-                       BasicBlock*     exitingBlock,
-                       BasicBlock*     exitBlock,
-                       const LoopInfo& loopInfo);
 
 bool typesMatch(Type* t1, Type* t2);
 
