@@ -20,7 +20,6 @@
 #include <rv/pda/ProgramDependenceAnalysis.h>
 #include <rv/pda/DFG.h>
 #include <rv/analysis/maskAnalysis.h>
-#include <rv/analysis/MetadataMaskAnalyzer.h>
 #include <rv/transform/maskGenerator.h>
 #include <rv/transform/loopExitCanonicalizer.h>
 #include <rv/pda/ABAAnalysis.h>
@@ -123,8 +122,6 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
                              const PostDominatorTree& postDomTree,
                              const DominatorTree& domTree)
 {
-    MetadataMaskAnalyzer maskAnalyzer(vectorizationInfo);
-
     PDA programDependenceAnalysis(platInfo,
                                   vectorizationInfo,
                                   cdg,
@@ -140,7 +137,6 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
     auto & scalarFn = vectorizationInfo.getScalarFunction();
     programDependenceAnalysis.analyze(scalarFn);
     abaAnalysis.analyze(scalarFn);
-    maskAnalyzer.markMasks(scalarFn);
 }
 
 MaskAnalysis*
