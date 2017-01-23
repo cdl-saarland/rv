@@ -24,6 +24,11 @@
 #include <rv/vectorMapping.h>
 #include <rv/sleefLibrary.h>
 
+
+namespace rv {
+  bool typesMatch(Type* t1, Type* t2);
+}
+
 rv::VectorMapping
 inferTargetMapping(Function * scalarFn, Function * simdFn, uint vectorWidth, int maskPos = -1) {
   using namespace rv;

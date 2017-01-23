@@ -357,6 +357,22 @@ void PDA::update(const Value* const V, VectorShape AT) {
   }
 }
 
+static bool
+IsVectorizableType(Type & type) {
+  // plain arithmetic types
+  if (type.isFloatingPointTy() || type.isIntegerTy()) return true;
+
+  auto * structTy = dyn_cast<StructType>(&type);
+  if (structTy) {
+    for (auto * elemTy : structTy->elements()) {
+      if (!IsVectorizableType(*elemTy)) return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
 void PDA::updateAllocaOperands(const Instruction* I) {
   const int alignment = mVecinfo.getMapping().vectorWidth;
 
@@ -369,7 +385,7 @@ void PDA::updateAllocaOperands(const Instruction* I) {
     eraseUserInfoRecursively(op);
 
     auto* PtrElemType = op->getType()->getPointerElementType();
-    const bool Vectorizable = rv::isVectorizableNonDerivedType(*PtrElemType);
+    const bool Vectorizable = IsVectorizableType(*PtrElemType);
 
     int typeStoreSize = static_cast<int>(layout.getTypeStoreSize(PtrElemType));
 

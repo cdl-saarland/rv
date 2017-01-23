@@ -95,8 +95,6 @@ private:
    // the SIMS semantics of the function will change if @scalar func used any mask intrinsics
   void lowerPredicateIntrinsics(Function & scalarFunc);
   void lowerPredicateIntrinsics(Module & mod);
-
-  bool typesMatch(llvm::Type* t1, llvm::Type* t2);
 }
 
 #endif // RV_RV_H
