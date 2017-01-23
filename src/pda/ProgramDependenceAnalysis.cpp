@@ -53,8 +53,6 @@ char PDAWrapperPass::ID = 0;
 
 void
 PDAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
-  Info.addRequired<DominatorTreeWrapperPass>();
-  Info.addRequired<PostDominatorTree>();
   Info.addRequired<DFGBaseWrapper<true>>();
   Info.addRequired<DFGBaseWrapper<false>>();
   Info.addRequired<LoopInfoWrapperPass>();
