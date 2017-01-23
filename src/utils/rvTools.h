@@ -20,7 +20,6 @@
 #include "rv/utils/functionInfoMap.h"
 #include "rv/vectorizationInfo.h"
 
-#include "analysis/analysisCfg.h"
 #include "rv/Region/Region.h"
 
 // Forward declarations.
@@ -213,26 +212,6 @@ typedef SmallVector<const BasicBlock*, 16> PathType;
 typedef SmallVector<PathType*, 16> PathVecType;
 
 void DumpPath(const PathType & path);
-
-#ifdef RV_ENABLE_LEGACY_API
-bool
-collectPaths(const BasicBlock*                   target,
-             const BasicBlock*                   source,
-             PathType&                           currentPath,
-             PathVecType&                        paths,
-             const bool                          ignoreOuterLoops,
-             const LoopInfo&                     loopInfo,
-             SmallPtrSet<const BasicBlock*, 16>& visitedBlocks,
-             SmallPtrSet<const BasicBlock*, 16>& unreachableBlocks);
-
-void
-collectLoopPaths(const BasicBlock*                   target,
-                 const BasicBlock*                   source,
-                 const Loop*                         loop,
-                 PathType&                           currentPath,
-                 PathVecType&                        paths,
-                 SmallPtrSet<const BasicBlock*, 16>& visitedBlocks);
-#endif
 
 Loop*
 findNestedLoopOfInst(Loop* parentLoop, Instruction* inst);
