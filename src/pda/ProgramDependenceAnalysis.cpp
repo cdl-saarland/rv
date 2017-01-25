@@ -377,6 +377,9 @@ void PDA::updateAllocaOperands(const Instruction* I) {
   const int alignment = mVecinfo.getMapping().vectorWidth;
 
   for (const Value* op : I->operands()) {
+    while (isa<GetElementPtrInst>(op))
+      op = cast<Instruction>(op)->getOperand(0);
+
     if (!isa<AllocaInst>(op)) continue;
 
     // Already processed

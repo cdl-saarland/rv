@@ -1,6 +1,4 @@
 // Shapes: UTrT, LaunchCode: bintree
-#include <iostream>
-
 struct Node {
   float data;
   int left;
