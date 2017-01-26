@@ -1,4 +1,4 @@
-// Shapes: TTrT, LaunchCode: foo2f8
+// Shapes: T_TrT, LaunchCode: foo2f8
 // test_071_loopnsmx15(float, float)
 
 extern "C" float

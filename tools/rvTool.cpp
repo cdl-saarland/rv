@@ -39,9 +39,19 @@
 #include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/Region/LoopRegion.h"
 
+static const char LISTSEPERATOR = '_';
+static const char SHAPESEPERATOR = '.';
+static const char RETURNSHAPESEPERATOR = 'r';
+
+static const char BOTCHAR = 'B';
+static const char UNICHAR = 'U';
+static const char CONTCHAR = 'C';
+static const char STRIDEDCHAR = 'S';
+static const char VARCHAR = 'T';
+
 static void
 fail(const char * errMsg = nullptr) {
-  if (errMsg) std::cerr << errMsg << "\bnAbort!\n";
+  if (errMsg) std::cerr << errMsg << "\nAbort!\n";
   assert(false); // preserve the stack frame in dbg builds
   exit(-1);
 }
@@ -356,56 +366,54 @@ createVectorDeclaration(Function& scalarFn, rv::VectorShape resShape,
                                   scalarFn.getParent());
 }
 
-unsigned
-readNumber(std::string shapeText, unsigned& pos)
+unsigned readNumber(std::stringstream& shapeText)
 {
-    unsigned alignment = 0U;
-
-    auto toint = [](char c) { return static_cast<unsigned>(c - '0'); };
-
-    for (; isdigit(shapeText[pos]); ++pos)
-    {
-        alignment = alignment * 10 + toint(shapeText[pos]);
-    }
-
-    return alignment;
+    unsigned number;
+    shapeText >> number;
+    assert (!shapeText.fail() && "expected a number!");
+    return number;
 }
 
-unsigned
-decodeAlignment(std::string shapeText, unsigned& pos)
+unsigned decodeAlignment(std::stringstream& shapeText)
 {
-    if (pos >= shapeText.size()) return 1U;
+    if (shapeText.get() != 'a')
+        return shapeText.unget(), 1U; // expect 'a' or rollback, return 1
 
-    if (shapeText[pos] != 'a') return 1U;
-
-    ++pos;
-
-    if (!isdigit(shapeText[pos])) return 1U; // alignment omitted, assume 1
-
-    return readNumber(shapeText, pos);
+    return readNumber(shapeText);
 }
 
-rv::VectorShape
-decodeShape(std::string shapeText, unsigned& pos)
+template <char SEPERATOR, typename Elem_t, typename Elem_Reader_t, typename ... ReaderArgTypes>
+void readList(std::stringstream& listText,
+              std::vector<Elem_t>& vec,
+              Elem_Reader_t reader,
+              ReaderArgTypes... args)
 {
-    char c = shapeText[pos++];
-    unsigned stridedOf = 0;
+    bool next;
+    do {
+        vec.push_back(reader(listText, args...));  // read one element
+        int c = listText.peek();
+        next = c == SEPERATOR;            // check if the list ends here
+        if (next) listText.ignore(1);     // skip seperator
+    } while (next);
+}
 
-    // For 'S' a following stride is expected
-    if (c == 'S')
-    {
-        if (!isdigit(shapeText[pos])) fail("expected a stride after 'S'!");
-        stridedOf = readNumber(shapeText, pos);
-    }
+rv::VectorShape decodeShape(std::stringstream& shapestream)
+{
+    int c = shapestream.get();
 
-    unsigned alignment = decodeAlignment(shapeText, pos);
+    if (c == BOTCHAR) return rv::VectorShape::undef();
 
-    if (c == 'C')      return rv::VectorShape::cont(alignment);
-    else if (c == 'T') return rv::VectorShape::varying(alignment);
-    else if (c == 'U') return rv::VectorShape::uni(alignment);
-    else if (c == 'S') return rv::VectorShape::strided(stridedOf, alignment);
+    unsigned alignment = decodeAlignment(shapestream);
 
-    return rv::VectorShape::undef();
+    if (c == CONTCHAR)      return rv::VectorShape::cont   (alignment);
+    else if (c == VARCHAR) return rv::VectorShape::varying(alignment);
+    else if (c == UNICHAR) return rv::VectorShape::uni    (alignment);
+
+    unsigned stridedOf = readNumber(shapestream);
+
+    if (c == STRIDEDCHAR) return rv::VectorShape::strided(stridedOf, alignment);
+
+    fail("Expected stride specifier.");
 }
 
 int main(int argc, char** argv)
@@ -461,23 +469,16 @@ int main(int argc, char** argv)
     std::string shapeText;
     if (reader.readOption<std::string>("-s", shapeText))
     {
-        uint i = 0;
-        for (auto & it : scalarFn->getArgumentList()) {
-            (void) it;
+        std::stringstream shapestream(shapeText);
+        readList<LISTSEPERATOR>(shapestream, argShapes, decodeShape);
 
-            if (i >= shapeText.size())
-            {
-                argShapes.push_back(rv::VectorShape::uni());
-                continue;
-            }
-            rv::VectorShape argShape = decodeShape(shapeText, i);
-            argShapes.push_back(argShape);
-        }
-        if (shapeText.size() > i)
+        if (argShapes.size() != scalarFn->getArgumentList().size())
+            fail("Number of specified shapes unequal to argument number.");
+
+        if (shapestream.peek() != EOF)
         { // return shape
-            if (shapeText[i] != 'r') fail("expected return shape");
-            ++i;
-            resShape = decodeShape(shapeText, i);
+            if (shapestream.get() != RETURNSHAPESEPERATOR) fail("expected return shape");
+            resShape = decodeShape(shapestream);
         }
 
     }

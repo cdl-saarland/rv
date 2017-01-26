@@ -1,4 +1,4 @@
-// Shapes: UUrU, LaunchCode: unifoo2f
+// Shapes: U_UrU, LaunchCode: unifoo2f
 
 extern "C" bool rv_any(bool);
 

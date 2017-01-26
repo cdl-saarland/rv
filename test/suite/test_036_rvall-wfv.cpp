@@ -1,4 +1,4 @@
-// Shapes: TTrT, LaunchCode: foo2f8
+// Shapes: T_TrT, LaunchCode: foo2f8
 #include <cmath>
 
 extern "C" bool rv_all(bool);

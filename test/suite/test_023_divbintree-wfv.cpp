@@ -1,4 +1,4 @@
-// Shapes: UTrT, LaunchCode: bintree
+// Shapes: U_TrT, LaunchCode: bintree
 struct Node {
   float data;
   int left;

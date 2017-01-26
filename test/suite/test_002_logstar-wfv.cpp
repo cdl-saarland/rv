@@ -1,4 +1,4 @@
-// Shapes: TTrT, LaunchCode: ifoo2f8
+// Shapes: T_TrT, LaunchCode: ifoo2f8
 
 #include <cmath>
 

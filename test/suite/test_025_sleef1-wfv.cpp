@@ -1,4 +1,4 @@
-// Shapes: UTrT, LaunchCode: sleef
+// Shapes: U_TrT, LaunchCode: sleef
 #include <cmath>
 
 extern "C" float

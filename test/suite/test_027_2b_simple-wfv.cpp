@@ -1,4 +1,4 @@
-// Shapes: TTrT, LaunchCode: foo2f8
+// Shapes: T_TrT, LaunchCode: foo2f8
 typedef float float4 __attribute__((ext_vector_type(4)));
 
 #include <cmath>

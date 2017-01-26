@@ -1,4 +1,4 @@
-// Shapes: TTrT, LaunchCode: foo2f8
+// Shapes: T_TrT, LaunchCode: foo2f8
 // wfvTestSuite: test_087_ocl_aobench_inlined(float x, float y)
 
 #include <cmath>

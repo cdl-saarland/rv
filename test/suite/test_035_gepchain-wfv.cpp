@@ -1,4 +1,4 @@
-// Shapes: CUrT, LaunchCode: catfoo
+// Shapes: C_UrT, LaunchCode: catfoo
 extern "C"
 float
 foo(int i, float * data) {
