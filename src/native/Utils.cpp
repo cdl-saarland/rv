@@ -29,7 +29,22 @@ Value *createContiguousVector(unsigned width, Type *type, int start, int stride)
     Constant *constant = type->isFloatingPointTy() ? ConstantFP::get(type, val) : ConstantInt::get(type, val);
     constants[i] = constant;
   }
-  return ConstantVector::get(ArrayRef<Constant *>(constants, &width));
+  return ConstantVector::get(constants);
+}
+
+Value *getConstantVectorPadded(unsigned width, Type *type, std::vector<unsigned> &values) {
+  std::vector<Constant *> constants(width, nullptr);
+  unsigned i = 0;
+  for (; i < values.size(); ++i) {
+    Constant *constant = type->isFloatingPointTy() ? ConstantFP::get(type, values[i])
+                                                   : ConstantInt::get(type, values[i]);
+    constants[i] = constant;
+  }
+  Constant *undef = UndefValue::get(type);
+  for (; i < width; ++i) {
+    constants[i] = undef;
+  }
+  return ConstantVector::get(constants);
 }
 
 Value *getPointerOperand(Instruction *instr) {

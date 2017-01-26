@@ -17,6 +17,7 @@
 
 
 #include "rvConfig.h"
+#include "ShuffleBuilder.h"
 
 using namespace native;
 using namespace llvm;
@@ -239,7 +240,9 @@ void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
   phiVector.push_back(scalPhi);
 }
 
-void NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const gep, bool buildVectorGEP) {
+GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const gep, bool buildVectorGEP,
+                                                        unsigned interleavedIndex,
+                                                        bool skipMapping) {
   assert(gep->getNumOperands() - 1 == gep->getNumIndices() && "LLVM Code for GEP changed!");
   Value *scalPtr = gep->getPointerOperand();
 
@@ -306,14 +309,26 @@ void NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const gep, bool buil
                                                       : VectorShape::uni();
     idxList[i + offset] = buildVectorGEP && !shape.isUniform() ? requestVectorValue(operand) : requestScalarValue(operand);
   }
-  GetElementPtrInst *cgep = cast<GetElementPtrInst>(
+  if (interleavedIndex > 0) {
+    assert(!buildVectorGEP && "interleavedIndex > 0 outside of interleaved!");
+    Value *lastIndex = idxList[numIndices - 1];
+    Type *lastIndexType = lastIndex->getType();
+    idxList[numIndices - 1] = ConstantInt::get(lastIndexType, interleavedIndex, true);
+  }
+  GetElementPtrInst *vgep = cast<GetElementPtrInst>(
       builder.CreateGEP(ptr, ArrayRef<Value *>(idxList, numIndices), gep->getName()));
-  cgep->setIsInBounds(gep->isInBounds());
-  if (buildVectorGEP)
-    mapVectorValue(gep, cgep);
-  else
-    mapScalarValue(gep, cgep);
+  vgep->setIsInBounds(gep->isInBounds());
+
+  // might skip mapping
+  if (!skipMapping) {
+    if (buildVectorGEP)
+      mapVectorValue(gep, vgep);
+    else
+      mapScalarValue(gep, vgep);
+  }
   delete [] idxList;
+
+  return vgep;
 }
 
 /* expects that builder has valid insertion point set */
@@ -548,6 +563,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     accessedPtr = store->getPointerOperand();
   }
 
+  assert(accessedType == cast<PointerType>(accessedPtr->getType())->getElementType() && "accessed type and pointed object type differ!");
   assert(vectorizationInfo.hasKnownShape(*accessedPtr) && "no shape for accessed pointer!");
   VectorShape addrShape = vectorizationInfo.getVectorShape(*accessedPtr);
   VectorShape instrShape = load ? vectorizationInfo.getVectorShape(*load) : vectorizationInfo.getVectorShape(*store);
@@ -570,7 +586,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
   if (addrShape.isContiguous() || byteContiguous) {
     // cast pointer to vector-width pointer
-    // uniform-with-mask case needs to be included as scalar masked load/store is not allowed!
     Value *mappedPtr = requestScalarValue(accessedPtr);
     PointerType *vecPtrType = PointerType::getUnqual(vecType);
     vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
@@ -595,6 +610,12 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       for (Instruction *instr : instrGroup) {
         Value *addrVal = getPointerOperand(instr);
         assert(addrVal && "grouped instruction was not a memory instruction!!");
+        // only group strided accesses
+        VectorShape shape = vectorizationInfo.hasKnownShape(*addrVal) ? vectorizationInfo.getVectorShape(*addrVal)
+                                                                      : VectorShape::uni();
+        bool groupByteContiguous = addrShape.isStrided(static_cast<int>(layout.getTypeStoreSize(cast<PointerType>(accessedPtr->getType())->getElementType())));
+        if (!shape.isStrided() || groupByteContiguous)
+          continue;
         const SCEV *scev = memoryGrouper.add(addrVal);
         addrSCEVMap[addrVal] = scev;
         scevInstrMap[scev] = instr;
@@ -611,14 +632,14 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       }
 
       // we have found a memory group if it has no gaps and the size is bigger than 1
-      isInterleaved = !hasGaps && memGroup.size() > 1;
+      // for now: only support interleaved loads
+      isInterleaved = !hasGaps && memGroup.size() > 1 && load;
     }
 
     alignment = instrShape.getAlignmentGeneral();
-    // TODO: FINISH CODEGEN FOR INTERLEAVED
   }
 
-  if (addrShape.isVarying() || (!byteContiguous && addrShape.isStrided()/* && !isInterleaved*/)) {
+  if (addrShape.isVarying() || (!byteContiguous && addrShape.isStrided() && !isInterleaved)) {
     // varying or non-interleaved strided. gather the addresses for the lanes
     vecPtr = isa<Argument>(accessedPtr) ? getScalarValue(accessedPtr) : getVectorValue(accessedPtr);
     if (!vecPtr) {
@@ -638,11 +659,72 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   Value *mask = nullptr;
   Value *vecMem = nullptr;
   if (load) {
-    /*if (isInterleaved) {
+    if (isInterleaved) {
       // build as many contiguous loads as there memory group elements and shuffle them
+      std::vector<Value *> loads;
+      std::vector<Value *> sources;
+      unsigned offset = 0;
+      unsigned maskIdx = 0;
+      if (needsMask)
+        mask = requestVectorValue(predicate);
+      ShuffleBuilder maskShuffler(vectorWidth());
+      for (unsigned i = 0; needsMask && i < memGroup.size(); ++i) {
+        maskShuffler.add(mask);
+      }
 
+      for (auto SCEV : memGroup) {
+        LoadInst *sourceLoad = cast<LoadInst>(scevInstrMap[SCEV]);
+        sources.push_back(sourceLoad);
+        assert(sourceLoad && "no source instruction available for this SCEV");
+        if (!offset)
+          accessedPtr = sourceLoad->getPointerOperand();
+        Value *mappedPtr;
 
-    } else*/ if (addrShape.isUniform() && needsMask) {
+        // contiguous address + contiguous load
+        // generate scalar gep on the fly (because we need offsets)
+        if (isa<GetElementPtrInst>(accessedPtr))
+          mappedPtr = vectorizeGEPInstruction(cast<GetElementPtrInst>(accessedPtr), false, offset, true);
+        else {
+          mappedPtr = requestScalarValue(accessedPtr);
+          if (offset > 0)
+            mappedPtr = builder.CreateGEP(mappedPtr, ConstantInt::get(i32Ty, offset, true));
+        }
+        PointerType *vecPtrType = PointerType::getUnqual(vecType);
+        vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
+
+        // need to recompute alignment
+        alignment = vectorizationInfo.getVectorShape(*sourceLoad).getAlignmentFirst();
+        origAlignment = sourceLoad->getAlignment();
+        alignment = std::max<uint>(origAlignment, alignment);
+
+        if (needsMask) {
+          mask = maskShuffler.buildShuffle(builder, memGroup.size(), maskIdx);
+          loads.push_back(builder.CreateMaskedLoad(vecPtr, alignment, mask, nullptr, "interleaved_load"));
+        } else {
+          Value *interLoad = builder.CreateLoad(vecPtr, "interleaved_load");
+          cast<LoadInst>(interLoad)->setAlignment(alignment);
+          loads.push_back(interLoad);
+        }
+
+        offset += vectorWidth();
+        ++maskIdx;
+      }
+
+      assert(loads.size() == sources.size() && "not enough interleaved loads");
+
+      // create as many shuffles as there were loads
+      ShuffleBuilder shuffleBuilder(loads, vectorWidth());
+      unsigned stride = static_cast<unsigned>(loads.size());
+      for (unsigned i = 0; i < sources.size(); ++i) {
+        // start = 0, stride = sources.size
+        Value *shuffle = shuffleBuilder.buildShuffle(builder, stride, i);
+        mapVectorValue(sources[i], shuffle);
+      }
+
+      // early return because everything is done
+      return;
+
+    } else if (addrShape.isUniform() && needsMask) {
       // create two new basic blocks
       mask = createPTest(requestVectorValue(predicate), false);
       BasicBlock *loadBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "load_block",
@@ -764,6 +846,12 @@ void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
   lazyInstructions.pop_front();
 
   while (lazyInstr != upToInstruction) {
+    // skip if already generated (only happens for interleaving)
+    if (getVectorValue(lazyInstr))
+      continue;
+
+    assert(!getVectorValue(lazyInstr) && !getScalarValue(lazyInstr) && "instruction already generated!");
+
     if (isa<CallInst>(lazyInstr)) {
       if (shouldVectorize(lazyInstr))
         vectorizeCallInstruction(cast<CallInst>(lazyInstr));
@@ -782,6 +870,12 @@ void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
 
   // if we reach this point this should be guaranteed:
   assert(lazyInstr == upToInstruction && "something went wrong during lazy generation!");
+
+  // skip if already generated (only happens for interleaving, therefore only getVectorValue needed)
+  if (getVectorValue(lazyInstr))
+    return;
+
+  assert(!getVectorValue(lazyInstr) && !getScalarValue(lazyInstr) && "instruction already generated!");
 
   if (isa<CallInst>(lazyInstr)) {
     if (shouldVectorize(lazyInstr))
