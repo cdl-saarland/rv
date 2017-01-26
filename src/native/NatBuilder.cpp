@@ -313,7 +313,8 @@ GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const 
     assert(!buildVectorGEP && "interleavedIndex > 0 outside of interleaved!");
     Value *lastIndex = idxList[numIndices - 1];
     Type *lastIndexType = lastIndex->getType();
-    idxList[numIndices - 1] = ConstantInt::get(lastIndexType, interleavedIndex, true);
+    Constant *offsetConst = ConstantInt::get(lastIndexType, interleavedIndex, true);
+    idxList[numIndices - 1] = builder.CreateAdd(lastIndex, offsetConst);
   }
   GetElementPtrInst *vgep = cast<GetElementPtrInst>(
       builder.CreateGEP(ptr, ArrayRef<Value *>(idxList, numIndices), gep->getName()));
@@ -571,18 +572,24 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   // address: uniform -> scalar op. contiguous -> scalar from vector-width address. varying -> scatter/gather
   Value *vecPtr = nullptr;
 
+  // check if predicate is non-trivial and set needsMask flag accordingly
   Value *predicate = vectorizationInfo.getPredicate(*inst->getParent());
   assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
   bool needsMask = !isa<Constant>(predicate);
 
   Type *vecType = getVectorType(accessedType, addrShape.isUniform() ? 1 : vectorWidth());
 
+  // alignments and contiguous check
   unsigned origAlignment = load ? load->getAlignment() : store->getAlignment();
   unsigned alignment = 0;
   bool byteContiguous = addrShape.isStrided(static_cast<int>(layout.getTypeStoreSize(accessedType)));
+
+  // used for memory-interleaving
   bool isInterleaved = false;
   MemoryGroup memGroup;
   std::map<const SCEV *, Instruction *> scevInstrMap;
+  std::vector<Value *> sourceAddrs;
+  std::vector<Value *> sources;
 
   if (addrShape.isContiguous() || byteContiguous) {
     // cast pointer to vector-width pointer
@@ -632,9 +639,38 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       }
 
       // we have found a memory group if it has no gaps and the size is bigger than 1
-      // for now: only support interleaved loads
-      isInterleaved = !hasGaps && memGroup.size() > 1 && load;
+      isInterleaved = !hasGaps && memGroup.size() > 1;
     }
+
+    if (isInterleaved) {
+      // build as many contiguous GEPs as there are members of the group and shuffle them
+      unsigned offset = 0;
+      unsigned maskIdx = 0;
+      for (auto SCEV : memGroup) {
+        Instruction *sourceMem = scevInstrMap[SCEV];
+        sources.push_back(sourceMem);
+        assert(sourceMem && "no source instruction available for this SCEV");
+        if (!offset)
+          accessedPtr = getPointerOperand(sourceMem);
+        Value *mappedPtr;
+
+        // generate scalar gep on the fly (because we need offsets)
+        if (isa<GetElementPtrInst>(accessedPtr))
+          mappedPtr = vectorizeGEPInstruction(cast<GetElementPtrInst>(accessedPtr), false, offset, true);
+        else {
+          mappedPtr = requestScalarValue(accessedPtr);
+          if (offset > 0)
+            mappedPtr = builder.CreateGEP(mappedPtr, ConstantInt::get(i32Ty, offset, true));
+        }
+        PointerType *vecPtrType = PointerType::getUnqual(vecType);
+        vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
+        sourceAddrs.push_back(vecPtr);
+
+        offset += vectorWidth();
+        ++maskIdx;
+      }
+    }
+
 
     alignment = instrShape.getAlignmentGeneral();
   }
@@ -660,64 +696,44 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   Value *vecMem = nullptr;
   if (load) {
     if (isInterleaved) {
-      // build as many contiguous loads as there memory group elements and shuffle them
-      std::vector<Value *> loads;
-      std::vector<Value *> sources;
-      unsigned offset = 0;
-      unsigned maskIdx = 0;
-      if (needsMask)
-        mask = requestVectorValue(predicate);
       ShuffleBuilder maskShuffler(vectorWidth());
-      for (unsigned i = 0; needsMask && i < memGroup.size(); ++i) {
-        maskShuffler.add(mask);
+      if (needsMask) {
+        mask = requestVectorValue(predicate);
+        for (unsigned i = 0; needsMask && i < memGroup.size(); ++i) {
+          maskShuffler.add(mask);
+        }
       }
 
-      for (auto SCEV : memGroup) {
-        LoadInst *sourceLoad = cast<LoadInst>(scevInstrMap[SCEV]);
-        sources.push_back(sourceLoad);
-        assert(sourceLoad && "no source instruction available for this SCEV");
-        if (!offset)
-          accessedPtr = sourceLoad->getPointerOperand();
-        Value *mappedPtr;
+      assert(sourceAddrs.size() == sources.size() && "too few or too many sources!");
 
-        // contiguous address + contiguous load
-        // generate scalar gep on the fly (because we need offsets)
-        if (isa<GetElementPtrInst>(accessedPtr))
-          mappedPtr = vectorizeGEPInstruction(cast<GetElementPtrInst>(accessedPtr), false, offset, true);
-        else {
-          mappedPtr = requestScalarValue(accessedPtr);
-          if (offset > 0)
-            mappedPtr = builder.CreateGEP(mappedPtr, ConstantInt::get(i32Ty, offset, true));
-        }
-        PointerType *vecPtrType = PointerType::getUnqual(vecType);
-        vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
+      std::vector<Value *> loads;
+      for (unsigned i = 0; i < sources.size(); ++i) {
+        Value *sourceLoad = sources[i];
 
         // need to recompute alignment
         alignment = vectorizationInfo.getVectorShape(*sourceLoad).getAlignmentFirst();
-        origAlignment = sourceLoad->getAlignment();
+        origAlignment = cast<LoadInst>(sourceLoad)->getAlignment();
         alignment = std::max<uint>(origAlignment, alignment);
 
+        vecPtr = sourceAddrs[i];
         if (needsMask) {
-          mask = maskShuffler.buildShuffle(builder, memGroup.size(), maskIdx);
+          mask = maskShuffler.shuffleToInterleaved(builder, memGroup.size(), i);
           loads.push_back(builder.CreateMaskedLoad(vecPtr, alignment, mask, nullptr, "interleaved_load"));
         } else {
           Value *interLoad = builder.CreateLoad(vecPtr, "interleaved_load");
           cast<LoadInst>(interLoad)->setAlignment(alignment);
           loads.push_back(interLoad);
         }
-
-        offset += vectorWidth();
-        ++maskIdx;
       }
 
       assert(loads.size() == sources.size() && "not enough interleaved loads");
 
-      // create as many shuffles as there were loads
+      // create as many shuffles as there are loads
       ShuffleBuilder shuffleBuilder(loads, vectorWidth());
       unsigned stride = static_cast<unsigned>(loads.size());
       for (unsigned i = 0; i < sources.size(); ++i) {
         // start = 0, stride = sources.size
-        Value *shuffle = shuffleBuilder.buildShuffle(builder, stride, i);
+        Value *shuffle = shuffleBuilder.shuffleFromInterleaved(builder, stride, i);
         mapVectorValue(sources[i], shuffle);
       }
 
@@ -784,7 +800,58 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                    : requestVectorValue(storedValue);
 
-    if (addrShape.isUniform() && needsMask) {
+    if (isInterleaved) {
+      ShuffleBuilder maskShuffler(vectorWidth());
+      if (needsMask) {
+        mask = requestVectorValue(predicate);
+        for (unsigned i = 0; needsMask && i < memGroup.size(); ++i) {
+          maskShuffler.add(mask);
+        }
+      }
+
+      assert(sourceAddrs.size() == sources.size() && "too few or too many sources!");
+
+      // shuffle the source values
+      ShuffleBuilder shuffleBuilder(vectorWidth());
+      unsigned stride = static_cast<unsigned>(sources.size());
+      for (unsigned i = 0; i < sources.size(); ++i) {
+        Value *sourceStore = sources[i];
+        storedValue = cast<StoreInst>(sourceStore)->getValueOperand();
+        mappedStoredVal = requestVectorValue(storedValue);
+        shuffleBuilder.add(mappedStoredVal);
+      }
+
+      std::vector<Value *> valShuffles;
+      for (unsigned i = 0; i < sources.size(); ++i) {
+        // start = 0, stride = sources.size
+        valShuffles.push_back(shuffleBuilder.shuffleToInterleaved(builder, stride, i));
+      }
+
+      for (unsigned i = 0; i < sources.size(); ++i) {
+        Value *sourceStore = sources[i];
+
+        // need to recompute alignment
+        alignment = vectorizationInfo.getVectorShape(*sourceStore).getAlignmentFirst();
+        origAlignment = cast<StoreInst>(sourceStore)->getAlignment();
+        alignment = std::max<uint>(origAlignment, alignment);
+
+        vecPtr = sourceAddrs[i];
+        mappedStoredVal = valShuffles[i];
+        if (needsMask) {
+          mask = maskShuffler.shuffleToInterleaved(builder, stride, i);
+          vecMem = builder.CreateMaskedStore(mappedStoredVal, vecPtr, alignment, mask);
+        } else {
+          vecMem = builder.CreateStore(mappedStoredVal, vecPtr);
+          cast<StoreInst>(vecMem)->setAlignment(alignment);
+        }
+
+        mapVectorValue(sourceStore, vecMem);
+      }
+
+      // early return because everything is done
+      return;
+
+    } else if (addrShape.isUniform() && needsMask) {
       // create two new basic blocks
       mask = createPTest(requestVectorValue(predicate), false);
       BasicBlock *storeBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "store_block",

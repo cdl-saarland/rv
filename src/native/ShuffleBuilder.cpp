@@ -17,7 +17,8 @@ void ShuffleBuilder::add(Value *vector) {
   inputVectors.push_back(vector);
 }
 
-llvm::Value *ShuffleBuilder::buildShuffle(llvm::IRBuilder<> &builder, unsigned stride, unsigned start) {
+llvm::Value *ShuffleBuilder::shuffleFromInterleaved(llvm::IRBuilder<> &builder, unsigned stride, unsigned start) {
+  // expects that the values of each input vector ARE interleaved. creates an non-interleaved value
   // use a loop that builds shuffles until all input vectors have been used
   // shuffles are build like this: take the last shuffle and the next input vector and the shuffle mask
   // as shuffle mask, fixed positions from last shuffle, then all indices of form start + k * stride that are inside
@@ -32,7 +33,7 @@ llvm::Value *ShuffleBuilder::buildShuffle(llvm::IRBuilder<> &builder, unsigned s
   std::vector<unsigned> shuffleMask;
   unsigned inputVectorIndex = 1;
   unsigned indexLimit = vectorWidth * 2;
-  unsigned index = start; // is valid since start >= 0
+  unsigned index = start;
 
   // index init
   while (index < vectorWidth) {
@@ -71,6 +72,71 @@ llvm::Value *ShuffleBuilder::buildShuffle(llvm::IRBuilder<> &builder, unsigned s
     ++inputVectorIndex;
 
   } while (inputVectorIndex < inputVectors.size());
+
+  return lastShuffle;
+}
+
+llvm::Value *ShuffleBuilder::shuffleToInterleaved(llvm::IRBuilder<> &builder, unsigned stride, unsigned start) {
+  // expects that the values of each input vector are NOT interleaved. creates an interleaved value
+  // use a loop that builds shuffles until all <vectorWidth> positions are set
+  // shuffles are build like this: take the last shuffle and the next input vector and the shuffle mask
+  // as shuffle mask: all positions that have been set in lastShuffle, then all undef positions (will be k * stride)
+  // set to <vecWidth> + k. the shuffle that is build becomes the new last shuffle
+  // initialize like this: last shuffle = inputVectors[0], next input vector = inputVectors[1],
+  // shuffleMask = <[k * stride](=m1)> for all m1 < vectorWidth
+  // lastly, return lastShuffle
+
+  Type *i32Ty = builder.getInt32Ty();
+
+  assert(inputVectors.size() >= 2 && "not enough input vectors to build shuffle");
+  unsigned inputVectorIndex = ((vectorWidth % stride) * start) % static_cast<unsigned>(inputVectors.size());
+  Value *lastShuffle = inputVectors[inputVectorIndex];
+  Value *nextInput;
+  std::vector<Constant *> shuffleMask(vectorWidth, UndefValue::get(i32Ty));
+  inputVectorIndex = ++inputVectorIndex % static_cast<unsigned>(inputVectors.size());
+  unsigned counter = 1;
+
+  // index init
+  unsigned i = (vectorWidth / stride) * start;
+  unsigned index = 0;
+  while (index < vectorWidth) {
+    Constant *constIdx = ConstantInt::get(i32Ty, i);
+    shuffleMask[index] = constIdx;
+    ++i;
+    index += stride;
+  }
+
+  do {
+    nextInput = inputVectors[inputVectorIndex];
+
+    // set shuffle mask for next input
+    i = ((vectorWidth / stride) * start) + vectorWidth;
+    index = counter;
+    while (index < vectorWidth) {
+      Constant *constIdx = ConstantInt::get(i32Ty, i);
+      shuffleMask[index] = constIdx;
+      ++i;
+      index += stride;
+    }
+
+    // create shuffle
+    Value *idxVector = ConstantVector::get(shuffleMask);
+    lastShuffle = builder.CreateShuffleVector(lastShuffle, nextInput, idxVector, "native_shuffle");
+
+    // prepare next iteration
+    inputVectorIndex = ++inputVectorIndex % static_cast<unsigned>(inputVectors.size());
+    ++counter;
+
+    // loop over the shuffle mask and replace the already set positions with identity constant
+    for (i = 0; i < vectorWidth; ++i) {
+      Constant *constIdx = shuffleMask[i];
+      if (isa<UndefValue>(constIdx))
+        continue;
+      constIdx = ConstantInt::get(i32Ty, i);
+      shuffleMask[i] = constIdx;
+    }
+
+  } while (counter < inputVectors.size());
 
   return lastShuffle;
 }
