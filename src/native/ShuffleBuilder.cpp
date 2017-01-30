@@ -93,7 +93,7 @@ llvm::Value *ShuffleBuilder::shuffleToInterleaved(llvm::IRBuilder<> &builder, un
   Value *lastShuffle = inputVectors[inputVectorIndex];
   Value *nextInput;
   std::vector<Constant *> shuffleMask(vectorWidth, UndefValue::get(i32Ty));
-  inputVectorIndex = ++inputVectorIndex % static_cast<unsigned>(inputVectors.size());
+  inputVectorIndex = (inputVectorIndex + 1) % static_cast<unsigned>(inputVectors.size());
   unsigned counter = 1;
 
   // index init
@@ -124,7 +124,7 @@ llvm::Value *ShuffleBuilder::shuffleToInterleaved(llvm::IRBuilder<> &builder, un
     lastShuffle = builder.CreateShuffleVector(lastShuffle, nextInput, idxVector, "native_shuffle");
 
     // prepare next iteration
-    inputVectorIndex = ++inputVectorIndex % static_cast<unsigned>(inputVectors.size());
+    inputVectorIndex = (inputVectorIndex + 1) % static_cast<unsigned>(inputVectors.size());
     ++counter;
 
     // loop over the shuffle mask and replace the already set positions with identity constant
