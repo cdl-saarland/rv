@@ -182,7 +182,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       // (1) no calls that have alloca instructions as arguments OR
       // (2) there exists a function mapping which allows that. e.g.: float * -> <4 x float> *
       if (canVectorize(inst))
-        vectorize(inst);
+        vectorizeAllocaInstruction(alloca);
       else
         for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
           copyInstruction(inst, lane);
@@ -217,6 +217,28 @@ void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst,
     assert(mappedOp && "could not map operand");
     inst->setOperand(i, mappedOp);
   }
+}
+
+void NatBuilder::vectorizeAllocaInstruction(AllocaInst *const alloca) {
+  Type *allocaType = alloca->getType()->getElementType();
+
+  // if aggregate or vector type: create <vector_width> types. if not: create vector_type
+  Type *type;
+  Value *numElements = nullptr;
+  bool mapVector = false;
+  if (allocaType->isAggregateType() || allocaType->isVectorTy()) {
+    type = allocaType;
+    numElements = ConstantInt::get(i32Ty, vectorWidth());
+  } else {
+    type = getVectorType(allocaType, vectorWidth());
+    mapVector = true;
+  }
+
+  AllocaInst *vecAlloca = builder.CreateAlloca(type, numElements, alloca->getName());
+  if (mapVector)
+    mapVectorValue(alloca, vecAlloca);
+  else
+    mapScalarValue(alloca, vecAlloca);
 }
 
 void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
@@ -1392,6 +1414,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
   // 3) no vector shape && one or more operands varying
   // 4) GEP that is strided or varying
   // EXCEPTION: GEP with vector-pointer base
+  // 5) return instruction and function return-type is vector type
 
   if (isa<GetElementPtrInst>(inst)) {
     GetElementPtrInst *gep = cast<GetElementPtrInst>(inst);
@@ -1407,6 +1430,12 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
       return false;
     else if (shape.isStrided() || shape.isVarying())
       return true;
+  }
+
+  if (isa<ReturnInst>(inst)) {
+    Function &func = vectorizationInfo.getVectorFunction();
+    if (func.getReturnType()->isVectorTy())
+      return true; // TODO: can we have vector type but uniform return?
   }
 
   if (vectorizationInfo.hasKnownShape(*inst)) {

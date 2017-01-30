@@ -70,6 +70,7 @@ namespace native {
     void vectorizePHIInstruction(llvm::PHINode *const scalPhi);
     void vectorizeMemoryInstruction(llvm::Instruction *const inst);
     void vectorizeCallInstruction(llvm::CallInst *const scalCall);
+    void vectorizeAllocaInstruction(llvm::AllocaInst *const alloca);
     void vectorizeReductionCall(CallInst *rvCall, bool isRv_all);
     GetElementPtrInst *vectorizeGEPInstruction(GetElementPtrInst *const gep, bool buildVectorGEP, unsigned interleavedIndex = 0,
                                                 bool skipMapping = false);
