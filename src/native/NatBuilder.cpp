@@ -225,20 +225,20 @@ void NatBuilder::vectorizeAllocaInstruction(AllocaInst *const alloca) {
   // if aggregate or vector type: create <vector_width> types. if not: create vector_type
   Type *type;
   Value *numElements = nullptr;
-  bool mapVector = false;
+//  bool mapVector = false;
   if (allocaType->isAggregateType() || allocaType->isVectorTy()) {
     type = allocaType;
     numElements = ConstantInt::get(i32Ty, vectorWidth());
   } else {
     type = getVectorType(allocaType, vectorWidth());
-    mapVector = true;
+//    mapVector = true;
   }
 
   AllocaInst *vecAlloca = builder.CreateAlloca(type, numElements, alloca->getName());
-  if (mapVector)
+//  if (mapVector)
     mapVectorValue(alloca, vecAlloca);
-  else
-    mapScalarValue(alloca, vecAlloca);
+//  else
+//    mapScalarValue(alloca, vecAlloca);
 }
 
 void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
@@ -281,7 +281,17 @@ GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const 
 
   VectorShape shape = vectorizationInfo.hasKnownShape(*scalPtr) ? vectorizationInfo.getVectorShape(*scalPtr)
                                                                 : VectorShape::uni();
-  Value *ptr = (shape.isUniform() || !buildVectorGEP) ? requestScalarValue(scalPtr) : requestVectorValue(scalPtr);
+  Value *ptr;
+  if (shape.isUniform() || !buildVectorGEP)
+    ptr = requestScalarValue(scalPtr);
+  else if (isa<AllocaInst>(scalPtr)) {
+    ptr = UndefValue::get(getVectorType(scalPtr->getType(), vectorWidth()));
+    for (unsigned i = 0; i < vectorWidth(); ++i) {
+      Value *insert = requestScalarValue(scalPtr, i);
+      ptr = builder.CreateInsertElement(ptr, insert, i);
+    }
+  } else
+    ptr = requestVectorValue(scalPtr);
 
 
   // index expansion
@@ -1043,9 +1053,23 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
         else
           builder.SetInsertPoint(mappedInst->getParent());
       }
-      // extract from GEPs are not allowed
-      assert(!isa<GetElementPtrInst>(mappedVal) && "Extract from GEPs are not allowed!!");
-      reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
+      IF_DEBUG {
+        errs() << "Extracting a scalar value from a vector:\n";
+        errs() << "Original Value: ";
+        value->dump();
+        errs() << "Vector Value: ";
+        mappedVal->dump();
+      };
+
+      // if the mappedVal is a alloca instruction, create a GEP instruction
+      if (isa<AllocaInst>(mappedVal))
+        reqVal = builder.CreateGEP(mappedVal, ConstantInt::get(i32Ty, laneIdx));
+      else {
+        // extract from GEPs are not allowed
+        assert(!isa<GetElementPtrInst>(mappedVal) && "Extract from GEPs are not allowed!!");
+        reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
+      }
+
 
       if (reqVal->getType() != value->getType()) {
         reqVal = builder.CreateBitCast(reqVal, value->getType(), "bc");
@@ -1434,8 +1458,15 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
 
   if (isa<ReturnInst>(inst)) {
     Function &func = vectorizationInfo.getVectorFunction();
-    if (func.getReturnType()->isVectorTy())
-      return true; // TODO: can we have vector type but uniform return?
+    if (func.getReturnType()->isVectorTy()) {
+      IF_DEBUG {
+        if (vectorizationInfo.getVectorShape(*inst).isUniform()) {
+          errs() << "Warning: Uniform return in Function with Vector Type!\n";
+          inst->dump();
+        }
+      };
+      return true; // THIS SHOULD NEVER HAPPEN!
+    }
   }
 
   if (vectorizationInfo.hasKnownShape(*inst)) {
