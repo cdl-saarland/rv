@@ -14,27 +14,11 @@
 #include "rv/analysis/maskAnalysis.h"
 
 
-using namespace llvm;
+using namespace llvm; // FIXME no no
 
 
-//namespace {
+namespace rv {
 
-class MaskGenerator;
-
-class MaskGeneratorWrapper : public FunctionPass
-{
-public:
-	static char ID __attribute__((unused)); // Pass identification, replacement for typeid.
-
-	MaskGeneratorWrapper();
-
-	virtual void releaseMemory   ();
-	virtual void getAnalysisUsage(AnalysisUsage &AU) const;
-	virtual bool doInitialization(Module& M);
-	virtual bool doFinalization  (Module& M);
-	virtual bool runOnFunction   (Function& F);
-	virtual void print           (raw_ostream& O, const Module* M) const;
-};
 
 class MaskGenerator
 {
@@ -77,13 +61,28 @@ private:
 	void fillVecInfoWithPredicates(Function& F);
 };
 
-//} // unnamed namespace
+}
+
+class MaskGeneratorWrapper : public FunctionPass
+{
+public:
+	static char ID __attribute__((unused)); // Pass identification, replacement for typeid.
+
+	MaskGeneratorWrapper();
+
+	virtual void releaseMemory   ();
+	virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+	virtual bool doInitialization(Module& M);
+	virtual bool doFinalization  (Module& M);
+	virtual bool runOnFunction   (Function& F);
+	virtual void print           (raw_ostream& O, const Module* M) const;
+};
 
 
 // Forward declaration of initializer and public interface.
 namespace llvm {
-void initializeMaskGeneratorWrapperPass(PassRegistry&);
-FunctionPass* createMaskGeneratorPass();
+  void initializeMaskGeneratorWrapperPass(PassRegistry&);
+  FunctionPass* createMaskGeneratorPass();
 }
 
 

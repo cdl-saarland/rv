@@ -16,20 +16,25 @@
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Verifier.h>
 
-#include <rv/rv.h>
-#include <rv/pda/ProgramDependenceAnalysis.h>
-#include <rv/pda/DFG.h>
-#include <rv/analysis/maskAnalysis.h>
-#include <rv/transform/maskGenerator.h>
-#include <rv/transform/loopExitCanonicalizer.h>
-#include <rv/pda/ABAAnalysis.h>
-#include "utils/rvTools.h"
+#include "rv/rv.h"
+#include "rv/analysis/DFG.h"
+#include "rv/analysis/VectorizationAnalysis.h"
+#include "rv/analysis/maskAnalysis.h"
+#include "rv/transform/maskGenerator.h"
+#include "rv/transform/loopExitCanonicalizer.h"
+#include "rv/analysis/ABAAnalysis.h"
+
+#include "rv/PlatformInfo.h"
+#include "rv/vectorizationInfo.h"
+#include "rv/analysis/DFG.h"
+#include "rv/analysis/maskAnalysis.h"
 
 #include "rv/transform/Linearizer.h"
 
-#include <native/nativeBackendPass.h>
-#include <native/NatBuilder.h>
+#include "native/nativeBackendPass.h"
+#include "native/NatBuilder.h"
 
+#include "utils/rvTools.h"
 
 #include "rvConfig.h"
 
@@ -82,6 +87,9 @@ removeUnusedRVLibFunctions(Module& mod)
 
 }
 
+
+
+
 namespace rv {
 
 VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo)
@@ -122,7 +130,7 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
                              const PostDominatorTree& postDomTree,
                              const DominatorTree& domTree)
 {
-    PDA programDependenceAnalysis(platInfo,
+    VectorizationAnalysis vea(platInfo,
                                   vectorizationInfo,
                                   cdg,
                                   dfg,
@@ -135,7 +143,7 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
                             domTree);
 
     auto & scalarFn = vectorizationInfo.getScalarFunction();
-    programDependenceAnalysis.analyze(scalarFn);
+    vea.analyze(scalarFn);
     abaAnalysis.analyze(scalarFn);
 }
 

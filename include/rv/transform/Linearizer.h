@@ -17,7 +17,7 @@
 
 
 #include "rv/vectorizationInfo.h"
-#include "rv/Region/Region.h"
+#include "rv/region/Region.h"
 #include "rv/analysis/maskAnalysis.h"
 
 #include <llvm/IR/Dominators.h>

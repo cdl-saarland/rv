@@ -36,8 +36,12 @@
 #include "rv/rv.h"
 #include "rv/vectorMapping.h"
 #include "rv/sleefLibrary.h"
+#include "rv/analysis/maskAnalysis.h"
 #include "rv/transform/loopExitCanonicalizer.h"
-#include "rv/Region/LoopRegion.h"
+#include "rv/region/LoopRegion.h"
+#include "rv/region/Region.h"
+
+#include "rv/vectorizationInfo.h"
 
 static const char LISTSEPERATOR = '_';
 static const char SHAPESEPERATOR = '.';
@@ -148,7 +152,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     rv::LoopRegion loopRegionImpl(loop);
     rv::Region loopRegion(loopRegionImpl);
-    VectorizationInfo vecInfo(parentFn, vectorWidth, loopRegion);
+    rv::VectorizationInfo vecInfo(parentFn, vectorWidth, loopRegion);
 
     TargetIRAnalysis irAnalysis;
     TargetTransformInfo tti = irAnalysis.run(parentFn);
@@ -187,7 +191,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     vectorizer.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
 
     // mask analysis
-    MaskAnalysis* maskAnalysis = vectorizer.analyzeMasks(vecInfo, loopInfo);
+    auto* maskAnalysis = vectorizer.analyzeMasks(vecInfo, loopInfo);
     assert(maskAnalysis);
     maskAnalysis->print(errs(), &mod);
 
@@ -291,7 +295,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     // set-up vecInfo overlay and define vectorization job (mapping)
     rv::VectorMapping targetMapping = vectorizerJob;
     targetMapping.scalarFn = scalarCopy;
-    VectorizationInfo vecInfo(targetMapping);
+    rv::VectorizationInfo vecInfo(targetMapping);
 
     // build Analysis
     DominatorTree domTree(*scalarCopy);
@@ -315,7 +319,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     vectorizer.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
 
     // mask analysis
-    MaskAnalysis* maskAnalysis = vectorizer.analyzeMasks(vecInfo, loopInfo);
+    auto* maskAnalysis = vectorizer.analyzeMasks(vecInfo, loopInfo);
     assert(maskAnalysis);
 
     // mask generator

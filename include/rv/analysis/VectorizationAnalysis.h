@@ -1,4 +1,4 @@
-//===- ProgramDependenceAnalysis.h----------------*- C++ -*-===//
+//===- VectorizationAnalysis.h----------------*- C++ -*-===//
 //
 //                     The Region Vectorizer
 //
@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 
-#ifndef RV_PROGRAMDEPENDENCEANALYSIS_H
-#define RV_PROGRAMDEPENDENCEANALYSIS_H
+#ifndef RV_VECTORIZATIONANALYSIS_H_
+#define RV_VECTORIZATIONANALYSIS_H_
 
 #include <string>
 #include <map>
@@ -31,7 +31,7 @@
 #include "rv/vectorizationInfo.h"
 #include "rv/vectorMapping.h"
 #include "rv/VectorizationInfoProxyPass.h"
-#include "rv/Region/Region.h"
+#include "rv/region/Region.h"
 #include "rv/PlatformInfo.h"
 
 namespace llvm {
@@ -40,12 +40,12 @@ namespace llvm {
 
 namespace rv {
 
-class PDAWrapperPass : public llvm::FunctionPass {
+class VAWrapperPass : public llvm::FunctionPass {
   static char ID;
 public:
-  PDAWrapperPass() : FunctionPass(ID) { }
-  PDAWrapperPass(const PDAWrapperPass&) = delete;
-  PDAWrapperPass& operator=(PDAWrapperPass) = delete;
+  VAWrapperPass() : FunctionPass(ID) { }
+  VAWrapperPass(const VAWrapperPass&) = delete;
+  VAWrapperPass& operator=(VAWrapperPass) = delete;
 
   void getAnalysisUsage(AnalysisUsage& Info) const override;
   bool runOnFunction(Function& F) override;
@@ -53,7 +53,7 @@ public:
   // void print(llvm::raw_ostream& O, const Module* M) const override;
 };
 
-class PDA {
+class VectorizationAnalysis {
   std::set<const Value*> overrides;
   DataLayout layout;
 
@@ -61,14 +61,14 @@ public:
   using ValueMap          = std::map<const Value*, VectorShape>;
   using InstructionSet    = llvm::SmallPtrSet<const Instruction*, 32>;
 
-  PDA(PlatformInfo & platInfo,
+  VectorizationAnalysis(PlatformInfo & platInfo,
       VectorizationInfo& VecInfo,
       const CDG& cdg,
       const DFG& dfg,
       const LoopInfo& LoopInfo);
 
-  PDA(const PDA&) = delete;
-  PDA& operator=(PDA) = delete;
+  VectorizationAnalysis(const VectorizationAnalysis&) = delete;
+  VectorizationAnalysis& operator=(VectorizationAnalysis) = delete;
 
   void analyze(Function& F);
 

@@ -57,6 +57,6 @@ public:
     }
 };
 
-}
+} // namespace rv
 
 #endif // RV_REGIONIMPL_H

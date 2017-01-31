@@ -20,7 +20,7 @@
 
 #include "rv/vectorizationInfo.h"
 
-#include "rv/Region/Region.h"
+#include "rv/region/Region.h"
 
 // Forward declarations.
 

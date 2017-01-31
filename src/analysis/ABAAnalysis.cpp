@@ -8,14 +8,12 @@
 // @authors kloessner
 //
 
-#include "rv/pda/ABAAnalysis.h"
+#include "rv/analysis/ABAAnalysis.h"
 
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/Dominators.h>
 
 #include "rvConfig.h"
-
-namespace rv {
 
 char ABAAnalysisWrapper::ID = 0;
 
@@ -44,7 +42,7 @@ ABAAnalysisWrapper::runOnFunction(Function& F)
     const PostDominatorTree& postDomTree = getAnalysis<PostDominatorTree>();
     const DominatorTree& domTree         = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
 
-    ABAAnalysis Analysis(platInfo,
+    rv::ABAAnalysis Analysis(platInfo,
                          vecInfo,
                          loopInfo,
                          postDomTree,
@@ -54,6 +52,10 @@ ABAAnalysisWrapper::runOnFunction(Function& F)
 
     return false;
 }
+
+
+
+namespace rv {
 
 ABAAnalysis::ABAAnalysis(PlatformInfo & platInfo,
                          VectorizationInfo& vecInfo,
@@ -322,9 +324,11 @@ bool ABAAnalysis::isABAONSESEExit(BasicBlock& block)
 }
 
 
+} // namespace rv
+
+
+
 FunctionPass*
 createABAAnalysisPass() {
     return new ABAAnalysisWrapper();
-}
-
 }

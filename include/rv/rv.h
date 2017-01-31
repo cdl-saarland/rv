@@ -9,14 +9,16 @@
 #ifndef RV_RV_H
 #define RV_RV_H
 
-#include <rv/PlatformInfo.h>
-#include "rv/vectorizationInfo.h"
-#include "rv/pda/DFG.h"
-#include "rv/analysis/maskAnalysis.h"
+#include "rv/PlatformInfo.h"
+#include "rv/analysis/DFG.h"
 
-using namespace llvm;
+using namespace llvm; // FIXME no no!
 
 namespace rv {
+
+class VectorizationInfo;
+class MaskAnalysis;
+
 /*
  * The new vectorizer interface.
  *

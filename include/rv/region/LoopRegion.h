@@ -10,8 +10,9 @@
 #define RV_LOOPREGION_H_
 
 #include <llvm/IR/BasicBlock.h>
-#include "llvm/Analysis/LoopInfo.h"
-#include "rv/Region/RegionImpl.h"
+#include <llvm/Analysis/LoopInfo.h>
+
+#include "rv/region/RegionImpl.h"
 
 using llvm::Loop;
 using llvm::SmallVector;
@@ -39,6 +40,6 @@ public:
     void getEndingBlocks(SmallPtrSet<BasicBlock*, 2>& endingBlocks) const override;
 };
 
-}
+} // namespace rv
 
 #endif // RV_LOOPREGION_H_

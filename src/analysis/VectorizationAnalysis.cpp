@@ -1,4 +1,4 @@
-//===- ProgramDependenceAnalysis.cpp -----------------------------===//
+//===- VectorizationAnalysis.cpp -----------------------------===//
 //
 //                     The Region Vectorizer
 //
@@ -10,7 +10,7 @@
 // @authors haffner, kloessner, simon
 //
 
-#include "rv/pda/ProgramDependenceAnalysis.h"
+#include "rv/analysis/VectorizationAnalysis.h"
 
 #include "rvConfig.h"
 #include "utils/rvTools.h"
@@ -19,9 +19,9 @@
 #include <llvm/Analysis/LoopInfo.h>
 
 #if 1
-#define IF_DEBUG_PDA IF_DEBUG
+#define IF_DEBUG_DA IF_DEBUG
 #else
-#define IF_DEBUG_PDA if (false)
+#define IF_DEBUG_DA if (false)
 #endif
 
 //
@@ -49,10 +49,10 @@ using ValueMap = std::map<const Value*, VectorShape>;
 
 // #define BYTE_SIZE 8
 
-char PDAWrapperPass::ID = 0;
+char VAWrapperPass::ID = 0;
 
 void
-PDAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
+VAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
   Info.addRequired<DFGBaseWrapper<true>>();
   Info.addRequired<DFGBaseWrapper<false>>();
   Info.addRequired<LoopInfoWrapperPass>();
@@ -62,7 +62,7 @@ PDAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
 }
 
 bool
-PDAWrapperPass::runOnFunction(Function& F) {
+VAWrapperPass::runOnFunction(Function& F) {
   auto& Vecinfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
   auto& platInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
 
@@ -70,13 +70,13 @@ PDAWrapperPass::runOnFunction(Function& F) {
   const DFG& dfg = *getAnalysis<llvm::DFGWrapper>().getDFG();
   const LoopInfo& LoopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 
-  PDA pda(platInfo, Vecinfo, cdg, dfg, LoopInfo);
-  pda.analyze(F);
+  VectorizationAnalysis vea(platInfo, Vecinfo, cdg, dfg, LoopInfo);
+  vea.analyze(F);
 
   return false;
 }
 
-PDA::PDA(PlatformInfo & platInfo,
+VectorizationAnalysis::VectorizationAnalysis(PlatformInfo & platInfo,
          VectorizationInfo& VecInfo,
          const CDG& cdg,
          const DFG& dfg,
@@ -92,7 +92,7 @@ PDA::PDA(PlatformInfo & platInfo,
 { }
 
 void
-PDA::analyze(Function& F) {
+VectorizationAnalysis::analyze(Function& F) {
   assert (!F.isDeclaration());
 
   mWorklist.clear();
@@ -105,15 +105,15 @@ PDA::analyze(Function& F) {
   // checkEquivalentToOldAnalysis(F);
 }
 
-bool PDA::isInRegion(const BasicBlock& BB) {
+bool VectorizationAnalysis::isInRegion(const BasicBlock& BB) {
   return mRegion ? mRegion->contains(&BB) : true;
 }
 
-bool PDA::isInRegion(const Instruction& inst) {
+bool VectorizationAnalysis::isInRegion(const Instruction& inst) {
   return !mRegion || isInRegion(*inst.getParent());
 }
 
-void PDA::fillVectorizationInfo(Function& F) {
+void VectorizationAnalysis::fillVectorizationInfo(Function& F) {
   for (const BasicBlock& BB : F) {
     if (!isInRegion(BB)) continue;
     mVecinfo.setVectorShape(BB, mValue2Shape[&BB]);
@@ -125,7 +125,7 @@ void PDA::fillVectorizationInfo(Function& F) {
   }
 }
 
-unsigned PDA::getAlignment(const Constant* c) const {
+unsigned VectorizationAnalysis::getAlignment(const Constant* c) const {
   assert (c);
   assert (!isa<BasicBlock>(c));
   assert (!isa<Function>(c));
@@ -164,7 +164,7 @@ unsigned PDA::getAlignment(const Constant* c) const {
   return static_cast<unsigned>(std::abs(intValue));
 }
 
-void PDA::init(Function& F) {
+void VectorizationAnalysis::init(Function& F) {
   layout = DataLayout(F.getParent());
 
   // Initialize with undefined values
@@ -227,24 +227,24 @@ void PDA::init(Function& F) {
         if (call->getCalledFunction()->getReturnType()->isVoidTy()) continue;
 
         mWorklist.insert(&I);
-        IF_DEBUG_PDA errs() << "Inserted call in initialization: " << I.getName() << "\n";
+        IF_DEBUG_DA errs() << "Inserted call in initialization: " << I.getName() << "\n";
       }
         /* Phis that depend on constants are added to the WL */
       else if (isa<PHINode>(I) && any_of(I.operands(), isa<Constant, Use>)) {
         mWorklist.insert(&I);
-        IF_DEBUG_PDA outs() << "Inserted PHI in initialization: " << I.getName() << "\n";
+        IF_DEBUG_DA outs() << "Inserted PHI in initialization: " << I.getName() << "\n";
       }
     }
   }
 }
 
-void PDA::update(const Value* const V, VectorShape AT) {
+void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
   const VectorShape& New = VectorShape::join(getShape(V), AT);
 
   if (mValue2Shape[V] == New) return;// nothing changed
   if (overrides.count(V) && getShape(V).isDefined()) return;//prevented by override
 
-  IF_DEBUG_PDA outs() << "Marking " << New << ": " << *V << "\n";
+  IF_DEBUG_DA outs() << "Marking " << New << ": " << *V << "\n";
 
   mValue2Shape[V] = New;
 
@@ -262,7 +262,7 @@ void PDA::update(const Value* const V, VectorShape AT) {
 
   /* Begin with divergence analysis */
 
-  // Divergence is caused directly by branches only
+  // Vectorization is caused directly by branches only
   if (!isa<BranchInst>(V)) return;
 
   // Find out which regions diverge because of this non-uniform branch
@@ -290,7 +290,7 @@ void PDA::update(const Value* const V, VectorShape AT) {
 
       if (mValue2Shape[BB].isVarying()) continue;
 
-      bool causedDivergence;
+      bool causedVectorization;
 
       // Loop headers are not marked divergent, but can be loop divergent
       if (mLoopInfo.isLoopHeader(BB)) {
@@ -303,7 +303,7 @@ void PDA::update(const Value* const V, VectorShape AT) {
         if (BBLoop == endsVaryingLoop || BranchExitsBBLoop) {
           mVecinfo.setDivergentLoop(BBLoop);
 
-          IF_DEBUG_PDA {
+          IF_DEBUG_DA {
             outs() << "\n"
                    << "The loop with header: \n"
                    << "    " << BB->getName() << "\n"
@@ -329,16 +329,16 @@ void PDA::update(const Value* const V, VectorShape AT) {
 
         // For multiple exits, the loop shall be blackboxed
         const VectorShape& JoinedExitShape = joinExitShapes(endsVaryingLoop);
-        causedDivergence = !JoinedExitShape.isUniform();
+        causedVectorization = !JoinedExitShape.isUniform();
         mValue2Shape[BB] = VectorShape::join(getShape(BB), JoinedExitShape);
       }
       else {
-        causedDivergence = true;
+        causedVectorization = true;
         mValue2Shape[BB] = VectorShape::varying();
       }
 
-      if (causedDivergence) {
-        IF_DEBUG_PDA {
+      if (causedVectorization) {
+        IF_DEBUG_DA {
           outs() << "\n"
                  << "The block:\n"
                  << "    " << BB->getName() << "\n"
@@ -353,7 +353,7 @@ void PDA::update(const Value* const V, VectorShape AT) {
       // add phis to worklist
       for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it) {
         mWorklist.insert(&*it);
-        IF_DEBUG_PDA outs() << "Inserted PHI: " << (&*it)->getName() << "\n";
+        IF_DEBUG_DA outs() << "Inserted PHI: " << (&*it)->getName() << "\n";
       }
     }
   }
@@ -375,7 +375,7 @@ IsVectorizableType(Type & type) {
   return false;
 }
 
-void PDA::updateAllocaOperands(const Instruction* I) {
+void VectorizationAnalysis::updateAllocaOperands(const Instruction* I) {
   const int alignment = mVecinfo.getMapping().vectorWidth;
 
   for (const Value* op : I->operands()) {
@@ -400,7 +400,7 @@ void PDA::updateAllocaOperands(const Instruction* I) {
   }
 }
 
-void PDA::eraseUserInfoRecursively(const Value* V) {
+void VectorizationAnalysis::eraseUserInfoRecursively(const Value* V) {
   if (!mValue2Shape[V].isDefined()) return;
 
   mValue2Shape[V] = VectorShape::undef();
@@ -410,7 +410,7 @@ void PDA::eraseUserInfoRecursively(const Value* V) {
   }
 }
 
-void PDA::addRelevantUsersToWL(const Value* V) {
+void VectorizationAnalysis::addRelevantUsersToWL(const Value* V) {
   for (auto user : V->users()) {
     // We are only analyzing the region
     if (!isInRegion(*cast<Instruction>(user))) continue;
@@ -423,11 +423,11 @@ void PDA::addRelevantUsersToWL(const Value* V) {
     }
 
     mWorklist.insert(cast<Instruction>(user));
-    IF_DEBUG_PDA outs() << "Inserted relevant user of " << V->getName() << ":" << *user << "\n";
+    IF_DEBUG_DA outs() << "Inserted relevant user of " << V->getName() << ":" << *user << "\n";
   }
 }
 
-void PDA::updateOutsideLoopUsesVarying(const Loop* divLoop) {
+void VectorizationAnalysis::updateOutsideLoopUsesVarying(const Loop* divLoop) {
   SmallVector<BasicBlock*, 3> exitBlocks;
   divLoop->getExitBlocks(exitBlocks);
   for (auto* exitBlock : exitBlocks) {
@@ -446,7 +446,7 @@ void PDA::updateOutsideLoopUsesVarying(const Loop* divLoop) {
   }
 }
 
-VectorShape PDA::joinExitShapes(const Loop* loop) {
+VectorShape VectorizationAnalysis::joinExitShapes(const Loop* loop) {
   SmallVector<BasicBlock*, 4> exitingBlocks;
   loop->getExitingBlocks(exitingBlocks);
 
@@ -459,7 +459,7 @@ VectorShape PDA::joinExitShapes(const Loop* loop) {
   return CombinedExitShape;
 }
 
-void PDA::markDependentLoopExitsMandatory(const BasicBlock* endsVarying) {
+void VectorizationAnalysis::markDependentLoopExitsMandatory(const BasicBlock* endsVarying) {
   Loop* loop = mLoopInfo.getLoopFor(endsVarying);
 
   // No exits that can be mandatory
@@ -485,20 +485,20 @@ void PDA::markDependentLoopExitsMandatory(const BasicBlock* endsVarying) {
   }
 }
 
-void PDA::markSuccessorsMandatory(const BasicBlock* endsVarying) {
+void VectorizationAnalysis::markSuccessorsMandatory(const BasicBlock* endsVarying) {
   // MANDATORY case 1: successors of varying branches are mandatory
   for (const BasicBlock* succBB : successors(endsVarying)) {
     mVecinfo.markMandatory(succBB);
   }
 }
 
-VectorShape PDA::joinOperands(const Instruction* const I) {
+VectorShape VectorizationAnalysis::joinOperands(const Instruction* const I) {
   VectorShape Join = VectorShape::undef();
   for (auto& op : I->operands()) Join = VectorShape::join(Join, getShape(op));
   return Join;
 }
 
-bool PDA::allOperandsHaveShape(const Instruction* I) {
+bool VectorizationAnalysis::allOperandsHaveShape(const Instruction* I) {
   auto hasKnownShape = [this](Value* op)
   {
     return !isa<Instruction>(op) || mValue2Shape[op].isDefined();
@@ -507,7 +507,7 @@ bool PDA::allOperandsHaveShape(const Instruction* I) {
   return all_of(I->operands(), hasKnownShape);
 }
 
-void PDA::compute(Function& F) {
+void VectorizationAnalysis::compute(Function& F) {
   /* Worklist algorithm to compute the least fixed-point */
   while (!mWorklist.empty()) {
     const Instruction* I = *mWorklist.begin();
@@ -528,7 +528,7 @@ void PDA::compute(Function& F) {
   }
 }
 
-VectorShape PDA::computeShapeForInst(const Instruction* I) {
+VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
   if (I->isBinaryOp()) return computeShapeForBinaryInst(cast<BinaryOperator>(I));
   if (I->isCast()) return computeShapeForCastInst(cast<CastInst>(I));
 
@@ -722,7 +722,7 @@ VectorShape PDA::computeShapeForInst(const Instruction* I) {
 
 
 VectorShape
-PDA::computeGenericArithmeticTransfer(const Instruction & I) {
+VectorizationAnalysis::computeGenericArithmeticTransfer(const Instruction & I) {
   assert(I.getNumOperands() > 0 && "can not compute arithmetic transfer for instructions w/o operands");
   // generic transfer function
   for (uint i = 0; i < I.getNumOperands(); ++i) {
@@ -731,7 +731,7 @@ PDA::computeGenericArithmeticTransfer(const Instruction & I) {
   return VectorShape::uni();
 }
 
-VectorShape PDA::computeShapeForBinaryInst(const BinaryOperator* I) {
+VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperator* I) {
   const Value* op1 = I->getOperand(0);
   const Value* op2 = I->getOperand(1);
 
@@ -896,7 +896,7 @@ static unsigned GetReferencedObjectSize(const DataLayout& layout, Type* ptrType)
   return static_cast<unsigned>(layout.getTypeStoreSize(elemTy));
 }
 
-VectorShape PDA::computeShapeForCastInst(const CastInst* castI) {
+VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI) {
   const Value* castOp = castI->getOperand(0);
   const VectorShape& castOpShape = getShape(castOp);
   const int castOpStride = castOpShape.getStride();
@@ -987,7 +987,7 @@ VectorShape PDA::computeShapeForCastInst(const CastInst* castI) {
   }
 }
 
-const VectorShape& PDA::getShape(const Value* const V) {
+const VectorShape& VectorizationAnalysis::getShape(const Value* const V) {
   auto found = mValue2Shape.find(V), end = mValue2Shape.end();
   if (found != end) return found->second;
 
@@ -995,13 +995,13 @@ const VectorShape& PDA::getShape(const Value* const V) {
   return mValue2Shape[V] = VectorShape::uni(getAlignment(cast<Constant>(V)));
 }
 
-void PDA::markDivergentLoopLatchesMandatory() {
+void VectorizationAnalysis::markDivergentLoopLatchesMandatory() {
   for (const Loop* loop : mLoopInfo) {
     markLoopLatchesRecursively(loop);
   }
 }
 
-void PDA::markLoopLatchesRecursively(const Loop* loop) {
+void VectorizationAnalysis::markLoopLatchesRecursively(const Loop* loop) {
   // MANDATORY case 3: latches of divergent loops are mandatory
   if (mVecinfo.isDivergentLoop(loop)) {
     mVecinfo.markMandatory(loop->getLoopLatch());
@@ -1012,15 +1012,15 @@ void PDA::markLoopLatchesRecursively(const Loop* loop) {
   }
 }
 
-typename ValueMap::iterator PDA::begin() { return mValue2Shape.begin(); }
-typename ValueMap::iterator PDA::end() { return mValue2Shape.end(); }
-typename ValueMap::const_iterator PDA::begin() const { return mValue2Shape.begin(); }
-typename ValueMap::const_iterator PDA::end() const { return mValue2Shape.end(); }
+typename ValueMap::iterator VectorizationAnalysis::begin() { return mValue2Shape.begin(); }
+typename ValueMap::iterator VectorizationAnalysis::end() { return mValue2Shape.end(); }
+typename ValueMap::const_iterator VectorizationAnalysis::begin() const { return mValue2Shape.begin(); }
+typename ValueMap::const_iterator VectorizationAnalysis::end() const { return mValue2Shape.end(); }
 
 
 FunctionPass*
 createVectorizationAnalysisPass() {
-  return new PDAWrapperPass();
+  return new VAWrapperPass();
 }
 
 

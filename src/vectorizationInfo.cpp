@@ -15,7 +15,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/Analysis/LoopInfo.h>
 
-#include "rv/Region/Region.h"
+#include "rv/region/Region.h"
 
 using namespace llvm;
 

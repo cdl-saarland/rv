@@ -20,11 +20,11 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/GenericDomTree.h"
 #include "llvm/Support/raw_ostream.h"
-#include "DFG.h"
 
+#include "rv/analysis/DFG.h"
 #include "rv/vectorizationInfo.h"
 #include "rv/VectorizationInfoProxyPass.h"
-#include "rv/Region/Region.h"
+#include "rv/region/Region.h"
 #include "rv/PlatformInfo.h"
 
 namespace llvm {
@@ -32,8 +32,6 @@ namespace llvm {
   class PostDominatorTree;
   class DominatorTree;
 }
-
-namespace rv {
 
 class ABAAnalysisWrapper : public llvm::FunctionPass {
     static char ID;
@@ -44,6 +42,9 @@ public:
     void getAnalysisUsage(AnalysisUsage& Info) const override;
     bool runOnFunction(Function& F) override;
 };
+
+
+namespace rv {
 
 /*
  * Uses the VectorShape results to determine basic blocks which

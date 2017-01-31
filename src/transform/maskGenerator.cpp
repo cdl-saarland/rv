@@ -18,6 +18,8 @@
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/Constants.h>
 
+#include "rv/analysis/maskAnalysis.h"
+
 #include "rvConfig.h"
 
 
@@ -28,7 +30,8 @@
 #endif
 
 using namespace llvm;
-using namespace rv;
+
+namespace rv {
 
 void
 MaskGenerator::markMaskOperation(Instruction& maskOp) {
@@ -42,28 +45,6 @@ MaskGenerator::markMaskOperation(Instruction& maskOp) {
     // rv::setMetadata(&maskOp, isa<PHINode>(maskOp) ?        rv::RV_METADATA_OP_UNIFORM :        rv::RV_METADATA_OP_VARYING);
     // rv::setMetadata(maskOp, rv::RV_METADATA_RES_VECTOR);
     mvecInfo.markMetadataMask(&maskOp);
-}
-
-char MaskGeneratorWrapper::ID = 0;
-// NOTE: The order of initialized dependencies is important
-//       to prevent 'Unable to schedule' errors!
-INITIALIZE_PASS_BEGIN(MaskGeneratorWrapper, "maskGenerator", "MaskGenerator", false, false)
-INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(MaskAnalysisWrapper)
-INITIALIZE_PASS_END(MaskGeneratorWrapper, "maskGenerator", "MaskGenerator", false, false)
-
-// Public interface to the MaskGenerator pass
-FunctionPass*
-llvm::createMaskGeneratorPass()
-{
-    return new MaskGeneratorWrapper();
-}
-
-
-
-MaskGeneratorWrapper::MaskGeneratorWrapper() : FunctionPass(ID)
-{
-    initializeMaskGeneratorWrapperPass(*PassRegistry::getPassRegistry());
 }
 
 MaskGenerator::MaskGenerator(VectorizationInfo& Vecinfo,
@@ -83,58 +64,6 @@ MaskGenerator::MaskGenerator(VectorizationInfo& Vecinfo,
 }
 
 MaskGenerator::~MaskGenerator()
-{
-}
-
-void
-MaskGeneratorWrapper::releaseMemory()
-{
-}
-
-void
-MaskGeneratorWrapper::getAnalysisUsage(AnalysisUsage &AU) const
-{
-    AU.addPreserved<VectorizationInfoProxyPass>();
-
-    AU.addRequired<LoopInfoWrapperPass>();
-    AU.addPreserved<LoopInfoWrapperPass>();
-
-    AU.addRequired<MaskAnalysisWrapper>();
-    AU.addPreserved<MaskAnalysisWrapper>();
-}
-
-bool
-MaskGeneratorWrapper::doInitialization(Module& M)
-{
-    // The return value presumably signals whether the module was changed or not.
-    // There is no documentation on this in LLVM.
-    return false;
-}
-
-bool
-MaskGeneratorWrapper::doFinalization(Module& M)
-{
-    // The return value presumably signals whether the module was changed or not.
-    // There is no documentation on this in LLVM.
-    return false;
-}
-
-bool
-MaskGeneratorWrapper::runOnFunction(Function& F)
-{
-    VectorizationInfo& Vecinfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
-    MaskAnalysis* MaskAnalysis = getAnalysis<MaskAnalysisWrapper>().getMaskAnalysis();
-    const LoopInfo& Loopinfo   = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-
-    assert (MaskAnalysis);
-
-    MaskGenerator Generator(Vecinfo, *MaskAnalysis, Loopinfo);
-
-    return Generator.generate(F);
-}
-
-void
-MaskGeneratorWrapper::print(raw_ostream& O, const Module* M) const
 {
 }
 
@@ -863,3 +792,81 @@ MaskGenerator::fillVecInfoWithPredicates(Function& F)
         mvecInfo.setPredicate(BB, *predicate);
     }
 }
+
+
+} // namespace rv
+
+
+
+char MaskGeneratorWrapper::ID = 0;
+// NOTE: The order of initialized dependencies is important
+//       to prevent 'Unable to schedule' errors!
+INITIALIZE_PASS_BEGIN(MaskGeneratorWrapper, "maskGenerator", "MaskGenerator", false, false)
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(MaskAnalysisWrapper)
+INITIALIZE_PASS_END(MaskGeneratorWrapper, "maskGenerator", "MaskGenerator", false, false)
+
+// Public interface to the MaskGenerator pass
+FunctionPass*
+llvm::createMaskGeneratorPass()
+{
+    return new MaskGeneratorWrapper();
+}
+
+void
+MaskGeneratorWrapper::releaseMemory()
+{
+}
+
+void
+MaskGeneratorWrapper::getAnalysisUsage(AnalysisUsage &AU) const
+{
+    AU.addPreserved<VectorizationInfoProxyPass>();
+
+    AU.addRequired<LoopInfoWrapperPass>();
+    AU.addPreserved<LoopInfoWrapperPass>();
+
+    AU.addRequired<MaskAnalysisWrapper>();
+    AU.addPreserved<MaskAnalysisWrapper>();
+}
+
+bool
+MaskGeneratorWrapper::doInitialization(Module& M)
+{
+    // The return value presumably signals whether the module was changed or not.
+    // There is no documentation on this in LLVM.
+    return false;
+}
+
+bool
+MaskGeneratorWrapper::doFinalization(Module& M)
+{
+    // The return value presumably signals whether the module was changed or not.
+    // There is no documentation on this in LLVM.
+    return false;
+}
+
+bool
+MaskGeneratorWrapper::runOnFunction(Function& F)
+{
+    VectorizationInfo& vecInfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
+    auto & maskAnalysis = *getAnalysis<MaskAnalysisWrapper>().getMaskAnalysis();
+    const LoopInfo& loopInfo   = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+
+    rv::MaskGenerator maskGen(vecInfo, maskAnalysis, loopInfo);
+
+    return maskGen.generate(F);
+}
+
+void
+MaskGeneratorWrapper::print(raw_ostream& O, const Module* M) const
+{
+}
+
+
+
+MaskGeneratorWrapper::MaskGeneratorWrapper() : FunctionPass(ID)
+{
+    initializeMaskGeneratorWrapperPass(*PassRegistry::getPassRegistry());
+}
+

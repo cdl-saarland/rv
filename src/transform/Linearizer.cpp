@@ -10,7 +10,7 @@
 
 #include "rv/transform/Linearizer.h"
 
-#include "rv/Region/Region.h"
+#include "rv/region/Region.h"
 #include "rv/vectorizationInfo.h"
 
 #include <llvm/IR/Instructions.h>

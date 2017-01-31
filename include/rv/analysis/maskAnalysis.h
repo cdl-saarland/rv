@@ -12,7 +12,7 @@
 
 #include "rv/VectorizationInfoProxyPass.h"
 #include "rv/vectorizationInfo.h"
-#include "rv/Region/Region.h"
+#include "rv/region/Region.h"
 #include "rv/utils/maskGraphUtils.h"
 
 #include <llvm/Pass.h>
@@ -34,28 +34,9 @@ using namespace rv::MaskGraphUtils;
 using rv::VectorizationInfo;
 using rv::PlatformInfo;
 
-class MaskAnalysis;
-
-class MaskAnalysisWrapper : public FunctionPass {
-	MaskAnalysis* mMaskAnalysis;
-public:
-	static char ID __attribute__((unused)); // Pass identification, replacement for typeid.
-
-	MaskAnalysisWrapper();
-
-	MaskAnalysis* getMaskAnalysis() const;
-
-	virtual void releaseMemory   ();
-	virtual void getAnalysisUsage(AnalysisUsage &AU) const;
-	virtual bool doInitialization(Module& M);
-	virtual bool doFinalization  (Module& M);
-	virtual bool runOnFunction   (Function& F);
-	virtual void print           (raw_ostream& O, const Module* M) const;
-};
 
 namespace rv {
   class PlatformInfo;
-}
 
 class MaskAnalysis
 {
@@ -191,6 +172,25 @@ private:
                                   MaskPtr           mask);
 };
 
+}
+
+class MaskAnalysisWrapper : public FunctionPass {
+  rv::MaskAnalysis* mMaskAnalysis;
+public:
+  static char ID __attribute__((unused)); // Pass identification, replacement for typeid.
+
+  MaskAnalysisWrapper();
+
+  rv::MaskAnalysis* getMaskAnalysis() const;
+
+  virtual void releaseMemory   ();
+  virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+  virtual bool doInitialization(Module& M);
+  virtual bool doFinalization  (Module& M);
+  virtual bool runOnFunction   (Function& F);
+  virtual void print           (raw_ostream& O, const Module* M) const;
+};
+
 
 
 // Forward declaration of initializer and public interface.
@@ -198,6 +198,5 @@ namespace llvm {
 void initializeMaskAnalysisWrapperPass(PassRegistry&);
 FunctionPass* createMaskAnalysisPass();
 }
-
 
 #endif /* _MASKANALYSIS_H */

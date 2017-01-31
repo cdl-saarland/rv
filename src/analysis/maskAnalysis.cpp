@@ -116,7 +116,7 @@ MaskAnalysisWrapper::runOnFunction(Function& F)
     auto & platInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
     const LoopInfo& Loopinfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 
-    mMaskAnalysis = new MaskAnalysis(platInfo, vecInfo, Loopinfo);
+    mMaskAnalysis = new rv::MaskAnalysis(platInfo, vecInfo, Loopinfo);
 
     return mMaskAnalysis->analyze(F);
 }
@@ -129,10 +129,12 @@ MaskAnalysisWrapper::getMaskAnalysis() const
 
 void
 MaskAnalysisWrapper::print(raw_ostream& O, const Module* M) const
-{
+{}
 
-}
 
+
+
+namespace rv {
 
 static
 Loop*
@@ -1673,3 +1675,4 @@ MaskAnalysis::setLoopExitMaskPtrUpdate(const Loop&       loop,
     info->mMaskUpdateOpMap[&loop] = mask;
 }
 
+}

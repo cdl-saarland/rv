@@ -9,7 +9,7 @@
 //
 
 #include <llvm/IR/Dominators.h>
-#include "rv/Region/LoopRegion.h"
+#include "rv/region/LoopRegion.h"
 
 namespace rv {
 
@@ -43,4 +43,5 @@ LoopRegion::getEndingBlocks(llvm::SmallPtrSet<BasicBlock*, 2>& endingBlocks) con
     }
 }
 
-}
+} // namespace rv
+

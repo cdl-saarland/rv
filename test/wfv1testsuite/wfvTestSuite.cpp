@@ -25,11 +25,13 @@
 #include <rv/sleefLibrary.h>
 
 
+using namespace rv;
+
 namespace rv {
   bool typesMatch(Type* t1, Type* t2);
 }
 
-rv::VectorMapping
+VectorMapping
 inferTargetMapping(Function * scalarFn, Function * simdFn, uint vectorWidth, int maskPos = -1) {
   using namespace rv;
 
@@ -96,8 +98,8 @@ inferTargetMapping(Function * scalarFn, Function * simdFn, uint vectorWidth, int
         TargetTransformInfo tti = irAnalysis.run(*scalarCopy); \
         TargetLibraryAnalysis libAnalysis; \
         TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent()); \
-        rv::PlatformInfo platformInfo(*module, &tti, &tli); \
-        rv::VectorizerInterface wfv(platformInfo); \
+        PlatformInfo platformInfo(*module, &tti, &tli); \
+        VectorizerInterface wfv(platformInfo); \
         /* link in SIMD library */ \
         const bool useSSE = false; \
         const bool useAVX = true; \
@@ -121,7 +123,7 @@ inferTargetMapping(Function * scalarFn, Function * simdFn, uint vectorWidth, int
 
 
 #define RV_RUN_ON_FUNCTION_NEW_INTERFACE_END(scalarName) \
-        rv::VectorMapping targetMapping = inferTargetMapping(scalarCopy, scalarName##_SIMD, vectorizationFactor); \
+        VectorMapping targetMapping = inferTargetMapping(scalarCopy, scalarName##_SIMD, vectorizationFactor); \
         VectorizationInfo vecInfo(targetMapping); \
         \
         wfv.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);\
@@ -190,8 +192,8 @@ inferTargetMapping(Function * scalarFn, Function * simdFn, uint vectorWidth, int
         TargetTransformInfo tti = irAnalysis.run(*scalarCopy); \
         TargetLibraryAnalysis libAnalysis; \
         TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent()); \
-        rv::PlatformInfo platformInfo(*module, &tti, &tli); \
-        rv::VectorizerInterface wfv(platformInfo); \
+        PlatformInfo platformInfo(*module, &tti, &tli); \
+        VectorizerInterface wfv(platformInfo); \
         /* link in SIMD library */ \
         const bool useSSE = false; \
         const bool useAVX = true; \
@@ -213,7 +215,7 @@ inferTargetMapping(Function * scalarFn, Function * simdFn, uint vectorWidth, int
         LoopExitCanonicalizer canonicalizer(loopInfo); \
         canonicalizer.canonicalize(*scalarCopy); \
         \
-        rv::VectorMapping targetMapping = inferTargetMapping(scalarCopy, scalarName##_SIMD, vectorizationFactor, maskIndex); \
+        VectorMapping targetMapping = inferTargetMapping(scalarCopy, scalarName##_SIMD, vectorizationFactor, maskIndex); \
         VectorizationInfo vecInfo(targetMapping); \
         \
         wfv.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree); \

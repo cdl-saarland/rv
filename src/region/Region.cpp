@@ -7,12 +7,16 @@
 //
 // @author kloessner
 
-#include "rv/Region/Region.h"
+#include "rv/region/Region.h"
+
+#include "rv/region/RegionImpl.h"
 
 namespace rv {
 
+class RegionImpl;
+
 Region::Region(RegionImpl& Impl) : mImpl(Impl)
-{ }
+{}
 
 bool
 Region::contains(const BasicBlock* BB) const
@@ -32,4 +36,4 @@ Region::getEndingBlocks(llvm::SmallPtrSet<BasicBlock*, 2>& endingBlocks) const
     mImpl.getEndingBlocks(endingBlocks);
 }
 
-}
+} // namespace rv
