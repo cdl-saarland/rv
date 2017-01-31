@@ -9,6 +9,10 @@ ADD_DEFINITIONS ( ${LLVM_DEFINITIONS} )
 # setup additional lib definition
 ADD_DEFINITIONS ( "-DRV_SLEEF_BC_DIR=\"${RV_SLEEF_BC_DIR}\"" )
 
+IF ( ENABLE_ASAN ) 
+  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+ENDIF()
+
 # this defaults to no-rtti builds, if this flag is not available
 IF (LLVM_ENABLE_RTTI)
 	ADD_DEFINITIONS( "-frtti" )
@@ -19,7 +23,7 @@ ENDIF ()
 ADD_DEFINITIONS ( "-std=c++14" )
 
 # enable c++11
-SET(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} " -fPIC -Wall -Wpedantic" )
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -Wall -Wpedantic" )
 
 SET ( RV_GLOBAL_INCLUDES "${PROJ_ROOT_DIR}/include" )
 FILE ( GLOB RV_GLOBAL_INCLUDE_FILES "${RV_GLOBAL_INCLUDES}/rv/**/*.h" )

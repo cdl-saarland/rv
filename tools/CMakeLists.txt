@@ -3,6 +3,10 @@ ADD_DEFINITIONS ( ${LLVM_DEFINITIONS} )
 
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
 
+IF ( ENABLE_ASAN ) 
+  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+ENDIF()
+
 # this defaults to no-rtti builds, if this flag is not available
 IF (LLVM_ENABLE_RTTI)
 	ADD_DEFINITIONS( "-frtti" )
@@ -14,7 +18,7 @@ ADD_DEFINITIONS ( "-std=c++14" )
 
 # enable c++11
 IF (NOT MSVC)
-  SET(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} " -fPIC -fno-rtti -Wall" ) 
+  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -fno-rtti -Wall" ) 
 ELSE ()
   ADD_DEFINITIONS ( "-DRV_LIB" )
   ADD_DEFINITIONS ( "-DRV_STATIC_LIBS" )

@@ -13,6 +13,9 @@ else()
   SET ( LLVM_SHARED_LIBS 1)
 endif()
 
+IF (ENABLE_ASAN)
+  MESSAGE("-- Building with AddressSanitzer (ENABLE_ASAN)")
+ENDIF()
 
 IF (LLVM_SHARED_LIBS) 
   MESSAGE("-- Found shared LLVM libraries." )
