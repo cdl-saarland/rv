@@ -495,7 +495,8 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
         args.push_back(laneArg);
       }
       Twine suffix = callType->isVoidTy() ? "" : "_lane_" + std::to_string(lane);
-      auto vecCallName = scalCall->getName() + suffix;
+      auto scalCallName = scalCall->getName();
+      auto vecCallName = scalCallName.empty() ? suffix : scalCallName + suffix;
       Value *call = builder.CreateCall(callee, args, vecCallName);
       if (!needCascade)
         mapScalarValue(scalCall, call, lane); // might proof useful. but only if not predicated
