@@ -50,7 +50,10 @@ static const char STRIDEDCHAR = 'S';
 static const char VARCHAR = 'T';
 
 static void
-fail(const char * errMsg = nullptr) {
+fail(const char * errMsg = nullptr) __attribute__((noreturn));
+
+static void
+fail(const char * errMsg) {
   if (errMsg) std::cerr << errMsg << "\nAbort!\n";
   assert(false); // preserve the stack frame in dbg builds
   exit(-1);
