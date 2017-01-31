@@ -105,19 +105,21 @@ PDA::analyze(Function& F) {
   // checkEquivalentToOldAnalysis(F);
 }
 
-bool PDA::isInRegion(const BasicBlock* BB) {
-  return mRegion ? mRegion->contains(BB) : true;
+bool PDA::isInRegion(const BasicBlock& BB) {
+  return mRegion ? mRegion->contains(&BB) : true;
 }
 
 bool PDA::isInRegion(const Instruction& inst) {
-  return !mRegion || isInRegion(inst.getParent());
+  return !mRegion || isInRegion(*inst.getParent());
 }
 
 void PDA::fillVectorizationInfo(Function& F) {
   for (const BasicBlock& BB : F) {
+    if (!isInRegion(BB)) continue;
     mVecinfo.setVectorShape(BB, mValue2Shape[&BB]);
     for (const Instruction& I : BB) {
       VectorShape& shape = mValue2Shape[&I];
+
       mVecinfo.setVectorShape(I, shape.isDefined() ? shape : VectorShape::uni());
     }
   }
@@ -284,7 +286,7 @@ void PDA::update(const Value* const V, VectorShape AT) {
 
       IF_DEBUG errs() << "Branch " << *branch << " affects " << *BB << "\n";
 
-      assert (isInRegion(BB)); // Otherwise the region is ill-formed
+      assert (isInRegion(*BB)); // Otherwise the region is ill-formed
 
       if (mValue2Shape[BB].isVarying()) continue;
 
@@ -429,7 +431,7 @@ void PDA::updateOutsideLoopUsesVarying(const Loop* divLoop) {
   SmallVector<BasicBlock*, 3> exitBlocks;
   divLoop->getExitBlocks(exitBlocks);
   for (auto* exitBlock : exitBlocks) {
-    if (!isInRegion(exitBlock)) continue;
+    if (!isInRegion(*exitBlock)) continue;
 
     for (auto& inst : *exitBlock) {
       auto* phi = dyn_cast<PHINode>(&inst);

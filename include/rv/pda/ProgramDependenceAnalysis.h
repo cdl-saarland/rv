@@ -107,7 +107,7 @@ private:
   void compute(Function& F);
 
   // Returns true if this block is contained in the region we want to analyze
-  bool isInRegion(const BasicBlock* BB);
+  bool isInRegion(const BasicBlock& BB);
   bool isInRegion(const Instruction& inst);
 
   // specialized transfer functions
