@@ -12,16 +12,22 @@
 
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallPtrSet.h>
+#include <llvm/Analysis/LoopInfo.h>
+
 #include "rv/analysis/DFG.h"
 
 namespace llvm {
   class Function;
   class BasicBlock;
   class TerminatorInst;
+  class DominatorTree;
+  class PostDominatorTree;
 }
 
 using llvm::DenseMap;
 using ConstBlockSet = llvm::SmallPtrSet<const llvm::BasicBlock*, 4>;
+
+using Edge = llvm::LoopBase<llvm::BasicBlock, llvm::Loop>::Edge;
 
 namespace rv {
 
@@ -47,17 +53,32 @@ namespace rv {
 /// This is directly used by the VectorizationAnalysis to propagate control-induced value divergence.
 ///
 class BranchDependenceAnalysis {
+  static ConstBlockSet emptySet;
+
+  // iterated post dominance frontier
+  DenseMap<const llvm::BasicBlock*, ConstBlockSet> pdClosureMap;
+  DenseMap<const llvm::BasicBlock*, ConstBlockSet> domClosureMap;
+
   DenseMap<const llvm::TerminatorInst*, ConstBlockSet> effectedBlocks;
   const llvm::CDG & cdg;
   const llvm::DFG & dfg;
+  const llvm::DominatorTree & domTree;
+  const llvm::PostDominatorTree & postDomTree;
+  const llvm::LoopInfo & loopInfo;
+
+  void computePostDomClosure(const llvm::BasicBlock & x, ConstBlockSet & closure);
+  void computeDomClosure(const llvm::BasicBlock & b, ConstBlockSet & closure);
+
+  // the set of branches that make a LCSSA phi see divergent values
+  void addDivergenceInducingExits(Edge exitEdge, ConstBlockSet & branchBlocks);
 
 public:
-  BranchDependenceAnalysis(llvm::Function & F, const llvm::CDG & cdg, const llvm::DFG & dfg);
+  BranchDependenceAnalysis(llvm::Function & F, const llvm::CDG & cdg, const llvm::DFG & dfg, const llvm::DominatorTree & _domtree, const llvm::PostDominatorTree & postDomTree, const llvm::LoopInfo & loopInfo);
 
   /// \brief returns the set of blocks whose PHI nodes become divergent if @branch is divergent
   const ConstBlockSet & getEffectedBlocks(const llvm::TerminatorInst & term) const {
     auto it = effectedBlocks.find(&term);
-    assert(it != effectedBlocks.end());
+    if (it == effectedBlocks.end()) return emptySet;
     return it->second;
   }
 };

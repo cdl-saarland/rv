@@ -16,6 +16,8 @@
 #include "utils/rvTools.h"
 #include "rv/utils/mathUtils.h"
 
+#include <llvm/Analysis/PostDominators.h>
+#include <llvm/IR/Dominators.h>
 #include <llvm/Analysis/LoopInfo.h>
 
 #if 1
@@ -57,6 +59,8 @@ VAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
   Info.addRequired<DFGBaseWrapper<false>>();
   Info.addRequired<LoopInfoWrapperPass>();
   Info.addRequired<VectorizationInfoProxyPass>();
+  Info.addRequired<DominatorTreeWrapperPass>();
+  Info.addRequired<PostDominatorTree>();
 
   Info.setPreservesAll();
 }
@@ -69,8 +73,10 @@ VAWrapperPass::runOnFunction(Function& F) {
   const CDG& cdg = *getAnalysis<llvm::CDGWrapper>().getDFG();
   const DFG& dfg = *getAnalysis<llvm::DFGWrapper>().getDFG();
   const LoopInfo& LoopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+  const auto & domTree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+  const auto & postDomTree = getAnalysis<PostDominatorTree>();
 
-  VectorizationAnalysis vea(platInfo, Vecinfo, cdg, dfg, LoopInfo);
+  VectorizationAnalysis vea(platInfo, Vecinfo, cdg, dfg, LoopInfo, domTree, postDomTree);
   vea.analyze(F);
 
   return false;
@@ -80,13 +86,13 @@ VectorizationAnalysis::VectorizationAnalysis(PlatformInfo & platInfo,
          VectorizationInfo& VecInfo,
          const CDG& cdg,
          const DFG& dfg,
-         const LoopInfo& LoopInfo)
+         const LoopInfo& LoopInfo, const DominatorTree & domTree, const PostDominatorTree & postDomTree)
 
         : layout(""),
           mVecinfo(VecInfo),
           mCDG(cdg),
           mDFG(dfg),
-          BDA(mVecinfo.getScalarFunction(), mCDG, mDFG),
+          BDA(mVecinfo.getScalarFunction(), mCDG, mDFG, domTree, postDomTree, LoopInfo),
           mLoopInfo(LoopInfo),
           mFuncinfo(platInfo.getFunctionMappings()),
           mRegion(mVecinfo.getRegion())
@@ -278,6 +284,7 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
   markDependentLoopExitsMandatory(endsVarying);
 
   for (const auto * BB : BDA.getEffectedBlocks(*branch)) {
+    if (!isInRegion(*BB)) continue; // filter out irrelevant nodes (FIXME filter out directly in BDA)
 
       IF_DEBUG errs() << "Branch " << *branch << " affects " << *BB << "\n";
 

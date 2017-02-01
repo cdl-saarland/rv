@@ -66,7 +66,8 @@ public:
       VectorizationInfo& VecInfo,
       const CDG& cdg,
       const DFG& dfg,
-      const LoopInfo& LoopInfo);
+      const LoopInfo& LoopInfo,
+      const DominatorTree & domTree, const PostDominatorTree & postDomTree);
 
   VectorizationAnalysis(const VectorizationAnalysis&) = delete;
   VectorizationAnalysis& operator=(VectorizationAnalysis) = delete;

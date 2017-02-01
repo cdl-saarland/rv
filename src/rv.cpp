@@ -134,7 +134,8 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
                                   vectorizationInfo,
                                   cdg,
                                   dfg,
-                                  loopInfo);
+                                  loopInfo,
+                                  domTree, postDomTree);
 
     ABAAnalysis abaAnalysis(platInfo,
                             vectorizationInfo,
