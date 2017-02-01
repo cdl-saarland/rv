@@ -2,11 +2,11 @@
 
 #include <cmath>
 
-float filter(float v) __attribute__((noinline));
-
 float Global;
 
-float Inc(float v) __attribute__((noinline)) {
+float Inc(float v) __attribute__((noinline));
+
+float Inc(float v) {
   Global += v;
   return v;
 }
