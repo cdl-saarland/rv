@@ -19,6 +19,8 @@ namespace llvm {
 
 using namespace llvm;
 
+#include "llvm/IR/ValueHandle.h"
+
 #include "vectorShape.h"
 #include "vectorMapping.h"
 
@@ -34,7 +36,7 @@ class Region;
 class VectorizationInfo
 {
     VectorMapping mapping;
-    std::unordered_map<const BasicBlock*, Value*> predicates;
+    std::unordered_map<const BasicBlock*, WeakVH> predicates;
     std::unordered_map<const Value*, VectorShape> shapes;
 
     std::set<const Loop*> mDivergentLoops;
