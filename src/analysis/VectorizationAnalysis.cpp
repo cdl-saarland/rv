@@ -86,6 +86,7 @@ VectorizationAnalysis::VectorizationAnalysis(PlatformInfo & platInfo,
           mVecinfo(VecInfo),
           mCDG(cdg),
           mDFG(dfg),
+          BDA(mVecinfo.getScalarFunction(), mCDG, mDFG),
           mLoopInfo(LoopInfo),
           mFuncinfo(platInfo.getFunctionMappings()),
           mRegion(mVecinfo.getRegion())
@@ -276,13 +277,7 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
   markSuccessorsMandatory(endsVarying);
   markDependentLoopExitsMandatory(endsVarying);
 
-  const CDNode* cd_node = mCDG[endsVarying];
-  // Iterate over the predeccessors in the dfg, of the successors in the cdg
-  for (const CDNode* cd_succ : cd_node->succs()) {
-    const DFNode* df_node = mDFG[cd_succ->getBB()];
-    for (const DFNode* df_pred : df_node->preds()) {
-      // Get the block BB that is affected by the varying branch
-      const BasicBlock* const BB = df_pred->getBB();
+  for (const auto * BB : BDA.getEffectedBlocks(*branch)) {
 
       IF_DEBUG errs() << "Branch " << *branch << " affects " << *BB << "\n";
 
@@ -355,7 +350,6 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
         mWorklist.insert(&*it);
         IF_DEBUG_DA outs() << "Inserted PHI: " << (&*it)->getName() << "\n";
       }
-    }
   }
 }
 

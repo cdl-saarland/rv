@@ -33,6 +33,7 @@
 #include "rv/VectorizationInfoProxyPass.h"
 #include "rv/region/Region.h"
 #include "rv/PlatformInfo.h"
+#include "rv/analysis/BranchDependenceAnalysis.h"
 
 namespace llvm {
   class LoopInfo;
@@ -87,6 +88,7 @@ private:
   VectorizationInfo& mVecinfo;  // This will be the output
   const CDG& mCDG;      // Preserves CDG
   const DFG& mDFG;      // Preserves DFG
+  BranchDependenceAnalysis BDA;
   const LoopInfo& mLoopInfo; // Preserves LoopInfo
   const VectorFuncMap& mFuncinfo;
 
