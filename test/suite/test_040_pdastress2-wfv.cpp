@@ -13,9 +13,10 @@ float Inc(float v) {
 
 extern "C" float
 foo(float u, float t) {
-float a, b, c, d, e, f, g, v, R, z;
+float a, b, c, d, e, f, g, v, R, z, p;
 
   float x = cosf(sqrtf(fabs(5000 * u - 4))); // scrambled u
+  float y = sin(u*u); // scrambled u
 
   if (sinf(3*u) <= 0.75f) goto A;
   else if (sinf(59*u) <= .5) goto E; else goto K;
@@ -24,7 +25,7 @@ float a, b, c, d, e, f, g, v, R, z;
 A:
   Inc(1.0);
   a = (-t);
-  if (cosf(t) >= .5) goto B; else goto H; // div
+  if (y > 0.0) goto B; else goto H;
 
 B:
   Inc(2.0);
@@ -32,19 +33,20 @@ B:
   goto C;
 C:
   Inc(45436456.0f);
-  if (cosf(u) <= .75) goto D; else goto E;
+  if (cosf(t) <= 0.0) goto D; else goto E; // div
 D:
   Inc(454366.0f);
-  R = 4.0;
+  p = 4.1;
   if (cosf(u) <= .25) goto F; else goto end;
 E:
   Inc(4366.0f);
+  p = 4.2;
   goto F;
-F:
+F: /// phi
+  v = p;
   Inc(2342345);
   goto G;
 G:
-  v = 1.0;
   Inc(23452345);
   goto Z;
 

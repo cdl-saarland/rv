@@ -26,6 +26,7 @@ int main(int argc, char ** argv) {
 
     for (uint i = 0; i < vectorWidth; ++i) {
       b[i] = (float) rand();
+      // std::cerr << b[i] << " ; ";
     }
 
     float8 rVec = foo_SIMD(a, *((float8*) &b));
@@ -34,6 +35,8 @@ int main(int argc, char ** argv) {
 
     for (uint i = 0; i < vectorWidth; ++i) {
       float expectedRes = foo(a, b[i]);
+
+        if (getenv("DUMP_RESULT") ) { dumpArray(r, vectorWidth); std::cerr << "\n"; }
 
       if (r[i] != expectedRes) {
         std::cerr << "MISMATCH!\n";
