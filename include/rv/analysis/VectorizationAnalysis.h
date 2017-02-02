@@ -77,7 +77,7 @@ public:
   //---------------------- Map access -------------------------//
   /// Get the shape for a value
   //  if loop carried, this is the shape observed within the loop that defines @V
-  const VectorShape& getShape(const Value* const V);
+  VectorShape getShape(const Value* const V);
 
   //---------------------- Iterators --------------------------//
   typename ValueMap::iterator begin();

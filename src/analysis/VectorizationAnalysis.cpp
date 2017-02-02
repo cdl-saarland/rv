@@ -645,7 +645,10 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
       // Find the shape that is mapped to this function
       // No mapping -> assume most unprecise, varying
       auto found = mFuncinfo.find(callee);
-      if (found == mFuncinfo.end()) return VectorShape::varying();
+      if (found == mFuncinfo.end()) {
+        // TODO check if this function has side effects
+        break;
+      }
 
       const VectorMapping* mapping = found->second;
       const VectorShapeVec Arginfo = mapping->argShapes;
@@ -988,9 +991,11 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
   }
 }
 
-const VectorShape& VectorizationAnalysis::getShape(const Value* const V) {
+VectorShape VectorizationAnalysis::getShape(const Value* const V) {
   auto found = mValue2Shape.find(V), end = mValue2Shape.end();
   if (found != end) return found->second;
+
+  if (isa<GlobalValue>(V)) return VectorShape::uni(0);
 
   assert (isa<Constant>(V) && "Value is not available");
   return mValue2Shape[V] = VectorShape::uni(getAlignment(cast<Constant>(V)));
