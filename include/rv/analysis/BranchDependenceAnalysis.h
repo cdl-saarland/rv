@@ -69,9 +69,6 @@ class BranchDependenceAnalysis {
   void computePostDomClosure(const llvm::BasicBlock & x, ConstBlockSet & closure);
   void computeDomClosure(const llvm::BasicBlock & b, ConstBlockSet & closure);
 
-  // the set of branches that make a LCSSA phi see divergent values
-  void addDivergenceInducingExits(Edge exitEdge, ConstBlockSet & branchBlocks);
-
 public:
   BranchDependenceAnalysis(llvm::Function & F, const llvm::CDG & cdg, const llvm::DFG & dfg, const llvm::DominatorTree & _domtree, const llvm::PostDominatorTree & postDomTree, const llvm::LoopInfo & loopInfo);
 
