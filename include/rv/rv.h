@@ -12,7 +12,11 @@
 #include "rv/PlatformInfo.h"
 #include "rv/analysis/DFG.h"
 
-using namespace llvm; // FIXME no no!
+namespace llvm {
+  class LoopInfo;
+  class PostDominatorTree;
+  class DominatorTree;
+}
 
 namespace rv {
 
@@ -45,24 +49,24 @@ public:
      * (see VectorizationInfo).
      */
     void analyze(VectorizationInfo& vectorizationInfo,
-                 const CDG& cdg,
-                 const DFG& dfg,
-                 const LoopInfo& loopInfo,
-                 const PostDominatorTree& postDomTree,
-                 const DominatorTree& domTree);
+                 const llvm::CDG& cdg,
+                 const llvm::DFG& dfg,
+                 const llvm::LoopInfo& loopInfo,
+                 const llvm::PostDominatorTree& postDomTree,
+                 const llvm::DominatorTree& domTree);
 
     /*
      * Analyze mask values needed to mask certain values and preserve semantics of the function
      * after its control flow is linearized where needed.
      */
-    MaskAnalysis* analyzeMasks(VectorizationInfo& vectorizationInfo, const LoopInfo& loopinfo);
+    MaskAnalysis* analyzeMasks(VectorizationInfo& vectorizationInfo, const llvm::LoopInfo& loopinfo);
 
     /*
      * Materialize the mask information.
      */
     bool generateMasks(VectorizationInfo& vectorizationInfo,
                        MaskAnalysis& maskAnalysis,
-                       const LoopInfo& loopInfo);
+                       const llvm::LoopInfo& loopInfo);
 
     /*
      * Linearize divergent regions of the scalar function to preserve semantics for the
@@ -70,14 +74,14 @@ public:
      */
     bool linearizeCFG(VectorizationInfo& vectorizationInfo,
                       MaskAnalysis& maskAnalysis,
-                      LoopInfo& loopInfo,
-                      DominatorTree& domTree);
+                      llvm::LoopInfo& loopInfo,
+                      llvm::DominatorTree& domTree);
 
     /*
      * Produce vectorized instructions
      */
     bool
-    vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree);
+    vectorize(VectorizationInfo &vecInfo, const llvm::DominatorTree &domTree);
 
     /*
      * Ends the vectorization process on this function, removes metadata and
@@ -95,8 +99,8 @@ private:
    // implement all rv_* predicate intrinsics in function
    // this is necessary to make scalar functions with predicate intrinsics executable
    // the SIMS semantics of the function will change if @scalar func used any mask intrinsics
-  void lowerPredicateIntrinsics(Function & scalarFunc);
-  void lowerPredicateIntrinsics(Module & mod);
+  void lowerPredicateIntrinsics(llvm::Function & scalarFunc);
+  void lowerPredicateIntrinsics(llvm::Module & mod);
 }
 
 #endif // RV_RV_H
