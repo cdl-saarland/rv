@@ -33,14 +33,16 @@ namespace rv {
 
 ConstBlockSet BranchDependenceAnalysis::emptySet;
 
-static void
+inline
+void
 IntersectInPlace(ConstBlockSet & x, const ConstBlockSet & y) {
   for (auto a : x) {
     if (!y.count(a)) x.erase(a);
   }
 }
 
-static ConstBlockSet
+inline
+ConstBlockSet
 Intersect(const ConstBlockSet & x, const ConstBlockSet & y) {
   ConstBlockSet res;
   for (auto a : x) {
@@ -52,11 +54,13 @@ Intersect(const ConstBlockSet & x, const ConstBlockSet & y) {
   return res;
 }
 
-static void MergeIn(ConstBlockSet & m, ConstBlockSet & other) {
+inline
+void MergeIn(ConstBlockSet & m, ConstBlockSet & other) {
   for (auto b : other) m.insert(b);
 }
 
-static void
+inline
+void
 IntersectAndMerge(ConstBlockSet & accu, const ConstBlockSet & a, const ConstBlockSet & b) {
   for (auto x : a) {
     if (b.count(x)) {
@@ -65,14 +69,17 @@ IntersectAndMerge(ConstBlockSet & accu, const ConstBlockSet & a, const ConstBloc
   }
 }
 
-static void
+inline
+void
 Subtract(ConstBlockSet & a, const ConstBlockSet & b) {
   for (auto y : b) {
     a.erase(y);
   }
 }
 
-static void DumpSet(const ConstBlockSet & blocks) {
+inline
+void
+DumpSet(const ConstBlockSet & blocks) {
   errs() << "{";
   for (const auto * bb : blocks) {
     errs() << ", " << bb->getName();
@@ -80,7 +87,8 @@ static void DumpSet(const ConstBlockSet & blocks) {
   errs() << "}";
 }
 
-static void
+inline
+void
 GetDomRegion(DomTreeNodeBase<BasicBlock> & domNode, ConstBlockSet & domRegion) {
   domRegion.insert(domNode.getBlock());
   for (auto it = domNode.begin(); it != domNode.end(); ++it) {
