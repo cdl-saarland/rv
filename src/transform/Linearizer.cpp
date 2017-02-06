@@ -815,15 +815,33 @@ Linearizer::needsFolding(PHINode & phi) {
 }
 
 
+template<class T>
+DomTreeNodeBase<BasicBlock> *
+FindIDom(const T & inBlocks, DominatorTree & dt) {
+  BasicBlock * commonDomBlock = nullptr;
+  for (auto * predBlock : inBlocks) {
+    if (!commonDomBlock) { commonDomBlock = predBlock; }
+    else { commonDomBlock = dt.findNearestCommonDominator(commonDomBlock, predBlock); }
+
+    IF_DEBUG_DTFIX { errs() << "\t\t\t: dom with " << predBlock->getName() << " is " << commonDomBlock->getName() << "\n"; }
+
+    assert(commonDomBlock && "domtree repair: did not reach a common dom node!");
+  }
+
+// domtree update: least common dominator of all incoming branches
+  return dt.getNode(commonDomBlock);
+}
+
 struct SuperInput {
   SmallVector<BasicBlock*, 4> inBlocks;
   BasicBlock * blendBlock;
 
-  SuperInput(Function & func, BasicBlock & phiBlock, SmallVector<BasicBlock*, 4> && _inBlocks)
+  SuperInput(SmallVector<BasicBlock*, 4> && _inBlocks)
   : inBlocks(_inBlocks)
-  , blendBlock(BasicBlock::Create(func.getContext(), "super", &func, &phiBlock))
+  , blendBlock(nullptr)
   {
     assert(inBlocks.size() > 1 && "trivial input");
+
   }
 
   SuperInput()
@@ -831,12 +849,18 @@ struct SuperInput {
   , blendBlock(nullptr)
   {}
 
-  void materializeControl(BasicBlock & phiBlock) {
+  DomTreeNodeBase<BasicBlock>* materializeControl(BasicBlock & phiBlock, DominatorTree & dt) {
+    if (!blendBlock) return dt.getNode(inBlocks[0]);
+
+  // create block and embed in CFG
     for (auto * block : inBlocks) {
       block->getTerminator()->replaceUsesOfWith(&phiBlock, blendBlock);
     }
 
     BranchInst::Create(&phiBlock, blendBlock);
+
+    DomTreeNodeBase<BasicBlock>* idom = FindIDom<>(predecessors(blendBlock), dt);
+    return dt.addNewBlock(blendBlock, idom->getBlock());
   }
 };
 
@@ -844,12 +868,16 @@ struct SuperInput {
 /// \brief create a super input value for this phi node
 Value *
 Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
-  IRBuilder<> builder(superInput.blendBlock, superInput.blendBlock->getFirstInsertionPt());
   auto & blocks = superInput.inBlocks;
+  auto * defValue = phi.getIncomingValueForBlock(blocks[0]);
+
+  if (blocks.size() <= 1) return defValue;
+
+  superInput.blendBlock = BasicBlock::Create(phi.getContext(), "super", phi.getParent()->getParent(), phi.getParent());
+
+  IRBuilder<> builder(superInput.blendBlock, superInput.blendBlock->getFirstInsertionPt());
 
   auto & phiBlock = *phi.getParent();
-
-  auto * defValue = phi.getIncomingValueForBlock(blocks[0]);
 
   auto phiShape = vecInfo.getVectorShape(phi);
   for (int i = 1; i < blocks.size(); ++i) {
@@ -939,7 +967,7 @@ Linearizer::foldPhis(BasicBlock & block) {
       uniqueInBlocks.insert(predBlock);
       IF_DEBUG_LIN errs() << "\t unique incoming value -> keep!\n";
     } else {
-      selectBlockMap[predBlock] = SuperInput(func, block, std::move(superposedInBlocks));
+      selectBlockMap[predBlock] = SuperInput(std::move(superposedInBlocks));
       IF_DEBUG_LIN errs() << "\t super posed inputs ->fold!\n";
     }
   }
@@ -989,8 +1017,14 @@ Linearizer::foldPhis(BasicBlock & block) {
 
 // embed future blend blocks into control
   for (auto it : selectBlockMap) {
-    it.second.materializeControl(block);
+    it.second.materializeControl(block, dt);
+    if (it.second.blendBlock) {
+      vecInfo.setVectorShape(*it.second.blendBlock->getTerminator(), VectorShape::uni());
+    }
   }
+
+  // update idom
+  dt.getNode(&block)->setIDom(FindIDom<>(predecessors(&block), dt));
 }
 
 int
@@ -1097,7 +1131,8 @@ Linearizer::emitBlock(int targetId) {
 
 // search for a new idom
   // FIXME we can do this in lockstep with the branch fixing above for release builds
-  BasicBlock * commonDomBlock = nullptr;
+  auto * nextCommonDom = FindIDom<>(predecessors(&target), dt);
+#if 0
   for (auto itPred = pred_begin(&target); itPred != pred_end(&target); ++itPred) {
     auto * predBlock = *itPred;
     if (!commonDomBlock) { commonDomBlock = predBlock; }
@@ -1107,12 +1142,10 @@ Linearizer::emitBlock(int targetId) {
 
     assert(commonDomBlock && "domtree repair: did not reach a common dom node!");
   }
+#endif
 
 // domtree update: least common dominator of all incoming branches
-  auto * nextCommonDom = dt.getNode(commonDomBlock);
-  assert(nextCommonDom);
   IF_DEBUG_DTFIX { errs() << "DT before dom change:";dt.print(errs()); }
-  IF_DEBUG_DTFIX{ errs() << "DTFIX: " << target.getName() << " idom is " << commonDomBlock->getName() << " by common pred dom\n"; }
   targetDom->setIDom(nextCommonDom);
   IF_DEBUG_DTFIX { errs() << "DT after dom change:";dt.print(errs()); }
 
