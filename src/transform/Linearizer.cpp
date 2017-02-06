@@ -19,6 +19,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/IR/BasicBlock.h>
 
 #include <cassert>
 #include <climits>
@@ -777,6 +778,17 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   return *loopExitRelay;
 }
 
+static bool
+Dominates(BasicBlock * a, BasicBlock * b, DominatorTree & domTree) {
+  auto * domNode = domTree.getNode(a);
+  auto * node = domTree.getNode(b);
+  while (node != nullptr && node != domNode) {
+    node = node->getIDom();
+  }
+
+  return node == domNode;
+}
+
 bool
 Linearizer::needsFolding(PHINode & phi) {
   // this implementation exploits the fact that edges only disappear completely by relaying
@@ -791,7 +803,6 @@ Linearizer::needsFolding(PHINode & phi) {
     auto blockId = phi.getBasicBlockIndex(inBlock);
     if (blockId < 0) { return true; }
     predSet.insert(inBlock);
-    IF_DEBUG_LIN { errs() << "pred: " << inBlock->getName() << "\n"; }
   }
 
   // or incoming blocks in the PHI node are no longer predecessors
@@ -801,6 +812,57 @@ Linearizer::needsFolding(PHINode & phi) {
 
   // Phi should still work
   return false;
+}
+
+
+struct SuperInput {
+  SmallVector<BasicBlock*, 4> inBlocks;
+  BasicBlock * blendBlock;
+
+  SuperInput(Function & func, BasicBlock & phiBlock, SmallVector<BasicBlock*, 4> && _inBlocks)
+  : inBlocks(_inBlocks)
+  , blendBlock(BasicBlock::Create(func.getContext(), "super", &func, &phiBlock))
+  {
+    assert(inBlocks.size() > 1 && "trivial input");
+  }
+
+  SuperInput()
+  : inBlocks()
+  , blendBlock(nullptr)
+  {}
+
+  void materializeControl(BasicBlock & phiBlock) {
+    for (auto * block : inBlocks) {
+      block->getTerminator()->replaceUsesOfWith(&phiBlock, blendBlock);
+    }
+
+    BranchInst::Create(&phiBlock, blendBlock);
+  }
+};
+
+
+/// \brief create a super input value for this phi node
+Value *
+Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
+  IRBuilder<> builder(superInput.blendBlock, superInput.blendBlock->getFirstInsertionPt());
+  auto & blocks = superInput.inBlocks;
+
+  auto & phiBlock = *phi.getParent();
+
+  auto * defValue = phi.getIncomingValueForBlock(blocks[0]);
+
+  auto phiShape = vecInfo.getVectorShape(phi);
+  for (int i = 1; i < blocks.size(); ++i) {
+    auto * inBlock = blocks[i];
+    auto * inVal = phi.getIncomingValueForBlock(inBlock);
+
+    auto * edgeMask = getEdgeMask(*inBlock, phiBlock);
+
+    defValue = builder.CreateSelect(edgeMask, inVal, defValue);
+    vecInfo.setVectorShape(*defValue, phiShape);
+  }
+
+  return defValue;
 }
 
 void
@@ -814,7 +876,79 @@ Linearizer::foldPhis(BasicBlock & block) {
 // check if PHIs need to be folded at all
   if (!needsFolding(*phi)) return;
 
+  // TODO fast path for num preds == 1
+
+// identify all incoming values that stay immediate predecessors of this block
+  std::map<BasicBlock*, int> preservedInputBlocks; // maps preserved inputs to phi indices
+
+  for (int i = 0; i < phi->getNumIncomingValues(); ++i) {
+    auto * inBlock = phi->getIncomingBlock(i);
+    bool foundIncoming = false;
+
+    for (auto * pred : predecessors(&block)) {
+      if (pred == inBlock) {
+        foundIncoming = true;
+        break;
+      }
+    }
+
+    if (foundIncoming) preservedInputBlocks[inBlock] = i;
+  }
+
+
+
+
+
+// after folding multiple immediate predecessors may carry phi inputs in superposition (the former select blocks all re-route through the remaining predecessors)
+  using MergePair = std::pair<BasicBlock*, Value*>;
+
+  // merges new predecessors to all incoming definitions that are in super position
+  std::map<BasicBlock*, SuperInput> selectBlockMap;
+
+  // blocks in this set do not need a blend block
+  SmallPtrSet<BasicBlock*, 4> uniqueInBlocks;
+
+  for (auto * predBlock : predecessors(&block)) {
+    assert(preservedInputBlocks.count(predBlock) && "assuming that new preds are a subset of old preds");
+
+    IF_DEBUG_LIN { errs() << "\t inspecting pred " << predBlock->getName() << "\n"; }
+
+    // all inputs that are incoming on this edge after folding
+    SmallVector<BasicBlock*, 4> superposedInBlocks;
+
+    for (int i = 0; i < phi->getNumIncomingValues(); ++i) {
+      auto * inBlock = phi->getIncomingBlock(i);
+
+      errs() << "\t phi incoming block " << inBlock->getName().str() << "\n";
+
+      // this incoming block remains an immediate predecessor so its value can only be live in on that block
+      if (preservedInputBlocks.count(inBlock) && preservedInputBlocks[inBlock] != i) {
+        IF_DEBUG_LIN { errs() <<  "\tskipping preserved pred.\n";  }
+        continue;
+      }
+
+      // otw, this value needs blending on any dominated input
+      if (predBlock == inBlock || Dominates(inBlock, predBlock, dt)) {
+        superposedInBlocks.push_back(inBlock);
+      }
+    }
+
+    assert(superposedInBlocks.size() >= 1 && "no dominating def available on this select block?!");
+    IF_DEBUG_LIN errs() << "phi: superposed incoming value for new inbound block " << predBlock->getName() << " : " << superposedInBlocks.size() << "\n";
+    if (superposedInBlocks.size() == 1) {
+      uniqueInBlocks.insert(predBlock);
+      IF_DEBUG_LIN errs() << "\t unique incoming value -> keep!\n";
+    } else {
+      selectBlockMap[predBlock] = SuperInput(func, block, std::move(superposedInBlocks));
+      IF_DEBUG_LIN errs() << "\t super posed inputs ->fold!\n";
+    }
+  }
+
   IF_DEBUG_LIN { errs() << "\tfolding PHIs in " << block.getName() << "\n"; }
+
+  // TODO can abort here if selectBlockMap.empty()
+  assert(!selectBlockMap.empty());
+
 // phi -> select based on getEdgeMask(start, dest)
   auto itStart = block.begin(), itEnd = block.end();
   for (auto it = itStart; it != itEnd; ) {
@@ -825,21 +959,37 @@ Linearizer::foldPhis(BasicBlock & block) {
 
     IRBuilder<> builder(&block, block.getFirstInsertionPt());
 
-    auto * defValue = phi->getIncomingValue(0);
+    auto & flatPhi = *PHINode::Create(phi->getType(), 6, phi->getName(), phi);
+    for (auto * predBlock : predecessors(&block)) {
+      auto itSuperInput = selectBlockMap.find(predBlock);
 
-    auto phiShape = vecInfo.getVectorShape(*phi);
-    for (uint i = 1; i < phi->getNumIncomingValues(); ++i) {
-      auto * inBlock = phi->getIncomingBlock(i);
-      auto * inVal = phi->getIncomingValue(i);
-
-      auto * edgeMask = getEdgeMask(*inBlock, block);
-
-      defValue = builder.CreateSelect(edgeMask, inVal, defValue);
-      vecInfo.setVectorShape(*defValue, phiShape);
+      if (itSuperInput == selectBlockMap.end()) {
+        // preserved input
+        auto * inVal = phi->getIncomingValueForBlock(predBlock);
+        flatPhi.addIncoming(inVal, predBlock);
+      } else {
+        // folded iput
+        auto * superIn = createSuperInput(*phi, itSuperInput->second);
+        flatPhi.addIncoming(superIn, itSuperInput->second.blendBlock);
+      }
     }
 
-    phi->replaceAllUsesWith(defValue);
+    Value * replacement = nullptr;
+    if (flatPhi.getNumIncomingValues() == 1) {
+      replacement = flatPhi.getIncomingValue(0);
+      flatPhi.eraseFromParent();
+    } else {
+      vecInfo.setVectorShape(flatPhi, VectorShape::varying()); // TODO infer from operands
+      replacement = &flatPhi;
+    }
+
+    phi->replaceAllUsesWith(replacement);
     phi->eraseFromParent();
+  }
+
+// embed future blend blocks into control
+  for (auto it : selectBlockMap) {
+    it.second.materializeControl(block);
   }
 }
 

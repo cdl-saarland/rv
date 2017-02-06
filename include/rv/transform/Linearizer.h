@@ -41,6 +41,9 @@ namespace rv {
   // internal helper class that tunnels values leaving on divergent loop exits through tracker PHI nodes
   class LiveValueTracker;
 
+  // internal helper class for partially folded incoming blocks of PHI nodes
+  class SuperInput;
+
   class Linearizer {
 
   // relay logic
@@ -220,6 +223,8 @@ namespace rv {
 
     // make @inst defined in @destBlock by adding PHI nodes with incoming undef edges
     llvm::Value & promoteDefinition(llvm::Value & inst, llvm::Value & defaultDef, int defBlockId, int destBlockId);
+
+    Value * createSuperInput(PHINode & phi, SuperInput & superInput);
 
   // analysis structures
   protected:
