@@ -897,20 +897,38 @@ void
 Linearizer::foldPhis(BasicBlock & block) {
 // FIXME first shot implementation (highly optimizeable)
 
+
+// find first non repair PHI
+  BasicBlock::iterator itPhi = block.begin();
+  for (
+      BasicBlock::iterator it = itPhi;
+      it != block.end() && isa<PHINode>(*it) && isRepairPhi(cast<PHINode>(*it));
+      ++it)
+  {
+    itPhi = it;
+  }
+
+  // no non-repair PHI found
+  if (itPhi == block.end() || !isa<PHINode>(*itPhi)) {
+    return;
+  }
+
 // no PHis, no folding
-  auto * phi = dyn_cast<PHINode>(&*block.begin());
-  if (!phi) return;
+  auto & phi = cast<PHINode>(*itPhi);
+
+  // only phi found is a repair phi
+  if (isRepairPhi(phi)) return;
 
 // check if PHIs need to be folded at all
-  if (!needsFolding(*phi)) return;
+  if (!needsFolding(phi)) return;
 
   // TODO fast path for num preds == 1
 
 // identify all incoming values that stay immediate predecessors of this block
   std::map<BasicBlock*, int> preservedInputBlocks; // maps preserved inputs to phi indices
 
-  for (int i = 0; i < phi->getNumIncomingValues(); ++i) {
-    auto * inBlock = phi->getIncomingBlock(i);
+  for (int i = 0; i < phi.getNumIncomingValues(); ++i) {
+    auto * inBlock = phi.getIncomingBlock(i);
     bool foundIncoming = false;
 
     for (auto * pred : predecessors(&block)) {
@@ -928,7 +946,6 @@ Linearizer::foldPhis(BasicBlock & block) {
 
 
 // after folding multiple immediate predecessors may carry phi inputs in superposition (the former select blocks all re-route through the remaining predecessors)
-  using MergePair = std::pair<BasicBlock*, Value*>;
 
   // merges new predecessors to all incoming definitions that are in super position
   std::map<BasicBlock*, SuperInput> selectBlockMap;
@@ -944,8 +961,8 @@ Linearizer::foldPhis(BasicBlock & block) {
     // all inputs that are incoming on this edge after folding
     SmallVector<BasicBlock*, 4> superposedInBlocks;
 
-    for (int i = 0; i < phi->getNumIncomingValues(); ++i) {
-      auto * inBlock = phi->getIncomingBlock(i);
+    for (int i = 0; i < phi.getNumIncomingValues(); ++i) {
+      auto * inBlock = phi.getIncomingBlock(i);
 
       errs() << "\t phi incoming block " << inBlock->getName().str() << "\n";
 
