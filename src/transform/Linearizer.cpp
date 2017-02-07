@@ -20,6 +20,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/ADT/PostOrderIterator.h>
 
 #include <cassert>
 #include <climits>
@@ -60,6 +61,16 @@ Linearizer::buildBlockIndex() {
   std::vector<BasicBlock*> stack;
   std::set<Loop*> pushedLoops;
 
+  using RPOT = ReversePostOrderTraversal<Function*>;
+
+  for (auto * block : RPOT(&func)) {
+    // specialize for region
+    if (inRegion(*block)) {
+      addToBlockIndex(*block);
+    }
+  }
+
+#if 0
   for (auto & block : func) {
     // seek unprocessed blocks
     if (!inRegion(block)) continue; // FIXME we need a Region::blocks-in-the-region iterator
@@ -142,40 +153,31 @@ Linearizer::buildBlockIndex() {
       }
     }
   }
+#endif
+
 }
 
-Value &
-Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, int destBlockId) {
-  IF_DEBUG_LIN { errs() << "\t* promoting value " << inst << " from def block " << defBlockId << " to " << destBlockId << "\n"; }
+Value&
+Linearizer::promoteDefToBlock(BasicBlock & block, SmallVector<Value*, 16> & defs, Value & defaultDef, int defBlockId, int blockId, VectorShape instShape) {
+  Value * localDef = nullptr;
+  PHINode * localPhi = nullptr;
 
-  assert(defBlockId <= destBlockId);
+  auto * type = defaultDef.getType();
 
-  if (defBlockId == destBlockId) return inst;
+  auto itBegin = pred_begin(&block), itEnd = pred_end(&block);
+  for (auto it = itBegin; it != itEnd; ++it) {
+    auto * predBlock = *it;
 
-  const int span = destBlockId - defBlockId;
+    Value * inVal = nullptr;
 
-  auto * type = inst.getType();
+    if (!hasIndex(*predBlock)) {
+      // TODO ad hoc stepping through blendBlocks
+      inVal = &promoteDefToBlock(*predBlock, defs, defaultDef, defBlockId, blockId, instShape);
 
-  SmallVector<Value*, 16> defs(span + 1, nullptr);
-  defs[0] = &inst;
-
-  auto instShape = vecInfo.getVectorShape(inst);
-
-  for (int i = 1; i < span + 1; ++i) {
-    int blockId = defBlockId + i;
-
-    auto & block = getBlock(blockId);
-
-    Value * localDef = nullptr;
-    PHINode * localPhi = nullptr;
-
-    auto itBegin = pred_begin(&block), itEnd = pred_end(&block);
-    for (auto it = itBegin; it != itEnd; ++it) {
-      auto * predBlock = *it;
+    } else {
       int predIndex = getIndex(*predBlock);
 
       // turn incoming value into an explicit value (nullptr -> Undef)
-      Value * inVal = nullptr;
       if (predIndex < defBlockId) {
         // predecessor not in span -> undef
         inVal = &defaultDef;
@@ -194,31 +196,56 @@ Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, 
           inVal = reachingDef;
         }
       }
-
-      // first reaching def OR reaching def is the same
-      if (!localDef || localDef == inVal) {
-        localDef = inVal;
-        continue;
-      }
-
-      // Otw, we need a phi node
-      if (!localPhi) {
-        localPhi = PHINode::Create(type, 0, "", &*block.getFirstInsertionPt());
-        vecInfo.setVectorShape(*localPhi, instShape);
-        for (auto itPassedPred = itBegin; itPassedPred != it; ++itPassedPred) {
-          localPhi->addIncoming(localDef, *itPassedPred);
-        }
-        IF_DEBUG_LIN { errs() << "\t | partial def PHI @ " << blockId << ", " << block.getName() << " : " << *localPhi << "\n"; }
-        localDef = localPhi;
-      }
-
-      // attach the incoming value
-      localPhi->addIncoming(inVal, predBlock);
     }
 
-    // register as final definition at this point
-    IF_DEBUG_LIN { errs() << "\t- localDef @ " << (blockId) << " " << *localDef << "\n"; }
-    defs[i] = localDef;
+    // first reaching def OR reaching def is the same
+    if (!localDef || localDef == inVal) {
+      localDef = inVal;
+      continue;
+    }
+
+    // Otw, we need a phi node
+    if (!localPhi) {
+      localPhi = PHINode::Create(type, 0, "", &*block.getFirstInsertionPt());
+      vecInfo.setVectorShape(*localPhi, instShape);
+      for (auto itPassedPred = itBegin; itPassedPred != it; ++itPassedPred) {
+        localPhi->addIncoming(localDef, *itPassedPred);
+      }
+      IF_DEBUG_LIN { errs() << "\t | partial def PHI @ " << blockId << ", " << block.getName() << " : " << *localPhi << "\n"; }
+      localDef = localPhi;
+    }
+
+    // attach the incoming value
+    localPhi->addIncoming(inVal, predBlock);
+  }
+
+  // register as final definition at this point
+  IF_DEBUG_LIN { errs() << "\t- localDef @ " << (blockId) << " " << *localDef << "\n"; }
+
+  return *localDef;
+}
+
+Value &
+Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, int destBlockId) {
+  IF_DEBUG_LIN { errs() << "\t* promoting value " << inst << " from def block " << defBlockId << " to " << destBlockId << "\n"; }
+
+  assert(defBlockId <= destBlockId);
+
+  if (defBlockId == destBlockId) return inst;
+
+  const int span = destBlockId - defBlockId;
+
+  SmallVector<Value*, 16> defs(span + 1, nullptr);
+  defs[0] = &inst;
+
+  auto instShape = vecInfo.getVectorShape(inst);
+
+  for (int i = 1; i < span + 1; ++i) {
+    int blockId = defBlockId + i;
+
+    auto & block = getBlock(blockId);
+
+    defs[i] = &promoteDefToBlock(block, defs, defaultDef, defBlockId, blockId, instShape);
   }
 
   IF_DEBUG_LIN { errs() << "\tdefs[" << span << "] " << *defs[span] << "\n"; }
@@ -868,14 +895,31 @@ struct SuperInput {
 /// \brief create a super input value for this phi node
 Value *
 Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
+  auto * falseMask = ConstantInt::getFalse(phi.getContext());
+
   auto & blocks = superInput.inBlocks;
-  auto * defValue = phi.getIncomingValueForBlock(blocks[0]);
 
-  if (blocks.size() <= 1) return defValue;
+// make sure we have a dominating definition of the first incoming value available
+  auto * defaultValue = phi.getIncomingValueForBlock(blocks[0]);
 
+  // early exit: there is only one predecessor: no phis, no blend blocks -> return that value right away
+  if (blocks.size() <= 1) return defaultValue; // FIXME we still need a dominating definition
+
+// we will need blending: create a block for that to take place
   superInput.blendBlock = BasicBlock::Create(phi.getContext(), "super", phi.getParent()->getParent(), phi.getParent());
 
-  IRBuilder<> builder(superInput.blendBlock, superInput.blendBlock->getFirstInsertionPt());
+  // make sure the default definition is dominating
+  // FIXME also do this for the single predecessor case if inVal does not dominate it
+  Value * blendedVal = defaultValue;
+  if (isa<Instruction>(defaultValue)) {
+    auto & defFuture = createRepairPhi(*defaultValue, *superInput.blendBlock);
+    defFuture.addIncoming(defaultValue, blocks[0]);
+    defFuture.addIncoming(UndefValue::get(defaultValue->getType()), superInput.blendBlock);
+    blendedVal = &defFuture;
+  }
+
+// Start buildling cascasding selects for all remaining incoming values
+  IRBuilder<> builder(superInput.blendBlock);
 
   auto & phiBlock = *phi.getParent();
 
@@ -886,11 +930,28 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
     auto * edgeMask = getEdgeMask(*inBlock, phiBlock);
 
-    defValue = builder.CreateSelect(edgeMask, inVal, defValue);
-    vecInfo.setVectorShape(*defValue, phiShape);
+  // make sure the mask predicate is available at this point
+  // TODO use caching
+    if (isa<Instruction>(edgeMask)) {
+      auto & maskFuture = createRepairPhi(*edgeMask, *superInput.blendBlock);
+      maskFuture.addIncoming(edgeMask, inBlock);
+      maskFuture.addIncoming(falseMask, superInput.blendBlock);
+      edgeMask = &maskFuture;
+    }
+
+    if (isa<Instruction>(inVal)) {
+      auto & inValFuture = createRepairPhi(*inVal, *superInput.blendBlock);
+      inValFuture.addIncoming(inVal, inBlock);
+      inValFuture.addIncoming(UndefValue::get(inVal->getType()), superInput.blendBlock);
+      inVal = &inValFuture;
+    }
+
+  // TODO also promote the incoming value (default to undef)
+    blendedVal = builder.CreateSelect(edgeMask, inVal, blendedVal);
+    vecInfo.setVectorShape(*blendedVal, phiShape);
   }
 
-  return defValue;
+  return blendedVal;
 }
 
 void
@@ -924,6 +985,8 @@ Linearizer::foldPhis(BasicBlock & block) {
 
   // TODO fast path for num preds == 1
 
+  IF_DEBUG_LIN { errs() << "\t- folding PHIs in " << block.getName() << "\n"; }
+
 // identify all incoming values that stay immediate predecessors of this block
   std::map<BasicBlock*, int> preservedInputBlocks; // maps preserved inputs to phi indices
 
@@ -953,10 +1016,13 @@ Linearizer::foldPhis(BasicBlock & block) {
   // blocks in this set do not need a blend block
   SmallPtrSet<BasicBlock*, 4> uniqueInBlocks;
 
+  SmallPtrSet<BasicBlock*, 4> seenPreds;
   for (auto * predBlock : predecessors(&block)) {
+    if (!seenPreds.insert(predBlock).second) continue;
+
     assert(preservedInputBlocks.count(predBlock) && "assuming that new preds are a subset of old preds");
 
-    IF_DEBUG_LIN { errs() << "\t inspecting pred " << predBlock->getName() << "\n"; }
+    IF_DEBUG_LIN { errs() << "\t   inspecting pred " << predBlock->getName() << "\n"; }
 
     // all inputs that are incoming on this edge after folding
     SmallVector<BasicBlock*, 4> superposedInBlocks;
@@ -964,16 +1030,17 @@ Linearizer::foldPhis(BasicBlock & block) {
     for (int i = 0; i < phi.getNumIncomingValues(); ++i) {
       auto * inBlock = phi.getIncomingBlock(i);
 
-      errs() << "\t phi incoming block " << inBlock->getName().str() << "\n";
-
       // this incoming block remains an immediate predecessor so its value can only be live in on that block
       if (preservedInputBlocks.count(inBlock) && preservedInputBlocks[inBlock] != i) {
-        IF_DEBUG_LIN { errs() <<  "\tskipping preserved pred.\n";  }
         continue;
       }
 
       // otw, this value needs blending on any dominated input
-      if (predBlock == inBlock || Dominates(inBlock, predBlock, dt)) {
+      assert(hasIndex(*predBlock));
+      auto & predReachingBlocks = getReachingBlocks(getIndex(*predBlock));
+
+      if (predBlock == inBlock || predReachingBlocks.count(inBlock)) {
+        IF_DEBUG_LIN { errs() <<  "\t      - reaching in block " << inBlock->getName() << "\n";  }
         superposedInBlocks.push_back(inBlock);
       }
     }
@@ -989,8 +1056,6 @@ Linearizer::foldPhis(BasicBlock & block) {
     }
   }
 
-  IF_DEBUG_LIN { errs() << "\tfolding PHIs in " << block.getName() << "\n"; }
-
   // TODO can abort here if selectBlockMap.empty()
   assert(!selectBlockMap.empty());
 
@@ -1005,7 +1070,10 @@ Linearizer::foldPhis(BasicBlock & block) {
     IRBuilder<> builder(&block, block.getFirstInsertionPt());
 
     auto & flatPhi = *PHINode::Create(phi->getType(), 6, phi->getName(), phi);
+    SmallPtrSet<const BasicBlock*, 4>  seenPreds;
     for (auto * predBlock : predecessors(&block)) {
+      if (!seenPreds.insert(predBlock).second) continue;
+
       auto itSuperInput = selectBlockMap.find(predBlock);
 
       if (itSuperInput == selectBlockMap.end()) {
@@ -1229,6 +1297,16 @@ Linearizer::processRange(int startId, int endId, Loop * parentLoop) {
   return endId;
 }
 
+bool
+Linearizer::containsOriginalPhis(BasicBlock & block) {
+  for (auto & inst : block) {
+    auto * phi = dyn_cast<PHINode>(&inst);
+    if (!phi) return false;
+    if (!isRepairPhi(*phi)) return true;
+  }
+  return false;
+}
+
 void
 Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * parentLoop) {
   IF_DEBUG_LIN {
@@ -1247,7 +1325,14 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
 // Unconditional branch case
   if (!branch->isConditional()) {
     auto & nextBlock = *branch->getSuccessor(0);
+
     auto & relay = addTargetToRelay(exitRelay, getIndex(nextBlock));
+
+    // if the branch target feeds a phi and the edge is relayed -> track reachability
+    if (containsOriginalPhis(nextBlock) && relay.block != &nextBlock) {
+      relay.addReachingBlock(nextBlock);
+    }
+
     setEdgeMask(head, nextBlock, maskAnalysis.getExitMask(head, 0));
     IF_DEBUG_LIN {
       errs() << "\tunconditional. merged with " << nextBlock.getName() << " "; dumpRelayChain(relay.id); errs() << "\n";
@@ -1289,7 +1374,19 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   if (mustFoldBranch) {
     firstRelay = &addTargetToRelay(firstRelay, secondId);
     branch->setSuccessor(secondSuccIdx, firstRelay->block);
+
+    // promote reachability from @head down
+    // this is needed for phi folding
+    // if (containsOriginalPhis(*secondBlock)) {
+      firstRelay->addReachingBlock(head);
+    // }
   }
+
+  // if the branch target feeds a phi and the edge is relayed -> track reachability
+  if (mustFoldBranch || (containsOriginalPhis(*firstBlock) && firstRelay->block != firstBlock)) {
+    firstRelay->addReachingBlock(head);
+  }
+
 
 // relay the first branch to its relay block
   branch->setSuccessor(firstSuccIdx, firstRelay->block);
@@ -1314,6 +1411,13 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   // auto & secondRelay = requestRelay(secondMustHaves);
   if (!mustFoldBranch) {
     branch->setSuccessor(secondSuccIdx, secondRelay.block);
+  }
+
+  if (mustFoldBranch || (containsOriginalPhis(*secondBlock) && secondRelay.block != secondBlock)) {
+    secondRelay.addReachingBlock(head);
+    if (mustFoldBranch) {
+      secondRelay.addReachingBlock(*firstBlock);
+    }
   }
 
 // mark branch as non-divergent
@@ -1393,11 +1497,28 @@ Linearizer::linearizeControl() {
 }
 
 PHINode &
+Linearizer::createRepairPhi(Value & val, IRBuilder<> & builder) {
+  PHINode * repairPhi = builder.CreatePHI(val.getType(), 2, "repairPhi_" + val.getName());
+
+  VectorShape resShape = VectorShape::uni();
+  if (vecInfo.hasKnownShape(val)) {
+    resShape = vecInfo.getVectorShape(val);
+  }
+
+  vecInfo.setVectorShape(*repairPhi, resShape);
+  repairPhis.insert(repairPhi);
+  return *repairPhi;
+}
+
+PHINode &
 Linearizer::createRepairPhi(Value & val, BasicBlock & destBlock) {
-  auto & repairPhi = *PHINode::Create(val.getType(), 2, "repairPhi_" + val.getName(), &*destBlock.getFirstInsertionPt());
-  vecInfo.setVectorShape(repairPhi, vecInfo.getVectorShape(val));
-  repairPhis.insert(&repairPhi);
-  return repairPhi;
+  if (destBlock.empty()) {
+    IRBuilder<> builder(&destBlock);
+    return createRepairPhi(val, builder);
+  } else {
+    IRBuilder<> builder(&destBlock, destBlock.getFirstInsertionPt());
+    return createRepairPhi(val, builder);
+  }
 }
 
 void
@@ -1409,8 +1530,18 @@ Linearizer::resolveRepairPhis() {
     auto * innerVal = repairPHI->getIncomingValue(0);
     auto * outerVal = repairPHI->getIncomingValue(1);
 
-    uint startIndex = getIndex(*innerBlock);
-    uint destIndex = getIndex(*repairPHI->getParent());
+    int startIndex = getIndex(*innerBlock);
+
+    int destIndex = -1;
+    if (!hasIndex(*repairPHI->getParent())) {
+      // this can occur when the repairPHI is placed in a blendBlock (that does not have a block index number)
+      // we know that blend blocks have a single successor with a block index number
+      // we take that index as a dummy (eventhough we promote the def one block "too far" as its only needed in blendBlock)
+      // FIXME only promote def to blendBlock (and not to its sucessor)
+      destIndex = getIndex(*repairPHI->getParent()->getTerminator()->getSuccessor(0));
+    } else {
+      destIndex = getIndex(*repairPHI->getParent());
+    }
 
     IF_DEBUG_LIN { errs() << " repair " << *repairPHI << " on range " << startIndex << " to " << destIndex << "\n"; }
     auto & promotedDef = promoteDefinition(*innerVal, *outerVal, startIndex, destIndex);

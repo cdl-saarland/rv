@@ -21,6 +21,7 @@
 #include "rv/analysis/maskAnalysis.h"
 
 #include <llvm/IR/Dominators.h>
+#include <llvm/IR/IRBuilder.h>
 
 #include <vector>
 #include <unordered_map>
@@ -47,13 +48,12 @@ namespace rv {
   class Linearizer {
 
   // relay logic
-    // every block branching to @relayBlock actually need to execute the blocks in @destBlocks next
     // we need to defer these edges to we can schedule linearized blocks in between
     struct RelayNode {
       // the next destionation for every branch going to this relaynode
       llvm::BasicBlock & head;
 
-      // head block id
+      // block index number
       int id;
 
       // branch to this block if you need to execute any of @destBlocks next
@@ -63,12 +63,24 @@ namespace rv {
       // this implies that these blocks will be completely linearized (possible interspread by uniform subgraphs)
       RelayNode * next;
 
+      // do phi nodes in this block need to be folded?
+      bool needsPhiFolding;
+
+      // a set of some blocks that will reach this block
+      SmallPtrSet<BasicBlock*, 4> reachingBlocks;
+
       RelayNode(llvm::BasicBlock & _head, int _id)
       : head(_head)
       , id (_id)
       , block(nullptr)
       , next(nullptr)
+      , needsPhiFolding(false)
+      , reachingBlocks()
       {}
+
+      void addReachingBlock(BasicBlock & reachingBlock) {
+        reachingBlocks.insert(&reachingBlock);
+      }
 
       void enable(BasicBlock & relayBlock, RelayNode * _tail) {
         block = &relayBlock; next = _tail;
@@ -79,6 +91,11 @@ namespace rv {
       bool isActive() const { return block != nullptr; }
     };
 
+    decltype(RelayNode::reachingBlocks)&
+    getReachingBlocks(int blockId) {
+      return relays[blockId].reachingBlocks;
+    }
+
     RelayNode & createRelay(int headId, RelayNode * tail) {
       auto & head = relays[headId].head;
 
@@ -87,7 +104,7 @@ namespace rv {
       return relays[headId];
     }
 
-    std::vector<RelayNode> relays; // map target blocks to relay nodes
+    std::vector<RelayNode> relays; // maps block index numbers to relay nodes
 
     RelayNode * getRelay(int blockId) {
       auto & blockRelay =  relays[blockId];
@@ -100,8 +117,27 @@ namespace rv {
     }
 
     void dumpRelayChain(int headId) const {
-      errs() << "chain at " << getBlock(headId).getName() << " {";
+      errs() << "head " << getBlock(headId).getName();
       auto * relay = getRelay(headId);
+
+      if (!relay) {
+        errs() << " chain {}";
+        return;
+      }
+
+      // dump all reaching blocks
+      if (!relay->reachingBlocks.empty()) {
+        bool first = true;
+        errs() << " reaching [";
+        for (auto * reachBlock : relay->reachingBlocks) {
+          if (!first) errs() << ", ";
+          errs() << reachBlock->getName();
+          first = false;
+        }
+        errs() << "] ";
+      }
+      // dump chain
+      errs() << " chain {";
       while (relay) {
         if (relay->id != headId) {
           errs() << " -> " << relay->head.getName();
@@ -125,10 +161,17 @@ namespace rv {
 
       // free old relay (this unliks oldRelay from @oRelayBlock)
       auto * nextRelay = oldRelay->next;
-      oldRelay->finalize(); // delete oldRelay;
+      oldRelay->finalize();
+
+      // promote reaching blocks to next relay
+      if (nextRelay) {
+        for (auto * reaching : oldRelay->reachingBlocks) {
+          nextRelay->addReachingBlock(*reaching);
+        }
+      }
 
       // create a new relay for any remaining blocks
-      return nextRelay; // &requestRelay(destBlocks);
+      return nextRelay;
     }
 
     // relay chain merging
@@ -193,11 +236,18 @@ namespace rv {
     // add undef inputs to PHINodes for all predecessors of @block that do not occur in the PHINodes' block lists
     void addUndefInputs(BasicBlock & block);
 
-  // phi -> select conversion
+  // phi -> select conversion aka phi folding
     // we invalidate mask analysis's and track edge masks on our own
     void cacheLatchMasks();
 
     DenseMap<llvm::Loop*, llvm::Value*> latchMasks; // masks from the latch to the header (could be merged with edgeMasks)
+    //
+    // whether @block contains a phi node that existed in the original program
+    bool containsOriginalPhis(llvm::BasicBlock & block);
+
+    // will replace all Phis in @block with select insts using edge masks
+    bool needsFolding(llvm::PHINode & phi);
+    void foldPhis(llvm::BasicBlock & block);
 
   // loop exit masks (A is a loop-exiting block and this returns the condition that this exit is taken at this iteration)
     EdgeMaskCache loopExitMasks;
@@ -209,10 +259,6 @@ namespace rv {
     llvm::Value * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) { assert(edgeMasks.count(Edge(&start, &dest))); return edgeMasks[Edge(&start, &dest)]; }
     void setEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest, llvm::Value * val) { edgeMasks[Edge(&start, &dest)] = val; }
 
-    // will replace all Phis in @block with select insts using edge masks
-    bool needsFolding(llvm::PHINode & phi);
-    void foldPhis(llvm::BasicBlock & block);
-
   // divergent loop transform
     // creates a single exiting edge at the latch
     // adds all old exit blocks as relay targets for the new single exit block
@@ -222,6 +268,7 @@ namespace rv {
     void dropLoopExit(BasicBlock & block, Loop & loop);
 
     // make @inst defined in @destBlock by adding PHI nodes with incoming undef edges
+    llvm::Value & promoteDefToBlock(llvm::BasicBlock & block, llvm::SmallVector<llvm::Value*, 16> & defs, llvm::Value & defaultDef, int defBlockId, int blockId, VectorShape instShape);
     llvm::Value & promoteDefinition(llvm::Value & inst, llvm::Value & defaultDef, int defBlockId, int destBlockId);
 
     Value * createSuperInput(PHINode & phi, SuperInput & superInput);
@@ -245,6 +292,7 @@ namespace rv {
     BlockIndex blockIndex;
     void addToBlockIndex(llvm::BasicBlock & block);
 
+    inline bool hasIndex(const llvm::BasicBlock & block) const { return blockIndex.count(&block); }
     inline int getIndex(const llvm::BasicBlock & block) const { return blockIndex.at(&block); }
     BasicBlock & getBlock(unsigned i) { assert(i < relays.size()); return relays[i].head; }
     const BasicBlock & getBlock(unsigned i) const { assert(i < relays.size()); return relays[i].head; }
@@ -274,6 +322,8 @@ namespace rv {
   // late SSA repair support
     // each incoming block and value of a repairPHI represents a definition of the repairPHI
     PHINode & createRepairPhi(Value & val, BasicBlock & destBlock);
+    PHINode & createRepairPhi(Value & val, llvm::IRBuilder<> & builder);
+
     DenseSet<PHINode*> repairPhis;
     bool isRepairPhi(PHINode & val) const { return repairPhis.count(&val); }
 
