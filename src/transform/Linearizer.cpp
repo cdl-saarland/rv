@@ -911,7 +911,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
   if (blocks.size() <= 1) return defaultValue; // FIXME we still need a dominating definition
 
 // we will need blending: create a block for that to take place
-  superInput.blendBlock = BasicBlock::Create(phi.getContext(), "super", phi.getParent()->getParent(), phi.getParent());
+  if (!superInput.blendBlock) superInput.blendBlock = BasicBlock::Create(phi.getContext(), "super", phi.getParent()->getParent(), phi.getParent());
 
   // make sure the default definition is dominating
   // FIXME also do this for the single predecessor case if inVal does not dominate it
