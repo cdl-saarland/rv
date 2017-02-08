@@ -163,13 +163,6 @@ namespace rv {
       auto * nextRelay = oldRelay->next;
       oldRelay->finalize();
 
-      // promote reaching blocks to next relay
-      if (nextRelay) {
-        for (auto * reaching : oldRelay->reachingBlocks) {
-          nextRelay->addReachingBlock(*reaching);
-        }
-      }
-
       // create a new relay for any remaining blocks
       return nextRelay;
     }
@@ -210,6 +203,10 @@ namespace rv {
 
       return *mergeRelays(headRelay, targetRelay);
     }
+
+    // merge all reaching blocks to source into dest
+    RelayNode & getRelayUnchecked(uint i) { return relays[i]; }
+    void mergeInReaching(RelayNode & dest, RelayNode & source);
 
     bool needsFolding(llvm::TerminatorInst & branch);
 

@@ -63,14 +63,16 @@ Linearizer::buildBlockIndex() {
 
   using RPOT = ReversePostOrderTraversal<Function*>;
 
+#if 0
   for (auto * block : RPOT(&func)) {
     // specialize for region
     if (inRegion(*block)) {
       addToBlockIndex(*block);
     }
   }
+#endif
 
-#if 0
+#if 1
   for (auto & block : func) {
     // seek unprocessed blocks
     if (!inRegion(block)) continue; // FIXME we need a Region::blocks-in-the-region iterator
@@ -698,6 +700,9 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
     liveOutTracker.trackLiveOuts(*exitBlock);
   }
 
+// forward loop header reaching to loop exits
+  mergeInReaching(*loopExitRelay, relay);
+
 // move LCSSA nodes to exitBlockRelay
   for (auto * block : loopExitBlocks) {
 
@@ -1024,6 +1029,9 @@ Linearizer::foldPhis(BasicBlock & block) {
 
     IF_DEBUG_LIN { errs() << "\t   inspecting pred " << predBlock->getName() << "\n"; }
 
+    assert(hasIndex(*predBlock));
+    auto & predReachingBlocks = getReachingBlocks(getIndex(*predBlock));
+
     // all inputs that are incoming on this edge after folding
     SmallVector<BasicBlock*, 4> superposedInBlocks;
 
@@ -1031,13 +1039,11 @@ Linearizer::foldPhis(BasicBlock & block) {
       auto * inBlock = phi.getIncomingBlock(i);
 
       // this incoming block remains an immediate predecessor so its value can only be live in on that block
-      if (preservedInputBlocks.count(inBlock) && preservedInputBlocks[inBlock] != i) {
-        continue;
-      }
+      // if (preservedInputBlocks.count(inBlock) && preservedInputBlocks[inBlock] != i) {
+      //   continue;
+      // }
 
       // otw, this value needs blending on any dominated input
-      assert(hasIndex(*predBlock));
-      auto & predReachingBlocks = getReachingBlocks(getIndex(*predBlock));
 
       if (predBlock == inBlock || predReachingBlocks.count(inBlock)) {
         IF_DEBUG_LIN { errs() <<  "\t      - reaching in block " << inBlock->getName() << "\n";  }
@@ -1308,6 +1314,15 @@ Linearizer::containsOriginalPhis(BasicBlock & block) {
 }
 
 void
+Linearizer::mergeInReaching(RelayNode & dest, RelayNode & source) {
+  if (&dest == &source) return;
+  for (auto * bb: source.reachingBlocks) {
+    dest.addReachingBlock(*bb);
+  }
+}
+
+
+void
 Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * parentLoop) {
   IF_DEBUG_LIN {
     errs() << "  processBranch : " << *head.getTerminator() << " of block " << head.getName() << "\n";
@@ -1322,6 +1337,8 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
 
   auto * branch = dyn_cast<BranchInst>(&term);
 
+  auto & headRelay = getRelayUnchecked(getIndex(head));
+
 // Unconditional branch case
   if (!branch->isConditional()) {
     auto & nextBlock = *branch->getSuccessor(0);
@@ -1329,15 +1346,16 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
     auto & relay = addTargetToRelay(exitRelay, getIndex(nextBlock));
 
     // if the branch target feeds a phi and the edge is relayed -> track reachability
-    if (containsOriginalPhis(nextBlock) && relay.block != &nextBlock) {
-      relay.addReachingBlock(nextBlock);
-    }
+    // if (containsOriginalPhis(nextBlock) && relay.block != &nextBlock) {
+       relay.addReachingBlock(head);
+    // }
 
     setEdgeMask(head, nextBlock, maskAnalysis.getExitMask(head, 0));
     IF_DEBUG_LIN {
       errs() << "\tunconditional. merged with " << nextBlock.getName() << " "; dumpRelayChain(relay.id); errs() << "\n";
     }
 
+    mergeInReaching(relay, headRelay);
     branch->setSuccessor(0,  relay.block);
     return;
   }
@@ -1371,20 +1389,17 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
 // if this branch is folded then @secondBlock is a must-have after @firstBlock
   RelayNode * firstRelay = &addTargetToRelay(exitRelay, firstId);
 
-  if (mustFoldBranch) {
-    firstRelay = &addTargetToRelay(firstRelay, secondId);
-    branch->setSuccessor(secondSuccIdx, firstRelay->block);
-
-    // promote reachability from @head down
-    // this is needed for phi folding
-    // if (containsOriginalPhis(*secondBlock)) {
-      firstRelay->addReachingBlock(head);
-    // }
-  }
 
   // if the branch target feeds a phi and the edge is relayed -> track reachability
-  if (mustFoldBranch || (containsOriginalPhis(*firstBlock) && firstRelay->block != firstBlock)) {
+  if (mustFoldBranch) {// || (containsOriginalPhis(*firstBlock) && firstRelay->block != firstBlock)) {
     firstRelay->addReachingBlock(head);
+  }
+
+  if (mustFoldBranch) {
+    firstRelay = &addTargetToRelay(firstRelay, secondId);
+    mergeInReaching(*firstRelay, headRelay);
+
+    branch->setSuccessor(secondSuccIdx, firstRelay->block);
   }
 
 
@@ -1408,12 +1423,14 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
 // process the second successor
   auto & secondRelay = addTargetToRelay(exitRelay, secondId);
 
+  mergeInReaching(secondRelay, headRelay);
+
   // auto & secondRelay = requestRelay(secondMustHaves);
   if (!mustFoldBranch) {
     branch->setSuccessor(secondSuccIdx, secondRelay.block);
   }
 
-  if (mustFoldBranch || (containsOriginalPhis(*secondBlock) && secondRelay.block != secondBlock)) {
+  if (mustFoldBranch) { // || (containsOriginalPhis(*secondBlock) && secondRelay.block != secondBlock)) {
     secondRelay.addReachingBlock(head);
     if (mustFoldBranch) {
       secondRelay.addReachingBlock(*firstBlock);
