@@ -228,8 +228,7 @@ Linearizer::promoteDefToBlock(BasicBlock & block, SmallVector<Value*, 16> & defs
 }
 
 Value &
-Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, int destBlockId) {
-  IF_DEBUG_LIN { errs() << "\t* promoting value " << inst << " from def block " << defBlockId << " to " << destBlockId << "\n"; }
+Linearizer::promoteDefinitionExt(SmallVector<Value*, 16> & defs, Value & inst, Value & defaultDef, int defBlockId, int destBlockId) {
 
   assert(defBlockId <= destBlockId);
 
@@ -237,7 +236,10 @@ Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, 
 
   const int span = destBlockId - defBlockId;
 
-  SmallVector<Value*, 16> defs(span + 1, nullptr);
+  IF_DEBUG_LIN { errs() << "\t* promoting value " << inst << " from def block " << defBlockId << " to " << destBlockId << "\n"; }
+
+  assert(defs.size() > span);
+
   defs[0] = &inst;
 
   auto instShape = vecInfo.getVectorShape(inst);
@@ -252,6 +254,53 @@ Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, 
 
   IF_DEBUG_LIN { errs() << "\tdefs[" << span << "] " << *defs[span] << "\n"; }
   return *defs[span];
+}
+
+Value &
+Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, int destBlockId) {
+  IF_DEBUG_LIN { errs() << "\t* promoting value " << inst << " from def block " << defBlockId << " to " << destBlockId << "\n"; }
+
+  assert(defBlockId <= destBlockId);
+
+  if (defBlockId == destBlockId) return inst;
+
+  const int span = destBlockId - defBlockId;
+
+  SmallVector<Value*, 16> defs(span + 1, nullptr);
+
+  return promoteDefinitionExt(defs, inst, defaultDef, defBlockId, destBlockId);
+}
+
+Value &
+Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, BasicBlock & userBlock) {
+  if (!isa<Instruction>(inst)) return inst;
+
+  if (hasIndex(userBlock)) {
+    return promoteDefinition(inst, defaultDef, defBlockId, getIndex(userBlock));
+
+  } else {
+    int maxPredId = defBlockId;
+    for (auto * predBlock : predecessors(&userBlock)) {
+      assert(hasIndex(*predBlock) && "predecessor of blendBlock must be indexed block");
+      maxPredId = std::max<>(maxPredId, getIndex(*predBlock));
+    }
+
+    const int span = maxPredId - defBlockId;
+    SmallVector<Value*, 16> defs(span + 1, nullptr);
+
+    // short cut: predecessor is def block
+    if (span == 0) {
+      return inst;
+    }
+
+    IF_DEBUG_LIN { errs() << "\t* promoting value " << inst << " from def block " << defBlockId << " to block " << userBlock.getName() << ", range " << span << " max pred " << maxPredId << "\n"; }
+
+  // promote the definition to all predecessors of @userBlock
+    promoteDefinitionExt(defs, inst, defaultDef, defBlockId, maxPredId);
+
+  // materialize a definition in @userBlock
+    return promoteDefToBlock(userBlock, defs, defaultDef, defBlockId, maxPredId + 1, vecInfo.getVectorShape(inst));
+  }
 }
 
 void
@@ -1549,6 +1598,7 @@ Linearizer::createRepairPhi(Value & val, BasicBlock & destBlock) {
 void
 Linearizer::resolveRepairPhis() {
   IF_DEBUG_LIN { errs() << "-- resolving repair PHIs --\n"; }
+
   for (auto * repairPHI : repairPhis) {
     assert(repairPHI->getNumIncomingValues() == 2);
     auto * innerBlock = repairPHI->getIncomingBlock(0);
@@ -1557,19 +1607,10 @@ Linearizer::resolveRepairPhis() {
 
     int startIndex = getIndex(*innerBlock);
 
-    int destIndex = -1;
-    if (!hasIndex(*repairPHI->getParent())) {
-      // this can occur when the repairPHI is placed in a blendBlock (that does not have a block index number)
-      // we know that blend blocks have a single successor with a block index number
-      // we take that index as a dummy (eventhough we promote the def one block "too far" as its only needed in blendBlock)
-      // FIXME only promote def to blendBlock (and not to its sucessor)
-      destIndex = getIndex(*repairPHI->getParent()->getTerminator()->getSuccessor(0));
-    } else {
-      destIndex = getIndex(*repairPHI->getParent());
-    }
+    auto & userBlock = *repairPHI->getParent();
 
-    IF_DEBUG_LIN { errs() << " repair " << *repairPHI << " on range " << startIndex << " to " << destIndex << "\n"; }
-    auto & promotedDef = promoteDefinition(*innerVal, *outerVal, startIndex, destIndex);
+    IF_DEBUG_LIN { errs() << " repair " << *repairPHI << " on range " << startIndex << " to " << userBlock.getName() << "\n"; }
+    auto & promotedDef = promoteDefinition(*innerVal, *outerVal, startIndex, userBlock);
     repairPHI->replaceAllUsesWith(&promotedDef);
     vecInfo.dropVectorShape(*repairPHI);
     repairPHI->eraseFromParent();

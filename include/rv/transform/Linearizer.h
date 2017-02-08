@@ -264,9 +264,19 @@ namespace rv {
     // removes all exiting control edges from @block out of @loop
     void dropLoopExit(BasicBlock & block, Loop & loop);
 
-    // make @inst defined in @destBlock by adding PHI nodes with incoming undef edges
+  // SSA repair
+    // \brief make @inst defined in @destBlock by adding PHI nodes with incoming undef edges
     llvm::Value & promoteDefToBlock(llvm::BasicBlock & block, llvm::SmallVector<llvm::Value*, 16> & defs, llvm::Value & defaultDef, int defBlockId, int blockId, VectorShape instShape);
+
+    /// \brief promotes a definition in indexed blocks: the definition in @defBlockId is promoted to @destBlockId
+    //  defaults to @defaultDef whenever @inst does not dominate a block
     llvm::Value & promoteDefinition(llvm::Value & inst, llvm::Value & defaultDef, int defBlockId, int destBlockId);
+    /// \brief promoted a definition from the indexed block @defBlockId to the (possibly) non-indexed block @userBlock
+    //  the userBlock is expected to have only indexed predecessors
+    llvm::Value & promoteDefinition(llvm::Value & inst, llvm::Value & defaultDef, int defBlockId, BasicBlock & userBlock);
+
+    /// \brief promotes a definition from @defBlockId to @blockId (returns intermediate definitions on the interval between @defBlockId an @destBlockID
+    llvm::Value & promoteDefinitionExt(SmallVector<Value*, 16> & defs, Value & inst, Value & defaultDef, int defBlockId, int destBlockId);
 
     Value * createSuperInput(PHINode & phi, SuperInput & superInput);
 
