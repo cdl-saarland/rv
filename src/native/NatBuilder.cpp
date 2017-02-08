@@ -1065,9 +1065,14 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
       if (isa<AllocaInst>(mappedVal))
         reqVal = builder.CreateGEP(mappedVal, ConstantInt::get(i32Ty, laneIdx));
       else {
-        // extract from GEPs are not allowed
-        assert(!isa<GetElementPtrInst>(mappedVal) && "Extract from GEPs are not allowed!!");
-        reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
+        // extract from GEPs are not allowed. in that case recreate the scalar instruction and get that new value
+        if (isa<GetElementPtrInst>(mappedVal) && isa<GetElementPtrInst>(value)) {
+          reqVal = vectorizeGEPInstruction(cast<GetElementPtrInst>(value), false, laneIdx, true);
+          mapScalarValue(value, reqVal, laneIdx);
+        } else {
+          assert(!isa<GetElementPtrInst>(mappedVal) && "Extract from GEPs are not allowed!!");
+          reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
+        }
       }
 
 
