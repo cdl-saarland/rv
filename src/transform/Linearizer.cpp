@@ -1194,15 +1194,27 @@ Linearizer::processLoop(int headId, Loop * loop) {
   int latchIndex = getIndex(latch);
   int loopHeadIndex = getIndex(loopHead);
 
+  // inherited relays from the pre-header edge: all targets except loop header
+  RelayNode * headRelay = getRelay(headId);
+
+  // assert(headRelay && "could not find relay for loop header");
+
   if (vecInfo.isDivergentLoop(loop)) {
-    // inherited relays from the pre-header edge: all targets except loop header
-    RelayNode * exitRelay = getRelay(headId);
-    if (exitRelay) {
-      exitRelay = exitRelay -> next;
+    RelayNode * exitRelay = nullptr;
+    if (headRelay) {
+      exitRelay = headRelay -> next;
     }
 
     // convert loop into a non-divergent form
     convertToSingleExitLoop(*loop, exitRelay);
+
+  } else if (headRelay) {
+    // forward header reaching blocks to loop exits
+    SmallVector<BasicBlock*, 4> exitBlocks;
+    loop->getExitBlocks(exitBlocks);
+    for (auto * exitBlock : exitBlocks) {
+      mergeInReaching(getRelayUnchecked(getIndex(*exitBlock)), *headRelay);
+    }
   }
 
   // emit all blocks within the loop (except the latch)
@@ -1406,9 +1418,9 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
     auto & relay = addTargetToRelay(exitRelay, getIndex(nextBlock));
 
     // if the branch target feeds a phi and the edge is relayed -> track reachability
-    // if (containsOriginalPhis(nextBlock) && relay.block != &nextBlock) {
+    if (containsOriginalPhis(nextBlock)) {
        relay.addReachingBlock(head);
-    // }
+    }
 
     setEdgeMask(head, nextBlock, maskAnalysis.getExitMask(head, 0));
     IF_DEBUG_LIN {
@@ -1450,21 +1462,22 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   RelayNode * firstRelay = &addTargetToRelay(exitRelay, firstId);
 
 
-  // if the branch target feeds a phi and the edge is relayed -> track reachability
-  if (mustFoldBranch) {// || (containsOriginalPhis(*firstBlock) && firstRelay->block != firstBlock)) {
+  // the branch to secondBlock is relayed -> remember we came from head
+  if (mustFoldBranch && containsOriginalPhis(*secondBlock)) {
     firstRelay->addReachingBlock(head);
   }
 
   if (mustFoldBranch) {
     firstRelay = &addTargetToRelay(firstRelay, secondId);
-    mergeInReaching(*firstRelay, headRelay);
-
     branch->setSuccessor(secondSuccIdx, firstRelay->block);
   }
 
 
 // relay the first branch to its relay block
   branch->setSuccessor(firstSuccIdx, firstRelay->block);
+
+// whatever reaches head reaches the first successor
+  mergeInReaching(*firstRelay, headRelay);
 
 // domtree repair
   // if there is no relay node for B then A will dominate B after the transformation
@@ -1490,11 +1503,12 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
     branch->setSuccessor(secondSuccIdx, secondRelay.block);
   }
 
-  if (mustFoldBranch) { // || (containsOriginalPhis(*secondBlock) && secondRelay.block != secondBlock)) {
+  if (containsOriginalPhis(*secondBlock)) {
     secondRelay.addReachingBlock(head);
-    if (mustFoldBranch) {
-      secondRelay.addReachingBlock(*firstBlock);
-    }
+  }
+
+  if (mustFoldBranch) {
+    secondRelay.addReachingBlock(*firstBlock);
   }
 
 // mark branch as non-divergent
