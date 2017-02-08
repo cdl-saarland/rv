@@ -871,10 +871,7 @@ struct SuperInput {
   SuperInput(SmallVector<BasicBlock*, 4> && _inBlocks)
   : inBlocks(_inBlocks)
   , blendBlock(nullptr)
-  {
-    assert(inBlocks.size() > 1 && "trivial input");
-
-  }
+  {}
 
   SuperInput()
   : inBlocks()
@@ -993,6 +990,7 @@ Linearizer::foldPhis(BasicBlock & block) {
   IF_DEBUG_LIN { errs() << "\t- folding PHIs in " << block.getName() << "\n"; }
 
 // identify all incoming values that stay immediate predecessors of this block
+#if 0
   std::map<BasicBlock*, int> preservedInputBlocks; // maps preserved inputs to phi indices
 
   for (int i = 0; i < phi.getNumIncomingValues(); ++i) {
@@ -1008,6 +1006,7 @@ Linearizer::foldPhis(BasicBlock & block) {
 
     if (foundIncoming) preservedInputBlocks[inBlock] = i;
   }
+#endif
 
 
 
@@ -1025,7 +1024,7 @@ Linearizer::foldPhis(BasicBlock & block) {
   for (auto * predBlock : predecessors(&block)) {
     if (!seenPreds.insert(predBlock).second) continue;
 
-    assert(preservedInputBlocks.count(predBlock) && "assuming that new preds are a subset of old preds");
+    // assert(preservedInputBlocks.count(predBlock) && "assuming that new preds are a subset of old preds");
 
     IF_DEBUG_LIN { errs() << "\t   inspecting pred " << predBlock->getName() << "\n"; }
 
@@ -1053,13 +1052,7 @@ Linearizer::foldPhis(BasicBlock & block) {
 
     assert(superposedInBlocks.size() >= 1 && "no dominating def available on this select block?!");
     IF_DEBUG_LIN errs() << "phi: superposed incoming value for new inbound block " << predBlock->getName() << " : " << superposedInBlocks.size() << "\n";
-    if (superposedInBlocks.size() == 1) {
-      uniqueInBlocks.insert(predBlock);
-      IF_DEBUG_LIN errs() << "\t unique incoming value -> keep!\n";
-    } else {
-      selectBlockMap[predBlock] = SuperInput(std::move(superposedInBlocks));
-      IF_DEBUG_LIN errs() << "\t super posed inputs ->fold!\n";
-    }
+    selectBlockMap[predBlock] = SuperInput(std::move(superposedInBlocks));
   }
 
   // TODO can abort here if selectBlockMap.empty()
@@ -1082,14 +1075,23 @@ Linearizer::foldPhis(BasicBlock & block) {
 
       auto itSuperInput = selectBlockMap.find(predBlock);
 
+      assert(itSuperInput != selectBlockMap.end());
+
+#if 0
       if (itSuperInput == selectBlockMap.end()) {
         // preserved input
         auto * inVal = phi->getIncomingValueForBlock(predBlock);
         flatPhi.addIncoming(inVal, predBlock);
-      } else {
+      } else
+#endif
+
+      {
         // folded iput
-        auto * superIn = createSuperInput(*phi, itSuperInput->second);
-        flatPhi.addIncoming(superIn, itSuperInput->second.blendBlock);
+        auto * superInVal = createSuperInput(*phi, itSuperInput->second);
+        auto & superInput = itSuperInput->second;
+
+        auto * selectBlock = superInput.blendBlock ? superInput.blendBlock : predBlock;
+        flatPhi.addIncoming(superInVal, selectBlock);
       }
     }
 
