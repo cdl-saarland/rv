@@ -1073,9 +1073,9 @@ Linearizer::foldPhis(BasicBlock & block) {
   std::map<BasicBlock*, SuperInput> selectBlockMap;
 
   // blocks in this set do not need a blend block
-  SmallPtrSet<BasicBlock*, 4> uniqueInBlocks;
-
   SmallPtrSet<BasicBlock*, 4> seenPreds;
+  SmallPtrSet<BasicBlock*, 4> seenInputs;
+
   for (auto * predBlock : predecessors(&block)) {
     if (!seenPreds.insert(predBlock).second) continue;
 
@@ -1102,6 +1102,7 @@ Linearizer::foldPhis(BasicBlock & block) {
       if (predBlock == inBlock || predReachingBlocks.count(inBlock)) {
         IF_DEBUG_LIN { errs() <<  "\t      - reaching in block " << inBlock->getName() << "\n";  }
         superposedInBlocks.push_back(inBlock);
+        seenInputs.insert(inBlock);
       }
     }
 
@@ -1110,6 +1111,7 @@ Linearizer::foldPhis(BasicBlock & block) {
     selectBlockMap[predBlock] = SuperInput(std::move(superposedInBlocks));
   }
 
+  assert((phi.getNumIncomingValues() == seenInputs.size()) && "block reachability not promoted down to phi");
   // TODO can abort here if selectBlockMap.empty()
   assert(!selectBlockMap.empty());
 
@@ -1122,6 +1124,7 @@ Linearizer::foldPhis(BasicBlock & block) {
     if (isRepairPhi(*phi)) continue; // only a placeholder for defered SSA repair
 
     IRBuilder<> builder(&block, block.getFirstInsertionPt());
+
 
     auto & flatPhi = *PHINode::Create(phi->getType(), 6, phi->getName(), phi);
     SmallPtrSet<const BasicBlock*, 4>  seenPreds;
