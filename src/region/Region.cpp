@@ -19,9 +19,9 @@ Region::Region(RegionImpl& Impl) : mImpl(Impl)
 {}
 
 bool
-Region::contains(const BasicBlock* BB) const
-{
-    return mImpl.contains(BB);
+Region::contains(const BasicBlock* BB) const {
+  if (extraBlocks.count(BB)) return true;
+  else return mImpl.contains(BB);
 }
 
 BasicBlock&

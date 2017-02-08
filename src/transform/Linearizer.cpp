@@ -878,7 +878,7 @@ struct SuperInput {
   , blendBlock(nullptr)
   {}
 
-  DomTreeNodeBase<BasicBlock>* materializeControl(BasicBlock & phiBlock, DominatorTree & dt) {
+  DomTreeNodeBase<BasicBlock>* materializeControl(BasicBlock & phiBlock, DominatorTree & dt, LoopInfo & loopInfo, Region * region) {
     if (!blendBlock) return dt.getNode(inBlocks[0]);
 
   // create block and embed in CFG
@@ -888,8 +888,14 @@ struct SuperInput {
 
     BranchInst::Create(&phiBlock, blendBlock);
 
+  // add block to region
+    if (region) region->add(*blendBlock);
+
+  // update domtree
     DomTreeNodeBase<BasicBlock>* idom = FindIDom<>(predecessors(blendBlock), dt);
     return dt.addNewBlock(blendBlock, idom->getBlock());
+
+  // TODO update loop info
   }
 };
 
@@ -1110,7 +1116,7 @@ Linearizer::foldPhis(BasicBlock & block) {
 
 // embed future blend blocks into control
   for (auto it : selectBlockMap) {
-    it.second.materializeControl(block, dt);
+    it.second.materializeControl(block, dt, li, region);
     if (it.second.blendBlock) {
       vecInfo.setVectorShape(*it.second.blendBlock->getTerminator(), VectorShape::uni());
     }
