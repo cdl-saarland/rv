@@ -279,10 +279,10 @@ GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const 
   if (buildVectorGEP && baseGEP)
     scalPtr = baseGEP->getPointerOperand();
 
-  VectorShape shape = vectorizationInfo.hasKnownShape(*scalPtr) ? vectorizationInfo.getVectorShape(*scalPtr)
+  VectorShape opShape = vectorizationInfo.hasKnownShape(*scalPtr) ? vectorizationInfo.getVectorShape(*scalPtr)
                                                                 : VectorShape::uni();
   Value *ptr;
-  if (shape.isUniform() || !buildVectorGEP)
+  if (opShape.isUniform() || !buildVectorGEP)
     ptr = requestScalarValue(scalPtr);
   else if (isa<AllocaInst>(scalPtr)) {
     ptr = UndefValue::get(getVectorType(scalPtr->getType(), vectorWidth()));
@@ -303,9 +303,9 @@ GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const 
   if (buildVectorGEP && baseGEP) {
     for (unsigned i = 0; i < gep->getNumIndices() - 1; ++i) {
       Value *operand = baseGEP->getOperand(i + 1);
-      shape = vectorizationInfo.hasKnownShape(*operand) ? vectorizationInfo.getVectorShape(*operand)
+      opShape = vectorizationInfo.hasKnownShape(*operand) ? vectorizationInfo.getVectorShape(*operand)
                                                                     : VectorShape::uni();
-      idxList[i] = shape.isUniform() ? requestScalarValue(operand) : requestVectorValue(operand);
+      idxList[i] = opShape.isUniform() ? requestScalarValue(operand) : requestVectorValue(operand);
     }
     offset = baseGEP->getNumIndices() - 1;
     Value *lastOp = baseGEP->getOperand(baseGEP->getNumIndices());
@@ -337,16 +337,17 @@ GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const 
 
   for (unsigned i = start; i < gep->getNumIndices(); ++i) {
     Value *operand = gep->getOperand(i + 1);
-    shape = vectorizationInfo.hasKnownShape(*operand) ? vectorizationInfo.getVectorShape(*operand)
+    opShape = vectorizationInfo.hasKnownShape(*operand) ? vectorizationInfo.getVectorShape(*operand)
                                                       : VectorShape::uni();
-    idxList[i + offset] = buildVectorGEP && !shape.isUniform() ? requestVectorValue(operand) : requestScalarValue(operand);
-  }
-  if (interleavedIndex > 0) {
-    assert(!buildVectorGEP && "interleavedIndex > 0 outside of interleaved!");
-    Value *lastIndex = idxList[numIndices - 1];
-    Type *lastIndexType = lastIndex->getType();
-    Constant *offsetConst = ConstantInt::get(lastIndexType, interleavedIndex, true);
-    idxList[numIndices - 1] = builder.CreateAdd(lastIndex, offsetConst);
+    Value *index = buildVectorGEP && !opShape.isUniform() ? requestVectorValue(operand) : requestScalarValue(operand);
+    idxList[i + offset] = index;
+
+    if (interleavedIndex > 0 && !opShape.isUniform()) {
+      assert(!buildVectorGEP && "interleavedIndex > 0 outside of interleaved!");
+      Type *lastIndexType = index->getType();
+      Constant *offsetConst = ConstantInt::get(lastIndexType, interleavedIndex, true);
+      idxList[i + offset] = builder.CreateAdd(index, offsetConst);
+    }
   }
   GetElementPtrInst *vgep = cast<GetElementPtrInst>(
       builder.CreateGEP(ptr, ArrayRef<Value *>(idxList, numIndices), gep->getName()));
@@ -663,6 +664,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       
       // check if there is an interleaved memory group for our base address
       memGroup = memoryGrouper.getMemoryGroup(addrSCEVMap[accessedPtr]);
+      int stride = addrShape.getStride() / (accessedType->getScalarSizeInBits() / 8);
       bool hasGaps = false;
       for (unsigned i = 0; i < memGroup.size(); ++i) {
         if (!memGroup[i]) {
@@ -672,7 +674,11 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       }
 
       // we have found a memory group if it has no gaps and the size is bigger than 1
-      isInterleaved = !hasGaps && memGroup.size() > 1;
+      isInterleaved = !hasGaps && memGroup.size() > 1 && static_cast<int>(memGroup.size()) == stride;
+
+      // TODO: support interleaved for structs
+      if (isStructAccess(accessedPtr))
+        isInterleaved = false;
     }
 
     if (isInterleaved) {

@@ -1,5 +1,6 @@
 // Shapes: C_UrT, LaunchCode: fancystruct
 
+#include <stdio.h>
 struct Point { float x; float y; float z; };
 
 struct T {

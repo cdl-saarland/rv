@@ -31,4 +31,6 @@ llvm::BasicBlock *createCascadeBlocks(llvm::Function *insertInto, unsigned vecto
 
 bool isSupportedOperation(llvm::Instruction *const inst);
 
+bool isStructAccess(llvm::Value * const address);
+
 #endif //NATIVE_UTILS_H

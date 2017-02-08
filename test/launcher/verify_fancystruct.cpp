@@ -1,14 +1,15 @@
+#include <iostream>
 #include "launcherTools.h"
 
-struct Point { float x; float y; float z; }
+struct Point { float x; float y; float z; };
 
 struct T {
   Point a;
   Point b;
-}
+};
 
 extern "C" float foo(int i, T * D);
-extern "C" float foo_SIMD(int i, T * D);
+extern "C" float8 foo_SIMD(int i, T * D);
 
 int main(int argc, char ** argv) {
   const uint numInputs = 100;
@@ -18,23 +19,26 @@ int main(int argc, char ** argv) {
   for (unsigned i = 0; i < numInputs; ++i) {
     T d[width];
 
-    for (j = 0; j < sizeof(d); j += 4) {
-      *((float*) d) = rand();
+    for (unsigned j = 0; j < sizeof(d); j += 4) {
+      *(((float*) d) + j) = rand();
     }
 
     float8 simdRes = foo_SIMD(0, d);
 
     float vecRes[8];
-    toArray<float, float8>(simdRes, vecRes);
+    toArray(simdRes, vecRes);
 
+    bool error = false;
     for (int l = 0; l < width; ++l) {
       float expectedRes = foo(l, d);
       if (vecRes[l] != expectedRes) {
         std::cerr << "MISMATCH!\n";
         std::cerr << l << " : retScalar = " << expectedRes << " retVec = " << vecRes[l] << "\n";
-        return -1;
+        error = true;
       }
     }
+
+    if (error) return -1;
   }
 
   return 0;

@@ -85,3 +85,15 @@ bool isSupportedOperation(Instruction *const inst) {
           !isa<InsertValueInst>(inst) && !isa<ShuffleVectorInst>(inst) &&
           (inst->getOpcode() >= Instruction::OtherOpsBegin && inst->getOpcode() <= Instruction::OtherOpsEnd));
 }
+
+bool isStructAccess(llvm::Value *const address) {
+  assert(address->getType()->isPointerTy() && "not a pointer");
+  PointerType *ptrT = cast<PointerType>(address->getType());
+  if (ptrT->getElementType()->isStructTy())
+    return true;
+  else if (isa<GetElementPtrInst>(address)) {
+    GetElementPtrInst *gep = cast<GetElementPtrInst>(address);
+    return isStructAccess(gep->getPointerOperand());
+  } else
+    return false;
+}
