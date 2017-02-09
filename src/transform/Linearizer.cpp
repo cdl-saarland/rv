@@ -914,27 +914,32 @@ FindIDom(const T & inBlocks, DominatorTree & dt) {
 }
 
 struct SuperInput {
-  SmallVector<BasicBlock*, 4> inBlocks;
-  BasicBlock * blendBlock;
+  SmallVector<BasicBlock*, 4> inBlocks; // original predecessors that reach this remaining predecessor
+  BasicBlock * predBlock; // remaining predecessor in linear CFG
+  BasicBlock * blendBlock; // block used for select materialization
 
-  SuperInput(SmallVector<BasicBlock*, 4> && _inBlocks)
+  SuperInput(SmallVector<BasicBlock*, 4> && _inBlocks, BasicBlock & _predBlock)
   : inBlocks(_inBlocks)
+  , predBlock(&_predBlock)
   , blendBlock(nullptr)
-  {}
+  {
+    assert(!inBlocks.empty());
+  }
 
   SuperInput()
   : inBlocks()
+  , predBlock(nullptr)
   , blendBlock(nullptr)
   {}
 
-  DomTreeNodeBase<BasicBlock>* materializeControl(BasicBlock & phiBlock, DominatorTree & dt, LoopInfo & loopInfo, Region * region) {
+  DomTreeNodeBase<BasicBlock>*
+  materializeControl(BasicBlock & phiBlock, DominatorTree & dt, LoopInfo & loopInfo, Region * region) {
     if (!blendBlock) return dt.getNode(inBlocks[0]);
 
-  // create block and embed in CFG
-    for (auto * block : inBlocks) {
-      block->getTerminator()->replaceUsesOfWith(&phiBlock, blendBlock);
-    }
+  // re-wire old predecessor to blend block
+    predBlock->getTerminator()->replaceUsesOfWith(&phiBlock, blendBlock);
 
+  // branch to phi Block
     BranchInst::Create(&phiBlock, blendBlock);
 
   // add block to region
@@ -1112,7 +1117,7 @@ Linearizer::foldPhis(BasicBlock & block) {
 
     assert(superposedInBlocks.size() >= 1 && "no dominating def available on this select block?!");
     IF_DEBUG_LIN errs() << "phi: superposed incoming value for new inbound block " << predBlock->getName() << " : " << superposedInBlocks.size() << "\n";
-    selectBlockMap[predBlock] = SuperInput(std::move(superposedInBlocks));
+    selectBlockMap[predBlock] = SuperInput(std::move(superposedInBlocks), *predBlock);
   }
 
   assert((phi.getNumIncomingValues() == seenInputs.size()) && "block reachability not promoted down to phi");
