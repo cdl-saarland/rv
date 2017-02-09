@@ -36,8 +36,13 @@ C:
   if (cosf(t) <= 0.0) goto D; else goto E; // div
 D:
   Inc(454366.0f);
-  p = 4.1;
-  if (cosf(u) <= .25) goto F; else goto end;
+  if (cosf(u) <= .25) {
+    p = 4.1;
+    goto F; }
+  else {
+    R = 4.3;
+    goto end;
+  }
 E:
   Inc(4366.0f);
   p = 4.2;
