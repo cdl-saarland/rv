@@ -996,6 +996,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
       edgeMask = &maskFuture;
     }
 
+  // promote the incoming value
     if (isa<Instruction>(inVal)) {
       auto & inValFuture = createRepairPhi(*inVal, *superInput.blendBlock);
       inValFuture.addIncoming(inVal, inBlock);
@@ -1003,7 +1004,10 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
       inVal = &inValFuture;
     }
 
-  // TODO also promote the incoming value (default to undef)
+  // don't blend undefs
+    if (isa<UndefValue>(inVal)) continue; // no need to blend in undef
+    if (isa<UndefValue>(blendedVal)) { blendedVal = inVal; continue; }
+
     blendedVal = builder.CreateSelect(edgeMask, inVal, blendedVal);
     vecInfo.setVectorShape(*blendedVal, phiShape);
   }
@@ -1422,7 +1426,7 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
        relay.addReachingBlock(head);
     }
 
-    setEdgeMask(head, nextBlock, maskAnalysis.getExitMask(head, 0));
+    // setEdgeMask(head, nextBlock, maskAnalysis.getExitMask(head, 0));
     IF_DEBUG_LIN {
       errs() << "\tunconditional. merged with " << nextBlock.getName() << " "; dumpRelayChain(relay.id); errs() << "\n";
     }
@@ -1454,8 +1458,8 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   }
 
 // track exit masks
-  setEdgeMask(head, *firstBlock, maskAnalysis.getExitMask(head, firstSuccIdx));
-  setEdgeMask(head, *secondBlock, maskAnalysis.getExitMask(head, secondSuccIdx));
+  // setEdgeMask(head, *firstBlock, maskAnalysis.getExitMask(head, firstSuccIdx));
+  // setEdgeMask(head, *secondBlock, maskAnalysis.getExitMask(head, secondSuccIdx));
 
 // process the first successor
 // if this branch is folded then @secondBlock is a must-have after @firstBlock
@@ -1533,7 +1537,7 @@ Linearizer::run() {
 
 // FIXME currently maskAnslysis is invalidated as a result of linearization.
   // We cache the latch masks locally before touching the function as we need those to make divergent loops uniform
-  cacheLatchMasks();
+  cacheMasks();
 
 // dump divergent branches / loops
   IF_DEBUG_LIN {
@@ -1663,11 +1667,13 @@ Linearizer::verify() {
 }
 
 void
-Linearizer::cacheLatchMasks(){
+Linearizer::cacheMasks(){
   for (int i = 0; i < getNumBlocks(); ++i) {
     auto & block = getBlock(i);
     auto * loop = li.getLoopFor(&block);
 
+
+  // cache loop related masks
     if (loop && loop->getHeader() == &block) {
       if (!vecInfo.isDivergentLoop(loop)) continue;
 
@@ -1686,6 +1692,14 @@ Linearizer::cacheLatchMasks(){
         setLoopExitMask(exiting, *exitBlock, actualLoopExitMask);
       }
     }
+
+// cache branch masks
+   auto & term = *block.getTerminator();
+   for (int i = 0; i < term.getNumSuccessors(); ++i) {
+     auto * succBlock = term.getSuccessor(i);
+     auto * edgeMask = maskAnalysis.getExitMask(block, *succBlock);
+     if (edgeMask) setEdgeMask(block, *succBlock, edgeMask);
+   }
   }
 }
 

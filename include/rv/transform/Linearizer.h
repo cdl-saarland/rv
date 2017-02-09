@@ -37,7 +37,7 @@ namespace llvm {
 namespace rv {
   typedef std::unordered_map<const llvm::BasicBlock*, int> BlockIndex;
   typedef std::pair<llvm::BasicBlock*, llvm::BasicBlock*> Edge;
-  typedef llvm::DenseMap<Edge, llvm::Value*> EdgeMaskCache;
+  typedef llvm::DenseMap<Edge, llvm::WeakVH> EdgeMaskCache;
 
   // internal helper class that tunnels values leaving on divergent loop exits through tracker PHI nodes
   class LiveValueTracker;
@@ -235,7 +235,7 @@ namespace rv {
 
   // phi -> select conversion aka phi folding
     // we invalidate mask analysis's and track edge masks on our own
-    void cacheLatchMasks();
+    void cacheMasks();
 
     DenseMap<llvm::Loop*, llvm::Value*> latchMasks; // masks from the latch to the header (could be merged with edgeMasks)
     //
@@ -253,8 +253,22 @@ namespace rv {
 
   // edge masks (if A is a loop-exiting block this is the aggregate of all instances that have left the loop through this exit)
     EdgeMaskCache edgeMasks; // if true for an edge A->B control proceeds from block A to block B both being executed
-    llvm::Value * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) { assert(edgeMasks.count(Edge(&start, &dest))); return edgeMasks[Edge(&start, &dest)]; }
-    void setEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest, llvm::Value * val) { edgeMasks[Edge(&start, &dest)] = val; }
+    llvm::Value * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) {
+      Edge edge(&start, &dest);
+      auto it = edgeMasks.find(edge);
+      if (it == edgeMasks.end())
+        return nullptr;
+      else return it->second;
+    }
+
+    void setEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest, llvm::Value * val) {
+      if (!val) {
+        edgeMasks.erase(Edge(&start, &dest));
+        return;
+      }
+      assert(val->getType() == Type::getInt1Ty(val->getContext()) && "expected i1 mask type");
+      edgeMasks[Edge(&start, &dest)] = val;
+    }
 
   // divergent loop transform
     // creates a single exiting edge at the latch
