@@ -63,16 +63,6 @@ Linearizer::buildBlockIndex() {
 
   using RPOT = ReversePostOrderTraversal<Function*>;
 
-#if 0
-  for (auto * block : RPOT(&func)) {
-    // specialize for region
-    if (inRegion(*block)) {
-      addToBlockIndex(*block);
-    }
-  }
-#endif
-
-#if 1
   for (auto & block : func) {
     // seek unprocessed blocks
     if (!inRegion(block)) continue; // FIXME we need a Region::blocks-in-the-region iterator
@@ -155,7 +145,6 @@ Linearizer::buildBlockIndex() {
       }
     }
   }
-#endif
 
 }
 
@@ -521,9 +510,6 @@ public:
   getLoopExitMask(BasicBlock & exiting, Loop & loop) {
     int exitIndex = GetExitIndex(exiting, loop);
 
-#if 0
-    return *ma.getExitMask(exiting, exitIndex);
-#else
     auto & context = exiting.getContext();
     Value * blockMask = ma.getEntryMask(exiting);
 
@@ -541,7 +527,6 @@ public:
     auto * exitingMask = builder.CreateAnd(exitCondition, blockMask);
     vecInfo.setVectorShape(*exitingMask, exitShape);
     return *exitingMask;
-#endif
   }
 
   // updates @tracker in block @src with @val, if the exit predicate is true
@@ -681,22 +666,9 @@ public:
       addTrackerUpdate(tracker, exitingBlock, exitBlock, *inInst);
 
   // replace outside uses with tracker
-    // if this exit branch kills the loop
-    auto & liveOut = getTrackerStateForLiveOut(lcPhi);
-    lcPhi.setIncomingValue(loopIncomingId, &liveOut);
-
-    // TODO find out why this is necessary
-#if 0 // necessary (otherwise misses replacement of %sub6_SIMD in %sub6.lcssa_SIMD = phi <8 x float> [ %sub6_SIMD, %for.inc9.rv ] )
-      auto itUseBegin = inInst->use_begin(), itUseEnd = inInst->use_end();
-      for (auto it = itUseBegin; it != itUseEnd; ) {
-        auto & use = *(it++);
-        auto & user = *cast<Instruction>(use.getUser());
-        int opIdx = use.getOperandNo();
-
-        if (loop.contains(&user)) continue;
-        user.setOperand(opIdx, &liveOut);
-      }
-#endif
+      // if this exit branch kills the loop
+      auto & liveOut = getTrackerStateForLiveOut(lcPhi);
+      lcPhi.setIncomingValue(loopIncomingId, &liveOut);
     }
   }
 };
@@ -846,28 +818,7 @@ Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
   vecInfo.setVectorShape(*branch, VectorShape::uni());
   vecInfo.setLoopDivergence(loop, false);
 
-// Update mask analysis information.
-  // all threads entering this loop will leave through the latch again
-#if 0
-  Value* loopExitCond = maskAnalysis.getCombinedLoopExitMask(loop);
-  maskAnalysis.updateExitMasks(latch,
-                                 anyThreadLiveCond,
-                                 loopExitCond,
-                                 &*(latch.getFirstInsertionPt()));
-#endif
-
   return *loopExitRelay;
-}
-
-static bool
-Dominates(BasicBlock * a, BasicBlock * b, DominatorTree & domTree) {
-  auto * domNode = domTree.getNode(a);
-  auto * node = domTree.getNode(b);
-  while (node != nullptr && node != domNode) {
-    node = node->getIDom();
-  }
-
-  return node == domNode;
 }
 
 bool
@@ -1054,24 +1005,6 @@ Linearizer::foldPhis(BasicBlock & block) {
   IF_DEBUG_LIN { errs() << "\t- folding PHIs in " << block.getName() << "\n"; }
 
 // identify all incoming values that stay immediate predecessors of this block
-#if 0
-  std::map<BasicBlock*, int> preservedInputBlocks; // maps preserved inputs to phi indices
-
-  for (int i = 0; i < phi.getNumIncomingValues(); ++i) {
-    auto * inBlock = phi.getIncomingBlock(i);
-    bool foundIncoming = false;
-
-    for (auto * pred : predecessors(&block)) {
-      if (pred == inBlock) {
-        foundIncoming = true;
-        break;
-      }
-    }
-
-    if (foundIncoming) preservedInputBlocks[inBlock] = i;
-  }
-#endif
-
 
 
 
@@ -1144,22 +1077,12 @@ Linearizer::foldPhis(BasicBlock & block) {
 
       assert(itSuperInput != selectBlockMap.end());
 
-#if 0
-      if (itSuperInput == selectBlockMap.end()) {
-        // preserved input
-        auto * inVal = phi->getIncomingValueForBlock(predBlock);
-        flatPhi.addIncoming(inVal, predBlock);
-      } else
-#endif
+      // folded iput
+      auto * superInVal = createSuperInput(*phi, itSuperInput->second);
+      auto & superInput = itSuperInput->second;
 
-      {
-        // folded iput
-        auto * superInVal = createSuperInput(*phi, itSuperInput->second);
-        auto & superInput = itSuperInput->second;
-
-        auto * selectBlock = superInput.blendBlock ? superInput.blendBlock : predBlock;
-        flatPhi.addIncoming(superInVal, selectBlock);
-      }
+      auto * selectBlock = superInput.blendBlock ? superInput.blendBlock : predBlock;
+      flatPhi.addIncoming(superInVal, selectBlock);
     }
 
     Value * replacement = nullptr;
@@ -1302,19 +1225,7 @@ Linearizer::emitBlock(int targetId) {
   }
 
 // search for a new idom
-  // FIXME we can do this in lockstep with the branch fixing above for release builds
   auto * nextCommonDom = FindIDom<>(predecessors(&target), dt);
-#if 0
-  for (auto itPred = pred_begin(&target); itPred != pred_end(&target); ++itPred) {
-    auto * predBlock = *itPred;
-    if (!commonDomBlock) { commonDomBlock = predBlock; }
-    else { commonDomBlock = dt.findNearestCommonDominator(commonDomBlock, predBlock); }
-
-    IF_DEBUG_DTFIX { errs() << "\t\t\t: dom with " << predBlock->getName() << " is " << commonDomBlock->getName() << "\n"; }
-
-    assert(commonDomBlock && "domtree repair: did not reach a common dom node!");
-  }
-#endif
 
 // domtree update: least common dominator of all incoming branches
   IF_DEBUG_DTFIX { errs() << "DT before dom change:";dt.print(errs()); }
@@ -1431,7 +1342,6 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
        relay.addReachingBlock(head);
     }
 
-    // setEdgeMask(head, nextBlock, maskAnalysis.getExitMask(head, 0));
     IF_DEBUG_LIN {
       errs() << "\tunconditional. merged with " << nextBlock.getName() << " "; dumpRelayChain(relay.id); errs() << "\n";
     }
@@ -1462,14 +1372,9 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
     if (mustFoldBranch) {  errs() << "\tneeds folding. first is " << firstBlock->getName() << " at " << firstId << " , second is " << secondBlock->getName() << " at " << secondId << "\n"; }
   }
 
-// track exit masks
-  // setEdgeMask(head, *firstBlock, maskAnalysis.getExitMask(head, firstSuccIdx));
-  // setEdgeMask(head, *secondBlock, maskAnalysis.getExitMask(head, secondSuccIdx));
-
 // process the first successor
 // if this branch is folded then @secondBlock is a must-have after @firstBlock
   RelayNode * firstRelay = &addTargetToRelay(exitRelay, firstId);
-
 
   // the branch to secondBlock is relayed -> remember we came from head
   if (mustFoldBranch && containsOriginalPhis(*secondBlock)) {
@@ -1508,15 +1413,14 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   mergeInReaching(secondRelay, headRelay);
 
   // auto & secondRelay = requestRelay(secondMustHaves);
-  if (!mustFoldBranch) {
-    branch->setSuccessor(secondSuccIdx, secondRelay.block);
-  }
-
   if (containsOriginalPhis(*secondBlock)) {
     secondRelay.addReachingBlock(head);
   }
 
-  if (mustFoldBranch) {
+  if (!mustFoldBranch) {
+    branch->setSuccessor(secondSuccIdx, secondRelay.block);
+
+  } else {
     secondRelay.addReachingBlock(*firstBlock);
   }
 
