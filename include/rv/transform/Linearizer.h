@@ -356,6 +356,9 @@ namespace rv {
     Instruction & createReduction(Value & pred, const std::string & name, BasicBlock & atEnd);
     Function * requestReductionFunc(llvm::Module & mod, const std::string & name);
 
+
+  // re-establish SSA form by inserting phis + undef
+    void fixSSA();
   public:
     Linearizer(VectorizationInfo & _vecInfo, MaskAnalysis & _maskAnalysis, llvm::DominatorTree & _dt, llvm::LoopInfo & _li)
     : vecInfo(_vecInfo)

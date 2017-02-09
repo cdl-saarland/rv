@@ -1580,6 +1580,9 @@ Linearizer::run() {
 // repair SSA form on the linearized CFG
   resolveRepairPhis();
 
+// repair SSA (def/use chains that were broken by chain merging)
+  fixSSA();
+
 // verify control integrity
   IF_DEBUG_LIN verify();
 }
@@ -1641,11 +1644,8 @@ Linearizer::resolveRepairPhis() {
     vecInfo.dropVectorShape(*repairPHI);
     repairPHI->eraseFromParent();
   }
-#if 0
-  errs() << "-- func with stuff --\n";
-  func.dump();
-  abort();
-#endif
+
+  repairPhis.clear();
 }
 
 void
@@ -1732,6 +1732,78 @@ Linearizer::cleanup() {
       vecInfo.setVectorShape(*simpleBranch, VectorShape::uni());
       vecInfo.dropVectorShape(*term);
       term->eraseFromParent();
+    }
+  }
+}
+
+void
+Linearizer::fixSSA() {
+  for (auto & block : func) {
+    if (!inRegion(block)) continue;
+
+    if (!hasIndex(block)) continue;
+    int blockIdx = getIndex(block);
+
+    DenseMap<Instruction*, Value*> promotionCache;
+
+    for (auto & inst : block) {
+
+      auto * phi = dyn_cast<PHINode>(&inst);
+
+      // phi def/use repair
+      if (phi) {
+        for (int inIdx = 0; inIdx < phi->getNumIncomingValues(); ++inIdx) {
+          auto * inBlock = phi->getIncomingBlock(inIdx);
+          auto * inVal = phi->getIncomingValue(inIdx);
+
+          auto * inInst = dyn_cast<Instruction>(inVal);
+          if (!inInst) continue;
+
+          auto & defBlock = *inInst->getParent();
+
+          if (dt.dominates(&defBlock, inBlock)) continue;
+
+          assert(hasIndex(defBlock));
+
+          int defIndex = getIndex(defBlock);
+
+          auto & fixedDef = promoteDefinition(*inInst, *UndefValue::get(inInst->getType()), defIndex, *inBlock);
+
+          phi->setIncomingValue(inIdx, &fixedDef);
+
+        }
+        // TODO implement for phi nodes..
+        continue;
+      }
+
+      // non-phi def/use repair
+      for (int opIdx = 0; opIdx < inst.getNumOperands(); ++opIdx) {
+        auto * opInst = dyn_cast<Instruction>(inst.getOperand(opIdx));
+        if (!opInst) continue;
+
+        auto & defParent = *opInst->getParent();
+
+      // check if this chain was broken
+        if (dt.dominates(&defParent, &block)) continue;
+
+        assert(hasIndex(defParent) && "dont consciously break SSA in the linearizer");
+
+        int defBlockIdx = getIndex(defParent);
+
+      // do we have a cached definition available?
+        Value * fixedDef = nullptr;
+        auto itCachedDef = promotionCache.find(opInst);
+        if (itCachedDef != promotionCache.end()) {
+          fixedDef = itCachedDef->second;
+        } else {
+          // if not, promote the definition down to this use
+          auto & promotedDef = promoteDefinition(*opInst, *UndefValue::get(opInst->getType()), defBlockIdx, blockIdx);
+          promotionCache[opInst] = &promotedDef;
+          fixedDef = &promotedDef;
+        }
+
+        inst.setOperand(opIdx, fixedDef);
+      }
     }
   }
 }
