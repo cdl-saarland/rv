@@ -37,6 +37,7 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
     region(vectorizationInfo.getRegion()),
     useScatterGatherIntrinsics(true),
+    vectorizeInterleavedAccess(false),
     cascadeLoadMap(),
     cascadeStoreMap(),
     vectorValueMap(),
@@ -159,8 +160,8 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
 
     // loads and stores need special treatment (masking, shuffling, etc) (build them lazily)
     if (load || store)
-//      vectorizeMemoryInstruction(inst);
-      lazyInstructions.push_back(inst);
+      if (vectorizeInterleavedAccess) lazyInstructions.push_back(inst);
+      else vectorizeMemoryInstruction(inst);
     else if (call) {
       // calls need special treatment
       if (call->getCalledFunction()->getName() == "rv_any")
@@ -168,12 +169,14 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       else if (call->getCalledFunction()->getName() == "rv_all")
         vectorizeReductionCall(call, true);
       else
-        lazyInstructions.push_back(inst);
-//      else if (shouldVectorize(call))
-//        vectorizeCallInstruction(call);
-//      else {
-//        copyCallInstruction(call);
-//      }
+        if (vectorizeInterleavedAccess) lazyInstructions.push_back(inst);
+        else {
+          if (shouldVectorize(call))
+            vectorizeCallInstruction(call);
+          else {
+            copyCallInstruction(call);
+          }
+        }
     } else if (phi)
       // phis need special treatment as they might contain not-yet mapped instructions
       vectorizePHIInstruction(phi);
@@ -661,7 +664,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         addrSCEVMap[addrVal] = scev;
         scevInstrMap[scev] = instr;
       }
-      
+
       // check if there is an interleaved memory group for our base address
       memGroup = memoryGrouper.getMemoryGroup(addrSCEVMap[accessedPtr]);
       int stride = addrShape.getStride() / (accessedType->getScalarSizeInBits() / 8);

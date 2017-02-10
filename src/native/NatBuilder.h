@@ -49,6 +49,7 @@ namespace native {
     rv::Region *region;
 
     bool useScatterGatherIntrinsics;
+    bool vectorizeInterleavedAccess;
 
 
   public:
