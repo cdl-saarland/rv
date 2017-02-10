@@ -61,8 +61,6 @@ Linearizer::buildBlockIndex() {
   std::vector<BasicBlock*> stack;
   std::set<Loop*> pushedLoops;
 
-  using RPOT = ReversePostOrderTraversal<Function*>;
-
   for (auto & block : func) {
     // seek unprocessed blocks
     if (!inRegion(block)) continue; // FIXME we need a Region::blocks-in-the-region iterator
@@ -1676,7 +1674,6 @@ Linearizer::fixSSA() {
           phi->setIncomingValue(inIdx, &fixedDef);
 
         }
-        // TODO implement for phi nodes..
         continue;
       }
 
