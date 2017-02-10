@@ -388,10 +388,10 @@ void VectorizationAnalysis::updateAllocaOperands(const Instruction* I) {
     // Already processed
     if (!getShape(op).isUniform()) continue;
 
-    eraseUserInfoRecursively(op);
+    // eraseUserInfoRecursively(op);
 
     auto* PtrElemType = op->getType()->getPointerElementType();
-    const bool Vectorizable = IsVectorizableType(*PtrElemType);
+    const bool Vectorizable = false; // FIXME IsVectorizableType(*PtrElemType);
 
     int typeStoreSize = static_cast<int>(layout.getTypeStoreSize(PtrElemType));
 
