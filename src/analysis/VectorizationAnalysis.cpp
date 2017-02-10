@@ -21,9 +21,9 @@
 #include <llvm/Analysis/LoopInfo.h>
 
 #if 1
-#define IF_DEBUG_DA IF_DEBUG
+#define IF_DEBUG_VA IF_DEBUG
 #else
-#define IF_DEBUG_DA if (false)
+#define IF_DEBUG_VA if (false)
 #endif
 
 //
@@ -102,7 +102,8 @@ void
 VectorizationAnalysis::analyze(Function& F) {
   assert (!F.isDeclaration());
 
-  mWorklist.clear();
+  // FIXME mWorklist.clear()
+  while (!mWorklist.empty()) mWorklist.pop();
 
   init(F);
   compute(F);
@@ -233,13 +234,13 @@ void VectorizationAnalysis::init(Function& F) {
         // Only makes sense if a value is returned
         if (call->getCalledFunction()->getReturnType()->isVoidTy()) continue;
 
-        mWorklist.insert(&I);
-        IF_DEBUG_DA errs() << "Inserted call in initialization: " << I.getName() << "\n";
+        mWorklist.push(&I);
+        IF_DEBUG_VA errs() << "Inserted call in initialization: " << I.getName() << "\n";
       }
         /* Phis that depend on constants are added to the WL */
       else if (isa<PHINode>(I) && any_of(I.operands(), isa<Constant, Use>)) {
-        mWorklist.insert(&I);
-        IF_DEBUG_DA outs() << "Inserted PHI in initialization: " << I.getName() << "\n";
+        mWorklist.push(&I);
+        IF_DEBUG_VA errs() << "Inserted PHI in initialization: " << I.getName() << "\n";
       }
     }
   }
@@ -251,7 +252,7 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
   if (mValue2Shape[V] == New) return;// nothing changed
   if (overrides.count(V) && getShape(V).isDefined()) return;//prevented by override
 
-  IF_DEBUG_DA outs() << "Marking " << New << ": " << *V << "\n";
+  IF_DEBUG_VA errs() << "Marking " << New << ": " << *V << "\n";
 
   mValue2Shape[V] = New;
 
@@ -265,6 +266,8 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
   if (isa<Instruction>(V)) {
     updateAllocaOperands(cast<Instruction>(V));
   }
+
+  // assert(mValue2Shape[V].isDefined());
 
 
   /* Begin with divergence analysis */
@@ -305,8 +308,8 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
         if (BBLoop == endsVaryingLoop || BranchExitsBBLoop) {
           mVecinfo.setDivergentLoop(BBLoop);
 
-          IF_DEBUG_DA {
-            outs() << "\n"
+          IF_DEBUG_VA {
+            errs() << "\n"
                    << "The loop with header: \n"
                    << "    " << BB->getName() << "\n"
                    << "is divergent because of the non-uniform branch in:\n"
@@ -340,8 +343,8 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
       }
 
       if (causedVectorization) {
-        IF_DEBUG_DA {
-          outs() << "\n"
+        IF_DEBUG_VA {
+          errs() << "\n"
                  << "The block:\n"
                  << "    " << BB->getName() << "\n"
                  << "is divergent because of the non-uniform branch in:\n"
@@ -354,8 +357,8 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
 
       // add phis to worklist
       for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it) {
-        mWorklist.insert(&*it);
-        IF_DEBUG_DA outs() << "Inserted PHI: " << (&*it)->getName() << "\n";
+        mWorklist.push(&*it);
+        IF_DEBUG_VA errs() << "Inserted PHI: " << (&*it)->getName() << "\n";
       }
   }
 }
@@ -388,6 +391,7 @@ void VectorizationAnalysis::updateAllocaOperands(const Instruction* I) {
     // Already processed
     if (!getShape(op).isUniform()) continue;
 
+    // promote to all users
     // eraseUserInfoRecursively(op);
 
     auto* PtrElemType = op->getType()->getPointerElementType();
@@ -423,8 +427,8 @@ void VectorizationAnalysis::addRelevantUsersToWL(const Value* V) {
       }
     }
 
-    mWorklist.insert(cast<Instruction>(user));
-    IF_DEBUG_DA outs() << "Inserted relevant user of " << V->getName() << ":" << *user << "\n";
+    mWorklist.push(cast<Instruction>(user));
+    IF_DEBUG_VA errs() << "Inserted relevant user of " << V->getName() << ":" << *user << "\n";
   }
 }
 
@@ -502,6 +506,10 @@ VectorShape VectorizationAnalysis::joinOperands(const Instruction* const I) {
 bool VectorizationAnalysis::allOperandsHaveShape(const Instruction* I) {
   auto hasKnownShape = [this](Value* op)
   {
+    IF_DEBUG_VA {
+      if (isa<Instruction>(op) && !mValue2Shape[op].isDefined()) errs() << "\tmissing op shape " << *op << "!\n";
+    }
+
     return !isa<Instruction>(op) || mValue2Shape[op].isDefined();
   };
 
@@ -509,13 +517,19 @@ bool VectorizationAnalysis::allOperandsHaveShape(const Instruction* I) {
 }
 
 void VectorizationAnalysis::compute(Function& F) {
+  IF_DEBUG_VA { errs() << "\n\n-- VA::compute() log -- \n"; }
   /* Worklist algorithm to compute the least fixed-point */
   while (!mWorklist.empty()) {
-    const Instruction* I = *mWorklist.begin();
-    mWorklist.erase(I);
+    const Instruction* I = mWorklist.front();
+    mWorklist.pop();
+
+    IF_DEBUG_VA { errs() << "# next: " << *I << "\n"; }
 
     // Skip until all operands have a shape
-    if (!isa<PHINode>(I) && !allOperandsHaveShape(I)) continue;
+    if (!isa<PHINode>(I) && !allOperandsHaveShape(I)) {
+      mWorklist.push(I); // re-visit after PHI nodes have been updated
+      continue;
+    }
 
     VectorShape New = computeShapeForInst(I);
 

@@ -11,6 +11,7 @@
 
 #include <string>
 #include <map>
+#include <queue>
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -96,7 +97,7 @@ private:
   Region* mRegion;
 
   ValueMap mValue2Shape;    // Computed shapes
-  InstructionSet mWorklist;       // Next instructions to handle
+  std::queue<const Instruction*> mWorklist;       // Next instructions to handle
 
   std::map<BasicBlock*, std::vector<BasicBlock*>> mDivergenceCauseMap;
 
