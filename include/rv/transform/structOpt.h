@@ -2,6 +2,7 @@
 #define RV_TRANSFORM_STRUCTOPT_H
 
 #include <llvm/IR/Value.h>
+#include <llvm/Transforms/Utils/ValueMapper.h>
 
 #include "rv/vectorShape.h"
 
@@ -34,6 +35,8 @@ class StructOpt {
 
   VectorShape getVectorShape(llvm::Value & val) const;
 
+  // execute the data layout transformation
+  void transformLayout(llvm::AllocaInst & allocaInst, llvm::ValueToValueMapTy & transformMap);
 public:
   StructOpt(VectorizationInfo & _vecInfo);
 
