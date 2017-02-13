@@ -31,6 +31,8 @@
 
 #include "rv/transform/Linearizer.h"
 
+#include "rv/transform/structOpt.h"
+
 #include "native/nativeBackendPass.h"
 #include "native/NatBuilder.h"
 
@@ -194,24 +196,10 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
 bool
 VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree)
 {
-#if 0
-    // Strip legacy metadata calls
-    std::vector<Instruction *> killList;
-    for (auto &block : *vecInfo.getMapping().scalarFn) {
-        for (auto &inst : block) {
-            auto *call = dyn_cast<CallInst>(&inst);
-            if (!call) continue;
-            auto *callee = call->getCalledFunction();
-            if (!callee) continue;
-            if (callee->getName() == "rvMetadataFn") {
-                killList.push_back(call);
-            }
-        }
-    }
-    for (auto *inst : killList) inst->eraseFromParent();
-#endif
+  StructOpt sopt(vecInfo);
+  sopt.run();
 
-    // vectorize with native
+// vectorize with native
 //    native::NatBuilder natBuilder(platInfo, vecInfo, domTree);
 //    natBuilder.vectorize();
   legacy::FunctionPassManager fpm(vecInfo.getScalarFunction().getParent());
