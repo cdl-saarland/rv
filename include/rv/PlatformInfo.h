@@ -55,6 +55,8 @@ namespace rv {
                         const Function& simdFunction,
                         const int       maskPosition,
                         const bool      mayHaveSideEffects);
+
+    const DataLayout & getDataLayout() const { return mod.getDataLayout(); }
   private:
     VectorMapping * inferMapping(llvm::Function & scalarFnc, llvm::Function & simdFnc, int maskPos);
 

@@ -8,6 +8,7 @@
 
 namespace llvm {
   class AllocaInst;
+  class DataLayout;
 }
 
 namespace rv {
@@ -16,6 +17,7 @@ class VectorizationInfo;
 
 class StructOpt {
   VectorizationInfo & vecInfo;
+  const llvm::DataLayout & layout;
 
   /// whether the alloca layout can be changed without breaking the IR
   /// I.e. not the case if the allocated object is passed to a call.
@@ -38,7 +40,7 @@ class StructOpt {
   // execute the data layout transformation
   void transformLayout(llvm::AllocaInst & allocaInst, llvm::ValueToValueMapTy & transformMap);
 public:
-  StructOpt(VectorizationInfo & _vecInfo);
+  StructOpt(VectorizationInfo & _vecInfo, const llvm::DataLayout & _layout);
 
   bool run();
 };

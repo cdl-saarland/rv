@@ -196,7 +196,7 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
 bool
 VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree)
 {
-  StructOpt sopt(vecInfo);
+  StructOpt sopt(vecInfo, platInfo.getDataLayout());
   sopt.run();
 
 // vectorize with native

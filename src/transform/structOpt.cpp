@@ -7,6 +7,8 @@
 #include <llvm/ADT/SmallSet.h>
 #include <llvm/Transforms/Utils/ValueMapper.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/DataLayout.h>
+
 #include <rv/vectorizationInfo.h>
 
 
@@ -29,8 +31,9 @@ rv::StructOpt::getVectorShape(llvm::Value & val) const {
   else return VectorShape::undef();
 }
 
-rv::StructOpt::StructOpt(VectorizationInfo & _vecInfo)
+rv::StructOpt::StructOpt(VectorizationInfo & _vecInfo, const DataLayout & _layout)
 : vecInfo(_vecInfo)
+, layout(_layout)
 {}
 
 void
@@ -70,13 +73,14 @@ rv::StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy 
 
       auto * castElemTy = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
 
-      const uint alignment = 4; // FIXME
+      const uint alignment = layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
       vecInfo.setVectorShape(*castElemTy, VectorShape::cont(alignment));
 
 
       if (load)  {
         auto * vecLoad = builder.CreateLoad(castElemTy, load->getName());
         vecInfo.setVectorShape(*vecLoad, vecInfo.getVectorShape(*load));
+        vecLoad->setAlignment(alignment);
 
         load->replaceAllUsesWith(vecLoad);
 
@@ -84,6 +88,7 @@ rv::StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy 
 
       } else {
         auto * vecStore = builder.CreateStore(store->getValueOperand(), castElemTy, store->isVolatile());
+        vecStore->setAlignment(alignment);
         vecInfo.setVectorShape(*vecStore, vecInfo.getVectorShape(*store));
         vecInfo.dropVectorShape(*store);
 
@@ -256,7 +261,8 @@ rv::StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
 
   // replace alloca
   auto * vecAlloc = new AllocaInst(vecAllocTy, allocaInst.getName(), &allocaInst);
-  uint alignment = vecInfo.getVectorShape(allocaInst).getAlignmentFirst();
+
+  const uint alignment = layout.getPrefTypeAlignment(vecAllocTy); // TODO should enfore a stricter alignment at this point
   vecInfo.setVectorShape(*vecAlloc, VectorShape::uni(alignment));
 
   ValueToValueMapTy transformMap;
