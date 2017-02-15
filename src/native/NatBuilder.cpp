@@ -614,7 +614,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
   bool needsMask = !isa<Constant>(predicate);
 
-  Type *vecType = getVectorType(accessedType, addrShape.isUniform() ? 1 : vectorWidth());
+  Type *vecType = addrShape.isUniform() ? accessedType : getVectorType(accessedType, vectorWidth());
 
   // alignments and contiguous check
   unsigned origAlignment = load ? load->getAlignment() : store->getAlignment();
