@@ -51,6 +51,8 @@ class VectorizationInfo
     std::set<const Instruction*> MetadataMaskInsts;
 
 public:
+    bool inRegion(const llvm::Instruction & inst) const;
+
     Region* getRegion() const
     {
         return region;

@@ -22,6 +22,11 @@ using namespace llvm;
 namespace rv
 {
 
+bool
+VectorizationInfo::inRegion(const Instruction & inst) const {
+  return !region || region->contains(inst.getParent());
+}
+
 void
 VectorizationInfo::remapPredicate(Value& dest, Value& old)
 {
