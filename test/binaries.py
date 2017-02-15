@@ -57,7 +57,7 @@ def runForOutput(cmdText):
     except CalledProcessError as err:
         return False, err.output
 
-clangLine="clang++ -std=c++14 -march=native -m64 -O2 -fno-vectorize -fno-slp-vectorize"
+clangLine="clang++ -std=c++14 -march=native -m64 -O2 -fno-vectorize" # -fno-slp-vectorize"
 cClangLine="clang -march=native -m64 -O2 -fno-vectorize -fno-slp-vectorize"
 
 rvToolLine="./../bin/rvTool"
