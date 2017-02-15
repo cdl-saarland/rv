@@ -161,6 +161,9 @@ rv::StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy 
   transformMap.clear();
 }
 
+static bool VectorizableType(Type & type) {
+  return type.isIntegerTy() || type.isFloatingPointTy();
+}
 
 /// whether any address computation on this alloc is uniform
 /// the alloca can still be varying because of stored varying values
@@ -190,10 +193,20 @@ rv::StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
         if (userInst->getOperand(0) == inst) { // leaking the value!
           return false;
         }
+        if (!VectorizableType(*cast<StoreInst>(userInst)->getValueOperand()->getType())) {
+          IF_DEBUG_SO { errs() << "skip: accessing non-leaf element : " << *userInst << "\n"; }
+          return false;
+        }
       }
 
       // we dont care about (indirect) alloc loads
-      else if (isa<LoadInst>(userInst)) continue;
+      else if (isa<LoadInst>(userInst)) {
+        if (!VectorizableType(*cast<LoadInst>(userInst)->getType())) {
+          IF_DEBUG_SO { errs() << "skip: accessing non-leaf element : " << *userInst << "\n"; }
+          return false;
+        }
+        continue;
+      }
 
       // skip unforeseen users
       else if (!isa<PHINode>(userInst)) return false;
