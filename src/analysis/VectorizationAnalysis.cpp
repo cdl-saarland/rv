@@ -506,8 +506,9 @@ VectorShape VectorizationAnalysis::joinOperands(const Instruction* const I) {
 bool VectorizationAnalysis::allOperandsHaveShape(const Instruction* I) {
   auto hasKnownShape = [this](Value* op)
   {
-    IF_DEBUG_VA {
-      if (isa<Instruction>(op) && !mValue2Shape[op].isDefined()) errs() << "\tmissing op shape " << *op << "!\n";
+    if (isa<Instruction>(op) && !mValue2Shape[op].isDefined()) {
+      IF_DEBUG_VA { errs() << "\tmissing op shape " << *op << "!\n"; }
+      mWorklist.push(cast<Instruction>(op));
     }
 
     return !isa<Instruction>(op) || mValue2Shape[op].isDefined();
