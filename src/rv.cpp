@@ -204,7 +204,7 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
 //    native::NatBuilder natBuilder(platInfo, vecInfo, domTree);
 //    natBuilder.vectorize();
   legacy::FunctionPassManager fpm(vecInfo.getScalarFunction().getParent());
-  fpm.add(new MemoryDependenceAnalysis());
+  fpm.add(new MemoryDependenceWrapperPass());
   fpm.add(new ScalarEvolutionWrapperPass());
   fpm.add(new NativeBackendPass(&vecInfo, &platInfo, &domTree));
   fpm.doInitialization();

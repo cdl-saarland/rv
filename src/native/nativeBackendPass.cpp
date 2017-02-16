@@ -44,7 +44,7 @@ namespace rv {
       AU.addRequired<VectorizationInfoProxyPass>();
       AU.addRequired<DominatorTreeWrapperPass>();
     }
-    AU.addRequired<MemoryDependenceAnalysis>();
+    AU.addRequired<MemoryDependenceWrapperPass>();
     AU.addRequired<ScalarEvolutionWrapperPass>();
   }
 
@@ -71,7 +71,7 @@ namespace rv {
 
 // Get dominator tree and analyses
     auto &dtree = domTree ? *domTree : getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-    auto &mda = getAnalysis<MemoryDependenceAnalysis>();
+    auto &mdr = getAnalysis<MemoryDependenceWrapperPass>().getMemDep();
     auto &se = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
 
 // invoke native
@@ -80,7 +80,7 @@ namespace rv {
     assert((vecInfo.getRegion() ||
                (!vecInfo.getRegion() && (vecInfo.getMapping().scalarFn != vecInfo.getMapping().vectorFn)))
                && "scalar function and simd function must not be the same");
-    native::NatBuilder builder(platformInfo, vecInfo, dtree, mda, se);
+    native::NatBuilder builder(platformInfo, vecInfo, dtree, mdr, se);
     builder.vectorize();
 
     return true;

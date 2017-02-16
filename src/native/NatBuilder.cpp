@@ -24,13 +24,13 @@ using namespace llvm;
 using namespace rv;
 
 NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
-                       const DominatorTree &dominatorTree, MemoryDependenceAnalysis &memDepAnalysis,
+                       const DominatorTree &dominatorTree, MemoryDependenceResults &_memDepRes,
                        ScalarEvolution &SE) :
     builder(vectorizationInfo.getMapping().vectorFn->getContext()),
     platformInfo(platformInfo),
     vectorizationInfo(vectorizationInfo),
     dominatorTree(dominatorTree),
-    memDepAnalysis(memDepAnalysis),
+    memDepRes(_memDepRes),
     SE(SE),
     layout(vectorizationInfo.getScalarFunction().getParent()),
     i1Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 1)),
@@ -642,9 +642,9 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   } else if (addrShape.isStrided()) {
     // group memory instructions based on their dependencies
     InstructionGrouper instructionGrouper;
-    instructionGrouper.add(inst, memDepAnalysis.getResults());
+    instructionGrouper.add(inst, memDepRes);
     for (Instruction *instr : lazyInstructions) {
-      instructionGrouper.add(instr, memDepAnalysis);
+      instructionGrouper.add(instr, memDepRes);
     }
     InstructionGroup instrGroup = instructionGrouper.getInstructionGroup(inst);
     if (instrGroup.size() > 1) {
