@@ -45,6 +45,7 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     basicBlockMap(),
     grouperMap(),
     phiVector(),
+    willNotVectorize(),
     lazyInstructions() {}
 
 void NatBuilder::vectorize() {
@@ -159,7 +160,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     AllocaInst *alloca = dyn_cast<AllocaInst>(inst);
 
     // loads and stores need special treatment (masking, shuffling, etc) (build them lazily)
-    if (load || store)
+    if (canVectorize(inst) && (load || store))
       if (vectorizeInterleavedAccess) lazyInstructions.push_back(inst);
       else vectorizeMemoryInstruction(inst);
     else if (call) {
@@ -966,8 +967,12 @@ void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
         vectorizeCallInstruction(cast<CallInst>(lazyInstr));
       else
         copyCallInstruction(cast<CallInst>(lazyInstr));
-    } else
-      vectorizeMemoryInstruction(lazyInstr);
+    } else if (canVectorize(lazyInstr))
+        vectorizeMemoryInstruction(lazyInstr);
+    else if (shouldVectorize(lazyInstr))
+      fallbackVectorize(lazyInstr);
+    else
+      copyInstruction(lazyInstr);
 
     // interleaved memory generation might cause the queue to empty already at this point
     if (lazyInstructions.empty())
@@ -1434,6 +1439,22 @@ bool NatBuilder::canVectorize(Instruction *const inst) {
   // whitelisting approach. for direct vectorization we support:
   // binary operations (normal & bitwise), memory access operations, conversion operations and other operations
 
+  // memory instruction that has no aggregate type anywhere
+  if (isa<LoadInst>(inst) || isa<StoreInst>(inst)) {
+    LoadInst *load = dyn_cast<LoadInst>(inst);
+    StoreInst *store = dyn_cast<StoreInst>(inst);
+    Type *accessedType = nullptr;
+    if (load) {
+      accessedType = load->getType();
+    } else {
+      assert(store);
+      Value *storedValue = store->getValueOperand();
+      accessedType = storedValue->getType();
+    }
+
+    return !(accessedType->isAggregateType() || accessedType->isVectorTy());
+  }
+
   // for AllocaInst: vectorize if not used in calls. replicate else
   if (isa<AllocaInst>(inst)) {
     for (auto user : inst->users()) {
@@ -1453,6 +1474,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
   // 4) GEP that is strided or varying
   // EXCEPTION: GEP with vector-pointer base
   // 5) return instruction and function return-type is vector type
+  // 6) has an operand that will be vectorized
 
   if (isa<GetElementPtrInst>(inst)) {
     GetElementPtrInst *gep = cast<GetElementPtrInst>(inst);
@@ -1460,13 +1482,16 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
     Value *mappedPtr = getScalarValue(pointer);
     if (mappedPtr) {
       PointerType *pty = cast<PointerType>(mappedPtr->getType());
-      if (pty->getElementType()->isVectorTy())
+      if (pty->getElementType()->isVectorTy()) {
+        willNotVectorize.push_back(inst);
         return false;
+      }
     }
     VectorShape shape = vectorizationInfo.getVectorShape(*gep);
-    if (shape.isStrided(gep->getResultElementType()->getPrimitiveSizeInBits() / 8))
+    if (shape.isStrided(gep->getResultElementType()->getPrimitiveSizeInBits() / 8)) {
+      willNotVectorize.push_back(inst);
       return false;
-    else if (shape.isStrided() || shape.isVarying())
+    } else if (shape.isStrided() || shape.isVarying())
       return true;
   }
 
@@ -1485,19 +1510,33 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
 
   if (vectorizationInfo.hasKnownShape(*inst)) {
     VectorShape shape = vectorizationInfo.getVectorShape(*inst);
-    return isa<AllocaInst>(inst) ? !shape.isUniform() : shape.isVarying();
-  } else {
-    for (unsigned i = 0; i < inst->getNumOperands(); ++i) {
-      // operands are either constants or have shapes
-      Value *val = inst->getOperand(i);
-      assert((isa<Constant>(val) || vectorizationInfo.hasKnownShape(*val)) &&
-             "expected either a constant or a known shape!");
-      if (isa<Constant>(val)) continue;
-      else if (vectorizationInfo.getVectorShape(*val).isVarying()) return true;
+    if (isa<AllocaInst>(inst) || isa<LoadInst>(inst) ? !shape.isUniform() : shape.isVarying())
+      return true;
+    else if (shape.isUniform()) {
+      willNotVectorize.push_back(inst);
+      return false;
     }
-    // all operands uniform, should not be vectorized
-    return false;
+
   }
+
+  for (unsigned i = 0; i < inst->getNumOperands(); ++i) {
+    // operands are either constants or have shapes
+    Value *val = inst->getOperand(i);
+    assert((isa<Constant>(val) || vectorizationInfo.hasKnownShape(*val)) &&
+           "expected either a constant or a known shape!");
+    if (isa<Constant>(val)) continue;
+    else {
+      VectorShape shape = vectorizationInfo.getVectorShape(*val);
+      if (shape.isVarying() || (isa<StoreInst>(inst) && !shape.isUniform())) return true;
+    }
+
+    // if we already checked this instruction, return the last value. by construction, all operands that are
+    // instructions will have been checked already. therefore we do not need to save the concrete <true/false> value
+    // and instead will insert into a vector if we should not vectorize and then check if this instruction is inside
+    if (isa<Instruction>(val) && std::find(willNotVectorize.begin(), willNotVectorize.end(), cast<Instruction>(val)) == willNotVectorize.end())
+      return true;
+  }
+  // all operands uniform, should not be vectorized
+  willNotVectorize.push_back(inst);
+  return false;
 }
-
-
