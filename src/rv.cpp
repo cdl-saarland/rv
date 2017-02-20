@@ -108,6 +108,8 @@ VectorizerInterface::addPredicateIntrinsics() {
             isMaskPredicate = true;
         } else if ((func.getName() == "rv_all")) {
             isMaskPredicate = true;
+        } else if ((func.getName() == "rv_extract")) {
+            isMaskPredicate = true;
         }
 
         if (isMaskPredicate) {
@@ -217,7 +219,8 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
 static bool
 IsPredicateIntrinsic(Function & func) {
   return (func.getName() == "rv_any") ||
-         (func.getName() == "rv_all");
+         (func.getName() == "rv_all") ||
+         (func.getName() == "rv_extract");
 }
 
 void
@@ -272,6 +275,8 @@ lowerPredicateIntrinsics(Module & mod) {
   if (anyFunc) ReplaceByIdentity(*anyFunc);
   auto * allFunc = mod.getFunction("rv_all");
   if (allFunc) ReplaceByIdentity(*allFunc);
+  auto * extractFunc = mod.getFunction("rv_extract");
+  if (extractFunc) ReplaceByIdentity(*extractFunc);
 }
 
 void

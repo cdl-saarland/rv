@@ -169,6 +169,8 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         vectorizeReductionCall(call, false);
       else if (call->getCalledFunction()->getName() == "rv_all")
         vectorizeReductionCall(call, true);
+      else if (call->getCalledFunction()->getName() == "rv_extract")
+        vectorizeExtractCall(call);
       else
         if (vectorizeInterleavedAccess) lazyInstructions.push_back(inst);
         else {
@@ -451,6 +453,27 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
   }
 
   mapScalarValue(rvCall, reduction);
+}
+
+void
+NatBuilder::vectorizeExtractCall(CallInst *rvCall) {
+  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_any(vec, laneId)");
+
+  Value *vecArg = rvCall->getArgOperand(0);
+
+// uniform arg
+  if (vectorizationInfo.getVectorShape(*vecArg).isUniform()) {
+    auto * uniVal = requestScalarValue(vecArg);
+    mapScalarValue(rvCall, uniVal);
+    return;
+  }
+
+// non-uniform arg
+  auto * vecVal = requestVectorValue(vecArg);
+  int laneId = cast<ConstantInt>(rvCall->getArgOperand(1))->getZExtValue();
+
+  auto * laneVal = builder.CreateExtractElement(vecVal, laneId, "rv_ext");
+  mapScalarValue(rvCall, laneVal);
 }
 
 static bool HasSideEffects(CallInst &call) {
