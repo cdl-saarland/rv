@@ -405,13 +405,14 @@ void NatBuilder::fallbackVectorize(Instruction *const inst) {
   // if !void: insert into result vector
   // repeat from line 3 for all lanes
   Type *type = inst->getType();
-  Value *resVec = type->isVoidTy() || type->isVectorTy() || type->isStructTy() ? nullptr : UndefValue::get(
+  bool notVectorTy = type->isVoidTy() || !(type->isIntegerTy() || type->isFloatingPointTy());
+  Value *resVec = notVectorTy ? nullptr : UndefValue::get(
       getVectorType(inst->getType(), vectorWidth()));
   for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
     Instruction *cpInst = inst->clone();
     mapOperandsInto(inst, cpInst, false, lane);
     builder.Insert(cpInst, inst->getName());
-    if (type->isStructTy() || type->isVectorTy()) mapScalarValue(inst, cpInst, lane);
+    if (notVectorTy) mapScalarValue(inst, cpInst, lane);
     if (resVec) resVec = builder.CreateInsertElement(resVec, cpInst, lane, "fallBackInsert");
   }
   if (resVec) mapVectorValue(inst, resVec);
@@ -1477,16 +1478,20 @@ bool NatBuilder::canVectorize(Instruction *const inst) {
 
     return !(accessedType->isAggregateType() || accessedType->isVectorTy());
   }
+// check for type vectorizability
+  auto * instTy = inst->getType();
+  if (!instTy->isVoidTy() && !instTy->isIntegerTy() && !instTy->isFloatingPointTy()) return false;
 
-  // for AllocaInst: vectorize if not used in calls. replicate else
+// for AllocaInst: vectorize if not used in calls. replicate else
   if (isa<AllocaInst>(inst)) {
     for (auto user : inst->users()) {
       if (isa<CallInst>(user) || isa<InvokeInst>(user))
         return false;
     }
     return true;
-  } else
+  } else {
     return isSupportedOperation(inst);
+  }
 }
 
 bool NatBuilder::shouldVectorize(Instruction *inst) {
