@@ -212,7 +212,9 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
   fpm.run(vecInfo.getScalarFunction());
   fpm.doFinalization();
 
-    return true;
+  IF_DEBUG verifyFunction(vecInfo.getVectorFunction());
+
+  return true;
 }
 
 // TODO move this in a public header
