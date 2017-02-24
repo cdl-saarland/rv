@@ -13,14 +13,14 @@ namespace rv {
 
 class MandatoryAnalysis {
 private:
-  VectorizationInfo& vInfo;
+  VectorizationInfo& mVecInfo;
   const LoopInfo& mLoopInfo;
   const CDG& mCDG;
 
 public:
   MandatoryAnalysis(VectorizationInfo& vInfo, const LoopInfo& LoopInfo, const CDG& cdg);
 
-  void run(Function& F);
+  void analyze(Function& F);
 
 private:
   void markDivergentLoopLatchesMandatory();

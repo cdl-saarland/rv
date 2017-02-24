@@ -152,7 +152,7 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
 
     auto & scalarFn = vectorizationInfo.getScalarFunction();
     vea.analyze(scalarFn);
-    man.run(scalarFn);
+  man.analyze(scalarFn);
     abaAnalysis.analyze(scalarFn);
 }
 

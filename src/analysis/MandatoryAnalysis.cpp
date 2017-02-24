@@ -10,23 +10,23 @@ namespace rv {
 MandatoryAnalysis::MandatoryAnalysis(VectorizationInfo& vInfo,
                                      const LoopInfo& LoopInfo,
                                      const CDG& cdg)
-        : vInfo(vInfo), mLoopInfo(LoopInfo), mCDG(cdg)
+        : mVecInfo(vInfo), mLoopInfo(LoopInfo), mCDG(cdg)
 {
 }
 
-void MandatoryAnalysis::run(Function& F) {
+void MandatoryAnalysis::analyze(Function& F) {
   for (auto&& BB : F) {
-    if (vInfo.getVectorShape(*BB.getTerminator()).isVarying()) {
+    if (mVecInfo.getVectorShape(*BB.getTerminator()).isVarying()) {
       // MANDATORY case 1: successors of varying branches are mandatory
       for (const BasicBlock* succBB : successors(&BB)) {
-        vInfo.markMandatory(succBB);
+        mVecInfo.markMandatory(succBB);
       }
       markDependentLoopExitsMandatory(&BB);
     }
 
-    if (vInfo.hasKnownShape(BB) && vInfo.getVectorShape(BB).isVarying()) {
+    if (mVecInfo.hasKnownShape(BB) && mVecInfo.getVectorShape(BB).isVarying()) {
       // MANDATORY case 2: divergent block
-      vInfo.markMandatory(&BB);
+      mVecInfo.markMandatory(&BB);
     }
   }
 
@@ -41,8 +41,8 @@ void MandatoryAnalysis::markDivergentLoopLatchesMandatory() {
 
 void MandatoryAnalysis::markLoopLatchesRecursively(const Loop* loop) {
   // MANDATORY case 3: latches of divergent loops are mandatory
-  if (vInfo.isDivergentLoop(loop)) {
-    vInfo.markMandatory(loop->getLoopLatch());
+  if (mVecInfo.isDivergentLoop(loop)) {
+    mVecInfo.markMandatory(loop->getLoopLatch());
   }
 
   for (const Loop* sLoop : loop->getSubLoops()) {
@@ -70,7 +70,7 @@ void MandatoryAnalysis::markDependentLoopExitsMandatory(const BasicBlock* BB) {
   for (const CDNode* cd_succ : cd_node->succs()) {
     for (const BasicBlock* exit : LoopExits) {
       if (exit == cd_succ->getBB()) {
-        vInfo.markMandatory(exit);
+        mVecInfo.markMandatory(exit);
       }
     }
   }
