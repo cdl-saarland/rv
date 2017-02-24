@@ -109,7 +109,6 @@ VectorizationAnalysis::analyze(Function& F) {
   compute(F);
   fillVectorizationInfo(F);
 
-  markDivergentLoopLatchesMandatory();
   // checkEquivalentToOldAnalysis(F);
 }
 
@@ -283,9 +282,6 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
   const BasicBlock* endsVarying = branch->getParent();
   const Loop* endsVaryingLoop = mLoopInfo.getLoopFor(endsVarying);
 
-  markSuccessorsMandatory(endsVarying);
-  markDependentLoopExitsMandatory(endsVarying);
-
   for (const auto* BB : BDA.getEffectedBlocks(*branch)) {
     if (!isInRegion(*BB)) {
       continue;
@@ -348,9 +344,6 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
              << "is divergent because of the non-uniform branch in:\n"
              << "    " << endsVarying->getName() << "\n\n";
     }
-
-    // MANDATORY case 2: divergent block
-    mVecinfo.markMandatory(BB);
 
     // add phis to worklist
     for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it) {
@@ -459,39 +452,6 @@ VectorShape VectorizationAnalysis::joinExitShapes(const Loop* loop) {
   }
 
   return CombinedExitShape;
-}
-
-void VectorizationAnalysis::markDependentLoopExitsMandatory(const BasicBlock* endsVarying) {
-  Loop* loop = mLoopInfo.getLoopFor(endsVarying);
-
-  // No exits that can be mandatory
-  if (!loop) return;
-
-  // MANDATORY case 4: can be nicely put with just the cdg,
-  //                   if an exit is control dependent on
-  //                   this varying branch, then there is
-  //                   one path that stays in the loop and
-  //                   eventually reaches the latch, and one
-  //                   that reaches the exit, as its control dependent
-
-  SmallVector<BasicBlock*, 8> LoopExits;
-  loop->getExitBlocks(LoopExits);
-
-  const CDNode* cd_node = mCDG[endsVarying];
-  for (const CDNode* cd_succ : cd_node->succs()) {
-    for (const BasicBlock* exit : LoopExits) {
-      if (exit == cd_succ->getBB()) {
-        mVecinfo.markMandatory(exit);
-      }
-    }
-  }
-}
-
-void VectorizationAnalysis::markSuccessorsMandatory(const BasicBlock* endsVarying) {
-  // MANDATORY case 1: successors of varying branches are mandatory
-  for (const BasicBlock* succBB : successors(endsVarying)) {
-    mVecinfo.markMandatory(succBB);
-  }
 }
 
 VectorShape VectorizationAnalysis::joinOperands(const Instruction* const I) {
@@ -1011,23 +971,6 @@ VectorShape VectorizationAnalysis::getShape(const Value* const V) {
 
   assert (isa<Constant>(V) && "Value is not available");
   return mValue2Shape[V] = VectorShape::uni(getAlignment(cast<Constant>(V)));
-}
-
-void VectorizationAnalysis::markDivergentLoopLatchesMandatory() {
-  for (const Loop* loop : mLoopInfo) {
-    markLoopLatchesRecursively(loop);
-  }
-}
-
-void VectorizationAnalysis::markLoopLatchesRecursively(const Loop* loop) {
-  // MANDATORY case 3: latches of divergent loops are mandatory
-  if (mVecinfo.isDivergentLoop(loop)) {
-    mVecinfo.markMandatory(loop->getLoopLatch());
-  }
-
-  for (const Loop* sLoop : loop->getSubLoops()) {
-    markLoopLatchesRecursively(sLoop);
-  }
 }
 
 typename ValueMap::iterator VectorizationAnalysis::begin() { return mValue2Shape.begin(); }

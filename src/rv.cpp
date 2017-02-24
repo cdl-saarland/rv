@@ -15,6 +15,7 @@
 #include <llvm/IR/Dominators.h>
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Verifier.h>
+#include <rv/analysis/MandatoryAnalysis.h>
 
 #include "rv/rv.h"
 #include "rv/analysis/DFG.h"
@@ -141,6 +142,8 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
                                   loopInfo,
                                   domTree, postDomTree);
 
+    MandatoryAnalysis man(vectorizationInfo, loopInfo, cdg);
+
     ABAAnalysis abaAnalysis(platInfo,
                             vectorizationInfo,
                             loopInfo,
@@ -149,6 +152,7 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
 
     auto & scalarFn = vectorizationInfo.getScalarFunction();
     vea.analyze(scalarFn);
+    man.run(scalarFn);
     abaAnalysis.analyze(scalarFn);
 }
 

@@ -153,12 +153,6 @@ private:
   // This is essentially a negated check for bottom
   bool allOperandsHaveShape(const Instruction* I);
 
-  // Mandatory block analysis
-  void markSuccessorsMandatory(const BasicBlock* endsVarying);
-  void markDivergentLoopLatchesMandatory();
-  void markLoopLatchesRecursively(const Loop* loop);
-  void markDependentLoopExitsMandatory(const BasicBlock* endsVarying);
-
   // Returns true iff the constant is aligned respective to mVectorizationFactor
   unsigned getAlignment(const Constant* c) const;
 
