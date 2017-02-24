@@ -295,8 +295,6 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
 
       if (mValue2Shape[BB].isVarying()) continue;
 
-      bool causedVectorization;
-
       // Loop headers are not marked divergent, but can be loop divergent
       if (mLoopInfo.isLoopHeader(BB)) {
         const Loop* BBLoop = mLoopInfo.getLoopFor(BB);
@@ -334,15 +332,13 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
 
         // For multiple exits, the loop shall be blackboxed
         const VectorShape& JoinedExitShape = joinExitShapes(endsVaryingLoop);
-        causedVectorization = !JoinedExitShape.isUniform();
         mValue2Shape[BB] = VectorShape::join(getShape(BB), JoinedExitShape);
       }
       else {
-        causedVectorization = true;
         mValue2Shape[BB] = VectorShape::varying();
       }
 
-      if (causedVectorization) {
+      if (mValue2Shape[BB].isVarying() && !mVecinfo.isMandatory(BB)) {
         IF_DEBUG_VA {
           errs() << "\n"
                  << "The block:\n"
