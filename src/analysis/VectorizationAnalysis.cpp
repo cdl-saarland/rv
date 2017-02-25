@@ -246,38 +246,36 @@ void VectorizationAnalysis::init(Function& F) {
 }
 
 void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
+  updateShape(V, AT);
+  if (isa<BranchInst>(V))
+    analyzeDivergence(cast<BranchInst>(V));
+}
+
+void VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
   const VectorShape& New = VectorShape::join(getShape(V), AT);
 
   if (mValue2Shape[V] == New) return;// nothing changed
   if (overrides.count(V) && getShape(V).isDefined()) return;//prevented by override
 
   IF_DEBUG_VA errs() << "Marking " << New << ": " << *V << "\n";
-
   mValue2Shape[V] = New;
 
   /* Add dependent elements to worklist */
   addRelevantUsersToWL(V);
 
-  // Nothing else needs to be done for uniform values
-  if (New.isUniform()) return;
-
   /* If an alloca was used it needs to be updated */
-  if (isa<Instruction>(V)) {
+  if (!New.isUniform() && isa<Instruction>(V)) {
     updateAllocaOperands(cast<Instruction>(V));
   }
+}
 
-  // assert(mValue2Shape[V].isDefined());
-
-
-  /* Begin with divergence analysis */
-
-  // Vectorization is caused directly by branches only
-  if (!isa<BranchInst>(V)) return;
+void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
+  // Vectorization is caused by non-uniform branches
+  if (getShape(branch).isUniform()) return;
+  assert (branch->isConditional()); // Unconditional branches would be uniform
 
   // Find out which regions diverge because of this non-uniform branch
   // The branch is regarded as varying, even if its condition is only strided
-  const BranchInst* branch = cast<BranchInst>(V);
-  assert (branch->isConditional());
 
   const BasicBlock* endsVarying = branch->getParent();
   const Loop* endsVaryingLoop = mLoopInfo.getLoopFor(endsVarying);
@@ -287,12 +285,12 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
       continue;
     } // filter out irrelevant nodes (FIXME filter out directly in BDA)
 
+    // Doesn't matter if already effected previously
+    if (mValue2Shape[BB].isVarying()) continue;
+
     IF_DEBUG errs() << "Branch " << *branch << " affects " << *BB << "\n";
 
     assert (isInRegion(*BB)); // Otherwise the region is ill-formed
-
-    // Doesn't matter if already effected previously
-    if (mValue2Shape[BB].isVarying()) continue;
 
     // Loop headers are not marked divergent, but can be loop divergent
     if (mLoopInfo.isLoopHeader(BB)) {
@@ -325,14 +323,12 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
     // If any loop exit is varying, the block is divergent since the loop might
     // leak information before every thread is done
     if (endsVaryingLoop && !endsVaryingLoop->contains(BB)) {
-      // In case of only one exit block we can optimize considering it gets
-      // linearized
+      // In case of only one exit block we can optimize considering it gets linearized
       if (endsVaryingLoop->getUniqueExitBlock()) continue;
 
       // For multiple exits, the loop shall be blackboxed
       // If all exits are uniform, we regard as uniform
-      const VectorShape& JoinedExitShape = joinExitShapes(endsVaryingLoop);
-      if (!JoinedExitShape.isVarying()) continue;
+      if (allExitsUniform(endsVaryingLoop)) continue;
     }
 
     mValue2Shape[BB] = VectorShape::varying();
@@ -441,17 +437,16 @@ void VectorizationAnalysis::updateOutsideLoopUsesVarying(const Loop* divLoop) {
   }
 }
 
-VectorShape VectorizationAnalysis::joinExitShapes(const Loop* loop) {
+bool VectorizationAnalysis::allExitsUniform(const Loop* loop) {
   SmallVector<BasicBlock*, 4> exitingBlocks;
   loop->getExitingBlocks(exitingBlocks);
 
-  VectorShape CombinedExitShape = VectorShape::uni();
-  for (BasicBlock* exitingBB : exitingBlocks) {
+  for (const BasicBlock* exitingBB : exitingBlocks) {
     const TerminatorInst* terminator = exitingBB->getTerminator();
-    CombinedExitShape = VectorShape::join(getShape(terminator), CombinedExitShape);
+    if (!getShape(terminator).isUniform()) return false;
   }
 
-  return CombinedExitShape;
+  return true;
 }
 
 VectorShape VectorizationAnalysis::joinOperands(const Instruction* const I) {
