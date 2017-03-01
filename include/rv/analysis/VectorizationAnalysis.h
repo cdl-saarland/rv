@@ -99,8 +99,6 @@ private:
   ValueMap mValue2Shape;    // Computed shapes
   std::queue<const Instruction*> mWorklist;       // Next instructions to handle
 
-  std::map<BasicBlock*, std::vector<BasicBlock*>> mDivergenceCauseMap;
-
   // VectorShape analysis logic
 
   // Initialize all statically known shapes (constants, arguments via argument mapping,
@@ -125,6 +123,9 @@ private:
   // Update a value with its new computed shape, recursing into users if it has changed
   void update(const Value* const V, VectorShape AT);
 
+  void updateShape(const Value* const V, VectorShape AT);
+  void analyzeDivergence(const BranchInst* const branch);
+
   // Calls update on every user of this PHI that is not in its loop
   // void updateOutsideLoopUsesVarying(const PHINode* PHI, const Loop* PHILoop);
   void updateOutsideLoopUsesVarying(const Loop* divLoop);
@@ -143,21 +144,13 @@ private:
   // Resets the shape of this value and every value in the user graph to bottom
   void eraseUserInfoRecursively(const Value* V);
 
-  // Join shapes of all loop exits
-  // FIXME: so maybe call it joinExitShapes?
-  VectorShape joinExitShapes(const Loop* loop);
+  bool allExitsUniform(const Loop* loop);
 
   VectorShape joinOperands(const Instruction* const I);
 
   // Returns true iff all operands currently have a computed shape
   // This is essentially a negated check for bottom
   bool allOperandsHaveShape(const Instruction* I);
-
-  // Mandatory block analysis
-  void markSuccessorsMandatory(const BasicBlock* endsVarying);
-  void markDivergentLoopLatchesMandatory();
-  void markLoopLatchesRecursively(const Loop* loop);
-  void markDependentLoopExitsMandatory(const BasicBlock* endsVarying);
 
   // Returns true iff the constant is aligned respective to mVectorizationFactor
   unsigned getAlignment(const Constant* c) const;

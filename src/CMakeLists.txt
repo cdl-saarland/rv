@@ -42,7 +42,7 @@ FILE ( GLOB PDA                 pda/*.cpp )
 FILE ( GLOB TRANSFORMS          transform/*.cpp )
 FILE ( GLOB OPT_PASSES pass/*.cpp )
 
-SET ( RV_SOURCE_FILES ${CPP_GLOBAL} ${CPP_UTILS} ${CPP_ANALYSIS} ${REGIONS} ${RV} ${PDA} ${NATIVE_CPP} ${OPT_PASSES} ${TRANSFORMS} )
+SET ( RV_SOURCE_FILES ${CPP_GLOBAL} ${CPP_UTILS} ${CPP_ANALYSIS} ${REGIONS} ${RV} ${PDA} ${NATIVE_CPP} ${OPT_PASSES} ${TRANSFORMS} ../include/rv/analysis/MandatoryAnalysis.h analysis/MandatoryAnalysis.cpp)
 
 # create libRV
 INCLUDE ( rv-shared )

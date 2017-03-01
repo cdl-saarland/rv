@@ -109,7 +109,6 @@ VectorizationAnalysis::analyze(Function& F) {
   compute(F);
   fillVectorizationInfo(F);
 
-  markDivergentLoopLatchesMandatory();
   // checkEquivalentToOldAnalysis(F);
 }
 
@@ -247,119 +246,106 @@ void VectorizationAnalysis::init(Function& F) {
 }
 
 void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
+  updateShape(V, AT);
+  if (isa<BranchInst>(V))
+    analyzeDivergence(cast<BranchInst>(V));
+}
+
+void VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
   const VectorShape& New = VectorShape::join(getShape(V), AT);
 
   if (mValue2Shape[V] == New) return;// nothing changed
   if (overrides.count(V) && getShape(V).isDefined()) return;//prevented by override
 
   IF_DEBUG_VA errs() << "Marking " << New << ": " << *V << "\n";
-
   mValue2Shape[V] = New;
 
   /* Add dependent elements to worklist */
   addRelevantUsersToWL(V);
 
-  // Nothing else needs to be done for uniform values
-  if (New.isUniform()) return;
-
   /* If an alloca was used it needs to be updated */
-  if (isa<Instruction>(V)) {
+  if (!New.isUniform() && isa<Instruction>(V)) {
     updateAllocaOperands(cast<Instruction>(V));
   }
+}
 
-  // assert(mValue2Shape[V].isDefined());
-
-
-  /* Begin with divergence analysis */
-
-  // Vectorization is caused directly by branches only
-  if (!isa<BranchInst>(V)) return;
+void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
+  // Vectorization is caused by non-uniform branches
+  if (getShape(branch).isUniform()) return;
+  assert (branch->isConditional()); // Unconditional branches would be uniform
 
   // Find out which regions diverge because of this non-uniform branch
   // The branch is regarded as varying, even if its condition is only strided
-  const BranchInst* branch = cast<BranchInst>(V);
-  assert (branch->isConditional());
 
   const BasicBlock* endsVarying = branch->getParent();
   const Loop* endsVaryingLoop = mLoopInfo.getLoopFor(endsVarying);
 
-  markSuccessorsMandatory(endsVarying);
-  markDependentLoopExitsMandatory(endsVarying);
+  for (const auto* BB : BDA.getEffectedBlocks(*branch)) {
+    if (!isInRegion(*BB)) {
+      continue;
+    } // filter out irrelevant nodes (FIXME filter out directly in BDA)
 
-  for (const auto * BB : BDA.getEffectedBlocks(*branch)) {
-    if (!isInRegion(*BB)) continue; // filter out irrelevant nodes (FIXME filter out directly in BDA)
+    // Doesn't matter if already effected previously
+    if (mValue2Shape[BB].isVarying()) continue;
 
-      IF_DEBUG errs() << "Branch " << *branch << " affects " << *BB << "\n";
+    IF_DEBUG errs() << "Branch " << *branch << " affects " << *BB << "\n";
 
-      assert (isInRegion(*BB)); // Otherwise the region is ill-formed
+    assert (isInRegion(*BB)); // Otherwise the region is ill-formed
 
-      if (mValue2Shape[BB].isVarying()) continue;
+    // Loop headers are not marked divergent, but can be loop divergent
+    if (mLoopInfo.isLoopHeader(BB)) {
+      const Loop* BBLoop = mLoopInfo.getLoopFor(BB);
 
-      bool causedVectorization;
+      // BB needs to be a header of the same or an outer loop
+      if (!BBLoop->contains(endsVaryingLoop)) continue;
 
-      // Loop headers are not marked divergent, but can be loop divergent
-      if (mLoopInfo.isLoopHeader(BB)) {
-        const Loop* BBLoop = mLoopInfo.getLoopFor(BB);
+      const bool BranchExitsBBLoop = BBLoop->isLoopExiting(endsVarying);
+      if (BBLoop == endsVaryingLoop || BranchExitsBBLoop) {
+        mVecinfo.setDivergentLoop(BBLoop);
 
-        // BB needs to be a header of the same or an outer loop
-        if (!BBLoop->contains(endsVaryingLoop)) continue;
-
-        const bool BranchExitsBBLoop = BBLoop->isLoopExiting(endsVarying);
-        if (BBLoop == endsVaryingLoop || BranchExitsBBLoop) {
-          mVecinfo.setDivergentLoop(BBLoop);
-
-          IF_DEBUG_VA {
-            errs() << "\n"
-                   << "The loop with header: \n"
-                   << "    " << BB->getName() << "\n"
-                   << "is divergent because of the non-uniform branch in:\n"
-                   << "    " << endsVarying->getName() << "\n\n";
-          }
-
-          for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it) {
-            updateOutsideLoopUsesVarying(BBLoop);
-          }
-        }
-
-        continue;
-      }
-
-      // If the dependence exits the loop, we need to blackbox the loop
-      // If any loop exit is varying, the block is divergent since the loop might
-      // leak information before every thread is done
-      if (endsVaryingLoop && !endsVaryingLoop->contains(BB)) {
-        // In case of only one exit block we can optimize considering it gets
-        // linearized
-        if (endsVaryingLoop->getUniqueExitBlock()) continue;
-
-        // For multiple exits, the loop shall be blackboxed
-        const VectorShape& JoinedExitShape = joinExitShapes(endsVaryingLoop);
-        causedVectorization = !JoinedExitShape.isUniform();
-        mValue2Shape[BB] = VectorShape::join(getShape(BB), JoinedExitShape);
-      }
-      else {
-        causedVectorization = true;
-        mValue2Shape[BB] = VectorShape::varying();
-      }
-
-      if (causedVectorization) {
         IF_DEBUG_VA {
           errs() << "\n"
-                 << "The block:\n"
+                 << "The loop with header: \n"
                  << "    " << BB->getName() << "\n"
                  << "is divergent because of the non-uniform branch in:\n"
                  << "    " << endsVarying->getName() << "\n\n";
         }
 
-        // MANDATORY case 2: divergent block
-        mVecinfo.markMandatory(BB);
+        for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it) {
+          updateOutsideLoopUsesVarying(BBLoop);
+        }
       }
 
-      // add phis to worklist
-      for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it) {
-        mWorklist.push(&*it);
-        IF_DEBUG_VA errs() << "Inserted PHI: " << (&*it)->getName() << "\n";
-      }
+      continue;
+    }
+
+    // If the dependence exits the loop, we need to blackbox the loop
+    // If any loop exit is varying, the block is divergent since the loop might
+    // leak information before every thread is done
+    if (endsVaryingLoop && !endsVaryingLoop->contains(BB)) {
+      // In case of only one exit block we can optimize considering it gets linearized
+      if (endsVaryingLoop->getUniqueExitBlock()) continue;
+
+      // For multiple exits, the loop shall be blackboxed
+      // If all exits are uniform, we regard as uniform
+      if (allExitsUniform(endsVaryingLoop)) continue;
+    }
+
+    mValue2Shape[BB] = VectorShape::varying();
+
+    IF_DEBUG_VA {
+      errs() << "\n"
+             << "The block:\n"
+             << "    " << BB->getName() << "\n"
+             << "is divergent because of the non-uniform branch in:\n"
+             << "    " << endsVarying->getName() << "\n\n";
+    }
+
+    // add phis to worklist
+    for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it) {
+      mWorklist.push(&*it);
+      IF_DEBUG_VA errs() << "Inserted PHI: " << (&*it)->getName() << "\n";
+    }
   }
 }
 
@@ -451,50 +437,16 @@ void VectorizationAnalysis::updateOutsideLoopUsesVarying(const Loop* divLoop) {
   }
 }
 
-VectorShape VectorizationAnalysis::joinExitShapes(const Loop* loop) {
+bool VectorizationAnalysis::allExitsUniform(const Loop* loop) {
   SmallVector<BasicBlock*, 4> exitingBlocks;
   loop->getExitingBlocks(exitingBlocks);
 
-  VectorShape CombinedExitShape = VectorShape::uni();
-  for (BasicBlock* exitingBB : exitingBlocks) {
+  for (const BasicBlock* exitingBB : exitingBlocks) {
     const TerminatorInst* terminator = exitingBB->getTerminator();
-    CombinedExitShape = VectorShape::join(getShape(terminator), CombinedExitShape);
+    if (!getShape(terminator).isUniform()) return false;
   }
 
-  return CombinedExitShape;
-}
-
-void VectorizationAnalysis::markDependentLoopExitsMandatory(const BasicBlock* endsVarying) {
-  Loop* loop = mLoopInfo.getLoopFor(endsVarying);
-
-  // No exits that can be mandatory
-  if (!loop) return;
-
-  // MANDATORY case 4: can be nicely put with just the cdg,
-  //                   if an exit is control dependent on
-  //                   this varying branch, then there is
-  //                   one path that stays in the loop and
-  //                   eventually reaches the latch, and one
-  //                   that reaches the exit, as its control dependent
-
-  SmallVector<BasicBlock*, 8> LoopExits;
-  loop->getExitBlocks(LoopExits);
-
-  const CDNode* cd_node = mCDG[endsVarying];
-  for (const CDNode* cd_succ : cd_node->succs()) {
-    for (const BasicBlock* exit : LoopExits) {
-      if (exit == cd_succ->getBB()) {
-        mVecinfo.markMandatory(exit);
-      }
-    }
-  }
-}
-
-void VectorizationAnalysis::markSuccessorsMandatory(const BasicBlock* endsVarying) {
-  // MANDATORY case 1: successors of varying branches are mandatory
-  for (const BasicBlock* succBB : successors(endsVarying)) {
-    mVecinfo.markMandatory(succBB);
-  }
+  return true;
 }
 
 VectorShape VectorizationAnalysis::joinOperands(const Instruction* const I) {
@@ -1014,23 +966,6 @@ VectorShape VectorizationAnalysis::getShape(const Value* const V) {
 
   assert (isa<Constant>(V) && "Value is not available");
   return mValue2Shape[V] = VectorShape::uni(getAlignment(cast<Constant>(V)));
-}
-
-void VectorizationAnalysis::markDivergentLoopLatchesMandatory() {
-  for (const Loop* loop : mLoopInfo) {
-    markLoopLatchesRecursively(loop);
-  }
-}
-
-void VectorizationAnalysis::markLoopLatchesRecursively(const Loop* loop) {
-  // MANDATORY case 3: latches of divergent loops are mandatory
-  if (mVecinfo.isDivergentLoop(loop)) {
-    mVecinfo.markMandatory(loop->getLoopLatch());
-  }
-
-  for (const Loop* sLoop : loop->getSubLoops()) {
-    markLoopLatchesRecursively(sLoop);
-  }
 }
 
 typename ValueMap::iterator VectorizationAnalysis::begin() { return mValue2Shape.begin(); }

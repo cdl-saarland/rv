@@ -29,24 +29,24 @@ int main(int argc, char ** argv) {
 
 
   float data[1024];
+  float data2[1024];
   for (int i = 0; i < 1024; ++i) {
     data[i] = (float) rand();
+    data2[i] = (float) rand();
   }
 
   for (unsigned i = 0; i < numVectors; i+= 8) {
-    foo_SIMD(reinterpret_cast<S*>(data), 8*i);
+    foo_SIMD(reinterpret_cast<S*>(data), i);
 
-#if 0
     for (int l = 0; l < vectorWidth; ++l) {
-      void foo(i + l);
-      if (r[l] != expectedRes) {
+      foo(reinterpret_cast<S*>(data2), i+l);
+      if (data[i+l] != data2[i+l]) {
         std::cerr << "MISMATCH!\n";
-        std::cerr << l << " : expected result " << expectedRes << " but was " << r[i] << "\n";
-        dumpArray<float>(r, vectorWidth); std::cerr << "\n";
+        std::cerr << l << " : expected result " << data2[i+l] << " but was " << data[i+l] << "\n";
+        //dumpArray<float>(r, vectorWidth); std::cerr << "\n";
         return -1;
       }
     }
-#endif
   }
 
   return 0;

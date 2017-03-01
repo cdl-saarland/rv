@@ -73,6 +73,7 @@ namespace native {
     void vectorizeCallInstruction(llvm::CallInst *const scalCall);
     void vectorizeAllocaInstruction(llvm::AllocaInst *const alloca);
     void vectorizeReductionCall(CallInst *rvCall, bool isRv_all);
+    void vectorizeExtractCall(CallInst *rvCall);
     GetElementPtrInst *vectorizeGEPInstruction(GetElementPtrInst *const gep, bool buildVectorGEP, unsigned interleavedIndex = 0,
                                                 bool skipMapping = false);
 
@@ -93,6 +94,7 @@ namespace native {
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
     std::map<const llvm::Type *, MemoryAccessGrouper> grouperMap;
     std::vector<llvm::PHINode *> phiVector;
+    std::vector<llvm::Instruction *> willNotVectorize;
     std::deque<llvm::Instruction *> lazyInstructions;
 
     void requestLazyInstructions(llvm::Instruction *const upToInstruction);

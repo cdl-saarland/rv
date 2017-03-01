@@ -1479,6 +1479,8 @@ Linearizer::run() {
 // simplify branches
   cleanup();
 
+  dt.recalculate(func);
+
 // repair SSA form on the linearized CFG
   resolveRepairPhis();
 

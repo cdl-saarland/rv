@@ -16,6 +16,7 @@
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
+#include <rv/analysis/MandatoryAnalysis.h>
 
 #include "rv/rv.h"
 #include "rv/analysis/DFG.h"
@@ -109,6 +110,8 @@ VectorizerInterface::addPredicateIntrinsics() {
             isMaskPredicate = true;
         } else if ((func.getName() == "rv_all")) {
             isMaskPredicate = true;
+        } else if ((func.getName() == "rv_extract")) {
+            isMaskPredicate = true;
         }
 
         if (isMaskPredicate) {
@@ -140,6 +143,8 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
                                   loopInfo,
                                   domTree, postDomTree);
 
+    MandatoryAnalysis man(vectorizationInfo, loopInfo, cdg);
+
     ABAAnalysis abaAnalysis(platInfo,
                             vectorizationInfo,
                             loopInfo,
@@ -148,6 +153,7 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
 
     auto & scalarFn = vectorizationInfo.getScalarFunction();
     vea.analyze(scalarFn);
+  man.analyze(scalarFn);
     abaAnalysis.analyze(scalarFn);
 }
 
@@ -211,14 +217,17 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
   fpm.run(vecInfo.getScalarFunction());
   fpm.doFinalization();
 
-    return true;
+  IF_DEBUG verifyFunction(vecInfo.getVectorFunction());
+
+  return true;
 }
 
 // TODO move this in a public header
 static bool
 IsPredicateIntrinsic(Function & func) {
   return (func.getName() == "rv_any") ||
-         (func.getName() == "rv_all");
+         (func.getName() == "rv_all") ||
+         (func.getName() == "rv_extract");
 }
 
 void
@@ -273,6 +282,8 @@ lowerPredicateIntrinsics(Module & mod) {
   if (anyFunc) ReplaceByIdentity(*anyFunc);
   auto * allFunc = mod.getFunction("rv_all");
   if (allFunc) ReplaceByIdentity(*allFunc);
+  auto * extractFunc = mod.getFunction("rv_extract");
+  if (extractFunc) ReplaceByIdentity(*extractFunc);
 }
 
 void
