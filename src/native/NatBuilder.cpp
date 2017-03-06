@@ -171,6 +171,8 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         vectorizeReductionCall(call, true);
       else if (call->getCalledFunction()->getName() == "rv_extract")
         vectorizeExtractCall(call);
+      else if (call->getCalledFunction()->getName() == "rv_ballot")
+        vectorizeBallotCall(call);
       else
         if (vectorizeInterleavedAccess) lazyInstructions.push_back(inst);
         else {
@@ -458,7 +460,7 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
 
 void
 NatBuilder::vectorizeExtractCall(CallInst *rvCall) {
-  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_any(vec, laneId)");
+  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_extract(vec, laneId)");
 
   Value *vecArg = rvCall->getArgOperand(0);
 
@@ -475,6 +477,35 @@ NatBuilder::vectorizeExtractCall(CallInst *rvCall) {
 
   auto * laneVal = builder.CreateExtractElement(vecVal, laneId, "rv_ext");
   mapScalarValue(rvCall, laneVal);
+}
+
+void
+NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
+  assert(rvCall->getNumArgOperands() == 1 && "expected 1 argument for rv_ballot(cond)");
+
+  Value *condArg = rvCall->getArgOperand(0);
+
+// uniform arg
+  if (vectorizationInfo.getVectorShape(*condArg).isUniform()) {
+    auto * uniVal = requestScalarValue(condArg);
+    uniVal = builder.CreateZExt(uniVal, i32Ty, "rv_ballot");
+    mapScalarValue(rvCall, uniVal);
+    return;
+  }
+
+  Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
+
+  auto vecWidth = vectorizationInfo.getVectorWidth();
+  assert((vecWidth == 4 || vecWidth == 8) && "rv_ballot only supports SSE and AVX instruction sets");
+
+// non-uniform arg
+  auto * vecVal = requestVectorValue(condArg);
+  auto * extVal = builder.CreateSExt(vecVal, VectorType::get(i32Ty, vecWidth), "rv_ballot");
+  auto * simdVal = builder.CreateBitCast(extVal, VectorType::get(builder.getFloatTy(), vecWidth), "rv_ballot");
+  auto * movmskType = FunctionType::get(i32Ty, VectorType::get(builder.getFloatTy(), vecWidth));
+  auto * movmsk = mod->getOrInsertFunction(vecWidth == 4 ? "llvm.x86.sse.movmsk.ps" : "llvm.x86.avx.movmsk.ps.256", movmskType);
+  auto * mask = builder.CreateCall(movmsk, simdVal, "rv_ballot");
+  mapScalarValue(rvCall, mask);
 }
 
 static bool HasSideEffects(CallInst &call) {

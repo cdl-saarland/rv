@@ -92,15 +92,15 @@ public:
 private:
     PlatformInfo platInfo;
 
-    void addPredicateIntrinsics();
+    void addIntrinsics();
 };
 
 
-   // implement all rv_* predicate intrinsics in function
+   // implement all rv_* intrinsics
    // this is necessary to make scalar functions with predicate intrinsics executable
    // the SIMS semantics of the function will change if @scalar func used any mask intrinsics
-  void lowerPredicateIntrinsics(llvm::Function & scalarFunc);
-  void lowerPredicateIntrinsics(llvm::Module & mod);
+  void lowerIntrinsics(llvm::Function & scalarFunc);
+  void lowerIntrinsics(llvm::Module & mod);
 }
 
 #endif // RV_RV_H

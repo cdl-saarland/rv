@@ -439,7 +439,7 @@ int main(int argc, char** argv)
     std::string targetDeclName;
     bool hasTargetDeclName = reader.readOption<std::string>("-t", targetDeclName);
 
-    bool lowerPredicateIntrinsics = reader.hasOption("-lower");
+    bool lowerIntrinsics = reader.hasOption("-lower");
 
     std::string outFile;
     bool hasOutFile = reader.readOption<std::string>("-o", outFile);
@@ -536,9 +536,9 @@ int main(int argc, char** argv)
         vectorizeFirstLoop(*scalarFn, vectorWidth);
     }
 
-    if (lowerPredicateIntrinsics) {
-      errs() << "Lowering predicate intrinsics in function " << scalarFn->getName() << "\n";
-      rv::lowerPredicateIntrinsics(*scalarFn);
+    if (lowerIntrinsics) {
+      errs() << "Lowering intrinsics in function " << scalarFn->getName() << "\n";
+      rv::lowerIntrinsics(*scalarFn);
     }
 
     //output

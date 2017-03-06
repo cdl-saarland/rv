@@ -74,6 +74,7 @@ namespace native {
     void vectorizeAllocaInstruction(llvm::AllocaInst *const alloca);
     void vectorizeReductionCall(CallInst *rvCall, bool isRv_all);
     void vectorizeExtractCall(CallInst *rvCall);
+    void vectorizeBallotCall(CallInst *rvCall);
     GetElementPtrInst *vectorizeGEPInstruction(GetElementPtrInst *const gep, bool buildVectorGEP, unsigned interleavedIndex = 0,
                                                 bool skipMapping = false);
 
