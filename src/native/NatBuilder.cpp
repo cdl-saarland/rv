@@ -500,11 +500,14 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
 
 // non-uniform arg
   auto * vecVal = requestVectorValue(condArg);
-  auto * extVal = builder.CreateSExt(vecVal, VectorType::get(i32Ty, vecWidth), "rv_ballot");
+  auto * intVecTy = VectorType::get(i32Ty, vecWidth);
+
+  auto * extVal = builder.CreateSExt(vecVal, intVecTy, "rv_ballot");
   auto * simdVal = builder.CreateBitCast(extVal, VectorType::get(builder.getFloatTy(), vecWidth), "rv_ballot");
-  auto * movmskType = FunctionType::get(i32Ty, VectorType::get(builder.getFloatTy(), vecWidth));
-  auto * movmsk = mod->getOrInsertFunction(vecWidth == 4 ? "llvm.x86.sse.movmsk.ps" : "llvm.x86.avx.movmsk.ps.256", movmskType);
-  auto * mask = builder.CreateCall(movmsk, simdVal, "rv_ballot");
+
+  Intrinsic::ID id = vecWidth == 4 ? Intrinsic::x86_sse_movmsk_ps : Intrinsic::x86_avx_movmsk_ps_256;
+  auto movMaskDecl = Intrinsic::getDeclaration(mod, id);
+  auto * mask = builder.CreateCall(movMaskDecl, simdVal, "rv_ballot");
   mapScalarValue(rvCall, mask);
 }
 
