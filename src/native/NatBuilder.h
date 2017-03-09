@@ -51,6 +51,7 @@ namespace native {
     bool useScatterGatherIntrinsics;
     bool vectorizeInterleavedAccess;
 
+    rv::VectorShape getShape(const Value & val);
 
   public:
     NatBuilder(rv::PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,

@@ -23,6 +23,12 @@ using namespace native;
 using namespace llvm;
 using namespace rv;
 
+VectorShape
+NatBuilder::getShape(const Value & val) {
+  if (vectorizationInfo.hasKnownShape(val)) return vectorizationInfo.getVectorShape(val);
+  else return VectorShape::uni();
+}
+
 NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
                        const DominatorTree &dominatorTree, MemoryDependenceAnalysis &memDepAnalysis,
                        ScalarEvolution &SE) :
@@ -251,7 +257,7 @@ void NatBuilder::vectorizeAllocaInstruction(AllocaInst *const alloca) {
 
 void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
   assert(vectorizationInfo.hasKnownShape(*scalPhi) && "no VectorShape for PHINode available!");
-  VectorShape shape = vectorizationInfo.getVectorShape(*scalPhi);
+  VectorShape shape = getShape(*scalPhi);
   Type *scalType = scalPhi->getType();
   Type *type = !shape.isVarying() || scalType->isVectorTy() || scalType->isStructTy() ?
                scalType : getVectorType(scalPhi->getType(), vectorWidth());
@@ -283,12 +289,11 @@ GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const 
   // expanded GEP means: base pointer of used GEP, indices of used GEP, then indices of current GEP
 
   // ptr expansion
-  GetElementPtrInst *baseGEP = dyn_cast<GetElementPtrInst>(scalPtr);
+  GetElementPtrInst *baseGEP = nullptr; // don't do gep cascading dyn_cast<GetElementPtrInst>(scalPtr);
   if (buildVectorGEP && baseGEP)
     scalPtr = baseGEP->getPointerOperand();
 
-  VectorShape opShape = vectorizationInfo.hasKnownShape(*scalPtr) ? vectorizationInfo.getVectorShape(*scalPtr)
-                                                                : VectorShape::uni();
+  VectorShape opShape = getShape(*scalPtr);
   Value *ptr;
   if (opShape.isUniform() || !buildVectorGEP)
     ptr = requestScalarValue(scalPtr);
@@ -311,17 +316,14 @@ GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const 
   if (buildVectorGEP && baseGEP) {
     for (unsigned i = 0; i < gep->getNumIndices() - 1; ++i) {
       Value *operand = baseGEP->getOperand(i + 1);
-      opShape = vectorizationInfo.hasKnownShape(*operand) ? vectorizationInfo.getVectorShape(*operand)
-                                                                    : VectorShape::uni();
+      opShape = getShape(*operand);
       idxList[i] = opShape.isUniform() ? requestScalarValue(operand) : requestVectorValue(operand);
     }
     offset = baseGEP->getNumIndices() - 1;
     Value *lastOp = baseGEP->getOperand(baseGEP->getNumIndices());
     Value *firstOp = gep->getOperand(1);
-    VectorShape shape1 = vectorizationInfo.hasKnownShape(*lastOp) ? vectorizationInfo.getVectorShape(*lastOp)
-                                                                  : VectorShape::uni();
-    VectorShape shape2 = vectorizationInfo.hasKnownShape(*firstOp) ? vectorizationInfo.getVectorShape(*firstOp)
-                                                                  : VectorShape::uni();
+    VectorShape shape1 = getShape(*lastOp);
+    VectorShape shape2 = getShape(*firstOp);
     if (shape1.isUniform() && shape2.isUniform()) {
       lastOp = requestScalarValue(lastOp);
       firstOp = requestScalarValue(firstOp);
@@ -345,8 +347,7 @@ GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const 
 
   for (unsigned i = start; i < gep->getNumIndices(); ++i) {
     Value *operand = gep->getOperand(i + 1);
-    opShape = vectorizationInfo.hasKnownShape(*operand) ? vectorizationInfo.getVectorShape(*operand)
-                                                      : VectorShape::uni();
+    opShape = getShape(*operand);
     Value *index = buildVectorGEP && !opShape.isUniform() ? requestVectorValue(operand) : requestScalarValue(operand);
     idxList[i + offset] = index;
 
@@ -380,11 +381,10 @@ void NatBuilder::copyInstruction(Instruction *const inst, unsigned laneIdx) {
   Instruction *cpInst = inst->clone();
   BranchInst *branch = dyn_cast<BranchInst>(cpInst);
   if (branch && vectorizationInfo.hasKnownShape(*inst))
-    assert(vectorizationInfo.getVectorShape(*inst).isUniform() && "branch not uniform");
+    assert(getShape(*inst).isUniform() && "branch not uniform");
   if (branch && branch->isConditional()) {
     Value *cond = branch->getCondition();
-    VectorShape shape = vectorizationInfo.hasKnownShape(*cond) ? vectorizationInfo.getVectorShape(*cond)
-                                                               : VectorShape::uni();
+    VectorShape shape = getShape(*cond);
     cond = shape.isUniform() ? requestScalarValue(cond) : createPTest(requestVectorValue(cond), false);
     branch->setCondition(cond);
 
@@ -444,7 +444,7 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
 
   Value *predicate = rvCall->getArgOperand(0);
   assert(vectorizationInfo.hasKnownShape(*predicate) && "predicate has no shape");
-  const VectorShape &shape = vectorizationInfo.getVectorShape(*predicate);
+  const VectorShape &shape = getShape(*predicate);
   assert((shape.isVarying() || shape.isUniform()) && "predicate can't be contigious or strided");
 
   Value *reduction;
@@ -465,7 +465,7 @@ NatBuilder::vectorizeExtractCall(CallInst *rvCall) {
   Value *vecArg = rvCall->getArgOperand(0);
 
 // uniform arg
-  if (vectorizationInfo.getVectorShape(*vecArg).isUniform()) {
+  if (getShape(*vecArg).isUniform()) {
     auto * uniVal = requestScalarValue(vecArg);
     mapScalarValue(rvCall, uniVal);
     return;
@@ -486,7 +486,7 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
   Value *condArg = rvCall->getArgOperand(0);
 
 // uniform arg
-  if (vectorizationInfo.getVectorShape(*condArg).isUniform()) {
+  if (getShape(*condArg).isUniform()) {
     auto * uniVal = requestScalarValue(condArg);
     uniVal = builder.CreateZExt(uniVal, i32Ty, "rv_ballot");
     mapScalarValue(rvCall, uniVal);
@@ -662,8 +662,8 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
   assert(accessedType == cast<PointerType>(accessedPtr->getType())->getElementType() && "accessed type and pointed object type differ!");
   assert(vectorizationInfo.hasKnownShape(*accessedPtr) && "no shape for accessed pointer!");
-  VectorShape addrShape = vectorizationInfo.getVectorShape(*accessedPtr);
-  VectorShape instrShape = load ? vectorizationInfo.getVectorShape(*load) : vectorizationInfo.getVectorShape(*store);
+  VectorShape addrShape = getShape(*accessedPtr);
+  VectorShape instrShape = load ? getShape(*load) : getShape(*store);
 
   // address: uniform -> scalar op. contiguous -> scalar from vector-width address. varying -> scatter/gather
   Value *vecPtr = nullptr;
@@ -714,8 +714,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Value *addrVal = getPointerOperand(instr);
         assert(addrVal && "grouped instruction was not a memory instruction!!");
         // only group strided accesses
-        VectorShape shape = vectorizationInfo.hasKnownShape(*addrVal) ? vectorizationInfo.getVectorShape(*addrVal)
-                                                                      : VectorShape::uni();
+        VectorShape shape = getShape(*addrVal);
         bool groupByteContiguous = addrShape.isStrided(static_cast<int>(layout.getTypeStoreSize(cast<PointerType>(accessedPtr->getType())->getElementType())));
         if (!shape.isStrided() || groupByteContiguous)
           continue;
@@ -812,7 +811,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Value *sourceLoad = sources[i];
 
         // need to recompute alignment
-        alignment = vectorizationInfo.getVectorShape(*sourceLoad).getAlignmentFirst();
+        alignment = getShape(*sourceLoad).getAlignmentFirst();
         origAlignment = cast<LoadInst>(sourceLoad)->getAlignment();
         alignment = std::max<uint>(origAlignment, alignment);
 
@@ -932,7 +931,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Value *sourceStore = sources[i];
 
         // need to recompute alignment
-        alignment = vectorizationInfo.getVectorShape(*sourceStore).getAlignmentFirst();
+        alignment = getShape(*sourceStore).getAlignmentFirst();
         origAlignment = cast<StoreInst>(sourceStore)->getAlignment();
         alignment = std::max<uint>(origAlignment, alignment);
 
@@ -1069,8 +1068,7 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
   if (!vecValue) {
     vecValue = getScalarValue(value);
     // check shape for value. if there is one and it is contiguous, cast to vector and add <0,1,2,...,n-1>
-    VectorShape shape = vectorizationInfo.hasKnownShape(*value) ? vectorizationInfo.getVectorShape(*value)
-                                                                : VectorShape::uni();
+    VectorShape shape = getShape(*value);
 
     Instruction *vecInst = dyn_cast<Instruction>(vecValue);
     auto oldIP = builder.GetInsertPoint();
@@ -1082,12 +1080,25 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
         builder.SetInsertPoint(vecInst->getParent());
     }
 
-    vecValue = builder.CreateVectorSplat(vectorWidth(), vecValue);
-    if (shape.isContiguous() || shape.isStrided()) {
-      auto *laneTy = vecValue->getType()->getVectorElementType();
-      Value *contVec = createContiguousVector(vectorWidth(), laneTy, 0, shape.getStride());
-      vecValue = laneTy->isFloatingPointTy() ? builder.CreateFAdd(vecValue, contVec, "contiguous_add")
-                                             : builder.CreateAdd(vecValue, contVec, "contiguous_add");
+    // create a vector GEP to widen pointers
+    if (value->getType()->isPointerTy()) {
+      auto * scalarPtrTy = vecValue->getType();
+      auto * intTy = builder.getInt32Ty();
+      int scalarBytes = scalarPtrTy->getPointerElementType()->getPrimitiveSizeInBits() / 8; // TODO use store size instead
+
+      Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, shape.getStride() / scalarBytes);
+      vecValue = builder.CreateGEP(vecValue, contVec, "widen_ptr");
+
+    } else {
+      vecValue = builder.CreateVectorSplat(vectorWidth(), vecValue);
+      assert(value->getType()->isIntegerTy() || value->getType()->isFloatingPointTy());
+
+      if (shape.isContiguous() || shape.isStrided()) {
+        auto *laneTy = vecValue->getType()->getVectorElementType();
+        Value *contVec = createContiguousVector(vectorWidth(), laneTy, 0, shape.getStride());
+        vecValue = laneTy->isFloatingPointTy() ? builder.CreateFAdd(vecValue, contVec, "contiguous_add")
+                                               : builder.CreateAdd(vecValue, contVec, "contiguous_add");
+      }
     }
 
     if (vecInst) builder.SetInsertPoint(oldIB, oldIP);
@@ -1156,7 +1167,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
         builder.SetInsertPoint(oldIB, oldIP);
     } else {
       if (vectorizationInfo.hasKnownShape(*value)) {
-        VectorShape shape = vectorizationInfo.getVectorShape(*value);
+        VectorShape shape = getShape(*value);
         Type *type = value->getType();
         mappedVal = getScalarValue(value);
         if (mappedVal && (shape.isContiguous() || shape.isStrided()) &&
@@ -1397,7 +1408,7 @@ void NatBuilder::addValuesToPHINodes() {
 
   for (PHINode *scalPhi : phiVector) {
     assert(vectorizationInfo.hasKnownShape(*scalPhi) && "no VectorShape for PHINode available!");
-    VectorShape shape = vectorizationInfo.getVectorShape(*scalPhi);
+    VectorShape shape = getShape(*scalPhi);
     Type *scalType = scalPhi->getType();
 
     // replicate phi <vector_width> times if type is not vectorizable
@@ -1473,7 +1484,7 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
   if (scalarIt != scalarValueMap.end()) {
     VectorShape shape;
     if (vectorizationInfo.hasKnownShape(*value)) {
-      shape = vectorizationInfo.getVectorShape(*value);
+      shape = getShape(*value);
       if (shape.isUniform()) laneIdx = 0;
     }
 
@@ -1549,7 +1560,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
         return false;
       }
     }
-    VectorShape shape = vectorizationInfo.getVectorShape(*gep);
+    VectorShape shape = getShape(*gep);
     if (shape.isStrided(gep->getResultElementType()->getPrimitiveSizeInBits() / 8)) {
       willNotVectorize.push_back(inst);
       return false;
@@ -1561,7 +1572,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
     Function &func = vectorizationInfo.getVectorFunction();
     if (func.getReturnType()->isVectorTy()) {
       IF_DEBUG {
-        if (vectorizationInfo.getVectorShape(*inst).isUniform()) {
+        if (getShape(*inst).isUniform()) {
           errs() << "Warning: Uniform return in Function with Vector Type!\n";
           inst->dump();
         }
@@ -1571,7 +1582,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
   }
 
   if (vectorizationInfo.hasKnownShape(*inst)) {
-    VectorShape shape = vectorizationInfo.getVectorShape(*inst);
+    VectorShape shape = getShape(*inst);
     if (isa<AllocaInst>(inst) || isa<LoadInst>(inst) ? !shape.isUniform() : shape.isVarying())
       return true;
     else if (shape.isUniform()) {
@@ -1588,7 +1599,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
            "expected either a constant or a known shape!");
     if (isa<Constant>(val)) continue;
     else {
-      VectorShape shape = vectorizationInfo.getVectorShape(*val);
+      VectorShape shape = getShape(*val);
       if (shape.isVarying() || (isa<StoreInst>(inst) && !shape.isUniform())) return true;
     }
 
