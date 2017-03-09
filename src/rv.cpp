@@ -234,30 +234,33 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
 }
 
 void
-VectorizerInterface::finalize(VectorizationInfo & vecInfo)
-{
-    const auto & scalarName = vecInfo.getScalarFunction().getName();
+VectorizerInterface::finalize(VectorizationInfo & vecInfo) {
+  const auto & scalarName = vecInfo.getScalarFunction().getName();
+  const auto & vecName = vecInfo.getVectorFunction().getName();
 
-    Function& finalFn = vecInfo.getVectorFunction();
+  Function& finalFn = vecInfo.getVectorFunction();
 
-    assert (!finalFn.isDeclaration());
+  assert (!finalFn.isDeclaration());
 
-    IF_DEBUG {
-      rv::writeFunctionToFile(finalFn, (finalFn.getName() + ".ll").str());
+  IF_DEBUG {
+    rv::writeFunctionToFile(finalFn, (finalFn.getName() + ".ll").str());
+  }
+  // Remove all functions that were linked in but are not used.
+  // TODO: This is a very bad temporary hack to get the "noise" project
+  //       running. We should add functions lazily.
+  removeUnusedRVLibFunctions(platInfo.getModule());
+
+  // Remove temporary functions if inserted during mask generation.
+  removeTempFunction(platInfo.getModule(), "entryMaskUseFn");
+  removeTempFunction(platInfo.getModule(), "entryMaskUseFnSIMD");
+
+  IF_DEBUG {
+    if (vecInfo.getRegion()) {
+      errs() << "### Region Vectorization in function '" << scalarName << "' SUCCESSFUL!\n";
+    } else {
+      errs() << "### Whole-Function Vectorization of function '" << scalarName << " into " << vecName << "' SUCCESSFUL!\n";
     }
-    // Remove all functions that were linked in but are not used.
-    // TODO: This is a very bad temporary hack to get the "noise" project
-    //       running. We should add functions lazily.
-    removeUnusedRVLibFunctions(platInfo.getModule());
-
-    // Remove temporary functions if inserted during mask generation.
-    removeTempFunction(platInfo.getModule(), "entryMaskUseFn");
-    removeTempFunction(platInfo.getModule(), "entryMaskUseFnSIMD");
-
-    IF_DEBUG {
-            outs() << "### Whole-Function Vectorization of function '" << scalarName
-            << "' SUCCESSFUL!\n";
-    }
+  }
 }
 
 template <typename Impl>
