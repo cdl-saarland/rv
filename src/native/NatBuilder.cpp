@@ -449,7 +449,7 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
 
   Value *reduction;
   if (shape.isVarying()) {
-    Value *vecPredicate = requestVectorValue(predicate);
+    Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
     reduction = createPTest(vecPredicate, isRv_all);
   } else {
     reduction = requestScalarValue(predicate);
@@ -499,7 +499,7 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
   assert((vecWidth == 4 || vecWidth == 8) && "rv_ballot only supports SSE and AVX instruction sets");
 
 // non-uniform arg
-  auto * vecVal = requestVectorValue(condArg);
+  auto * vecVal = maskInactiveLanes(requestVectorValue(condArg), rvCall->getParent(), false);
   auto * intVecTy = VectorType::get(i32Ty, vecWidth);
 
   auto * extVal = builder.CreateSExt(vecVal, intVecTy, "rv_ballot");
@@ -1388,6 +1388,15 @@ llvm::Value *NatBuilder::createPTest(llvm::Value *vector, bool isRv_all) {
     ptest = builder.CreateNot(ptest, "rvall_not");
 
   return ptest;
+}
+
+llvm::Value *NatBuilder::maskInactiveLanes(llvm::Value *const value, const BasicBlock* const block, bool invert) {
+    auto pred = requestVectorValue(vectorizationInfo.getPredicate(*block));
+    if (invert) {
+        return builder.CreateOr(value, builder.CreateNot(pred));
+    } else {
+        return builder.CreateAnd(value, pred);
+    }
 }
 
 void NatBuilder::addValuesToPHINodes() {

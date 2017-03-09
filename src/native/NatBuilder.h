@@ -113,6 +113,7 @@ namespace native {
     BasicBlockVector &getAllBasicBlocksFor(llvm::BasicBlock *basicBlock);
 
     llvm::Value *createPTest(llvm::Value *vector, bool isRv_all);
+    llvm::Value *maskInactiveLanes(llvm::Value *const value, const BasicBlock* const block, bool invert);
 
     unsigned vectorWidth();
 
