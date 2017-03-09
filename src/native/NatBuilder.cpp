@@ -1073,11 +1073,21 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
     Instruction *vecInst = dyn_cast<Instruction>(vecValue);
     auto oldIP = builder.GetInsertPoint();
     auto oldIB = builder.GetInsertBlock();
+
     if (vecInst) {
       if (vecInst->getParent()->getTerminator())
         builder.SetInsertPoint(vecInst->getParent()->getTerminator());
       else
         builder.SetInsertPoint(vecInst->getParent());
+
+    } else {
+      // insert in header
+      auto * oldInsertBlock = builder.GetInsertBlock();
+      auto * insertFunc = oldInsertBlock->getParent();
+      BasicBlock & entryBlock = insertFunc->getEntryBlock();
+      if (oldInsertBlock != &entryBlock) {
+        builder.SetInsertPoint(entryBlock.getTerminator());
+      }
     }
 
     // create a vector GEP to widen pointers
@@ -1101,7 +1111,8 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
       }
     }
 
-    if (vecInst) builder.SetInsertPoint(oldIB, oldIP);
+    // if (vecInst)
+      builder.SetInsertPoint(oldIB, oldIP);
 
     mapVectorValue(value, vecValue);
   }
