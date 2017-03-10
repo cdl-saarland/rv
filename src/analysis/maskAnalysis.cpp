@@ -221,7 +221,7 @@ MaskAnalysis::analyze(Function& F)
         return true;
     }
 
-    IF_DEBUG_MA { print(outs(), NULL); }
+    IF_DEBUG_MA { print(errs(), NULL); }
 
     return false;
 }
@@ -356,7 +356,7 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
         }
     }
 
-    DEBUG_RV( outs() << "\ngenerating mask information for block '"
+    DEBUG_RV( errs() << "\ngenerating mask information for block '"
             << block->getName() << "'... \n"; );
 
     // Create entry mask.
@@ -380,8 +380,8 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
     markedBlocks.insert(block);
 
     IF_DEBUG_MA {
-        outs() << "generated mask information for block '" << block->getName() << "':\n";
-        info->print(outs());
+        errs() << "generated mask information for block '" << block->getName() << "':\n";
+        info->print(errs());
     }
 
     // Recurse into successors
@@ -405,8 +405,8 @@ MaskAnalysis::recCreateMaskGraph(BasicBlock*            block,
     entryMask->mIncomingDirs.push_back(latchBB);
 
     DEBUG_RV(
-        outs() << "  updated loop mask phi in loop header '" << block->getName() << "': ";
-        entryMask->print(outs()); outs() << "\n";
+        errs() << "  updated loop mask phi in loop header '" << block->getName() << "': ";
+        entryMask->print(errs()); errs() << "\n";
     );
 }
 
@@ -436,7 +436,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
         MaskPtr entryMask = createMask(CONSTANT, insertPoint);
         entryMask->mValue = mConstBoolTrue;
 
-        DEBUG_RV( outs() << "  entryMask (1): "; entryMask->print(outs()); outs() << "\n"; );
+        DEBUG_RV( errs() << "  entryMask (1): "; entryMask->print(errs()); errs() << "\n"; );
         return entryMask;
     }
 
@@ -451,7 +451,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
         MaskPtr entryMask = createMask(CONSTANT, insertPoint);
         entryMask->mValue = mConstBoolTrue;
 
-        DEBUG_RV( outs() << "  entryMask (2): "; entryMask->print(outs()); outs() << "\n"; );
+        DEBUG_RV( errs() << "  entryMask (2): "; entryMask->print(errs()); errs() << "\n"; );
         return entryMask;
     }
 
@@ -463,7 +463,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
         entryMask->mIncomingDirs.push_back(predBB);
         entryMask->mIncomingDirs.push_back(block);
 
-        DEBUG_RV( outs() << "  entryMask (3): "; entryMask->print(outs()); outs() << "\n"; );
+        DEBUG_RV( errs() << "  entryMask (3): "; entryMask->print(errs()); errs() << "\n"; );
         return entryMask;
     }
 
@@ -483,7 +483,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
             entryMask->mIncomingDirs.push_back(preheaderBB);
             entryMask->mIncomingDirs.push_back(block);
 
-            DEBUG_RV( outs() << "  entryMask (4): "; entryMask->print(outs()); outs() << "\n"; );
+            DEBUG_RV( errs() << "  entryMask (4): "; entryMask->print(errs()); errs() << "\n"; );
             return entryMask;
         }
         else
@@ -518,7 +518,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
             loopInfo->mMaskPhi = entryMask;
 
             IF_DEBUG_MA {
-              errs() << "  entryMask (5): "; entryMask->print(outs()); outs() << "\n";
+              errs() << "  entryMask (5): "; entryMask->print(errs()); errs() << "\n";
             }
 
             return entryMask;
@@ -551,7 +551,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
             entryMask->mIncomingDirs.push_back(predBB);
         }
 
-        DEBUG_RV( outs() << "  entryMask (6): "; entryMask->print(outs()); outs() << "\n"; );
+        DEBUG_RV( errs() << "  entryMask (6): "; entryMask->print(errs()); errs() << "\n"; );
         return entryMask;
     }
 
@@ -572,7 +572,7 @@ MaskAnalysis::createEntryMask(BasicBlock* block)
         entryMask->mOperands.push_back(predOp);
     }
 
-    DEBUG_RV( outs() << "  entryMask (7): "; entryMask->print(outs()); outs() << "\n"; );
+    DEBUG_RV( errs() << "  entryMask (7): "; entryMask->print(errs()); errs() << "\n"; );
 
     return entryMask;
 }
@@ -584,7 +584,7 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
 {
     assert (block);
 
-    DEBUG_RV( outs() << "  createExitMasks(" << block->getName() << ")\n"; );
+    DEBUG_RV( errs() << "  createExitMasks(" << block->getName() << ")\n"; );
 
     TerminatorInst* terminator  = block->getTerminator();
     Instruction*    insertPoint = block->getTerminator();
@@ -603,7 +603,7 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
 
         // Add single exit mask to output vector and return.
         exitMasks.push_back(entryMask);
-        DEBUG_RV( outs() << "  exitMask  (1): "; exitMask->print(outs()); outs() << "\n"; );
+        DEBUG_RV( errs() << "  exitMask  (1): "; exitMask->print(errs()); errs() << "\n"; );
         return;
     }
 
@@ -687,9 +687,9 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
                 falseMask = entryMask;
             }
 
-            DEBUG_RV( outs() << "  condition  (2): "; condition->print(outs()); outs() << "\n"; );
-            DEBUG_RV( outs() << "  true mask  (2): "; trueMask->print(outs()); outs() << "\n"; );
-            DEBUG_RV( outs() << "  false mask (2): "; falseMask->print(outs()); outs() << "\n"; );
+            DEBUG_RV( errs() << "  condition  (2): "; condition->print(errs()); errs() << "\n"; );
+            DEBUG_RV( errs() << "  true mask  (2): "; trueMask->print(errs()); errs() << "\n"; );
+            DEBUG_RV( errs() << "  false mask (2): "; falseMask->print(errs()); errs() << "\n"; );
 
             MaskPtr exitMask = createMask(SELECT, insertPoint);
             exitMask->mOperands.push_back(condition);
@@ -704,7 +704,7 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
 
             exitMasks.push_back(exitMask);
 
-            DEBUG_RV( outs() << "  exitMask  (2): "; exitMask->print(outs()); outs() << "\n"; );
+            DEBUG_RV( errs() << "  exitMask  (2): "; exitMask->print(errs()); errs() << "\n"; );
         }
 
         // If this was a switch the default case was skipped,
@@ -755,20 +755,20 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
             {
                 condition = createMask(VALUE, insertPoint);
                 condition->mValue = brInst->getCondition();
-                DEBUG_RV( outs() << "  condition (1): "; condition->print(outs()); outs() << "\n"; );
+                DEBUG_RV( errs() << "  condition (1): "; condition->print(errs()); errs() << "\n"; );
             }
             else
             {
                 assert (i == 1);
                 MaskPtr cmp = createMask(VALUE, insertPoint);
                 cmp->mValue = brInst->getCondition();
-                DEBUG_RV( outs() << "  cmp      : "; cmp->print(outs()); outs() << "\n"; );
+                DEBUG_RV( errs() << "  cmp      : "; cmp->print(errs()); errs() << "\n"; );
 
                 // We have to negate the condition since this is the 'false' edge.
                 condition = createMask(NEGATE, insertPoint);
                 condition->mOperands.push_back(cmp);
                 condition->mName = "neg." + cmp->mValue->getName().str();
-                DEBUG_RV( outs() << "  condition (2): "; condition->print(outs()); outs() << "\n"; );
+                DEBUG_RV( errs() << "  condition (2): "; condition->print(errs()); errs() << "\n"; );
             }
         }
         else if (SwitchInst* switchInst = dyn_cast<SwitchInst>(terminator))
@@ -796,7 +796,7 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
             vecInfo.setVectorShape(*cmp, vecInfo.getVectorShape(*terminator));
 
             condition->mValue = cmp;
-            DEBUG_RV( outs() << "  condition (3): "; condition->print(outs()); outs() << "\n"; );
+            DEBUG_RV( errs() << "  condition (3): "; condition->print(errs()); errs() << "\n"; );
         }
         else
         {
@@ -817,7 +817,7 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
 
         exitMasks.push_back(exitMask);
 
-        DEBUG_RV( outs() << "  exitMask  (3): "; exitMask->print(outs()); outs() << "\n"; );
+        DEBUG_RV( errs() << "  exitMask  (3): "; exitMask->print(errs()); errs() << "\n"; );
     }
 
     // If this was a switch the default case was skipped,
@@ -920,20 +920,20 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
     // Ignore non-divergent loops.
     if (!isDivergentLoop)
     {
-        DEBUG_RV( outs() << "Non-divergent sub-loop ignored: "
+        DEBUG_RV( errs() << "Non-divergent sub-loop ignored: "
                 << loop->getHeader()->getName() << "\n"; );
         return;
     }
 
     DEBUG_RV(
-        outs() << "\ngenerating exit mask phis for all exiting blocks of loop "
+        errs() << "\ngenerating exit mask phis for all exiting blocks of loop "
             << "with header '" << loop->getHeader()->getName() << "'...\n";
-        outs() << "  Exiting blocks:\n";
+        errs() << "  Exiting blocks:\n";
         for (unsigned long i = 0, e = exitBlocks.size(); i < e; ++i)
         {
             BasicBlock* exitBlock    = exitBlocks[i];
             BasicBlock* exitingBlock = exitingBlocks[i];
-            outs() << "    * " << exitingBlock->getName() << " -> "
+            errs() << "    * " << exitingBlock->getName() << " -> "
                 << exitBlock->getName() << "\n";
         }
     );
@@ -946,7 +946,7 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
         BasicBlock* exitBlock    = exitBlocks[i];
         BasicBlock* exitingBlock = exitingBlocks[i];
 
-        DEBUG_RV( outs() << "  generating exit mask phi for exiting block '"
+        DEBUG_RV( errs() << "  generating exit mask phi for exiting block '"
                 << exitingBlock->getName() << "'...\n"; );
 
         Instruction* insertPoint = exitingBlock->getTerminator();
@@ -954,7 +954,7 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
         // Ignore edge if the target is OPTIONAL.
         if (!vecInfo.isMandatory(exitBlock))
         {
-            DEBUG_RV( outs() << "    target of exit block '"
+            DEBUG_RV( errs() << "    target of exit block '"
                 << exitingBlock->getName() << "' is OPTIONAL, ignored!\n"; );
             continue;
         }
@@ -965,9 +965,9 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
         const bool isInnermostLoopOfExit = exitInfo->mInnermostLoop == loop;
         const bool isTopLevelLoopOfExit  = exitInfo->mTopLevelLoop == loop;
         const bool exitsMultipleLoops    = exitInfo->mMaskPhiMap.size() > 1;
-        DEBUG_RV( if (isInnermostLoopOfExit) outs() << "    is innermost loop of exit!\n"; );
-        DEBUG_RV( if (isTopLevelLoopOfExit)  outs() << "    is top level loop of exit!\n"; );
-        DEBUG_RV( if (exitsMultipleLoops)    outs() << "    block has multi-loop exit!\n"; );
+        DEBUG_RV( if (isInnermostLoopOfExit) errs() << "    is innermost loop of exit!\n"; );
+        DEBUG_RV( if (isTopLevelLoopOfExit)  errs() << "    is top level loop of exit!\n"; );
+        DEBUG_RV( if (exitsMultipleLoops)    errs() << "    block has multi-loop exit!\n"; );
 
         // Find exit direction and corresponding mask.
         assert (mBlockMap.count(exitingBlock) &&
@@ -1007,7 +1007,7 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
         {
             Loop* nextNestedLoop = findNextNestedLoopOfExit(loop, exitingBlock);
             assert (nextNestedLoop);
-            DEBUG_RV( outs() << "    next nested loop: "
+            DEBUG_RV( errs() << "    next nested loop: "
                 << nextNestedLoop->getHeader()->getName() << "\n"; );
             assert (exitInfo->mMaskUpdateOpMap.count(nextNestedLoop));
 
@@ -1023,8 +1023,8 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
         assert (exitInfo->mMaskUpdateOpMap[loop] == maskUpdateOp);
 
         DEBUG_RV(
-            outs() << "    generated new loop exit mask update operation: ";
-            maskUpdateOp->print(outs()); outs() << "\n";
+            errs() << "    generated new loop exit mask update operation: ";
+            maskUpdateOp->print(errs()); errs() << "\n";
         );
 
         // If this is the top level loop of this exit, set the mask of
@@ -1041,14 +1041,14 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
         exitMaskPhi->mIncomingDirs.push_back(latchBB);
 
         DEBUG_RV(
-            outs() << "    generated loop exit mask phi: ";
-            exitMaskPhi->print(outs()); outs() << "\n";
+            errs() << "    generated loop exit mask phi: ";
+            exitMaskPhi->print(errs()); errs() << "\n";
         );
     }
 
-    DEBUG_RV( outs() << "finished generation of exit mask phis for loop!\n"; );
+    DEBUG_RV( errs() << "finished generation of exit mask phis for loop!\n"; );
 
-    DEBUG_RV( outs() << "\ngenerating combined exit mask for loop!\n"; );
+    DEBUG_RV( errs() << "\ngenerating combined exit mask for loop!\n"; );
 
     // Create a combined loop exit mask with the exit masks of all MANDATORY loop
     // exits as operands (required for select generation).
@@ -1065,12 +1065,12 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
         // Ignore edge if the successor outside the current loop is OPTIONAL.
         if (!vecInfo.isMandatory(exitBB))
         {
-            DEBUG_RV( outs() << "  exit branch of block '"
+            DEBUG_RV( errs() << "  exit branch of block '"
                 << exitingBB->getName() << "' has OPTIONAL exit successor, ignored!\n"; );
             continue;
         }
 
-        DEBUG_RV( outs() << "  combining with exit mask of block '"
+        DEBUG_RV( errs() << "  combining with exit mask of block '"
             << exitingBB->getName() << "'\n"; );
 
         // Now we have the blended loop exit mask where ALL instances that
@@ -1098,9 +1098,9 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
             loopExitMask = exitInfo->mMaskUpdateOpMap[loop];
             assert (loopExitMask);
             DEBUG_RV(
-                outs() << "  update operation: ";
-                loopExitMask->print(outs());
-                outs() << "\n";
+                errs() << "  update operation: ";
+                loopExitMask->print(errs());
+                errs() << "\n";
             );
             assert (loopExitMask->mType == LOOPEXITUPDATE);
             assert (loopExitMask->mOperands[0].lock()->mType == LOOPEXITPHI);
@@ -1114,7 +1114,7 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
             loopExitMask = loopExitMask->mOperands[1].lock();
         }
 
-        DEBUG_RV( outs() << "  input mask: "; loopExitMask->print(outs()); outs() << "\n"; );
+        DEBUG_RV( errs() << "  input mask: "; loopExitMask->print(errs()); errs() << "\n"; );
 
         // Combine mask.
         if (!combinedMask)
@@ -1133,8 +1133,13 @@ MaskAnalysis::createLoopExitMasks(Loop* loop)
     mLoopMaskMap[loop]->mCombinedLoopExitMask = combinedMask;
 
     DEBUG_RV(
-        outs() << "generated combined loop exit mask: ";
-        combinedMask->print(outs()); outs() << "\n";
+        errs() << "generated combined loop exit mask: ";
+        if (combinedMask) {
+          combinedMask->print(errs());
+        } else {
+          errs() << "<null>";
+        }
+        errs() << "\n";
     );
 
     return;
@@ -1158,9 +1163,9 @@ MaskAnalysis::getActualLoopExitMask(BasicBlock & exiting) {
       loopExitMask = exitInfo->mMaskUpdateOpMap[loop];
       assert (loopExitMask);
       DEBUG_RV(
-          outs() << "  update operation: ";
-          loopExitMask->print(outs());
-          outs() << "\n";
+          errs() << "  update operation: ";
+          loopExitMask->print(errs());
+          errs() << "\n";
       );
       assert (loopExitMask->mType == LOOPEXITUPDATE);
       assert (loopExitMask->mOperands[0].lock()->mType == LOOPEXITPHI);
@@ -1293,8 +1298,9 @@ MaskAnalysis::getLoopMaskPhi(const Loop& loop) const
 Value*
 MaskAnalysis::getCombinedLoopExitMask(const Loop& loop) const
 {
-    assert(getCombinedLoopExitMaskPtr(loop)->mValue);
-    return getCombinedLoopExitMaskPtr(loop)->mValue;
+    auto maskPtr = getCombinedLoopExitMaskPtr(loop);
+    if (maskPtr) return maskPtr->mValue;
+    return nullptr;
 }
 
 Value*

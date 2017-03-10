@@ -99,31 +99,43 @@ namespace rv {
 VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo)
         : platInfo(_platInfo)
 {
-  addPredicateIntrinsics();
+  addIntrinsics();
 }
 
 void
-VectorizerInterface::addPredicateIntrinsics() {
+VectorizerInterface::addIntrinsics() {
     for (Function & func : platInfo.getModule()) {
-        bool isMaskPredicate = false;
-        if (func.getName() == "rv_any") {
-            isMaskPredicate = true;
-        } else if ((func.getName() == "rv_all")) {
-            isMaskPredicate = true;
-        } else if ((func.getName() == "rv_extract")) {
-            isMaskPredicate = true;
-        }
-
-        if (isMaskPredicate) {
-          VectorMapping predMapping(
-                              &func,
-                              &func,
-                              0, // no specific vector width
-                              -1, //
-                              VectorShape::uni(),
-                              {VectorShape::varying()}
-                              );
-          platInfo.addSIMDMapping(predMapping);
+        if (func.getName() == "rv_any" ||
+            func.getName() == "rv_all") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::uni(),
+            {VectorShape::varying()}
+          );
+          platInfo.addSIMDMapping(mapping);
+        } else if (func.getName() == "rv_extract") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::uni(),
+            {VectorShape::varying(), VectorShape::uni()}
+          );
+          platInfo.addSIMDMapping(mapping);
+        } else if (func.getName() == "rv_ballot") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::uni(),
+            {VectorShape::varying(), VectorShape::varying()}
+            );
+          platInfo.addSIMDMapping(mapping);
         }
     }
 }
@@ -222,85 +234,89 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
   return true;
 }
 
-// TODO move this in a public header
-static bool
-IsPredicateIntrinsic(Function & func) {
-  return (func.getName() == "rv_any") ||
-         (func.getName() == "rv_all") ||
-         (func.getName() == "rv_extract");
-}
-
 void
-VectorizerInterface::finalize(VectorizationInfo & vecInfo)
-{
-    const auto & scalarName = vecInfo.getScalarFunction().getName();
+VectorizerInterface::finalize(VectorizationInfo & vecInfo) {
+  const auto & scalarName = vecInfo.getScalarFunction().getName();
+  const auto & vecName = vecInfo.getVectorFunction().getName();
 
-    Function& finalFn = vecInfo.getVectorFunction();
+  Function& finalFn = vecInfo.getVectorFunction();
 
-    assert (!finalFn.isDeclaration());
+  assert (!finalFn.isDeclaration());
 
-    IF_DEBUG {
-      rv::writeFunctionToFile(finalFn, (finalFn.getName() + ".ll").str());
+  IF_DEBUG {
+    rv::writeFunctionToFile(finalFn, (finalFn.getName() + ".ll").str());
+  }
+  // Remove all functions that were linked in but are not used.
+  // TODO: This is a very bad temporary hack to get the "noise" project
+  //       running. We should add functions lazily.
+  removeUnusedRVLibFunctions(platInfo.getModule());
+
+  // Remove temporary functions if inserted during mask generation.
+  removeTempFunction(platInfo.getModule(), "entryMaskUseFn");
+  removeTempFunction(platInfo.getModule(), "entryMaskUseFnSIMD");
+
+  IF_DEBUG {
+    if (vecInfo.getRegion()) {
+      errs() << "### Region Vectorization in function '" << scalarName << "' SUCCESSFUL!\n";
+    } else {
+      errs() << "### Whole-Function Vectorization of function '" << scalarName << " into " << vecName << "' SUCCESSFUL!\n";
     }
-    // Remove all functions that were linked in but are not used.
-    // TODO: This is a very bad temporary hack to get the "noise" project
-    //       running. We should add functions lazily.
-    removeUnusedRVLibFunctions(platInfo.getModule());
-
-    // Remove temporary functions if inserted during mask generation.
-    removeTempFunction(platInfo.getModule(), "entryMaskUseFn");
-    removeTempFunction(platInfo.getModule(), "entryMaskUseFnSIMD");
-
-    IF_DEBUG {
-            outs() << "### Whole-Function Vectorization of function '" << scalarName
-            << "' SUCCESSFUL!\n";
-    }
+  }
 }
 
-static void
-ReplaceByIdentity(Function & func) {
-  for (
-      auto itUse = func.use_begin();
-      itUse != func.use_end();
-      itUse = func.use_begin())
-  {
-    auto *user = itUse->getUser();
+template <typename Impl>
+static void lowerIntrinsicCall(CallInst* call, Impl impl) {
+  call->replaceAllUsesWith(impl(call));
+  call->eraseFromParent();
+}
 
-    if (!isa<CallInst>(user)) {
-      errs() << "Non Call: " << *user << "\n";
-    }
-
-    auto * call = cast<CallInst>(user);
-    call->replaceAllUsesWith(call->getOperand(0));
-    call->eraseFromParent();
+static void lowerIntrinsicCall(CallInst* call) {
+  auto * callee = call->getCalledFunction();
+  if (callee->getName() == "rv_any" ||
+      callee->getName() == "rv_all" ||
+      callee->getName() == "rv_extract") {
+    lowerIntrinsicCall(call, [] (const CallInst* call) {
+      return call->getOperand(0);
+    });
+  } else if (callee->getName() == "rv_ballot") {
+    lowerIntrinsicCall(call, [] (CallInst* call) {
+        IRBuilder<> builder(call);
+        return builder.CreateZExt(call->getOperand(0), builder.getInt32Ty());
+      });
   }
 }
 
 void
-lowerPredicateIntrinsics(Module & mod) {
-  auto * anyFunc = mod.getFunction("rv_any");
-  if (anyFunc) ReplaceByIdentity(*anyFunc);
-  auto * allFunc = mod.getFunction("rv_all");
-  if (allFunc) ReplaceByIdentity(*allFunc);
-  auto * extractFunc = mod.getFunction("rv_extract");
-  if (extractFunc) ReplaceByIdentity(*extractFunc);
+lowerIntrinsics(Module & mod) {
+  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_ballot"};
+  for (int i = 0, n = sizeof(names) / sizeof(names[0]); i < n; i++) {
+    auto func = mod.getFunction(names[i]);
+    if (!func) continue;
+
+    for (
+      auto itUse = func->use_begin();
+      itUse != func->use_end();
+      itUse = func->use_begin())
+    {
+      auto *user = itUse->getUser();
+
+      if (!isa<CallInst>(user)) {
+        errs() << "Non Call: " << *user << "\n";
+      }
+
+      lowerIntrinsicCall(cast<CallInst>(user));
+    }
+  }
 }
 
 void
-lowerPredicateIntrinsics(Function & func) {
+lowerIntrinsics(Function & func) {
   for (auto & block : func) {
     BasicBlock::iterator itStart = block.begin(), itEnd = block.end();
     for (BasicBlock::iterator it = itStart; it != itEnd; ) {
       auto * inst = &*it++;
       auto * call = dyn_cast<CallInst>(inst);
-      if (!call) continue;
-
-      auto * callee = call->getCalledFunction();
-      if (callee && IsPredicateIntrinsic(*callee)) {
-        Value *predicate = call->getArgOperand(0);
-        call->replaceAllUsesWith(predicate);
-        call->eraseFromParent();
-      }
+      if (call) lowerIntrinsicCall(call);
     }
   }
 }
