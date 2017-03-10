@@ -1093,7 +1093,8 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
     if (value->getType()->isPointerTy()) {
       auto * scalarPtrTy = vecValue->getType();
       auto * intTy = builder.getInt32Ty();
-      int scalarBytes = scalarPtrTy->getPointerElementType()->getPrimitiveSizeInBits() / 8; // TODO use store size instead
+      auto * ptrElemTy = scalarPtrTy->getPointerElementType();
+      int scalarBytes = static_cast<int>(layout.getTypeStoreSize(ptrElemTy));
 
       Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, shape.getStride() / scalarBytes);
       vecValue = builder.CreateGEP(vecValue, contVec, "widen_ptr");
