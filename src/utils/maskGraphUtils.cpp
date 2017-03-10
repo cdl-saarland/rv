@@ -146,8 +146,8 @@ void
 LoopMaskInfo::print(raw_ostream& o) const
 {
     o << "LoopMaskInfo for loop with header '" << mLoop->getHeader()->getName() << "':\n";
-    o << "  mask phi          : "; mMaskPhi->print(o); o << "\n";
-    o << "  combined exit mask: "; mCombinedLoopExitMask->print(o); o << "\n";
+    o << "  mask phi          : "; if (mMaskPhi) mMaskPhi->print(o); else o << "null"; o << "\n";
+    o << "  combined exit mask: "; if (mCombinedLoopExitMask) mCombinedLoopExitMask->print(o); else o << "null"; o << "\n";
 }
 
 LoopExitMaskInfo::~LoopExitMaskInfo()

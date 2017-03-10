@@ -764,11 +764,13 @@ MaskGenerator::materializeCombinedLoopExitMasks(Loop* loop)
 
     if (!mvecInfo.isDivergentLoop(loop)) return;
 
+#if 0 // unused
     materializeMask(mMaskAnalysis.getCombinedLoopExitMaskPtr(*loop));
+#endif
 
     // Set the name. This is a bit inefficient but easier than modifying more code.
     Value* maskVal = mMaskAnalysis.getCombinedLoopExitMask(*loop);
-    if (!isa<Instruction>(maskVal)) return;
+    if (!maskVal || !isa<Instruction>(maskVal)) return;
     cast<Instruction>(maskVal)->setName("combinedLoopExitMask");
 }
 
