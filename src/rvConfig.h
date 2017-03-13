@@ -67,9 +67,9 @@ extern bool rvVerbose;
 // NOTE: a boolean 'mVerbose' has to be in scope in order to use this ;)
 #ifdef _DEBUG
 #   define DEBUG_RV_NO_VERBOSE(x) do { x } while (0)
-#   define DEBUG_RV(x) if (rvVerbose) { x }
+#   define DEBUG_RV(x) if (true) { x }
 #   define DEBUG_RV_VISIBLE(x) x ((void)0)
-#   define IF_VERBOSE if (rvVerbose)
+#   define IF_VERBOSE if (true)
 #   define IF_DEBUG if (true)
 #else
 #   define DEBUG_RV_NO_VERBOSE(x) ((void)0)

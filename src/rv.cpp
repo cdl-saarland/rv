@@ -29,6 +29,7 @@
 #include "rv/vectorizationInfo.h"
 #include "rv/analysis/DFG.h"
 #include "rv/analysis/maskAnalysis.h"
+#include "rv/analysis/reductionAnalysis.h"
 
 #include "rv/transform/Linearizer.h"
 
@@ -166,6 +167,9 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
     vea.analyze(scalarFn);
   man.analyze(scalarFn);
     abaAnalysis.analyze(scalarFn);
+
+    ReductionAnalysis reda(vectorizationInfo.getScalarFunction(), loopInfo);
+    reda.analyze();
 }
 
 MaskAnalysis*
