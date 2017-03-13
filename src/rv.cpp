@@ -168,8 +168,6 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
   man.analyze(scalarFn);
     abaAnalysis.analyze(scalarFn);
 
-    ReductionAnalysis reda(vectorizationInfo.getScalarFunction(), loopInfo);
-    reda.analyze();
 }
 
 MaskAnalysis*
@@ -216,10 +214,13 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
 }
 
 bool
-VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree)
+VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree, const LoopInfo & loopInfo)
 {
   StructOpt sopt(vecInfo, platInfo.getDataLayout());
   sopt.run();
+
+  ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
+  reda.analyze();
 
 // vectorize with native
 //    native::NatBuilder natBuilder(platInfo, vecInfo, domTree);
@@ -227,7 +228,7 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
   legacy::FunctionPassManager fpm(vecInfo.getScalarFunction().getParent());
   fpm.add(new MemoryDependenceAnalysis());
   fpm.add(new ScalarEvolutionWrapperPass());
-  fpm.add(new NativeBackendPass(&vecInfo, &platInfo, &domTree));
+  fpm.add(new NativeBackendPass(&vecInfo, &platInfo, &domTree, &reda));
   fpm.doInitialization();
   fpm.run(vecInfo.getScalarFunction());
   fpm.doFinalization();

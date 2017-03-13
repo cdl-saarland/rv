@@ -31,13 +31,14 @@ NatBuilder::getShape(const Value & val) {
 
 NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
                        const DominatorTree &dominatorTree, MemoryDependenceAnalysis &memDepAnalysis,
-                       ScalarEvolution &SE) :
+                       ScalarEvolution &SE, ReductionAnalysis & _reda) :
     builder(vectorizationInfo.getMapping().vectorFn->getContext()),
     platformInfo(platformInfo),
     vectorizationInfo(vectorizationInfo),
     dominatorTree(dominatorTree),
     memDepAnalysis(memDepAnalysis),
     SE(SE),
+    reda(_reda),
     layout(vectorizationInfo.getScalarFunction().getParent()),
     i1Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),

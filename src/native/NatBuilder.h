@@ -25,6 +25,8 @@
 
 namespace rv {
   class Region;
+  class ReductionAnalysis;
+  class Reduction;
 }
 
 namespace native {
@@ -40,6 +42,7 @@ namespace native {
     const llvm::DominatorTree &dominatorTree;
     llvm::MemoryDependenceAnalysis &memDepAnalysis;
     llvm::ScalarEvolution &SE;
+    rv::ReductionAnalysis & reda;
 
     llvm::DataLayout layout;
 
@@ -56,7 +59,7 @@ namespace native {
   public:
     NatBuilder(rv::PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
                const llvm::DominatorTree &dominatorTree, llvm::MemoryDependenceAnalysis &memDepAnalysis,
-               llvm::ScalarEvolution &SE);
+               llvm::ScalarEvolution &SE, rv::ReductionAnalysis & _reda);
 
     void vectorize();
 

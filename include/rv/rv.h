@@ -81,7 +81,7 @@ public:
      * Produce vectorized instructions
      */
     bool
-    vectorize(VectorizationInfo &vecInfo, const llvm::DominatorTree &domTree);
+    vectorize(VectorizationInfo &vecInfo, const llvm::DominatorTree &domTree, const llvm::LoopInfo & loopInfo);
 
     /*
      * Ends the vectorization process on this function, removes metadata and

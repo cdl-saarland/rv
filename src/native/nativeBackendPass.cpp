@@ -26,13 +26,13 @@ namespace rv {
 
   }
 
-  NativeBackendPass::NativeBackendPass(VectorizationInfo *vi, PlatformInfo *pi, DominatorTree const *domTree)
-      : FunctionPass(ID),
-        vi(vi),
-        pi(pi),
-        domTree(domTree) {
-
-  }
+  NativeBackendPass::NativeBackendPass(VectorizationInfo *vi, PlatformInfo *pi, DominatorTree const *domTree, ReductionAnalysis * _reda)
+  : FunctionPass(ID)
+  , vi(vi)
+  , pi(pi)
+  , domTree(domTree)
+  , reda(_reda)
+  {}
 
   NativeBackendPass::~NativeBackendPass() {}
 
@@ -79,7 +79,7 @@ namespace rv {
     assert((vecInfo.getRegion() ||
                (!vecInfo.getRegion() && (vecInfo.getMapping().scalarFn != vecInfo.getMapping().vectorFn)))
                && "scalar function and simd function must not be the same");
-    native::NatBuilder builder(platformInfo, vecInfo, dtree, mda, se);
+    native::NatBuilder builder(platformInfo, vecInfo, dtree, mda, se, *reda);
     builder.vectorize();
 
     return true;

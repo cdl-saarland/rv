@@ -43,8 +43,12 @@ ReductionAnalysis::ReductionAnalysis(Function & _func, const LoopInfo & _loopInf
 , loopInfo(_loopInfo)
 {}
 
-ReductionAnalysis::~ReductionAnalysis()
-{}
+ReductionAnalysis::~ReductionAnalysis() {
+  for (auto itRed : reductMap) {
+    delete itRed.second;
+  }
+}
+
 
 Constant *
 ReductionAnalysis::inferNeutralElement(Instruction & reductInst) {

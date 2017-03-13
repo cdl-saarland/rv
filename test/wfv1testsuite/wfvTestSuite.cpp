@@ -136,7 +136,7 @@ inferTargetMapping(Function * scalarFn, Function * simdFn, uint vectorWidth, int
         (void) linearizeOk; \
         assert(linearizeOk); \
 	    DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn); \
-        bool vectorizeOk = wfv.vectorize(vecInfo, domTreeNew); \
+        bool vectorizeOk = wfv.vectorize(vecInfo, domTreeNew, loopInfo); \
         (void) vectorizeOk; \
         assert(vectorizeOk); \
         wfv.finalize(vecInfo); \
@@ -228,7 +228,7 @@ inferTargetMapping(Function * scalarFn, Function * simdFn, uint vectorWidth, int
         (void) linearizeOk; \
         assert(linearizeOk); \
         DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn); \
-        bool vectorizeOk = wfv.vectorize(vecInfo, domTreeNew); \
+        bool vectorizeOk = wfv.vectorize(vecInfo, domTreeNew, loopInfo); \
         (void) vectorizeOk; \
         assert(vectorizeOk); \
         wfv.finalize(vecInfo); \

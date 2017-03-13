@@ -13,17 +13,20 @@
 
 namespace rv {
 
+class ReductionAnalysis;
+
 // wrapper pass for Montadas NaTIVE backend
   class NativeBackendPass : public llvm::FunctionPass {
     VectorizationInfo *vi;
     PlatformInfo *pi;
     DominatorTree const *domTree;
+    ReductionAnalysis * reda;
 
   public:
     static char ID;
 
     NativeBackendPass();
-    NativeBackendPass(VectorizationInfo *vi, PlatformInfo *pi, DominatorTree const *domTree);
+    NativeBackendPass(VectorizationInfo *vi, PlatformInfo *pi, DominatorTree const *domTree, ReductionAnalysis * _reda);
 
     ~NativeBackendPass();
 
