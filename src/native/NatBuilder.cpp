@@ -21,6 +21,8 @@
 #include "rvConfig.h"
 #include "ShuffleBuilder.h"
 
+#define IF_DEBUG_NAT IF_DEBUG
+
 using namespace native;
 using namespace llvm;
 using namespace rv;
@@ -1532,8 +1534,11 @@ void NatBuilder::addValuesToPHINodes() {
     unsigned loopEnd = replicate ? vectorWidth() : 1;
 
     auto *red = reda.getReductionInfo(*scalPhi);
-    if (shape.isVarying() && red) {
+
+    bool isVectorLoopHeader = region && &region->getRegionEntry() == scalPhi->getParent();
+    if (isVectorLoopHeader && shape.isVarying() && red) {
       // reduction phi handling
+      IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
       materializeReduction(*red);
 
     } else {
