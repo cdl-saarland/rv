@@ -141,7 +141,7 @@ VectorizerInterface::addIntrinsics() {
 }
 
 void
-VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
+VectorizerInterface::analyze(VectorizationInfo& vecInfo,
                              const CDG& cdg,
                              const DFG& dfg,
                              const LoopInfo& loopInfo,
@@ -149,21 +149,21 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
                              const DominatorTree& domTree)
 {
     VectorizationAnalysis vea(platInfo,
-                                  vectorizationInfo,
+                                  vecInfo,
                                   cdg,
                                   dfg,
                                   loopInfo,
                                   domTree, postDomTree);
 
-    MandatoryAnalysis man(vectorizationInfo, loopInfo, cdg);
+    MandatoryAnalysis man(vecInfo, loopInfo, cdg);
 
     ABAAnalysis abaAnalysis(platInfo,
-                            vectorizationInfo,
+                            vecInfo,
                             loopInfo,
                             postDomTree,
                             domTree);
 
-    auto & scalarFn = vectorizationInfo.getScalarFunction();
+    auto & scalarFn = vecInfo.getScalarFunction();
     vea.analyze(scalarFn);
   man.analyze(scalarFn);
     abaAnalysis.analyze(scalarFn);
@@ -171,10 +171,10 @@ VectorizerInterface::analyze(VectorizationInfo& vectorizationInfo,
 }
 
 MaskAnalysis*
-VectorizerInterface::analyzeMasks(VectorizationInfo& vectorizationInfo, const LoopInfo& loopinfo)
+VectorizerInterface::analyzeMasks(VectorizationInfo& vecInfo, const LoopInfo& loopinfo)
 {
-    MaskAnalysis* maskAnalysis = new MaskAnalysis(platInfo, vectorizationInfo, loopinfo);
-    maskAnalysis->analyze(vectorizationInfo.getScalarFunction());
+    MaskAnalysis* maskAnalysis = new MaskAnalysis(platInfo, vecInfo, loopinfo);
+    maskAnalysis->analyze(vecInfo.getScalarFunction());
     return maskAnalysis;
 }
 
@@ -188,26 +188,26 @@ VectorizerInterface::generateMasks(VectorizationInfo& vecInfo,
 }
 
 bool
-VectorizerInterface::linearizeCFG(VectorizationInfo& vectorizationInfo,
+VectorizerInterface::linearizeCFG(VectorizationInfo& vecInfo,
                                   MaskAnalysis& maskAnalysis,
                                   LoopInfo& loopInfo,
                                   DominatorTree& domTree)
 {
     // use a fresh domtree here
-    DominatorTree fixedDomTree(vectorizationInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
-    domTree.recalculate(vectorizationInfo.getScalarFunction());
-    Linearizer linearizer(vectorizationInfo, maskAnalysis, fixedDomTree, loopInfo);
+    DominatorTree fixedDomTree(vecInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
+    domTree.recalculate(vecInfo.getScalarFunction());
+    Linearizer linearizer(vecInfo, maskAnalysis, fixedDomTree, loopInfo);
 
     IF_DEBUG {
       errs() << "--- VecInfo before Linearizer ---\n";
-      vectorizationInfo.dump();
+      vecInfo.dump();
     }
 
     linearizer.run();
 
     IF_DEBUG {
       errs() << "--- VecInfo after Linearizer ---\n";
-      vectorizationInfo.dump();
+      vecInfo.dump();
     }
 
     return true;
