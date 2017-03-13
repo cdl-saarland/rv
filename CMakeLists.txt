@@ -36,7 +36,6 @@ SET ( LLVM_TOOL_CLANGPP "${LLVM_PLATFORM_TOOLS_PATH}/clang++" )
 ### configure build ###
 SET ( PACKAGE_VERSION "2.0" )
 SET ( CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "limited config" FORCE )
-SET ( VECTOR_ISA "avx" CACHE STRING "Select target vector ISA: avx, neon" )
 
 IF ( NOT CMAKE_BUILD_TYPE )
     SET ( CMAKE_BUILD_TYPE Debug CACHE STRING "Debug or Release" FORCE )
