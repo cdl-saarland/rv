@@ -21,3 +21,5 @@ bin/**
 
 .ycm_extra_conf.py
 clang_complete
+
+amd/*
