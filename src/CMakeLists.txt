@@ -38,11 +38,10 @@ FILE ( GLOB CPP_GLOBAL          *.cpp )
 FILE ( GLOB CPP_UTILS           utils/*.cpp )
 FILE ( GLOB CPP_ANALYSIS        analysis/*.cpp )
 FILE ( GLOB REGIONS             region/*.cpp )
-FILE ( GLOB PDA                 pda/*.cpp )
 FILE ( GLOB TRANSFORMS          transform/*.cpp )
 FILE ( GLOB OPT_PASSES pass/*.cpp )
 
-SET ( RV_SOURCE_FILES ${CPP_GLOBAL} ${CPP_UTILS} ${CPP_ANALYSIS} ${REGIONS} ${RV} ${PDA} ${NATIVE_CPP} ${OPT_PASSES} ${TRANSFORMS} ../include/rv/analysis/MandatoryAnalysis.h analysis/MandatoryAnalysis.cpp)
+SET ( RV_SOURCE_FILES ${CPP_GLOBAL} ${CPP_UTILS} ${CPP_ANALYSIS} ${REGIONS} ${NATIVE_CPP} ${OPT_PASSES} ${TRANSFORMS} )
 
 # create libRV
 INCLUDE ( rv-shared )
@@ -62,8 +61,6 @@ SET ( CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE )
 # public headers
 FILE ( GLOB RV_INCLUDES_RV "${RV_GLOBAL_INCLUDES}/rv/*.h" )
 INSTALL ( FILES ${RV_INCLUDES_RV} DESTINATION ${PROJ_INCLUDE_DIR}/rv )
-FILE ( GLOB RV_INCLUDES_RV_PDA "${RV_GLOBAL_INCLUDES}/rv/pda/*.h" )
-INSTALL ( FILES ${RV_INCLUDES_RV_PDA} DESTINATION ${PROJ_INCLUDE_DIR}/rv/pda )
 FILE ( GLOB RV_INCLUDES_RV_ANALYSIS "${RV_GLOBAL_INCLUDES}/rv/analysis/*.h" )
 INSTALL ( FILES ${RV_INCLUDES_RV_ANALYSIS} DESTINATION ${PROJ_INCLUDE_DIR}/rv/analysis )
 FILE ( GLOB RV_INCLUDES_RV_REGION "${RV_GLOBAL_INCLUDES}/rv/Region/*.h" )
@@ -79,30 +76,12 @@ INSTALL ( TARGETS ${LIBRARY_NAME} LIBRARY DESTINATION lib)
 
 # make rvTestSuite
 SET ( RV_TEST_PATH "${PROJ_ROOT_DIR}/test" )
-SET ( RV_TESTSUITE_PATH "${RV_TEST_PATH}/wfv1testsuite" )
-
-SET ( RV_TESTSUITE_NAME "wfvTestSuite" )
-SET ( TESTSUITE_SOURCE_FILES ${RV_TESTSUITE_PATH}/wfvTestSuite.cpp )
 
 IF ( APPLE )
     SET ( STD_LIB "-std=c++11" "-stdlib=libstdc++" )
 ENDIF ()
 
 INCLUDE_DIRECTORIES ( ${RV_TEST_PATH}/include )
-ADD_EXECUTABLE ( ${RV_TESTSUITE_NAME} ${TESTSUITE_SOURCE_FILES} )
-TARGET_LINK_LIBRARIES ( ${RV_TESTSUITE_NAME} ${LLVM_LIBRARIES} ${LIBRARY_NAME} )
-
-IF( VECTOR_ISA  STREQUAL "avx")
-    SET ( TEST_VEC_FLAG "-msse4.2" )
-    # AVX-only test cases
-    SET ( TEST_SUITE_TESTS1 "${RV_TESTSUITE_PATH}/wfvTests.bc" )
-    ADD_CUSTOM_COMMAND (
-        OUTPUT ${TEST_SUITE_TESTS1}
-        COMMAND ${LLVM_TOOL_CLANGPP} ${STD_LIB} ${RV_TESTSUITE_PATH}/wfvTests.cpp  -c -emit-llvm -Wall ${TEST_VEC_FLAG} -o ${RV_TESTSUITE_PATH}/wfvTests.bc
-    )
-  ADD_CUSTOM_TARGET ( wfvTest1 DEPENDS ${TEST_SUITE_TESTS1} )
-  ADD_DEPENDENCIES ( ${RV_TESTSUITE_NAME} wfvTest1 )
-ENDIF ()
 
 #TODO: clion workaround for install target. remove before release
 add_custom_target(install_${PROJECT_NAME}
