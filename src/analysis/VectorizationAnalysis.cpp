@@ -232,6 +232,7 @@ void VectorizationAnalysis::init(Function& F) {
       else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
         // Only makes sense if a value is returned
         if (call->getCalledFunction()->getReturnType()->isVoidTy()) continue;
+        if (call->getNumArgOperands() != 0) continue;
 
         mWorklist.push(&I);
         IF_DEBUG_VA errs() << "Inserted call in initialization: " << I.getName() << "\n";
@@ -402,18 +403,27 @@ void VectorizationAnalysis::eraseUserInfoRecursively(const Value* V) {
 }
 
 void VectorizationAnalysis::addRelevantUsersToWL(const Value* V) {
-  for (auto user : V->users()) {
+  for (const auto user : V->users()) {
+    if (!isa<Instruction>(user)) continue;
+    const Instruction* inst = cast<Instruction>(user);
+
     // We are only analyzing the region
-    if (!isInRegion(*cast<Instruction>(user))) continue;
+    if (!isInRegion(*inst)) continue;
 
     // Ignore calls without return value
-    if (const CallInst* callI = dyn_cast<CallInst>(user)) {
+    if (const CallInst* callI = dyn_cast<CallInst>(inst)) {
       if (callI->getCalledFunction()->getReturnType()->isVoidTy()) {
         continue;
       }
     }
 
-    mWorklist.push(cast<Instruction>(user));
+    auto isUndef = [&](Value* v) {
+      return !isa<BasicBlock>(v) && !isa<Function>(v) && !getShape(v).isDefined();
+    };
+
+    if (!isa<PHINode>(inst) && any_of(inst->operands(), isUndef)) continue;
+
+    mWorklist.push(inst);
     IF_DEBUG_VA errs() << "Inserted relevant user of " << V->getName() << ":" << *user << "\n";
   }
 }
@@ -477,12 +487,6 @@ void VectorizationAnalysis::compute(Function& F) {
     mWorklist.pop();
 
     IF_DEBUG_VA { errs() << "# next: " << *I << "\n"; }
-
-    // Skip until all operands have a shape
-    if (!isa<PHINode>(I) && !allOperandsHaveShape(I)) {
-      mWorklist.push(I); // re-visit after PHI nodes have been updated
-      continue;
-    }
 
     VectorShape New = computeShapeForInst(I);
 

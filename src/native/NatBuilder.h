@@ -25,6 +25,8 @@
 
 namespace rv {
   class Region;
+  class ReductionAnalysis;
+  class Reduction;
 }
 
 namespace native {
@@ -40,6 +42,7 @@ namespace native {
     const llvm::DominatorTree &dominatorTree;
     llvm::MemoryDependenceResults & memDepRes;
     llvm::ScalarEvolution &SE;
+    rv::ReductionAnalysis & reda;
 
     llvm::DataLayout layout;
 
@@ -53,10 +56,14 @@ namespace native {
 
     rv::VectorShape getShape(const Value & val);
 
+    // generate reduction code (after all other instructions have been vectorized)
+    void materializeReduction(rv::Reduction & red);
+    llvm::Value& materializeVectorReduce(llvm::IRBuilder<> & builder, llvm::Value & phiInitVal, llvm::Value & vecVal, llvm::Instruction & reduceOp);
+
   public:
     NatBuilder(rv::PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
                const llvm::DominatorTree &dominatorTree, llvm::MemoryDependenceResults &memDepRes,
-               llvm::ScalarEvolution &SE);
+               llvm::ScalarEvolution &SE, rv::ReductionAnalysis & _reda);
 
     void vectorize();
 
@@ -114,6 +121,7 @@ namespace native {
     BasicBlockVector &getAllBasicBlocksFor(llvm::BasicBlock *basicBlock);
 
     llvm::Value *createPTest(llvm::Value *vector, bool isRv_all);
+    llvm::Value *maskInactiveLanes(llvm::Value *const value, const BasicBlock* const block, bool invert);
 
     unsigned vectorWidth();
 

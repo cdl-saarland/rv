@@ -16,8 +16,12 @@
 #include "Utils.h"
 
 
+#include "rv/analysis/reductionAnalysis.h"
+
 #include "rvConfig.h"
 #include "ShuffleBuilder.h"
+
+#define IF_DEBUG_NAT IF_DEBUG
 
 using namespace native;
 using namespace llvm;
@@ -31,13 +35,14 @@ NatBuilder::getShape(const Value & val) {
 
 NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
                        const DominatorTree &dominatorTree, MemoryDependenceResults &_memDepRes,
-                       ScalarEvolution &SE) :
+                       ScalarEvolution &SE, ReductionAnalysis & _reda) :
     builder(vectorizationInfo.getMapping().vectorFn->getContext()),
     platformInfo(platformInfo),
     vectorizationInfo(vectorizationInfo),
     dominatorTree(dominatorTree),
     memDepRes(_memDepRes),
     SE(SE),
+    reda(_reda),
     layout(vectorizationInfo.getScalarFunction().getParent()),
     i1Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
@@ -448,7 +453,7 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
 
   Value *reduction;
   if (shape.isVarying()) {
-    Value *vecPredicate = requestVectorValue(predicate);
+    Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
     reduction = createPTest(vecPredicate, isRv_all);
   } else {
     reduction = requestScalarValue(predicate);
@@ -498,7 +503,7 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
   assert((vecWidth == 4 || vecWidth == 8) && "rv_ballot only supports SSE and AVX instruction sets");
 
 // non-uniform arg
-  auto * vecVal = requestVectorValue(condArg);
+  auto * vecVal = maskInactiveLanes(requestVectorValue(condArg), rvCall->getParent(), false);
   auto * intVecTy = VectorType::get(i32Ty, vecWidth);
 
   auto * extVal = builder.CreateSExt(vecVal, intVecTy, "rv_ballot");
@@ -1412,6 +1417,108 @@ llvm::Value *NatBuilder::createPTest(llvm::Value *vector, bool isRv_all) {
   return ptest;
 }
 
+llvm::Value *NatBuilder::maskInactiveLanes(llvm::Value *const value, const BasicBlock* const block, bool invert) {
+    auto pred = requestVectorValue(vectorizationInfo.getPredicate(*block));
+    if (invert) {
+        return builder.CreateOr(value, builder.CreateNot(pred));
+    } else {
+        return builder.CreateAnd(value, pred);
+    }
+}
+
+Value&
+NatBuilder::materializeVectorReduce(IRBuilder<> & builder, Value & initVal, Value & vecVal, Instruction & reductOp) {
+  Value * accu = &initVal;
+  for (int i = 0; i < vectorizationInfo.getVectorWidth(); ++i) {
+    auto * laneVal = builder.CreateExtractElement(&vecVal, i, "red_ext");
+
+    Instruction * copy = reductOp.clone();
+    copy->setOperand(0, accu);
+    copy->setOperand(1, laneVal);
+    builder.Insert(copy, "red");
+    accu = copy;
+  }
+
+  return *accu;
+}
+
+void
+NatBuilder::materializeReduction(Reduction & red) {
+  const int vectorWidth = vectorizationInfo.getVectorWidth();
+  auto * vecPhi = cast<PHINode>(getVectorValue(&red.phi));
+
+// infer (mapped) initial value
+  auto & scalInitVal = red.getInitValue();
+  auto & phiInitVal = scalInitVal; // FIXME only valid in input-out-of-region case
+
+// construct new (vectorized) initial value
+  Value * vecNeutral = ConstantVector::getSplat(vectorWidth, &red.neutralElem);
+
+  BasicBlock * vecInitInputBlock = red.phi.getIncomingBlock(red.initInputIndex);
+  BasicBlock * vecLoopInputBlock = cast<BasicBlock>(getVectorValue(red.phi.getIncomingBlock(red.loopInputIndex)));
+
+// attach inputs (neutral elem and reduction inst)
+  vecPhi->addIncoming(vecNeutral, vecInitInputBlock);
+  vecPhi->addIncoming(getVectorValue(&red.getReductInst()), vecLoopInputBlock);
+
+  auto & reductInst = red.getReductInst();
+  auto & vecReductInst = *cast<Instruction>(getVectorValue(&reductInst));
+
+// reduce reduction phi for outside users
+  for (auto & use : red.phi.uses()) {
+    int opIdx = use.getOperandNo();
+    auto & userInst = cast<Instruction>(*use.getUser());
+
+    if (vectorizationInfo.inRegion(userInst)) {
+      continue; // regular remapping
+    }
+
+    auto * userPhi = dyn_cast<PHINode>(&userInst);
+    assert((!userPhi || (userPhi->getNumIncomingValues() == 1)) && "expected an LCSSA phi");
+
+    // otw, replace with reduced value
+    IRBuilder<> builder(userInst.getParent(), userInst.getIterator());
+    auto & reducedVector = materializeVectorReduce(builder, phiInitVal, *vecPhi, reductInst);
+
+    if (userPhi) {
+      // LCSSA phi (purge)
+      userPhi->replaceAllUsesWith(&reducedVector);
+      userPhi->eraseFromParent();
+
+    } else {
+      // regular use
+      userInst.setOperand(opIdx, &reducedVector);
+    }
+  }
+
+// reduct result of reduction operation for outside users
+  for (auto & use : reductInst.uses()) {
+    int opIdx = use.getOperandNo();
+    auto & userInst = cast<Instruction>(*use.getUser());
+
+    if (vectorizationInfo.inRegion(userInst)) {
+      continue; // regular remapping
+    }
+
+    auto * userPhi = dyn_cast<PHINode>(&userInst);
+    assert((!userPhi || (userPhi->getNumIncomingValues() == 1)) && "expected an LCSSA phi");
+
+    // otw, replace with reduced value
+    IRBuilder<> builder(userInst.getParent(), userInst.getIterator());
+    auto & reducedVector = materializeVectorReduce(builder, phiInitVal, vecReductInst, reductInst);
+
+    if (userPhi) {
+      // LCSSA phi (purge)
+      userPhi->replaceAllUsesWith(&reducedVector);
+      userPhi->eraseFromParent();
+
+    } else {
+      // regular use
+      userInst.setOperand(opIdx, &reducedVector);
+    }
+  }
+}
+
 void NatBuilder::addValuesToPHINodes() {
   // save current insertion point before continuing
 //  auto IB = builder.GetInsertBlock();
@@ -1426,17 +1533,28 @@ void NatBuilder::addValuesToPHINodes() {
     bool replicate = shape.isVarying() && (scalType->isVectorTy() || scalType->isStructTy());
     unsigned loopEnd = replicate ? vectorWidth() : 1;
 
-    for (unsigned lane = 0; lane < loopEnd; ++lane) {
-      PHINode *phi = cast<PHINode>(
-          !shape.isVarying() || replicate ? getScalarValue(scalPhi, lane) : getVectorValue(scalPhi));
-      for (unsigned i = 0; i < scalPhi->getNumIncomingValues(); ++i) {
-        // set insertion point to before Terminator of incoming block
-        BasicBlock *incVecBlock = cast<BasicBlock>(getVectorValue(scalPhi->getIncomingBlock(i), true));
-        builder.SetInsertPoint(incVecBlock->getTerminator());
+    auto *red = reda.getReductionInfo(*scalPhi);
 
-        Value *val = !shape.isVarying() || replicate ? requestScalarValue(scalPhi->getIncomingValue(i), lane)
-                                                     : requestVectorValue(scalPhi->getIncomingValue(i));
-        phi->addIncoming(val, incVecBlock);
+    bool isVectorLoopHeader = region && &region->getRegionEntry() == scalPhi->getParent();
+    if (isVectorLoopHeader && shape.isVarying() && red) {
+      // reduction phi handling
+      IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
+      materializeReduction(*red);
+
+    } else {
+      // default phi handling
+      for (unsigned lane = 0; lane < loopEnd; ++lane) {
+        PHINode *phi = cast<PHINode>(
+            !shape.isVarying() || replicate ? getScalarValue(scalPhi, lane) : getVectorValue(scalPhi));
+        for (unsigned i = 0; i < scalPhi->getNumIncomingValues(); ++i) {
+          // set insertion point to before Terminator of incoming block
+          BasicBlock *incVecBlock = cast<BasicBlock>(getVectorValue(scalPhi->getIncomingBlock(i), true));
+          builder.SetInsertPoint(incVecBlock->getTerminator());
+
+          Value *val = !shape.isVarying() || replicate ? requestScalarValue(scalPhi->getIncomingValue(i), lane)
+                                                       : requestVectorValue(scalPhi->getIncomingValue(i));
+          phi->addIncoming(val, incVecBlock);
+        }
       }
     }
   }

@@ -1640,13 +1640,26 @@ Linearizer::cleanup() {
   }
 }
 
+int
+Linearizer::getLeastIndex(const BasicBlock & block) const {
+  if (hasIndex(block)) return getIndex(block);
+  int leastIndex = -1;
+
+  for (auto * predBlock : predecessors(&block)) {
+    if (hasIndex(*predBlock)) {
+      leastIndex = std::max<>(leastIndex, getIndex(*predBlock));
+    }
+  }
+
+  assert (leastIndex > -1 && "has no indexed predecessors!");
+
+  return leastIndex;
+}
+
 void
 Linearizer::fixSSA() {
   for (auto & block : func) {
     if (!inRegion(block)) continue;
-
-    if (!hasIndex(block)) continue;
-    int blockIdx = getIndex(block);
 
     DenseMap<Instruction*, Value*> promotionCache;
 
@@ -1669,7 +1682,7 @@ Linearizer::fixSSA() {
 
           assert(hasIndex(defBlock));
 
-          int defIndex = getIndex(defBlock);
+          int defIndex = getLeastIndex(defBlock);
 
           auto & fixedDef = promoteDefinition(*inInst, *UndefValue::get(inInst->getType()), defIndex, *inBlock);
 
@@ -1689,9 +1702,7 @@ Linearizer::fixSSA() {
       // check if this chain was broken
         if (dt.dominates(&defParent, &block)) continue;
 
-        assert(hasIndex(defParent) && "dont consciously break SSA in the linearizer");
-
-        int defBlockIdx = getIndex(defParent);
+        int defBlockIdx = getLeastIndex(defParent);
 
       // do we have a cached definition available?
         Value * fixedDef = nullptr;
@@ -1700,7 +1711,7 @@ Linearizer::fixSSA() {
           fixedDef = itCachedDef->second;
         } else {
           // if not, promote the definition down to this use
-          auto & promotedDef = promoteDefinition(*opInst, *UndefValue::get(opInst->getType()), defBlockIdx, blockIdx);
+          auto & promotedDef = promoteDefinition(*opInst, *UndefValue::get(opInst->getType()), defBlockIdx, block);
           promotionCache[opInst] = &promotedDef;
           fixedDef = &promotedDef;
         }
@@ -1708,6 +1719,22 @@ Linearizer::fixSSA() {
         inst.setOperand(opIdx, fixedDef);
       }
     }
+
+    // promote predicates
+    auto * blockPred = vecInfo.getPredicate(block);
+    if (!blockPred) continue;
+    auto * predInst = dyn_cast<Instruction>(blockPred);
+    if (!predInst) continue;
+
+    auto & predDefBlock = *predInst->getParent();
+    if (dt.dominates(&predDefBlock, &block)) continue;
+
+    int defBlockIdx = getLeastIndex(predDefBlock);
+
+    auto * boolTy = Type::getInt1Ty(predInst->getContext());
+    auto & promotedDef = promoteDefinition(*predInst, *Constant::getNullValue(boolTy), defBlockIdx, block);
+
+    vecInfo.setPredicate(block, promotedDef);
   }
 }
 
