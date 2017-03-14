@@ -19,7 +19,6 @@ The current version of libRV requires LLVM 4.0.
 Products:
 - liRV.so // main library
 - bin/rvTool // command line vectorizer
-- bin/wfvTestsuite // legacy test suite
 
 
 -- Testing libRV --

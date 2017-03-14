@@ -46,10 +46,5 @@ WFV test launchers should return with an error code if there is a mismatch betwe
 Outer-loop test launchers should print a hash code of the output buffers on stdot: test_rv will compare these to decide whether the test passed.
 
 
--- Legacy Whole-Function Vectorizer test suite --
-libRV still ships with the old testsuite for WFV, which has been ported to work with the new RV interface.
-This is because not all of the old tests have been ported to the new test_rv based test driver yet.
-
-
 -- General remarks --
 The vectorizer loop in outer-loop tests must be a plain 0, .., n-1 loop or rvTool will not recognize it.
