@@ -315,6 +315,8 @@ namespace rv {
 
     inline bool hasIndex(const llvm::BasicBlock & block) const { return blockIndex.count(&block); }
     inline int getIndex(const llvm::BasicBlock & block) const { return blockIndex.at(&block); }
+    /// the highest index of @block s predecessors
+    int getLeastIndex(const BasicBlock & block) const;
     BasicBlock & getBlock(unsigned i) { assert(i < relays.size()); return relays[i].head; }
     const BasicBlock & getBlock(unsigned i) const { assert(i < relays.size()); return relays[i].head; }
     int getNumBlocks() const { return (int) relays.size(); }
