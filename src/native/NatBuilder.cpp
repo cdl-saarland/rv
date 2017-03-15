@@ -142,10 +142,16 @@ void NatBuilder::vectorize() {
 
   // remove old region
   for (auto *oldBB : oldBlocks) {
-    oldBB->dropAllReferences();
-  }
-  for (auto *oldBB : oldBlocks) {
-    oldBB->eraseFromParent();
+    new UnreachableInst(oldBB->getContext(), oldBB);
+    while (oldBB->size() > 1) {
+      auto I = oldBB->begin();
+      if (!I->getType()->isVoidTy())
+        I->replaceAllUsesWith(UndefValue::get(I->getType()));
+      I->eraseFromParent();
+    }
+    // TODO: LoopInfo (probably) keeps an asserting handle on the old loop
+    //       header. Remove the old loop first!
+    // oldBB->eraseFromParent();
   }
 }
 
