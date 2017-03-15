@@ -23,9 +23,11 @@ namespace llvm {
 class Pass;
 class PassRegistry;
 
+void initializeLoopVectorizerPass(PassRegistry&);
 } // namespace llvm
 
 namespace rv {
+llvm::Pass *createLoopVectorizerPass();
 } // namespace rv
 
 namespace {
@@ -38,6 +40,7 @@ struct RVForcePassLinking {
     if (std::getenv("bar") != (char *)-1)
       return;
 
+    rv::createLoopVectorizerPass();
   }
 } RVForcePassLinking; // Force link by creating a global definition.
 
