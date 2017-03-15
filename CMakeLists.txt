@@ -83,7 +83,7 @@ SET ( SLEEF_BC_SSE_DP "${PROJ_ROOT_DIR}/sleefsrc/sse_sleef_dp.bc" )
 
 SET ( RV_LIB_SLEEF_OUT_DIR "${PROJ_ROOT_DIR}/sleefsrc" )
 
-IF (IS_DIRECTORY ${RV_LIB_SLEEF_DIR})
+IF (ENABLE_SLEEF AND IS_DIRECTORY ${RV_LIB_SLEEF_DIR})
   MESSAGE("-- SLEEF sources found: ${SLEEF_DIR}")
   ADD_CUSTOM_TARGET ( libsleef_x64 DEPENDS ${SLEEF_BC_AVX2_SP} ${SLEEF_BC_AVX_SP} ${SLEEF_BC_SSE_SP} ${SLEEF_BC_AVX2_DP} ${SLEEF_BC_AVX_DP} ${SLEEF_BC_SSE_DP} )
 
@@ -114,7 +114,7 @@ IF (IS_DIRECTORY ${RV_LIB_SLEEF_DIR})
   )
   ADD_DEPENDENCIES ( ${LIBRARY_NAME} libsleef_x64 )
 ELSE()
-  Message(FATAL_ERROR "Did not find sleef sources")
+  Message("-- Buildling without SLEEF.")
 ENDIF ()
 
 
