@@ -19,6 +19,8 @@
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
 
+#include "rvConfig.h"
+
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -107,8 +109,8 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE) {
   if (!canAdjustTripCount(L, SE, VectorWidth, TripCount))
     return false;
 
-  errs() << "Vectorize " << L.getName() << " with VW: " << VectorWidth
-         << " and TC: " << TripCount << "\n";
+  IF_DEBUG { errs() << "Vectorize " << L.getName() << " with VW: " << VectorWidth
+         << " and TC: " << TripCount << "\n"; }
 
   BasicBlock *ExitingBlock = L.getExitingBlock();
   Function &F = *ExitingBlock->getParent();
@@ -157,7 +159,7 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE) {
   // configure initial shape for induction variable
   auto *header = L.getHeader();
   PHINode *xPhi = cast<PHINode>(&*header->begin());
-  errs() << "Vectorizing loop with induction variable " << *xPhi << "\n";
+  IF_DEBUG { errs() << "Vectorizing loop with induction variable " << *xPhi << "\n"; }
   vecInfo.setVectorShape(*xPhi, VectorShape::cont(VectorWidth));
 
   // configure exit condition to be non-divergent in any case
@@ -174,7 +176,7 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE) {
   // mask analysis
   auto *maskAnalysis = vectorizer.analyzeMasks(vecInfo, LI);
   assert(maskAnalysis);
-  maskAnalysis->print(errs(), &M);
+  IF_DEBUG { maskAnalysis->print(errs(), &M); }
 
   // mask generator
   bool genMaskOk = vectorizer.generateMasks(vecInfo, *maskAnalysis, LI);
@@ -214,7 +216,7 @@ bool LoopVectorizer::vectorizeLoopOrSubLoops(Loop &L, ScalarEvolution &SE) {
 }
 
 bool LoopVectorizer::runOnFunction(Function &F) {
-  errs() << "LV run on " << F.getName() << "\n";
+  IF_DEBUG { errs() << "LV run on " << F.getName() << "\n"; }
   bool Changed = false;
   auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   auto &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
