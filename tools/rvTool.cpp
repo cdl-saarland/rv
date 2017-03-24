@@ -23,6 +23,7 @@
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
+#include <rv/analysis/reductionAnalysis.h>
 
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Scalar.h"
@@ -110,33 +111,17 @@ GetInitValue(Loop& loop, PHINode& phi)
     return nullptr;
 }
 
-static bool
-AdjustStride(Loop& loop, PHINode& phi, uint vectorWidth)
+static int
+AdjustStride(Instruction& increment, uint vectorWidth)
 {
-    Instruction* increment = nullptr;
-    for (uint i = 0; i < phi.getNumIncomingValues(); ++i)
-    {
-        auto* inVal = phi.getIncomingValue(i);
-        auto* inInst = dyn_cast<Instruction>(inVal);
-        if (!inInst || !loop.contains(inInst->getParent()))
-        {
-            continue;
-        }
-        if (!inInst || (inInst->getOpcode() != Instruction::Add))
-        { continue; }
-        increment = inInst;
-        break;
-    }
-
     // bump up loop increment to vector width
-    if (!increment) fail("could not identify increment add in vectorized loop.");
-    uint constPos = isa<Constant>(increment->getOperand(1)) ? 1 : 0;
-    auto* incStep = cast<ConstantInt>(increment->getOperand(constPos));
-    if (incStep->getLimitedValue() != 1) fail("increment != +1 currently unsupported!");
-    auto* vectorIncStep = ConstantInt::getSigned(incStep->getType(), vectorWidth);
-    increment->setOperand(constPos, vectorIncStep);
+    uint constPos = isa<Constant>(increment.getOperand(1)) ? 1 : 0;
+    auto* incStep = cast<ConstantInt>(increment.getOperand(constPos));
+    int oldinc = incStep->getLimitedValue();
+    auto* vectorIncStep = ConstantInt::getSigned(incStep->getType(), oldinc * vectorWidth);
+    increment.setOperand(constPos, vectorIncStep);
 
-    return true;
+    return oldinc;
 }
 
 void
@@ -167,13 +152,28 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     const bool useImpreciseFunctions = false;
     addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
 
-    // configure initial shape for induction variable
+    rv::ReductionAnalysis reductionAnalysis(parentFn, loopInfo);
+    reductionAnalysis.analyze();
+
+    // configure initial shape for induction variable(s)
     auto* header = loop.getHeader();
-    PHINode* xPhi = cast<PHINode>(&*header->begin());
-    auto* xPhiInit = GetInitValue(loop, *xPhi);
-    errs() << "Vectorizing loop with induction variable " << *xPhi << "\n";
-    vecInfo.setVectorShape(*xPhi, rv::VectorShape::cont(vectorWidth));
-    vecInfo.setVectorShape(*xPhiInit, rv::VectorShape::cont(vectorWidth));
+    for (auto it = header->begin(); &*it != header->getFirstNonPHI(); ++it) {
+        PHINode& phi = cast<PHINode>(*it);
+        rv::Reduction* reduction = reductionAnalysis.getReductionInfo(phi);
+
+        Instruction& reductinst = reduction->getReductInst();
+
+        if (reductinst.getOpcode() == BinaryOperator::Add &&
+            (isa<ConstantInt>(reductinst.getOperand(0)) ||
+             isa<ConstantInt>(reductinst.getOperand(1))))
+        {
+            int oldinc = AdjustStride(reductinst, vectorWidth);
+            errs() << "Vectorizing loop with induction variable " << phi << "\n";
+            vecInfo.setVectorShape(phi, rv::VectorShape::strided(oldinc, vectorWidth));
+        } else {
+            vecInfo.setVectorShape(phi, rv::VectorShape::varying(vectorWidth));
+        }
+    }
 
     // configure exit condition to be non-divergent in any case
     auto* exitBlock = loop.getExitingBlock();
@@ -181,9 +181,6 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     vecInfo.setVectorShape(*exitBlock->getTerminator(), rv::VectorShape::uni());
     vecInfo.setVectorShape(*cast<BranchInst>(exitBlock->getTerminator())->getOperand(0),
                            rv::VectorShape::uni());
-
-    bool matched = AdjustStride(loop, *xPhi, vectorWidth);
-    if (!matched) fail("could not match ++i loop pattern");
 
     rv::VectorizerInterface vectorizer(platformInfo);
 
