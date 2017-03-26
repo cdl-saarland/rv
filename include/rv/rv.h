@@ -87,7 +87,7 @@ public:
      * Ends the vectorization process on this function, removes metadata and
      * writes the function to a file
      */
-    void finalize(VectorizationInfo & vecInfo);
+    void finalize();
 
 private:
     PlatformInfo platInfo;

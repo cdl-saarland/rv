@@ -94,7 +94,7 @@ int LoopVectorizer::getVectorWidth(Loop &L, ScalarEvolution &SE) {
   return -1;
 }
 
-bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE) {
+bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInterface & vectorizer) {
   if (!canVectorizeLoop(L))
     return false;
 
@@ -127,9 +127,13 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE) {
 
   VectorMapping targetMapping(&F, &F, VectorWidth);
 
-  auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   auto &PDT = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
+  auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+
+  // rebuild dominator info
+  DT.recalculate(F);
+  PDT.recalculate(F);
 
   //DT.verifyDomTree();
   //LI.verify(DT);
@@ -147,15 +151,6 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE) {
 
   VectorizationInfo vecInfo(F, VectorWidth, LoopRegion);
 
-  FunctionAnalysisManager fam;
-  ModuleAnalysisManager mam;
-
-  TargetIRAnalysis irAnalysis;
-  TargetTransformInfo tti = irAnalysis.run(F, fam);
-  TargetLibraryAnalysis libAnalysis;
-  TargetLibraryInfo tli = libAnalysis.run(*F.getParent(), mam);
-  PlatformInfo platformInfo(M, &tti, &tli);
-
   // configure initial shape for induction variable
   auto *header = L.getHeader();
   PHINode *xPhi = cast<PHINode>(&*header->begin());
@@ -168,7 +163,6 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE) {
       //*cast<BranchInst>(ExitingTI)->getOperand(0),
       //VectorShape::uni());
 
-  VectorizerInterface vectorizer(platformInfo);
 
   // vectorizationAnalysis
   vectorizer.analyze(vecInfo, cdg, dfg, LI, PDT, DT);
@@ -184,10 +178,10 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE) {
     llvm_unreachable("mask generation failed.");
 
   // control conversion
-  //bool linearizeOk =
-      //vectorizer.linearizeCFG(vecInfo, *maskAnalysis, LI, DT);
-  //if (!linearizeOk)
-    //llvm_unreachable("linearization failed.");
+  bool linearizeOk =
+      vectorizer.linearizeCFG(vecInfo, *maskAnalysis, LI, DT);
+  if (!linearizeOk)
+    llvm_unreachable("linearization failed.");
 
   const DominatorTree domTreeNew(
       *vecInfo.getMapping().scalarFn); // Control conversion does not preserve
@@ -197,20 +191,17 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE) {
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
 
-  // cleanup
-  vectorizer.finalize(vecInfo);
-
   delete maskAnalysis;
   return true;
 }
 
-bool LoopVectorizer::vectorizeLoopOrSubLoops(Loop &L, ScalarEvolution &SE) {
-  if (vectorizeLoop(L, SE))
+bool LoopVectorizer::vectorizeLoopOrSubLoops(Loop &L, ScalarEvolution &SE, VectorizerInterface & vectorizer) {
+  if (vectorizeLoop(L, SE, vectorizer))
     return true;
 
   bool Changed = false;
   for (Loop* SubL : L)
-    Changed |= vectorizeLoopOrSubLoops(*SubL, SE);
+    Changed |= vectorizeLoopOrSubLoops(*SubL, SE, vectorizer);
 
   return Changed;
 }
@@ -221,8 +212,24 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   auto &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
 
+
+  FunctionAnalysisManager fam;
+  ModuleAnalysisManager mam;
+
+  TargetIRAnalysis irAnalysis;
+  TargetTransformInfo tti = irAnalysis.run(F, fam);
+  TargetLibraryAnalysis libAnalysis;
+  TargetLibraryInfo tli = libAnalysis.run(*F.getParent(), mam);
+  PlatformInfo platformInfo(*F.getParent(), &tti, &tli);
+  VectorizerInterface vectorizer(platformInfo);
+
   for (Loop *L : LI)
-    Changed |= vectorizeLoopOrSubLoops(*L, SE);
+    Changed |= vectorizeLoopOrSubLoops(*L, SE, vectorizer);
+
+  // cleanup
+  // if (Changed) {
+    vectorizer.finalize();
+  // }
 
   return Changed;
 }

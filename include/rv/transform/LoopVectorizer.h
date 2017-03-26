@@ -22,6 +22,8 @@ class PostDominatorTree;
 
 namespace rv {
 
+class VectorizerInterface;
+
 class LoopVectorizer : public llvm::FunctionPass {
 public:
   static char ID;
@@ -41,8 +43,8 @@ private:
   int getTripCount(llvm::Loop &L, llvm::ScalarEvolution &SE);
   int getVectorWidth(llvm::Loop &L, llvm::ScalarEvolution &SE);
 
-  bool vectorizeLoop(llvm::Loop &L, llvm::ScalarEvolution &SE);
-  bool vectorizeLoopOrSubLoops(llvm::Loop &L, llvm::ScalarEvolution &SE);
+  bool vectorizeLoop(llvm::Loop &L, llvm::ScalarEvolution &SE, VectorizerInterface &);
+  bool vectorizeLoopOrSubLoops(llvm::Loop &L, llvm::ScalarEvolution &SE, VectorizerInterface &);
 };
 
 } // namespace rv

@@ -211,7 +211,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     if (!vectorizeOk) fail("vector code generation failed");
 
     // cleanup
-    vectorizer.finalize(vecInfo);
+    vectorizer.finalize();
 
     delete maskAnalysis;
 }
@@ -340,7 +340,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     if (!vectorizeOk) fail("vector code generation failed.");
 
     // cleanup
-    vectorizer.finalize(vecInfo);
+    vectorizer.finalize();
 
     delete maskAnalysis;
     scalarCopy->eraseFromParent();
