@@ -41,7 +41,7 @@ IF ( NOT CMAKE_BUILD_TYPE )
     SET ( CMAKE_BUILD_TYPE Debug CACHE STRING "Debug or Release" FORCE )
 ENDIF ()
 
-SET ( PROJ_ROOT_DIR    ${CMAKE_CURRENT_SOURCE_DIR} )
+SET ( PROJ_ROOT_DIR    ${PROJECT_SOURCE_DIR} )
 SET ( PROJ_SOURCE_DIR  ${PROJ_ROOT_DIR}/src )
 
 SET ( PROJ_BINARY_DIR  "bin" )
@@ -68,53 +68,5 @@ ADD_SUBDIRECTORY ( ${PROJ_SOURCE_DIR} )
 SET ( RVTOOL_SOURCE_DIR  ${PROJ_ROOT_DIR}/tools )
 ADD_SUBDIRECTORY( ${RVTOOL_SOURCE_DIR} )
 
-# Sleef lib
-SET ( SLEEF_DIR "${PROJ_ROOT_DIR}/sleef" CACHE STRING "Path to libsleef sources" FORCE )
-SET ( RV_LIB_SLEEF_DIR "${SLEEF_DIR}/simd" )
-SET ( RV_LIB_SLEEF_OUT_DIR "${PROJ_ROOT_DIR}/sleefsrc" )
-
-SET ( SLEEF_BC_AVX2_SP "${PROJ_ROOT_DIR}/sleefsrc/avx2_sleef_sp.bc" )
-SET ( SLEEF_BC_AVX_SP "${PROJ_ROOT_DIR}/sleefsrc/avx_sleef_sp.bc" )
-SET ( SLEEF_BC_SSE_SP "${PROJ_ROOT_DIR}/sleefsrc/sse_sleef_sp.bc" )
-
-SET ( SLEEF_BC_AVX2_DP "${PROJ_ROOT_DIR}/sleefsrc/avx2_sleef_dp.bc" )
-SET ( SLEEF_BC_AVX_DP "${PROJ_ROOT_DIR}/sleefsrc/avx_sleef_dp.bc" )
-SET ( SLEEF_BC_SSE_DP "${PROJ_ROOT_DIR}/sleefsrc/sse_sleef_dp.bc" )
-
-SET ( RV_LIB_SLEEF_OUT_DIR "${PROJ_ROOT_DIR}/sleefsrc" )
-
-IF (ENABLE_SLEEF AND IS_DIRECTORY ${RV_LIB_SLEEF_DIR})
-  MESSAGE("-- SLEEF sources found: ${SLEEF_DIR}")
-  ADD_CUSTOM_TARGET ( libsleef_x64 DEPENDS ${SLEEF_BC_AVX2_SP} ${SLEEF_BC_AVX_SP} ${SLEEF_BC_SSE_SP} ${SLEEF_BC_AVX2_DP} ${SLEEF_BC_AVX_DP} ${SLEEF_BC_SSE_DP} )
-
-  SET( RVLIB_BUILD_OPTS -O3 )
-  ADD_CUSTOM_COMMAND (
-          OUTPUT ${SLEEF_BC_AVX2_SP}
-          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -march=haswell -mavx2 -mfma -DENABLE_AVX2=ON -o ${SLEEF_BC_AVX2_SP}
-  )
-  ADD_CUSTOM_COMMAND (
-          OUTPUT ${SLEEF_BC_AVX_SP}
-          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -mavx -DENABLE_AVX=ON -o ${SLEEF_BC_AVX_SP}
-  )
-  ADD_CUSTOM_COMMAND (
-          OUTPUT ${SLEEF_BC_SSE_SP}
-          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${SLEEF_BC_SSE_SP}
-  )
-  ADD_CUSTOM_COMMAND (
-          OUTPUT ${SLEEF_BC_AVX2_DP}
-          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -march=haswell -mavx2 -mfma -DENABLE_AVX2=ON -o ${SLEEF_BC_AVX2_DP}
-  )
-  ADD_CUSTOM_COMMAND (
-          OUTPUT ${SLEEF_BC_AVX_DP}
-          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -mavx -DENABLE_AVX=ON -o ${SLEEF_BC_AVX_DP}
-  )
-  ADD_CUSTOM_COMMAND (
-          OUTPUT ${SLEEF_BC_SSE_DP}
-          COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR} && ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${SLEEF_BC_SSE_DP}
-  )
-  ADD_DEPENDENCIES ( ${LIBRARY_NAME} libsleef_x64 )
-ELSE()
-  Message("-- Buildling without SLEEF.")
-ENDIF ()
-
-
+# vector math libraries
+ADD_SUBDIRECTORY( ${PROJ_ROOT_DIR}/vecmath )
