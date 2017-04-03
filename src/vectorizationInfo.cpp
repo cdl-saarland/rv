@@ -23,6 +23,11 @@ namespace rv
 {
 
 bool
+VectorizationInfo::inRegion(const BasicBlock & block) const {
+  return !region || region->contains(&block);
+}
+
+bool
 VectorizationInfo::inRegion(const Instruction & inst) const {
   return !region || region->contains(inst.getParent());
 }
@@ -45,7 +50,7 @@ VectorizationInfo::dump(const Value * val) const {
   if (!val) return;
 
   auto * block = dyn_cast<const BasicBlock>(val);
-  if (block) {
+  if (block && inRegion(*block)) {
     dumpBlockInfo(*block);
   }
 

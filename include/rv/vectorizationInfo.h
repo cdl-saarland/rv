@@ -52,6 +52,7 @@ class VectorizationInfo
 
 public:
     bool inRegion(const llvm::Instruction & inst) const;
+    bool inRegion(const llvm::BasicBlock & block) const;
 
     Region* getRegion() const
     {
