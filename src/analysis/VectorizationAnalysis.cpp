@@ -177,13 +177,21 @@ void VectorizationAnalysis::init(Function& F) {
 
   // Initialize with undefined values
   for (auto& arg : F.args()) mValue2Shape[&arg] = VectorShape::undef();
-  for (auto& BB : F) for (auto& I : BB) mValue2Shape[&I] = VectorShape::undef();
+
+  // initialize all insts in region(!) as undef
+  for (auto& BB : F) {
+    if (mVecinfo.inRegion(BB)) {
+       for (auto& I : BB) {
+         mValue2Shape[&I] = VectorShape::undef();
+       }
+    }
+  }
 
   // bootstrap with user defined shapes
   for (auto& BB : F) {
     for (auto& I : BB) {
       if (mVecinfo.hasKnownShape(I)) {
-        errs() << "OVERRIDE " << I << " shape " << mVecinfo.getVectorShape(I).str() << "\n";
+        IF_DEBUG_VA errs() << "OVERRIDE " << I << " shape " << mVecinfo.getVectorShape(I).str() << "\n";
         overrides.insert(&I);
         update(&I, mVecinfo.getVectorShape(I));
         mVecinfo.dropVectorShape(I);
@@ -291,7 +299,7 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
     // Doesn't matter if already effected previously
     if (mValue2Shape[BB].isVarying()) continue;
 
-    IF_DEBUG errs() << "Branch " << *branch << " affects " << *BB << "\n";
+    IF_DEBUG_VA errs() << "Branch " << *branch << " affects " << *BB << "\n";
 
     assert (isInRegion(*BB)); // Otherwise the region is ill-formed
 
@@ -409,8 +417,6 @@ void VectorizationAnalysis::addRelevantUsersToWL(const Value* V) {
     if (!isa<Instruction>(user)) continue;
     const Instruction* inst = cast<Instruction>(user);
 
-    IF_DEBUG_VA errs() << " User " << *inst << "\n";
-
     // We are only analyzing the region
     if (!isInRegion(*inst)) continue;
 
@@ -422,7 +428,6 @@ void VectorizationAnalysis::addRelevantUsersToWL(const Value* V) {
     }
 
     auto isUndef = [&](Value* v) {
-      IF_DEBUG_VA errs() << " - test " << v->getName() << " shape " << getShape(v).str() << "\n";
       return !isa<BasicBlock>(v) && !isa<Function>(v) && !getShape(v).isDefined();
     };
 
@@ -972,9 +977,10 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
 }
 
 VectorShape VectorizationAnalysis::getShape(const Value* const V) {
-  errs() << "--- getShape " << *V << "\n";
   auto found = mValue2Shape.find(V), end = mValue2Shape.end();
-  if (found != end) return found->second;
+  if (found != end) {
+    return found->second;
+  }
 
 #if 0
   if (isa<GlobalValue>(V)) return VectorShape::uni(0);
