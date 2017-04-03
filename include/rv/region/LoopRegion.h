@@ -38,6 +38,7 @@ public:
     bool contains(const BasicBlock* BB) const override;
     BasicBlock& getRegionEntry() const override;
     void getEndingBlocks(SmallPtrSet<BasicBlock*, 2>& endingBlocks) const override;
+    std::string str() const;
 };
 
 } // namespace rv

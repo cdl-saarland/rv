@@ -33,6 +33,7 @@ public:
     BasicBlock& getRegionEntry() const;
     void getEndingBlocks(SmallPtrSet<BasicBlock*, 2>& endingBlocks) const;
     void print(llvm::raw_ostream & ) const {}
+    std::string str() const;
 
     void add(const llvm::BasicBlock & extra) {
       extraBlocks.insert(&extra);
