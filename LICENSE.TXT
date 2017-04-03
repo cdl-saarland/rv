@@ -60,5 +60,4 @@ licenses, and/or restrictions:
 
 Program             Directory
 -------             ---------
-SLEEF SIMD library  sleef
-RV SIMD library     rvlibsrc
+SLEEF SIMD library  vecmath/sleef
