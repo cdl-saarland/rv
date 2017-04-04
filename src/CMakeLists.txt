@@ -1,5 +1,5 @@
 # SET ( SLEEF_LIB_PATH "${CMAKE_BINARY_DIR}/rvlib.bc" CACHE FILEPATH "Wfv libary path" )
-SET ( RV_SLEEF_BC_DIR "${PROJ_ROOT_DIR}/vecmath/sleefsrc" )
+SET ( RV_SLEEF_BC_DIR "${CMAKE_BINARY_DIR}/lib" )
 # SET ( RV_LIB_MATH_DIR "${RV_LIB_DIR}/mathfun" )
 
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")

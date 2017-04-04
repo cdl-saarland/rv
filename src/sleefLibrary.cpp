@@ -15,141 +15,216 @@
 
 #include "utils/rvTools.h"
 
-#define SLEEF_FILES RV_SLEEF_BC_DIR
-#define SLEEF_AVX2_SP SLEEF_FILES"/avx2_sleef_sp.bc"
-#define SLEEF_AVX_SP SLEEF_FILES"/avx_sleef_sp.bc"
-#define SLEEF_SSE_SP SLEEF_FILES"/sse_sleef_sp.bc"
-#define SLEEF_AVX2_DP SLEEF_FILES"/avx2_sleef_dp.bc"
-#define SLEEF_AVX_DP SLEEF_FILES"/avx_sleef_dp.bc"
-#define SLEEF_SSE_DP SLEEF_FILES"/sse_sleef_dp.bc"
-
 using namespace llvm;
 
-static Module const *avx2ModSP, *avxModSP, *sseModSP;
-static Module const *avx2ModDP, *avxModDP, *sseModDP;
-
 namespace rv {
-  bool addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2, PlatformInfo &platformInfo,
-                          bool useImpreciseFunctions) {
+  enum SleefISA {
+    SLEEF_AVX2 = 0,
+    SLEEF_AVX  = 1,
+    SLEEF_SSE  = 2
+  };
+
+  inline int sleefModuleIndex(SleefISA isa, bool doublePrecision) {
+    return int(isa) + (doublePrecision ? 3 : 0);
+  }
+
+  static const char* sleefModuleNames[] = {
+    RV_SLEEF_BC_DIR"/avx2_sleef_sp.bc",
+    RV_SLEEF_BC_DIR"/avx_sleef_sp.bc",
+    RV_SLEEF_BC_DIR"/sse_sleef_sp.bc",
+    RV_SLEEF_BC_DIR"/avx2_sleef_dp.bc",
+    RV_SLEEF_BC_DIR"/avx_sleef_dp.bc",
+    RV_SLEEF_BC_DIR"/sse_sleef_dp.bc"
+  };
+  static Module const *sleefModules[3 * 2];
+
+  bool addSleefMappings(const bool useSSE,
+                        const bool useAVX,
+                        const bool useAVX2,
+                        PlatformInfo &platformInfo,
+                        bool useImpreciseFunctions) {
     if (useAVX2) {
       const VecDesc VecFuncs[] = {
-          {"atanf", "xatanf_avx2", 8},
-          {"asinf", "xasinf_avx2", 8},
-          {"acosf", "xacosf_avx2", 8},
-          {"sqrtf", "xsqrtf_avx2", 8},
-          {"tanhf", "xtanhf_avx2", 8},
-          {"atanhf", "xatanhf_avx2", 8},
-          {"exp2f", "xexp2f_avx2", 8},
-          {"exp10f", "xexp10f_avx2", 8},
-          {"expm1f", "xexpm1f_avx2", 8},
-          {"log10f", "xlog10f_avx2", 8},
-          {"log1pf", "xlog1pf_avx2", 8},
-          {"atan", "xatan_avx2", 4},
-          {"asin", "xasin_avx2", 4},
-          {"acos", "xacos_avx2", 4},
-          {"sqrt", "xsqrt_avx2", 4},
-          {"tanh", "xtanh_avx2", 4},
-          {"atanh", "xatanh_avx2", 4},
-          {"exp2", "xexp2_avx2", 4},
-          {"exp10", "xexp10_avx2", 4},
-          {"expm1", "xexpm1_avx2", 4},
-          {"log10", "xlog10_avx2", 4},
-          {"log1p", "xlog1p_avx2", 4}
+        {"atanf", "xatanf_avx2", 8},
+        {"asinf", "xasinf_avx2", 8},
+        {"acosf", "xacosf_avx2", 8},
+        {"sqrtf", "xsqrtf_avx2", 8},
+        {"tanhf", "xtanhf_avx2", 8},
+        {"atanhf", "xatanhf_avx2", 8},
+        {"exp2f", "xexp2f_avx2", 8},
+        {"exp10f", "xexp10f_avx2", 8},
+        {"expm1f", "xexpm1f_avx2", 8},
+        {"log10f", "xlog10f_avx2", 8},
+        {"log1pf", "xlog1pf_avx2", 8},
+        {"atan", "xatan_avx2", 4},
+        {"asin", "xasin_avx2", 4},
+        {"acos", "xacos_avx2", 4},
+        {"sqrt", "xsqrt_avx2", 4},
+        {"tanh", "xtanh_avx2", 4},
+        {"atanh", "xatanh_avx2", 4},
+        {"exp2", "xexp2_avx2", 4},
+        {"exp10", "xexp10_avx2", 4},
+        {"expm1", "xexpm1_avx2", 4},
+        {"log10", "xlog10_avx2", 4},
+        {"log1p", "xlog1p_avx2", 4},
+
+        {"llvm.sqrt.f32", "xsqrtf_avx2", 8},
+        {"llvm.exp2.f32", "xexp2f_avx2", 8},
+        {"llvm.log10.f32", "xlog10f_avx2", 8},
+        {"llvm.sqrt.f64", "xsqrt_avx2", 4},
+        {"llvm.exp2.f64", "xexp2_avx2", 4},
+        {"llvm.log10.f64", "xlog10_avx2", 4}
       };
       platformInfo.addVectorizableFunctions(VecFuncs);
 
       if (useImpreciseFunctions) {
         const VecDesc ImprecVecFuncs[] = {
-            {"ldexpf", "xldexpf_avx2", 8},
-            {"sinf", "xsinf_avx2", 8},
-            {"cosf", "xcosf_avx2", 8},
-            {"sincosf", "xsincosf_avx2", 8},
-            {"tanf", "xtanf_avx2", 8},
-            {"atan2f", "xatan2f_avx2", 8},
-            {"logf", "xlogf_avx2", 8},
-            {"expf", "xexpf_avx2", 8},
-            {"cbrtf", "xcbrtf_avx2", 8},
-            {"powf", "xpowf_avx2", 8},
-            {"sinhf", "xsinhf_avx2", 8},
-            {"coshf", "xcoshf_avx2", 8},
-            {"asinhf", "xasinhf_avx2", 8},
-            {"acoshf", "xacoshf_avx2", 8},
-            {"ldexp", "xldexp_avx2", 4},
-            {"sin", "xsin_avx2", 4},
-            {"cos", "xcos_avx2", 4},
-            {"sincos", "xsincos_avx2", 4},
-            {"tan", "xtan_avx2", 4},
-            {"atan2", "xatan2_avx2", 4},
-            {"log", "xlog_avx2", 4},
-            {"exp", "xexp_avx2", 4},
-            {"cbrt", "xcbrt_avx2", 4},
-            {"pow", "xpow_avx2", 4},
-            {"sinh", "xsinh_avx2", 4},
-            {"cosh", "xcosh_avx2", 4},
-            {"asinh", "xasinh_avx2", 4},
-            {"acosh", "xacosh_avx2", 4}
+          {"ldexpf", "xldexpf_avx2", 8},
+          {"sinf", "xsinf_avx2", 8},
+          {"cosf", "xcosf_avx2", 8},
+          {"sincosf", "xsincosf_avx2", 8},
+          {"tanf", "xtanf_avx2", 8},
+          {"atan2f", "xatan2f_avx2", 8},
+          {"logf", "xlogf_avx2", 8},
+          {"expf", "xexpf_avx2", 8},
+          {"cbrtf", "xcbrtf_avx2", 8},
+          {"powf", "xpowf_avx2", 8},
+          {"sinhf", "xsinhf_avx2", 8},
+          {"coshf", "xcoshf_avx2", 8},
+          {"asinhf", "xasinhf_avx2", 8},
+          {"acoshf", "xacoshf_avx2", 8},
+          {"ldexp", "xldexp_avx2", 4},
+          {"sin", "xsin_avx2", 4},
+          {"cos", "xcos_avx2", 4},
+          {"sincos", "xsincos_avx2", 4},
+          {"tan", "xtan_avx2", 4},
+          {"atan2", "xatan2_avx2", 4},
+          {"log", "xlog_avx2", 4},
+          {"exp", "xexp_avx2", 4},
+          {"cbrt", "xcbrt_avx2", 4},
+          {"pow", "xpow_avx2", 4},
+          {"sinh", "xsinh_avx2", 4},
+          {"cosh", "xcosh_avx2", 4},
+          {"asinh", "xasinh_avx2", 4},
+          {"acosh", "xacosh_avx2", 4},
+
+          {"llvm.sin.f32", "xsinf_avx2", 8},
+          {"llvm.cos.f32", "xcosf_avx2", 8},
+          {"llvm.tan.f32", "xtanf_avx2", 8},
+          {"llvm.log.f32", "xlogf_avx2", 8},
+          {"llvm.exp.f32", "xexpf_avx2", 8},
+          {"llvm.pow.f32", "xpowf_avx2", 8},
+          {"llvm.sin.f64", "xsin_avx2", 4},
+          {"llvm.cos.f64", "xcos_avx2", 4},
+          {"llvm.tan.f64", "xtan_avx2", 4},
+          {"llvm.log.f64", "xlog_avx2", 4},
+          {"llvm.exp.f64", "xexp_avx2", 4},
+          {"llvm.pow.f64", "xpow_avx2", 4}
         };
         platformInfo.addVectorizableFunctions(ImprecVecFuncs);
       }
     }
 
+    if (useAVX || useAVX2) {
+      const VecDesc VecFuncs[] = {
+        {"fabsf", "xfabsf_avx", 8},
+        {"copysignf", "xcopysignf_avx", 8},
+        {"fminf", "xfminf_avx", 8},
+        {"fmaxf", "xfmaxf_avx", 8},
+        {"fabs", "xfabs_avx", 4},
+        {"copysign", "xcopysign_avx", 4},
+        {"fmin", "xfmin_avx", 4},
+        {"fmax", "xfmax_avx", 4},
+
+        {"llvm.fabs.f32", "xfabsf_avx", 8},
+        {"llvm.copysign.f32", "xcopysignf_avx", 8},
+        {"llvm.minnum.f32", "xfminf_avx", 8},
+        {"llvm.maxnum.f32", "xfmaxf_avx", 8},
+        {"llvm.fabs.f64", "xfabs_avx", 4},
+        {"llvm.copysign.f64", "xcopysign_avx", 4},
+        {"llvm.minnum.f64", "xfmin_avx", 4},
+        {"llvm.maxnum.f64", "xfmax_avx", 4}
+      };
+      platformInfo.addVectorizableFunctions(VecFuncs);
+    }
+
     if (useAVX) {
       const VecDesc VecFuncs[] = {
-          {"atanf", "xatanf_avx", 8},
-          {"asinf", "xasinf_avx", 8},
-          {"acosf", "xacosf_avx", 8},
-          {"sqrtf", "xsqrtf_avx", 8},
-          {"tanhf", "xtanhf_avx", 8},
-          {"atanhf", "xatanhf_avx", 8},
-          {"exp2f", "xexp2f_avx", 8},
-          {"exp10f", "xexp10f_avx", 8},
-          {"expm1f", "xexpm1f_avx", 8},
-          {"log10f", "xlog10f_avx", 8},
-          {"log1pf", "xlog1pf_avx", 8},
-          {"atan", "xatan_avx", 4},
-          {"asin", "xasin_avx", 4},
-          {"acos", "xacos_avx", 4},
-          {"sqrt", "xsqrt_avx", 4},
-          {"tanh", "xtanh_avx", 4},
-          {"atanh", "xatanh_avx", 4},
-          {"exp2", "xexp2_avx", 4},
-          {"exp10", "xexp10_avx", 4},
-          {"expm1", "xexpm1_avx", 4},
-          {"log10", "xlog10_avx", 4},
-          {"log1p", "xlog1p_avx", 4}
+        {"atanf", "xatanf_avx", 8},
+        {"asinf", "xasinf_avx", 8},
+        {"acosf", "xacosf_avx", 8},
+        {"sqrtf", "xsqrtf_avx", 8},
+        {"tanhf", "xtanhf_avx", 8},
+        {"atanhf", "xatanhf_avx", 8},
+        {"exp2f", "xexp2f_avx", 8},
+        {"exp10f", "xexp10f_avx", 8},
+        {"expm1f", "xexpm1f_avx", 8},
+        {"log10f", "xlog10f_avx", 8},
+        {"log1pf", "xlog1pf_avx", 8},
+        {"atan", "xatan_avx", 4},
+        {"asin", "xasin_avx", 4},
+        {"acos", "xacos_avx", 4},
+        {"sqrt", "xsqrt_avx", 4},
+        {"tanh", "xtanh_avx", 4},
+        {"atanh", "xatanh_avx", 4},
+        {"exp2", "xexp2_avx", 4},
+        {"exp10", "xexp10_avx", 4},
+        {"expm1", "xexpm1_avx", 4},
+        {"log10", "xlog10_avx", 4},
+        {"log1p", "xlog1p_avx", 4},
+
+        {"llvm.sqrt.f32", "xsqrtf_avx", 8},
+        {"llvm.exp2.f32", "xexp2f_avx", 8},
+        {"llvm.log10.f32", "xlog10f_avx", 8},
+        {"llvm.sqrt.f64", "xsqrt_avx", 4},
+        {"llvm.exp2.f64", "xexp2_avx", 4},
+        {"llvm.log10.f64", "xlog10_avx", 4}
       };
       platformInfo.addVectorizableFunctions(VecFuncs);
 
       if (useImpreciseFunctions) {
         const VecDesc ImprecVecFuncs[] = {
-            {"ldexpf", "xldexpf_avx", 8},
-            {"sinf", "xsinf_avx", 8},
-            {"cosf", "xcosf_avx", 8},
-            {"sincosf", "xsincosf_avx", 8},
-            {"tanf", "xtanf_avx", 8},
-            {"atan2f", "xatan2f_avx", 8},
-            {"logf", "xlogf_avx", 8},
-            {"expf", "xexpf_avx", 8},
-            {"cbrtf", "xcbrtf_avx", 8},
-            {"powf", "xpowf_avx", 8},
-            {"sinhf", "xsinhf_avx", 8},
-            {"coshf", "xcoshf_avx", 8},
-            {"asinhf", "xasinhf_avx", 8},
-            {"acoshf", "xacoshf_avx", 8},
-            {"ldexp", "xldexp_avx", 4},
-            {"sin", "xsin_avx", 4},
-            {"cos", "xcos_avx", 4},
-            {"sincos", "xsincos_avx", 4},
-            {"tan", "xtan_avx", 4},
-            {"atan2", "xatan2_avx", 4},
-            {"log", "xlog_avx", 4},
-            {"exp", "xexp_avx", 4},
-            {"cbrt", "xcbrt_avx", 4},
-            {"pow", "xpow_avx", 4},
-            {"sinh", "xsinh_avx", 4},
-            {"cosh", "xcosh_avx", 4},
-            {"asinh", "xasinh_avx", 4},
-            {"acosh", "xacosh_avx", 4}
+          {"ldexpf", "xldexpf_avx", 8},
+          {"sinf", "xsinf_avx", 8},
+          {"cosf", "xcosf_avx", 8},
+          {"sincosf", "xsincosf_avx", 8},
+          {"tanf", "xtanf_avx", 8},
+          {"atan2f", "xatan2f_avx", 8},
+          {"logf", "xlogf_avx", 8},
+          {"expf", "xexpf_avx", 8},
+          {"cbrtf", "xcbrtf_avx", 8},
+          {"powf", "xpowf_avx", 8},
+          {"sinhf", "xsinhf_avx", 8},
+          {"coshf", "xcoshf_avx", 8},
+          {"asinhf", "xasinhf_avx", 8},
+          {"acoshf", "xacoshf_avx", 8},
+          {"ldexp", "xldexp_avx", 4},
+          {"sin", "xsin_avx", 4},
+          {"cos", "xcos_avx", 4},
+          {"sincos", "xsincos_avx", 4},
+          {"tan", "xtan_avx", 4},
+          {"atan2", "xatan2_avx", 4},
+          {"log", "xlog_avx", 4},
+          {"exp", "xexp_avx", 4},
+          {"cbrt", "xcbrt_avx", 4},
+          {"pow", "xpow_avx", 4},
+          {"sinh", "xsinh_avx", 4},
+          {"cosh", "xcosh_avx", 4},
+          {"asinh", "xasinh_avx", 4},
+          {"acosh", "xacosh_avx", 4},
+
+          {"llvm.sin.f32", "xsinf_avx", 8},
+          {"llvm.cos.f32", "xcosf_avx", 8},
+          {"llvm.tan.f32", "xtanf_avx", 8},
+          {"llvm.log.f32", "xlogf_avx", 8},
+          {"llvm.exp.f32", "xexpf_avx", 8},
+          {"llvm.pow.f32", "xpowf_avx", 8},
+          {"llvm.sin.f64", "xsin_avx", 4},
+          {"llvm.cos.f64", "xcos_avx", 4},
+          {"llvm.tan.f64", "xtan_avx", 4},
+          {"llvm.log.f64", "xlog_avx", 4},
+          {"llvm.exp.f64", "xexp_avx", 4},
+          {"llvm.pow.f64", "xpow_avx", 4}
         };
         platformInfo.addVectorizableFunctions(ImprecVecFuncs);
       }
@@ -157,61 +232,97 @@ namespace rv {
 
     if (useSSE || useAVX || useAVX2) {
       const VecDesc VecFuncs[] = {
-          {"atanf", "xatanf_sse", 4},
-          {"asinf", "xasinf_sse", 4},
-          {"acosf", "xacosf_sse", 4},
-          {"sqrtf", "xsqrtf_sse", 4},
-          {"tanhf", "xtanhf_sse", 4},
-          {"atanhf", "xatanhf_sse", 4},
-          {"exp2f", "xexp2f_sse", 4},
-          {"exp10f", "xexp10f_sse", 4},
-          {"expm1f", "xexpm1f_sse", 4},
-          {"log10f", "xlog10f_sse", 4},
-          {"log1pf", "xlog1pf_sse", 4},
-          {"atan", "xatan_sse", 2},
-          {"asin", "xasin_sse", 2},
-          {"acos", "xacos_sse", 2},
-          {"sqrt", "xsqrt_sse", 2},
-          {"tanh", "xtanh_sse", 2},
-          {"atanh", "xatanh_sse", 2},
-          {"exp2", "xexp2_sse", 2},
-          {"exp10", "xexp10_sse", 2},
-          {"expm1", "xexpm1_sse", 2},
-          {"log10", "xlog10_sse", 2},
-          {"log1p", "xlog1p_sse", 2}
+        {"atanf", "xatanf_sse", 4},
+        {"asinf", "xasinf_sse", 4},
+        {"acosf", "xacosf_sse", 4},
+        {"sqrtf", "xsqrtf_sse", 4},
+        {"tanhf", "xtanhf_sse", 4},
+        {"atanhf", "xatanhf_sse", 4},
+        {"exp2f", "xexp2f_sse", 4},
+        {"exp10f", "xexp10f_sse", 4},
+        {"expm1f", "xexpm1f_sse", 4},
+        {"log10f", "xlog10f_sse", 4},
+        {"log1pf", "xlog1pf_sse", 4},
+        {"fabsf", "xfabsf_sse", 4},
+        {"copysignf", "xcopysignf_sse", 4},
+        {"fminf", "xfminf_sse", 4},
+        {"fmaxf", "xfmaxf_sse", 4},
+        {"atan", "xatan_sse", 2},
+        {"asin", "xasin_sse", 2},
+        {"acos", "xacos_sse", 2},
+        {"sqrt", "xsqrt_sse", 2},
+        {"tanh", "xtanh_sse", 2},
+        {"atanh", "xatanh_sse", 2},
+        {"exp2", "xexp2_sse", 2},
+        {"exp10", "xexp10_sse", 2},
+        {"expm1", "xexpm1_sse", 2},
+        {"log10", "xlog10_sse", 2},
+        {"log1p", "xlog1p_sse", 2},
+        {"fabs", "xfabs_sse", 2},
+        {"copysign", "xcopysign_sse", 2},
+        {"fmin", "xfmin_sse", 2},
+        {"fmax", "xfmax_sse", 2},
+
+        {"llvm.sqrt.f32", "xsqrtf_sse", 4},
+        {"llvm.exp2.f32", "xexp2f_sse", 4},
+        {"llvm.log10.f32", "xlog10f_sse", 4},
+        {"llvm.fabs.f32", "xfabsf_sse", 4},
+        {"llvm.copysign.f32", "xcopysignf_sse", 4},
+        {"llvm.fmin.f32", "xfminf_sse", 4},
+        {"llvm.fmax.f32", "xfmaxf_sse", 4},
+        {"llvm.sqrt.f64", "xsqrt_sse", 2},
+        {"llvm.exp2.f64", "xexp2_sse", 2},
+        {"llvm.log10.f64", "xlog10_sse", 2},
+        {"llvm.fabs.f64", "xfabs_sse", 2},
+        {"llvm.copysign.f64", "xcopysign_sse", 2},
+        {"llvm.fmin.f64", "xfmin_sse", 2},
+        {"llvm.fmax.f64", "xfmax_sse", 2},
       };
       platformInfo.addVectorizableFunctions(VecFuncs);
 
       if (useImpreciseFunctions) {
         const VecDesc ImprecVecFuncs[] = {
-            {"ldexpf", "xldexpf_sse", 4},
-            {"sinf", "xsinf_sse", 4},
-            {"cosf", "xcosf_sse", 4},
-            {"sincosf", "xsincosf_sse", 4},
-            {"tanf", "xtanf_sse", 4},
-            {"atan2f", "xatan2f_sse", 4},
-            {"logf", "xlogf_sse", 4},
-            {"expf", "xexpf_sse", 4},
-            {"cbrtf", "xcbrtf_sse", 4},
-            {"powf", "xpowf_sse", 4},
-            {"sinhf", "xsinhf_sse", 4},
-            {"coshf", "xcoshf_sse", 4},
-            {"asinhf", "xasinhf_sse", 4},
-            {"acoshf", "xacoshf_sse", 4},
-            {"ldexp", "xldexp_sse", 2},
-            {"sin", "xsin_sse", 2},
-            {"cos", "xcos_sse", 2},
-            {"sincos", "xsincos_sse", 2},
-            {"tan", "xtan_sse", 2},
-            {"atan2", "xatan2_sse", 2},
-            {"log", "xlog_sse", 2},
-            {"exp", "xexp_sse", 2},
-            {"cbrt", "xcbrt_sse", 2},
-            {"pow", "xpow_sse", 2},
-            {"sinh", "xsinh_sse", 2},
-            {"cosh", "xcosh_sse", 2},
-            {"asinh", "xasinh_sse", 2},
-            {"acosh", "xacosh_sse", 2}
+          {"ldexpf", "xldexpf_sse", 4},
+          {"sinf", "xsinf_sse", 4},
+          {"cosf", "xcosf_sse", 4},
+          {"sincosf", "xsincosf_sse", 4},
+          {"tanf", "xtanf_sse", 4},
+          {"atan2f", "xatan2f_sse", 4},
+          {"logf", "xlogf_sse", 4},
+          {"expf", "xexpf_sse", 4},
+          {"cbrtf", "xcbrtf_sse", 4},
+          {"powf", "xpowf_sse", 4},
+          {"sinhf", "xsinhf_sse", 4},
+          {"coshf", "xcoshf_sse", 4},
+          {"asinhf", "xasinhf_sse", 4},
+          {"acoshf", "xacoshf_sse", 4},
+          {"ldexp", "xldexp_sse", 2},
+          {"sin", "xsin_sse", 2},
+          {"cos", "xcos_sse", 2},
+          {"sincos", "xsincos_sse", 2},
+          {"tan", "xtan_sse", 2},
+          {"atan2", "xatan2_sse", 2},
+          {"log", "xlog_sse", 2},
+          {"exp", "xexp_sse", 2},
+          {"cbrt", "xcbrt_sse", 2},
+          {"pow", "xpow_sse", 2},
+          {"sinh", "xsinh_sse", 2},
+          {"cosh", "xcosh_sse", 2},
+          {"asinh", "xasinh_sse", 2},
+          {"acosh", "xacosh_sse", 2},
+
+          {"llvm.sin.f32", "xsinf_sse", 4},
+          {"llvm.cos.f32", "xcosf_sse", 4},
+          {"llvm.tan.f32", "xtanf_sse", 4},
+          {"llvm.log.f32", "xlogf_sse", 4},
+          {"llvm.exp.f32", "xexpf_sse", 4},
+          {"llvm.pow.f32", "xpowf_sse", 4},
+          {"llvm.sin.f64", "xsin_sse", 2},
+          {"llvm.cos.f64", "xcos_sse", 2},
+          {"llvm.tan.f64", "xtan_sse", 2},
+          {"llvm.log.f64", "xlog_sse", 2},
+          {"llvm.exp.f64", "xexp_sse", 2},
+          {"llvm.pow.f64", "xpow_sse", 2}
         };
         platformInfo.addVectorizableFunctions(ImprecVecFuncs);
       }
@@ -259,46 +370,20 @@ namespace rv {
     Function *clonedFn = insertInto->getFunction(vecFuncName);
     if (clonedFn) return clonedFn;
 
-    // load module and function, copy function to insertInto, return copy
-    if (doublePrecision) {
-      if (vecFuncName.count("avx2")) { // avx2
-        if (!avx2ModDP) avx2ModDP = createModuleFromFile(SLEEF_AVX2_DP, context);
-        Function *vecFunc = avx2ModDP->getFunction("x" + funcName.str()); // sleef naming: xlog, xtan, xsin, etc
-        assert(vecFunc);
-        clonedFn = cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
+    // remove the trailing _avx2/_avx/_sse
+    auto sleefName = vecFuncName.substr(0, vecFuncName.find('_'));
 
-      } else if (vecFuncName.count("avx")) { // avx
-        if (!avxModDP) avxModDP = createModuleFromFile(SLEEF_AVX_DP, context);
-        Function *vecFunc = avxModDP->getFunction("x" + funcName.str());
-        assert(vecFunc);
-        clonedFn = cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
+    SleefISA isa;
+    if (vecFuncName.count("avx2"))     isa = SLEEF_AVX2;
+    else if (vecFuncName.count("avx")) isa = SLEEF_AVX;
+    else if (vecFuncName.count("sse")) isa = SLEEF_SSE;
+    else return nullptr;
 
-      } else if (vecFuncName.count("sse")) { // sse
-        if (!sseModDP) sseModDP = createModuleFromFile(SLEEF_SSE_DP, context);
-        Function *vecFunc = sseModDP->getFunction("x" + funcName.str());
-        assert(vecFunc);
-        clonedFn = cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
-      }
-    } else {
-      if (vecFuncName.count("avx2")) { // avx2
-        if (!avx2ModSP) avx2ModSP = createModuleFromFile(SLEEF_AVX2_SP, context);
-        Function *vecFunc = avx2ModSP->getFunction("x" + funcName.str()); // sleef naming: xlog, xtan, xsin, etc
-        assert(vecFunc);
-        clonedFn = cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
-
-      } else if (vecFuncName.count("avx")) { // avx
-        if (!avxModSP) avxModSP = createModuleFromFile(SLEEF_AVX_SP, context);
-        Function *vecFunc = avxModSP->getFunction("x" + funcName.str());
-        assert(vecFunc);
-        clonedFn = cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
-
-      } else if (vecFuncName.count("sse")) { // sse
-        if (!sseModSP) sseModSP = createModuleFromFile(SLEEF_SSE_SP, context);
-        Function *vecFunc = sseModSP->getFunction("x" + funcName.str());
-        assert(vecFunc);
-        clonedFn = cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
-      }
-    }
-    return clonedFn;
+    auto modIndex = sleefModuleIndex(isa, doublePrecision);
+    auto& mod = sleefModules[modIndex];
+    if (!mod) mod = createModuleFromFile(sleefModuleNames[modIndex], context);
+    Function *vecFunc = mod->getFunction(sleefName);
+    assert(vecFunc);
+    return cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
   }
 }
