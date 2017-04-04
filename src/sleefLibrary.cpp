@@ -110,13 +110,11 @@ namespace rv {
 
           {"llvm.sin.f32", "xsinf_avx2", 8},
           {"llvm.cos.f32", "xcosf_avx2", 8},
-          {"llvm.tan.f32", "xtanf_avx2", 8},
           {"llvm.log.f32", "xlogf_avx2", 8},
           {"llvm.exp.f32", "xexpf_avx2", 8},
           {"llvm.pow.f32", "xpowf_avx2", 8},
           {"llvm.sin.f64", "xsin_avx2", 4},
           {"llvm.cos.f64", "xcos_avx2", 4},
-          {"llvm.tan.f64", "xtan_avx2", 4},
           {"llvm.log.f64", "xlog_avx2", 4},
           {"llvm.exp.f64", "xexp_avx2", 4},
           {"llvm.pow.f64", "xpow_avx2", 4}
@@ -215,13 +213,11 @@ namespace rv {
 
           {"llvm.sin.f32", "xsinf_avx", 8},
           {"llvm.cos.f32", "xcosf_avx", 8},
-          {"llvm.tan.f32", "xtanf_avx", 8},
           {"llvm.log.f32", "xlogf_avx", 8},
           {"llvm.exp.f32", "xexpf_avx", 8},
           {"llvm.pow.f32", "xpowf_avx", 8},
           {"llvm.sin.f64", "xsin_avx", 4},
           {"llvm.cos.f64", "xcos_avx", 4},
-          {"llvm.tan.f64", "xtan_avx", 4},
           {"llvm.log.f64", "xlog_avx", 4},
           {"llvm.exp.f64", "xexp_avx", 4},
           {"llvm.pow.f64", "xpow_avx", 4}
@@ -313,13 +309,11 @@ namespace rv {
 
           {"llvm.sin.f32", "xsinf_sse", 4},
           {"llvm.cos.f32", "xcosf_sse", 4},
-          {"llvm.tan.f32", "xtanf_sse", 4},
           {"llvm.log.f32", "xlogf_sse", 4},
           {"llvm.exp.f32", "xexpf_sse", 4},
           {"llvm.pow.f32", "xpowf_sse", 4},
           {"llvm.sin.f64", "xsin_sse", 2},
           {"llvm.cos.f64", "xcos_sse", 2},
-          {"llvm.tan.f64", "xtan_sse", 2},
           {"llvm.log.f64", "xlog_sse", 2},
           {"llvm.exp.f64", "xexp_sse", 2},
           {"llvm.pow.f64", "xpow_sse", 2}
