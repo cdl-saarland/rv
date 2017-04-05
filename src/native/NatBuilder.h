@@ -40,7 +40,7 @@ namespace native {
     rv::PlatformInfo &platformInfo;
     rv::VectorizationInfo &vectorizationInfo;
     const llvm::DominatorTree &dominatorTree;
-    llvm::MemoryDependenceAnalysis &memDepAnalysis;
+    llvm::MemoryDependenceAnalysis & memDepRes;
     llvm::ScalarEvolution &SE;
     rv::ReductionAnalysis & reda;
 
@@ -62,7 +62,7 @@ namespace native {
 
   public:
     NatBuilder(rv::PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
-               const llvm::DominatorTree &dominatorTree, llvm::MemoryDependenceAnalysis &memDepAnalysis,
+               const llvm::DominatorTree &dominatorTree, llvm::MemoryDependenceAnalysis &memDepRes,
                llvm::ScalarEvolution &SE, rv::ReductionAnalysis & _reda);
 
     void vectorize();

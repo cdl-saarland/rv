@@ -10,6 +10,7 @@
 #include "MemoryAccessGrouper.h"
 
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
+#include <llvm/Analysis/MemoryDependenceAnalysis.h>
 
 using namespace llvm;
 using namespace native;

@@ -8,6 +8,7 @@
 // @author simon
 
 #include "rv/VectorizationInfoProxyPass.h"
+#include <llvm/Analysis/MemoryDependenceAnalysis.h>
 
 #include "NatBuilder.h"
 #include "nativeBackendPass.h"
@@ -70,7 +71,7 @@ namespace rv {
 
 // Get dominator tree and analyses
     auto &dtree = domTree ? *domTree : getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-    auto &mda = getAnalysis<MemoryDependenceAnalysis>();
+    auto &mdr = getAnalysis<MemoryDependenceAnalysis>();
     auto &se = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
 
 // invoke native
@@ -79,7 +80,7 @@ namespace rv {
     assert((vecInfo.getRegion() ||
                (!vecInfo.getRegion() && (vecInfo.getMapping().scalarFn != vecInfo.getMapping().vectorFn)))
                && "scalar function and simd function must not be the same");
-    native::NatBuilder builder(platformInfo, vecInfo, dtree, mda, se, *reda);
+    native::NatBuilder builder(platformInfo, vecInfo, dtree, mdr, se, *reda);
     builder.vectorize();
 
     return true;

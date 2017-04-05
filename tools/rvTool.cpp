@@ -17,7 +17,6 @@
 #include "llvm/IR/Constants.h"
 
 #include <llvm/IR/Module.h>
-#include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/IRReader/IRReader.h>
@@ -206,7 +205,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     if (!vectorizeOk) fail("vector code generation failed");
 
     // cleanup
-    vectorizer.finalize(vecInfo);
+    vectorizer.finalize();
 
     delete maskAnalysis;
 }
@@ -221,7 +220,7 @@ vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
     // build Analysis
     DominatorTree domTree(parentFn);
     PostDominatorTree postDomTree;
-    postDomTree.runOnFunction(parentFn);
+    postDomTree.DT->recalculate(parentFn);
     LoopInfo loopInfo(domTree);
 
     // Dominance Frontier Graph
@@ -297,7 +296,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     // build Analysis
     DominatorTree domTree(*scalarCopy);
     PostDominatorTree postDomTree;
-    postDomTree.runOnFunction(*scalarCopy);
+    postDomTree.DT->recalculate(*scalarCopy);
     LoopInfo loopInfo(domTree);
 
     // Dominance Frontier Graph
@@ -333,7 +332,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     if (!vectorizeOk) fail("vector code generation failed.");
 
     // cleanup
-    vectorizer.finalize(vecInfo);
+    vectorizer.finalize();
 
     delete maskAnalysis;
     scalarCopy->eraseFromParent();

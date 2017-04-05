@@ -15,6 +15,7 @@
 #include <llvm/IR/Dominators.h>
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Analysis/MemoryDependenceAnalysis.h>
 #include <rv/analysis/MandatoryAnalysis.h>
 
 #include "rv/rv.h"
@@ -189,25 +190,8 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
 }
 
 void
-VectorizerInterface::finalize(VectorizationInfo & vecInfo) {
-  const auto & scalarName = vecInfo.getScalarFunction().getName();
-  const auto & vecName = vecInfo.getVectorFunction().getName();
-
-  Function& finalFn = vecInfo.getVectorFunction();
-
-  assert (!finalFn.isDeclaration());
-
-  IF_DEBUG {
-    rv::writeFunctionToFile(finalFn, (finalFn.getName() + ".ll").str());
-  }
-
-  IF_DEBUG {
-    if (vecInfo.getRegion()) {
-      errs() << "### Region Vectorization in function '" << scalarName << "' SUCCESSFUL!\n";
-    } else {
-      errs() << "### Whole-Function Vectorization of function '" << scalarName << " into " << vecName << "' SUCCESSFUL!\n";
-    }
-  }
+VectorizerInterface::finalize() {
+  // TODO strip finalize
 }
 
 template <typename Impl>

@@ -296,6 +296,9 @@ Linearizer::verifyLoopIndex(Loop & loop) {
     verifyLoopIndex(*childLoop);
   }
 
+  // not part of region -> skip this loop
+  if (!inRegion(*loop.getHeader())) return;
+
   int startId = getNumBlocks(), endId = 0;
 
   for (auto * block : loop.blocks()) {

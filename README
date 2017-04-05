@@ -1,5 +1,5 @@
 
-                    The Region Vectorizer
+                    The Region Vectorizer (LLVM 4.0 version)
 
 Compiler Design Lab / Saarland University / Saarland Informatics Campus
 
@@ -15,7 +15,7 @@ For any questions, please get in touch with Simon Moll (moll@cs.uni-saarland.de)
 -- Buildling libRV --
 libRV uses cmake for its build system.
 cmake should be configured to build in the libRV root folder.
-The current version of libRV requires LLVM 3.8.
+The current version of libRV requires LLVM 4.0.
 Products:
 - liRV.so // main library
 - bin/rvTool // command line vectorizer

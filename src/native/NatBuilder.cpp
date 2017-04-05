@@ -34,13 +34,13 @@ NatBuilder::getShape(const Value & val) {
 }
 
 NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
-                       const DominatorTree &dominatorTree, MemoryDependenceAnalysis &memDepAnalysis,
+                       const DominatorTree &dominatorTree, MemoryDependenceAnalysis &_memDepRes,
                        ScalarEvolution &SE, ReductionAnalysis & _reda) :
     builder(vectorizationInfo.getMapping().vectorFn->getContext()),
     platformInfo(platformInfo),
     vectorizationInfo(vectorizationInfo),
     dominatorTree(dominatorTree),
-    memDepAnalysis(memDepAnalysis),
+    memDepRes(_memDepRes),
     SE(SE),
     reda(_reda),
     layout(vectorizationInfo.getScalarFunction().getParent()),
@@ -142,10 +142,16 @@ void NatBuilder::vectorize() {
 
   // remove old region
   for (auto *oldBB : oldBlocks) {
-    oldBB->dropAllReferences();
-  }
-  for (auto *oldBB : oldBlocks) {
-    oldBB->eraseFromParent();
+    new UnreachableInst(oldBB->getContext(), oldBB);
+    while (oldBB->size() > 1) {
+      auto I = oldBB->begin();
+      if (!I->getType()->isVoidTy())
+        I->replaceAllUsesWith(UndefValue::get(I->getType()));
+      I->eraseFromParent();
+    }
+    // TODO: LoopInfo (probably) keeps an asserting handle on the old loop
+    //       header. Remove the old loop first!
+    // oldBB->eraseFromParent();
   }
 }
 
@@ -705,9 +711,9 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   } else if (addrShape.isStrided()) {
     // group memory instructions based on their dependencies
     InstructionGrouper instructionGrouper;
-    instructionGrouper.add(inst, memDepAnalysis);
+    instructionGrouper.add(inst, memDepRes);
     for (Instruction *instr : lazyInstructions) {
-      instructionGrouper.add(instr, memDepAnalysis);
+      instructionGrouper.add(instr, memDepRes);
     }
     InstructionGroup instrGroup = instructionGrouper.getInstructionGroup(inst);
     if (instrGroup.size() > 1) {
