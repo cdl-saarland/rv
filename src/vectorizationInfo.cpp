@@ -23,6 +23,11 @@ namespace rv
 {
 
 bool
+VectorizationInfo::inRegion(const BasicBlock & block) const {
+  return !region || region->contains(&block);
+}
+
+bool
 VectorizationInfo::inRegion(const Instruction & inst) const {
   return !region || region->contains(inst.getParent());
 }
@@ -45,7 +50,7 @@ VectorizationInfo::dump(const Value * val) const {
   if (!val) return;
 
   auto * block = dyn_cast<const BasicBlock>(val);
-  if (block) {
+  if (block && inRegion(*block)) {
     dumpBlockInfo(*block);
   }
 
@@ -77,14 +82,10 @@ VectorizationInfo::dump() const
     llvm::raw_ostream& out = llvm::errs();
     out << "VectorizationInfo ";
 
-    if (region)
-    {
-        out << " for Region ";
-        region->print(out);
-        out << "\n";
+    if (region) {
+        out << " for Region " << region->str() << "\n";
     }
-    else
-    {
+    else {
         out << " for function " << mapping.scalarFn->getName() << "\n";
     }
 
@@ -120,15 +121,35 @@ VectorizationInfo::VectorizationInfo(VectorMapping _mapping)
 }
 
 bool
-VectorizationInfo::hasKnownShape(const llvm::Value& val) const
-{
-    return (bool) shapes.count(&val);
+VectorizationInfo::hasKnownShape(const llvm::Value& val) const {
+
+  // explicit shape annotation take precedence
+    if ((bool) shapes.count(&val)) return true;
+
+  // in-region instruction must have an explicit shape
+    auto * inst = dyn_cast<Instruction>(&val);
+    if (inst && inRegion(*inst)) return false;
+
+  // out-of-region values default to uniform
+    return true;
 }
 
 VectorShape
 VectorizationInfo::getVectorShape(const llvm::Value& val) const
 {
     auto it = shapes.find(&val);
+
+  // explicit shape annotations take precedence
+    if (it != shapes.end()) {
+      return it->second;
+    }
+
+  // out-of-region values default to uniform
+    auto * inst = dyn_cast<Instruction>(&val);
+    if (!inst || (inst && !inRegion(*inst))) {
+      return VectorShape::uni(); // TODO getAlignment(*inst));
+    }
+
     assert (it != shapes.end());
     return it->second;
 }

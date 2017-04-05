@@ -30,6 +30,9 @@ Region::getRegionEntry() const
     return mImpl.getRegionEntry();
 }
 
+std::string
+Region::str() const { return mImpl.str(); }
+
 void
 Region::getEndingBlocks(llvm::SmallPtrSet<BasicBlock*, 2>& endingBlocks) const
 {

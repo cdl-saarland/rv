@@ -43,5 +43,11 @@ LoopRegion::getEndingBlocks(llvm::SmallPtrSet<BasicBlock*, 2>& endingBlocks) con
     }
 }
 
+std::string
+LoopRegion::str() const {
+  auto loopHeaderName = loop.getHeader()->getName();
+  return ("LoopRegion (header " + loopHeaderName + ")").str();
+}
+
 } // namespace rv
 

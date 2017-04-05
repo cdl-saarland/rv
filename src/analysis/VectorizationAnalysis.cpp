@@ -177,12 +177,21 @@ void VectorizationAnalysis::init(Function& F) {
 
   // Initialize with undefined values
   for (auto& arg : F.args()) mValue2Shape[&arg] = VectorShape::undef();
-  for (auto& BB : F) for (auto& I : BB) mValue2Shape[&I] = VectorShape::undef();
+
+  // initialize all insts in region(!) as undef
+  for (auto& BB : F) {
+    if (mVecinfo.inRegion(BB)) {
+       for (auto& I : BB) {
+         mValue2Shape[&I] = VectorShape::undef();
+       }
+    }
+  }
 
   // bootstrap with user defined shapes
   for (auto& BB : F) {
     for (auto& I : BB) {
       if (mVecinfo.hasKnownShape(I)) {
+        IF_DEBUG_VA errs() << "OVERRIDE " << I << " shape " << mVecinfo.getVectorShape(I).str() << "\n";
         overrides.insert(&I);
         update(&I, mVecinfo.getVectorShape(I));
         mVecinfo.dropVectorShape(I);
@@ -407,8 +416,6 @@ void VectorizationAnalysis::addRelevantUsersToWL(const Value* V) {
   for (const auto user : V->users()) {
     if (!isa<Instruction>(user)) continue;
     const Instruction* inst = cast<Instruction>(user);
-
-    IF_DEBUG_VA errs() << " User " << *inst << "\n";
 
     // We are only analyzing the region
     if (!isInRegion(*inst)) continue;
@@ -970,7 +977,9 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
 
 VectorShape VectorizationAnalysis::getShape(const Value* const V) {
   auto found = mValue2Shape.find(V), end = mValue2Shape.end();
-  if (found != end) return found->second;
+  if (found != end) {
+    return found->second;
+  }
 
 #if 0
   if (isa<GlobalValue>(V)) return VectorShape::uni(0);

@@ -8,6 +8,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
+
 #include <stack>
 #include <set>
 
@@ -21,6 +22,8 @@ public:
 
     virtual bool contains(const BasicBlock* BB) const = 0;
     virtual BasicBlock& getRegionEntry() const = 0;
+
+    virtual std::string str() const = 0;
 
     virtual void getEndingBlocks(SmallPtrSet<BasicBlock*, 2>& endingBlocks) const
     {

@@ -29,7 +29,8 @@ DFGBase<forward>::~DFGBase() {
 template<bool forward>
 void DFGBase<forward>::create(Function& F) {
   auto const getIdom = [&](const BasicBlock* const BB) {
-    auto idom = DT.getNode(const_cast<BasicBlock*>(BB))->getIDom();
+    auto idomNode = DT.getNode(const_cast<BasicBlock*>(BB));
+    auto idom = idomNode ? idomNode->getIDom() : nullptr;
     return idom ? idom->getBlock() : nullptr;
   };
 
