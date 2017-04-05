@@ -91,6 +91,7 @@ namespace rv {
                         const bool useAVX2,
                         PlatformInfo &platformInfo,
                         bool useImpreciseFunctions) {
+#ifdef RV_ENABLE_BUILTINS
     if (useAVX2) {
       const VecDesc VecFuncs[] = {
         {"atanf", "xatanf_avx2", 8},
@@ -370,6 +371,10 @@ namespace rv {
       }
     }
     return useAVX || useAVX2 || useSSE;
+
+#else
+    return false;
+#endif
   }
 
   Function *cloneFunctionIntoModule(Function *func, Module *cloneInto, StringRef name) {
@@ -407,6 +412,10 @@ namespace rv {
 
   Function *
   requestSleefFunction(const StringRef &funcName, StringRef &vecFuncName, Module *insertInto, bool doublePrecision) {
+#ifndef RV_ENABLE_BUILTINS
+    assert(false && "SLEEF not builtin");
+    return nullptr;
+#endif
     auto & context = insertInto->getContext();
     // if function already cloned, return
     Function *clonedFn = insertInto->getFunction(vecFuncName);
