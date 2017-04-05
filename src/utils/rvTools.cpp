@@ -121,6 +121,16 @@ rv::typesMatch(Type* t1, Type* t2)
 }
 
 Module*
+rv::createModuleFromBuffer(const char buffer[], size_t length, LLVMContext & context) {
+  std::unique_ptr<MemoryBuffer> mb = MemoryBuffer::getMemBuffer(StringRef(buffer, length), "", false);
+  SMDiagnostic smDiag;
+  std::unique_ptr<Module> modPtr = parseIR(*mb, smDiag, context);
+  smDiag.print("RV", errs());
+  mb.release();
+  return modPtr.release();
+}
+
+Module*
 rv::createModuleFromFile(const std::string & fileName, LLVMContext & context) {
     SMDiagnostic smDiag;
     std::unique_ptr<Module> modPtr = parseIRFile(fileName, smDiag, context);

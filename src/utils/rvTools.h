@@ -57,6 +57,9 @@ returnsVoidPtr(const Instruction& inst);
 Module*
 createModuleFromFile(const std::string & fileName, LLVMContext & context);
 
+Module*
+createModuleFromBuffer(const char buffer[], size_t length, LLVMContext & context);
+
 void
 writeModuleToFile(const Module& mod, const std::string& fileName);
 

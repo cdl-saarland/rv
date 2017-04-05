@@ -90,7 +90,7 @@ public:
     void finalize();
 
 private:
-    PlatformInfo platInfo;
+    PlatformInfo & platInfo;
 
     void addIntrinsics();
 };

@@ -44,56 +44,6 @@
 #include "rvConfig.h"
 
 
-namespace {
-
-void removeTempFunction(Module& mod, const std::string& name)
-{
-    if (Function* tmpFn = mod.getFunction(name))
-    {
-        assert (tmpFn->use_empty());
-        tmpFn->eraseFromParent();
-    }
-}
-
-void
-removeUnusedRVLibFunctions(Module& mod)
-{
-#define REMOVE_LIB_FN(name) \
-    { \
-        Function* fn = mod.getFunction(#name); \
-        if (fn && fn->use_empty()) \
-        { \
-            fn->eraseFromParent(); \
-        } \
-    } \
-    ((void)0)
-
-    REMOVE_LIB_FN(log2_ps);
-    REMOVE_LIB_FN(exp2_ps);
-    REMOVE_LIB_FN(log_ps);
-    REMOVE_LIB_FN(exp_ps);
-    REMOVE_LIB_FN(sin_ps);
-    REMOVE_LIB_FN(cos_ps);
-    REMOVE_LIB_FN(sincos_ps);
-    REMOVE_LIB_FN(fabs_ps);
-    REMOVE_LIB_FN(pow_ps);
-    REMOVE_LIB_FN(log2256_ps);
-    REMOVE_LIB_FN(exp2256_ps);
-    REMOVE_LIB_FN(log256_ps);
-    REMOVE_LIB_FN(exp256_ps);
-    REMOVE_LIB_FN(sin256_ps);
-    REMOVE_LIB_FN(cos256_ps);
-    REMOVE_LIB_FN(sincos256_ps);
-    REMOVE_LIB_FN(fabs256_ps);
-    REMOVE_LIB_FN(pow256_ps);
-
-#undef REMOVE_LIB_FN
-}
-
-}
-
-
-
 
 namespace rv {
 
@@ -241,9 +191,6 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
 
 void
 VectorizerInterface::finalize() {
-  // Remove temporary functions if inserted during mask generation.
-  removeTempFunction(platInfo.getModule(), "entryMaskUseFn");
-  removeTempFunction(platInfo.getModule(), "entryMaskUseFnSIMD");
 }
 
 template <typename Impl>
