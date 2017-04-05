@@ -60,6 +60,10 @@ SET ( CMAKE_MODULE_PATH ${PROJ_ROOT_DIR} ${CMAKE_MODULE_PATH} )
 # cmake module install
 INSTALL ( FILES rv-config.cmake rv-shared.cmake DESTINATION share/rv/cmake )
 
+# vector math libraries
+# may generate extra sources (before libRV)
+ADD_SUBDIRECTORY( ${PROJ_ROOT_DIR}/vecmath )
+
 # libRV
 SET ( LIBRARY_NAME RV )
 ADD_SUBDIRECTORY ( ${PROJ_SOURCE_DIR} )
@@ -68,5 +72,5 @@ ADD_SUBDIRECTORY ( ${PROJ_SOURCE_DIR} )
 SET ( RVTOOL_SOURCE_DIR  ${PROJ_ROOT_DIR}/tools )
 ADD_SUBDIRECTORY( ${RVTOOL_SOURCE_DIR} )
 
-# vector math libraries
-ADD_SUBDIRECTORY( ${PROJ_ROOT_DIR}/vecmath )
+
+

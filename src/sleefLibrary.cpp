@@ -17,6 +17,27 @@
 
 using namespace llvm;
 
+#ifdef RV_ENABLE_BUILTINS
+  extern const unsigned char * avx2_sp_Buffer;
+  extern const size_t avx2_sp_BufferLen;
+
+  extern const unsigned char * avx_sp_Buffer;
+  extern const size_t avx_sp_BufferLen;
+
+  extern const unsigned char * sse_sp_Buffer;
+  extern const size_t sse_sp_BufferLen;
+
+  extern const unsigned char * avx2_dp_Buffer;
+  extern const size_t avx2_dp_BufferLen;
+
+  extern const unsigned char * avx_dp_Buffer;
+  extern const size_t avx_dp_BufferLen;
+
+  extern const unsigned char * sse_dp_Buffer;
+  extern const size_t sse_dp_BufferLen;
+#endif
+
+
 namespace rv {
   enum SleefISA {
     SLEEF_AVX2 = 0,
@@ -28,14 +49,41 @@ namespace rv {
     return int(isa) + (doublePrecision ? 3 : 0);
   }
 
-  static const char* sleefModuleNames[] = {
-    RV_SLEEF_BC_DIR"/avx2_sleef_sp.bc",
-    RV_SLEEF_BC_DIR"/avx_sleef_sp.bc",
-    RV_SLEEF_BC_DIR"/sse_sleef_sp.bc",
-    RV_SLEEF_BC_DIR"/avx2_sleef_dp.bc",
-    RV_SLEEF_BC_DIR"/avx_sleef_dp.bc",
-    RV_SLEEF_BC_DIR"/sse_sleef_dp.bc"
+#ifdef RV_ENABLE_BUILTINS
+  static const size_t sleefModuleBufferLens[] = {
+    avx2_sp_BufferLen,
+    avx_sp_BufferLen,
+    sse_sp_BufferLen,
+
+    avx2_dp_BufferLen,
+    avx_dp_BufferLen,
+    sse_dp_BufferLen,
   };
+
+  static const unsigned char** sleefModuleBuffers[] = {
+    &avx2_sp_Buffer,
+    &avx_sp_Buffer,
+    &sse_sp_Buffer,
+    &avx2_dp_Buffer,
+    &avx_dp_Buffer,
+    &sse_dp_Buffer,
+  };
+
+#else // ! RV_ENABLE_SLEEF
+  static const size_t sleefModuleBufferLens[] = {
+    0,0,0,0,0,0
+  };
+
+  static const char** sleefModuleBuffers[] = {
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr
+  };
+#endif
+
   static Module const *sleefModules[3 * 2];
 
   bool addSleefMappings(const bool useSSE,
@@ -375,7 +423,7 @@ namespace rv {
 
     auto modIndex = sleefModuleIndex(isa, doublePrecision);
     auto& mod = sleefModules[modIndex];
-    if (!mod) mod = createModuleFromFile(sleefModuleNames[modIndex], context);
+    if (!mod) mod = createModuleFromBuffer(reinterpret_cast<const char*>(sleefModuleBuffers[modIndex]), sleefModuleBufferLens[modIndex], context);
     Function *vecFunc = mod->getFunction(sleefName);
     assert(vecFunc);
     return cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
