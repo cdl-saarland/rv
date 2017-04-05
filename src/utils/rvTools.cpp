@@ -25,7 +25,6 @@
 #include <llvm/Analysis/LoopInfo.h> // Loop
 #include <llvm/IR/CallSite.h>
 
-#include <llvm/Bitcode/ReaderWriter.h> // ParseBitcodeFile
 #include <llvm/Support/MemoryBuffer.h> // MemoryBuffer
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Support/SourceMgr.h>
@@ -119,6 +118,16 @@ rv::typesMatch(Type* t1, Type* t2)
     MATCH_RETURN(false)
 
 #undef MATCH_RETURN
+}
+
+Module*
+rv::createModuleFromBuffer(const char buffer[], size_t length, LLVMContext & context) {
+  std::unique_ptr<MemoryBuffer> mb = MemoryBuffer::getMemBuffer(StringRef(buffer, length), "", false);
+  SMDiagnostic smDiag;
+  std::unique_ptr<Module> modPtr = parseIR(*mb, smDiag, context);
+  smDiag.print("RV", errs());
+  mb.release();
+  return modPtr.release();
 }
 
 Module*
