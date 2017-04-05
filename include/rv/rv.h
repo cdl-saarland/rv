@@ -90,7 +90,7 @@ public:
     void finalize(VectorizationInfo & vecInfo);
 
 private:
-    PlatformInfo platInfo;
+    PlatformInfo & platInfo;
 
     void addIntrinsics();
 };
