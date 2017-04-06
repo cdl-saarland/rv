@@ -11,7 +11,8 @@ namespace rv {
 // models a primitive value reduction of the form
 // @phi [@initInputIndex, V]. [@loopInputIndex, @reductInst]
 // where @reductInst has two operands: @phi and @reductInput
-struct Reduction {
+class Reduction {
+public:
   // neutral element of this reduction operation
   llvm::Constant & neutralElem;
   // instruction feeding into the reduction phi
@@ -48,7 +49,6 @@ struct Reduction {
 class ReductionAnalysis {
   std::map<llvm::PHINode*, Reduction*> reductMap;
 
-  llvm::Function & func;
   const llvm::LoopInfo & loopInfo;
 
   void analyze(llvm::Loop & loop);

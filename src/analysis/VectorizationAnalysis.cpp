@@ -92,7 +92,7 @@ VectorizationAnalysis::VectorizationAnalysis(PlatformInfo & platInfo,
           mVecinfo(VecInfo),
           mCDG(cdg),
           mDFG(dfg),
-          BDA(mVecinfo.getScalarFunction(), mCDG, mDFG, domTree, postDomTree, LoopInfo),
+          BDA(mVecinfo.getScalarFunction(), mCDG, mDFG, LoopInfo),
           mLoopInfo(LoopInfo),
           mFuncinfo(platInfo.getFunctionMappings()),
           mRegion(mVecinfo.getRegion())
@@ -360,22 +360,6 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
   }
 }
 
-static bool
-IsVectorizableType(Type & type) {
-  // plain arithmetic types
-  if (type.isFloatingPointTy() || type.isIntegerTy()) return true;
-
-  auto * structTy = dyn_cast<StructType>(&type);
-  if (structTy) {
-    for (auto * elemTy : structTy->elements()) {
-      if (!IsVectorizableType(*elemTy)) return false;
-    }
-    return true;
-  }
-
-  return false;
-}
-
 void VectorizationAnalysis::updateAllocaOperands(const Instruction* I) {
   const int alignment = mVecinfo.getMapping().vectorWidth;
 
@@ -392,7 +376,7 @@ void VectorizationAnalysis::updateAllocaOperands(const Instruction* I) {
     // eraseUserInfoRecursively(op);
 
     auto* PtrElemType = op->getType()->getPointerElementType();
-    const bool Vectorizable = false; // FIXME IsVectorizableType(*PtrElemType);
+    const bool Vectorizable = false;
 
     int typeStoreSize = static_cast<int>(layout.getTypeStoreSize(PtrElemType));
 

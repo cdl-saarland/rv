@@ -63,7 +63,6 @@ namespace rv {
     Module & mod;
     TargetTransformInfo *mTTI;
     TargetLibraryInfo *mTLI;
-    Module *avx2Mod, *avxMod, *sseMod;
     VectorFuncMap funcMappings;
     std::vector<VecDesc> commonVectorMappings;
   };

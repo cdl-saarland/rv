@@ -39,8 +39,7 @@ Reduction::dump() const {
 
 
 ReductionAnalysis::ReductionAnalysis(Function & _func, const LoopInfo & _loopInfo)
-: func(_func)
-, loopInfo(_loopInfo)
+: loopInfo(_loopInfo)
 {}
 
 ReductionAnalysis::~ReductionAnalysis() {

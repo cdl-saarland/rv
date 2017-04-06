@@ -41,8 +41,7 @@ namespace rv {
 class MaskAnalysis
 {
 public:
-    MaskAnalysis(PlatformInfo & platInfo,
-                 VectorizationInfo& vecInfo,
+    MaskAnalysis(VectorizationInfo& vecInfo,
 		 const LoopInfo&    Loopinfo);
     ~MaskAnalysis();
 
@@ -129,7 +128,6 @@ public:
     MaskPtr getCombinedLoopExitMaskPtr(const Loop& loop) const;
 
 private:
-    const rv::PlatformInfo & platInfo;
     VectorizationInfo& vecInfo;
     const LoopInfo&    mLoopInfo;
 

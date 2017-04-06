@@ -5,8 +5,8 @@
 
 using namespace llvm;
 
-template<bool forward>
-char DFGBaseWrapper<forward>::ID = 0;
+template<> char DFGBaseWrapper<true>::ID = 0;
+template<> char DFGBaseWrapper<false>::ID = 0;
 
 template<bool forward>
 bool DFGBaseWrapper<forward>::runOnFunction(Function& F)

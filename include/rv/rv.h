@@ -14,7 +14,7 @@
 
 namespace llvm {
   class LoopInfo;
-  class PostDominatorTree;
+  struct PostDominatorTree;
   class DominatorTree;
 }
 

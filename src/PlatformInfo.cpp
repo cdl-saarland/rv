@@ -11,8 +11,7 @@
 
 namespace rv {
 
-  PlatformInfo::PlatformInfo(Module & _mod, TargetTransformInfo *TTI, TargetLibraryInfo *TLI) : mod(_mod), mTTI(TTI), mTLI(TLI), avx2Mod(0),
-                                                                                 avxMod(0), sseMod(0) {}
+  PlatformInfo::PlatformInfo(Module & _mod, TargetTransformInfo *TTI, TargetLibraryInfo *TLI) : mod(_mod), mTTI(TTI), mTLI(TLI) {}
 
   PlatformInfo::~PlatformInfo() {
     for (auto it : funcMappings) {

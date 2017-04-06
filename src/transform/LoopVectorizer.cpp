@@ -18,6 +18,7 @@
 #include "rv/analysis/maskAnalysis.h"
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
+#include "rv/sleefLibrary.h"
 
 #include "rvConfig.h"
 
@@ -218,6 +219,10 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   TargetLibraryAnalysis libAnalysis;
   TargetLibraryInfo tli = libAnalysis.run(*F.getParent());
   PlatformInfo platformInfo(*F.getParent(), &tti, &tli);
+
+  bool useSSE = false, useAVX = true, useAVX2 = true, useImpreciseFunctions = true;
+
+  addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
   VectorizerInterface vectorizer(platformInfo);
 
   for (Loop *L : LI)

@@ -17,7 +17,7 @@ class Loop;
 class LoopInfo;
 class DominatorTree;
 class ScalarEvolution;
-class PostDominatorTree;
+struct PostDominatorTree;
 }
 
 namespace rv {
