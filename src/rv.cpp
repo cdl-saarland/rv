@@ -124,7 +124,7 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
 MaskAnalysis*
 VectorizerInterface::analyzeMasks(VectorizationInfo& vecInfo, const LoopInfo& loopinfo)
 {
-    MaskAnalysis* maskAnalysis = new MaskAnalysis(platInfo, vecInfo, loopinfo);
+    MaskAnalysis* maskAnalysis = new MaskAnalysis(vecInfo, loopinfo);
     maskAnalysis->analyze(vecInfo.getScalarFunction());
     return maskAnalysis;
 }

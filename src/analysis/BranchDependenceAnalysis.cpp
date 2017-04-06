@@ -96,14 +96,12 @@ GetDomRegion(DomTreeNodeBase<BasicBlock> & domNode, ConstBlockSet & domRegion) {
   }
 }
 
-BranchDependenceAnalysis::BranchDependenceAnalysis(llvm::Function & F, const CDG & _cdg, const DFG & _dfg, const DominatorTree & _domTree, const PostDominatorTree & _postDomTree, const LoopInfo & _loopInfo)
+BranchDependenceAnalysis::BranchDependenceAnalysis(llvm::Function & F, const CDG & _cdg, const DFG & _dfg, const LoopInfo & _loopInfo)
 : pdClosureMap()
 , domClosureMap()
 , effectedBlocks()
 , cdg(_cdg)
 , dfg(_dfg)
-, domTree(_domTree)
-, postDomTree(_postDomTree)
 , loopInfo(_loopInfo)
 {
 

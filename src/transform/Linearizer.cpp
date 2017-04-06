@@ -865,7 +865,8 @@ FindIDom(const T & inBlocks, DominatorTree & dt) {
   return dt.getNode(commonDomBlock);
 }
 
-struct SuperInput {
+class SuperInput {
+public:
   SmallVector<BasicBlock*, 4> inBlocks; // original predecessors that reach this remaining predecessor
   BasicBlock * predBlock; // remaining predecessor in linear CFG
   BasicBlock * blendBlock; // block used for select materialization

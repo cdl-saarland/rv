@@ -44,7 +44,6 @@
 #include "rv/vectorizationInfo.h"
 
 static const char LISTSEPERATOR = '_';
-static const char SHAPESEPERATOR = '.';
 static const char RETURNSHAPESEPERATOR = 'r';
 
 static const char BOTCHAR = 'B';
@@ -95,19 +94,6 @@ normalizeFunction(Function& F)
     FPM.add(createLoopSimplifyPass());
     FPM.add(createLCSSAPass());
     FPM.run(F);
-}
-
-static Value*
-GetInitValue(Loop& loop, PHINode& phi)
-{
-    for (uint i = 0; i < phi.getNumIncomingValues(); ++i)
-    {
-        if (!loop.contains(phi.getIncomingBlock(i)))
-        {
-            return phi.getIncomingValue(i);
-        }
-    }
-    return nullptr;
 }
 
 static int

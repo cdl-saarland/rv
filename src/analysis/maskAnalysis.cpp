@@ -20,7 +20,6 @@
 
 #include "rv/utils/maskGraphUtils.h"
 #include "rv/vectorizationInfo.h"
-#include "rv/PlatformInfo.h"
 
 #include "utils/stringUtils.h"
 #include "utils/rvTools.h"
@@ -113,10 +112,9 @@ bool
 MaskAnalysisWrapper::runOnFunction(Function& F)
 {
     rv::VectorizationInfo& vecInfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
-    auto & platInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
     const LoopInfo& Loopinfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 
-    mMaskAnalysis = new rv::MaskAnalysis(platInfo, vecInfo, Loopinfo);
+    mMaskAnalysis = new rv::MaskAnalysis(vecInfo, Loopinfo);
 
     return mMaskAnalysis->analyze(F);
 }
@@ -183,11 +181,9 @@ findTopLevelLoopOfExit(Loop*           loop,
 
 
 
-MaskAnalysis::MaskAnalysis(PlatformInfo & _platInfo,
-                           VectorizationInfo& _vecInfo,
+MaskAnalysis::MaskAnalysis(VectorizationInfo& _vecInfo,
                            const LoopInfo&    Loopinfo)
-        : platInfo(_platInfo),
-          vecInfo(_vecInfo),
+        : vecInfo(_vecInfo),
           mLoopInfo(Loopinfo),
           mConstBoolFalse(ConstantInt::getFalse(vecInfo.getContext())),
           mConstBoolTrue(ConstantInt::getTrue(vecInfo.getContext()))

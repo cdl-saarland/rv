@@ -119,6 +119,9 @@ private:
 
 //------------------------------------------------------------------------------
 
+template<> char DFGBaseWrapper<true>::ID;
+template<> char DFGBaseWrapper<false>::ID;
+
 using DFGWrapper = DFGBaseWrapper<true>;
 using CDGWrapper = DFGBaseWrapper<false>;
 using DFG = DFGBase<true>;  /* Dominance Frontier Graph */
