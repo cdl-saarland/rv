@@ -847,7 +847,7 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
 
       if (const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2)) {
         const int c = (int) constantOp->getSExtValue();
-        if (stride1 % c == 0) return VectorShape::strided(stride1 / c, alignment1 / std::abs<int>(c));
+        if (stride1 % c == 0) return VectorShape::strided(stride1 / c, alignment1 / std::abs(c));
       }
 
       return VectorShape::varying();
