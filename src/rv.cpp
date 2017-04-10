@@ -35,6 +35,7 @@
 #include "rv/transform/Linearizer.h"
 
 #include "rv/transform/structOpt.h"
+#include "rv/transform/srovTransform.h"
 
 #include "native/nativeBackendPass.h"
 #include "native/NatBuilder.h"
@@ -167,8 +168,13 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vecInfo,
 bool
 VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree, const LoopInfo & loopInfo)
 {
+  // transform allocas from Array-of-struct into Struct-of-vector where possibe
   StructOpt sopt(vecInfo, platInfo.getDataLayout());
   sopt.run();
+
+  // Scalar-Replication-Of-Varying-(Aggregates): split up structs of vectorizable elements to promote use of vector registers
+  SROVTransform srovTransform(vecInfo, platInfo);
+  srovTransform.run();
 
   ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
   reda.analyze();
