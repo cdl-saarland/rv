@@ -77,7 +77,7 @@ struct Impl {
   ReplicateMap replMap;
 
   // replicated instructions that must not be stripped from the code
-  SmallSet<Value*, 64> keepSet;
+  SmallSet<Value*, 16> keepSet;
 Impl(Function & _F, VectorizationInfo & _vecInfo, const PlatformInfo & _platInfo)
 : F(_F)
 , vecInfo(_vecInfo)
