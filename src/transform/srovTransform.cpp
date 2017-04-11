@@ -287,11 +287,11 @@ requestReplicate(Value & val) {
       IF_DEBUG_SROV { errs() << "\t" << i << " : " << *replSelect << "\n"; }
     }
 
-  } else if (constVal) {
-    assert(false && "replication of constants not yet implemented!");
-    abort();
-
   } else {
+    errs() << "SROV: warning: can not replicate " << val <<"\n";
+    // FIXME don't attempt replication where its not possible
+    return replVec;
+
     assert(false && "un-replicatable operation");
     abort();
   }
@@ -350,8 +350,11 @@ run() {
       }
 
       IF_DEBUG_SROV { errs() <<"SROV: scalar repl of: " << I << ") with " << numScalarRepls << " slots\n"; }
-      if (isa<InsertValueInst>(I)) { continue; } // only remap InsertValue on-demand
-      requestReplicate(I);
+      // in any case remap insert value on-demand
+      if (isa<InsertValueInst>(I)) { continue; }
+
+      // only try to remap extract value insts
+      if (isa<ExtractValueInst>(I)) { requestReplicate(*I.getOperand(0)); };
     }
   }
 
