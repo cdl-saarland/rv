@@ -20,8 +20,6 @@ class SROVTransform {
   VectorizationInfo & vecInfo;
   const PlatformInfo & platInfo;
 
-  // TODO
-
 public:
   SROVTransform(VectorizationInfo & _vecInfo, const PlatformInfo & _platInfo);
 
