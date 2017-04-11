@@ -83,10 +83,6 @@ INSTALL ( TARGETS ${LIBRARY_NAME} LIBRARY DESTINATION lib)
 # make rvTestSuite
 SET ( RV_TEST_PATH "${PROJ_ROOT_DIR}/test" )
 
-IF ( APPLE )
-    SET ( STD_LIB "-std=c++11" "-stdlib=libstdc++" )
-ENDIF ()
-
 INCLUDE_DIRECTORIES ( ${RV_TEST_PATH}/include )
 
 #TODO: clion workaround for install target. remove before release
