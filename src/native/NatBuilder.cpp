@@ -1471,7 +1471,9 @@ NatBuilder::materializeReduction(Reduction & red) {
   auto & vecReductInst = *cast<Instruction>(getVectorValue(&reductInst));
 
 // reduce reduction phi for outside users
-  for (auto & use : red.phi.uses()) {
+  for (auto itUse = red.phi.use_begin(); itUse != red.phi.use_end(); ){
+    auto & use = *itUse++;
+
     int opIdx = use.getOperandNo();
     auto & userInst = cast<Instruction>(*use.getUser());
 
@@ -1498,7 +1500,9 @@ NatBuilder::materializeReduction(Reduction & red) {
   }
 
 // reduct result of reduction operation for outside users
-  for (auto & use : reductInst.uses()) {
+  for (auto itUse = reductInst.use_begin(); itUse != reductInst.use_end(); ){
+    auto & use = *itUse++;
+
     int opIdx = use.getOperandNo();
     auto & userInst = cast<Instruction>(*use.getUser());
 
