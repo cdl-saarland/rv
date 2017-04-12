@@ -6,13 +6,15 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Instructions.h>
-#include <llvm/ADT/SmallSet.h>
-#include <llvm/Transforms/Utils/ValueMapper.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/DataLayout.h>
-
+#include <llvm/IR/Constants.h>
 #include <llvm/IR/CFG.h>
+
+#include <llvm/ADT/SmallSet.h>
 #include <llvm/ADT/PostOrderIterator.h>
+
+#include <llvm/Transforms/Utils/ValueMapper.h>
 
 #include "rv/vectorizationInfo.h"
 #include "rv/PlatformInfo.h"
@@ -111,6 +113,55 @@ repairPhis() {
   }
 }
 
+// check whether all uses of this will-be-replicated instruction can be recovered from the scalare replicates
+bool
+canRepairUses(Value & val) {
+  for (auto & use : val.uses()) {
+    if (!isa<PHINode>(use) || !isa<ExtractValueInst>(use) || !isa<SelectInst>(val)) return false;
+  }
+
+  return true;
+}
+
+typedef SmallSet<const Value*, 32> ConstValSet;
+
+bool
+canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
+  auto * constVal = dyn_cast<Constant>(&val);
+  auto * selInst = dyn_cast<SelectInst>(&val);
+  auto * phiInst = dyn_cast<PHINode>(&val);
+  auto * insertInst = dyn_cast<InsertValueInst>(&val);
+
+  // remark: checkedSet makes every value appear replicable on the second query
+  // However, a single negative reponse for a recursive constituent makes canReplicate fail anyway
+  if (!checkedSet.insert(&val).second) return true;
+
+  // value was already replicated
+  if (replMap.hasReplicate(val)) return true;
+
+  // check whether we could repair all uses
+  if (!canRepairUses(val)) return false;
+
+  // check whether the instruction itself is replicatable
+  if (constVal) return true;
+  if (phiInst) {
+    for (int i = 0; i < phiInst->getNumIncomingValues(); ++i) {
+      if (!canReplicate(*phiInst->getIncomingValue(i), checkedSet)) {
+        return false;
+      }
+    }
+    return true;
+
+  } else if (selInst) {
+    return canReplicate(*selInst->getTrueValue(), checkedSet) && canReplicate(*selInst->getFalseValue(), checkedSet);
+
+  } else if (insertInst) {
+    return canReplicate(*insertInst->getAggregateOperand(), checkedSet);
+  }
+
+  return false;
+}
+
 // re-aggregate @inst for external users of that value
 void
 repairExternalUses(Instruction & inst) {
@@ -199,7 +250,7 @@ requestLaneReplicate(Value & val, int i) {
 
 // insertInst: if this is a matching insert return it, otw recursively descend into aggregate operand
   if (insertInst) {
-    auto * intoVal = insertInst->getOperand(0);
+    auto * intoVal = insertInst->getAggregateOperand();
     auto * elemVal = insertInst->getOperand(1);
     int32_t structOffset = insertInst->getIndices()[0];
 
@@ -220,8 +271,7 @@ requestLaneReplicate(Value & val, int i) {
     auto & replTy = getLaneReplType(*constVal->getType(), i);
     if (isa<UndefValue>(constVal)) return UndefValue::get(&replTy);
     else if (constVal->isNullValue()) return Constant::getNullValue(&replTy);
-    assert(false && "unsupported constant");
-    abort();
+    else return constVal->getOperand(i);
   }
 
 // Otw: request a replication of @val and pick the replicate at this position
@@ -242,7 +292,6 @@ requestReplicate(Value & val) {
 
   auto * phi = dyn_cast<PHINode>(&val);
   auto * inst = dyn_cast<Instruction>(&val);
-  auto * constVal = dyn_cast<Constant>(&val);
 
   IRBuilder<> builder(inst->getParent(), inst->getIterator());
 
@@ -288,15 +337,12 @@ requestReplicate(Value & val) {
     }
 
   } else {
-    errs() << "SROV: warning: can not replicate " << val <<"\n";
-    // FIXME don't attempt replication where its not possible
-    return replVec;
-
     assert(false && "un-replicatable operation");
     abort();
   }
 
 // register replcate
+  assert(!replVec.empty());
   replMap.addReplicate(val, replVec);
 
   return replVec;
@@ -353,8 +399,11 @@ run() {
       // in any case remap insert value on-demand
       if (isa<InsertValueInst>(I)) { continue; }
 
-      // only try to remap extract value insts
-      if (isa<ExtractValueInst>(I)) { requestReplicate(*I.getOperand(0)); };
+      // only try to replicate extract value insts
+      ConstValSet checkedSet;
+      if (isa<ExtractValueInst>(I) && canReplicate(I, checkedSet)) {
+        requestReplicate(*I.getOperand(0));
+      };
     }
   }
 
