@@ -43,7 +43,7 @@ FILE ( GLOB REGIONS             region/*.cpp )
 FILE ( GLOB TRANSFORMS          transform/*.cpp )
 FILE ( GLOB OPT_PASSES pass/*.cpp )
 
-SET ( RV_SOURCE_FILES ${CPP_GLOBAL} ${CPP_UTILS} ${CPP_ANALYSIS} ${REGIONS} ${NATIVE_CPP} ${OPT_PASSES} ${TRANSFORMS} )
+SET ( RV_SOURCE_FILES ${CPP_GLOBAL} ${CPP_UTILS} ${CPP_ANALYSIS} ${REGIONS} ${NATIVE_CPP} ${OPT_PASSES} ${TRANSFORMS} ../include/CostModel.h CostModel.cpp)
 
 # create libRV
 INCLUDE ( rv-shared )
