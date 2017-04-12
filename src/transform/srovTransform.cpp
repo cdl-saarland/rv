@@ -119,8 +119,16 @@ repairPhis() {
 // check whether all uses of this will-be-replicated instruction can be recovered from the scalare replicates
 bool
 canRepairUses(Value & val) {
-  for (auto & use : val.uses()) {
-    if (!isa<PHINode>(use) || !isa<ExtractValueInst>(use) || !isa<SelectInst>(val)) return false;
+  // can always repair constants
+  if (isa<Constant>(val)) return true;
+
+  if (isa<ExtractValueInst>(val)) return true;
+
+  for (auto * user : val.users()) {
+    if (!isa<PHINode>(user) && !isa<ExtractValueInst>(user) && !isa<SelectInst>(user) && !isa<InsertValueInst>(user)) {
+      IF_DEBUG_SROV { errs() << "can not repair use: " << *user << "\n"; }
+      return false;
+    }
   }
 
   return true;
@@ -160,6 +168,9 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
 
   } else if (insertInst) {
     return canReplicate(*insertInst->getAggregateOperand(), checkedSet);
+  } else if (isa<ExtractValueInst>(val)) {
+    IF_DEBUG_SROV { errs() << "srov: recursive replication not supported!\n"; }
+    return false;
   }
 
   return false;
@@ -186,6 +197,7 @@ repairExternalUses(Instruction & inst) {
     }
 
     // TODO re-aggregate if need be
+    errs() << "CAN NOT RE-aggregate " << *userInst << "\n";
     assert(false && "re-aggregation not yet implemented");
     abort();
   }
@@ -195,10 +207,6 @@ void
 finalize() {
   // attach inputs to replicated PHI nodes
   repairPhis();
-
-  if (replMap.size() > 0) {
-    Report() << "srov: replicated " << replMap.size() << " instructions\n";
-  }
 
   // re-aggregate replicated values for external users
   for (auto itMapped : replMap.replMap) {
@@ -313,12 +321,23 @@ requestReplicate(Value & val) {
       ss << oldInstName << ".repl." << i;
       std::string phiReplName = ss.str();
 
-      auto * replPhi = builder.CreatePHI(replTyVec[i], phi->getNumIncomingValues() , phiReplName);
+      auto * replPhi = builder.CreatePHI(replTyVec[i], phi->getNumIncomingValues(), phiReplName);
       replVec.push_back(replPhi);
       IF_DEBUG_SROV { errs() << "\t" << i << " : " << *replPhi << "\n"; }
     }
 
-    phi->getType();
+    // register PHI node as replicated
+    replMap.addReplicate(*phi, replVec);
+
+    // request operands
+    for (size_t i = 0; i < phi->getNumIncomingValues(); ++i) {
+      auto * inVal = phi->getIncomingValue(i);
+
+      // descend into non-trivial operand instructions
+      if (isa<Instruction>(inVal) && !isa<InsertValueInst>(inVal)) {
+        requestReplicate(*inVal);
+      }
+    }
 
 // generic instruction replication
   } else if (isa<StoreInst>(inst) || isa<LoadInst>(inst) || isa<CallInst>(inst)) {
@@ -342,6 +361,7 @@ requestReplicate(Value & val) {
       replVec.push_back(replSelect);
       IF_DEBUG_SROV { errs() << "\t" << i << " : " << *replSelect << "\n"; }
     }
+    replMap.addReplicate(val, replVec);
 
   } else {
     assert(false && "un-replicatable operation");
@@ -350,7 +370,6 @@ requestReplicate(Value & val) {
 
 // register replcate
   assert(!replVec.empty());
-  replMap.addReplicate(val, replVec);
 
   return replVec;
 }
@@ -365,12 +384,14 @@ getNumReplicates(Type & type) {
   auto & structTy = cast<StructType>(type);
 
 // check if this struct is composed entirely of int/bool or fp types
+#if 0
   for (size_t i = 0; i < structTy.getNumElements(); ++i) {
     auto & elemTy = *structTy.getElementType(i);
     if (!elemTy.isIntegerTy() && !elemTy.isFloatingPointTy()) {
       return 0;
     }
   }
+#endif
 
 // passed all tests
   // we will need a scalar replica for each elemnt
@@ -397,24 +418,33 @@ run() {
         continue;
       }
 
-    // check if this is is a replicatable type
-      int numScalarRepls = getNumReplicates(*I.getType());
+      // only start replication from extractvalue
+      if (!isa<ExtractValueInst>(I)) continue;
+
+      auto & extractedVal = *I.getOperand(0);
+
+      int numScalarRepls = getNumReplicates(*extractedVal.getType());
       if (numScalarRepls == 0) {
-        // IF_DEBUG_SROV { errs() <<"\tskpping (non-splittable type: " << *phi->getType() << ")\n"; }
+       IF_DEBUG_SROV { errs() << "SROV: can not replicate extractval operand: " << extractedVal << "). skipping..\n"; }
         continue;
       }
 
-      IF_DEBUG_SROV { errs() <<"SROV: scalar repl of: " << I << ") with " << numScalarRepls << " slots\n"; }
-      // in any case remap insert value on-demand
-      if (isa<InsertValueInst>(I)) { continue; }
-
       // only try to replicate extract value insts
       ConstValSet checkedSet;
-      if (isa<ExtractValueInst>(I) && canReplicate(I, checkedSet)) {
-        requestReplicate(*I.getOperand(0));
-        changedCode = true;
-      };
+      if (!canReplicate(extractedVal, checkedSet)) {
+        IF_DEBUG_SROV { errs() << "SROV: can not replicate dependent operation of: " << I << " " << extractedVal << ". skipping..\n"; }
+        continue;
+      }
+
+      // go ahead and replicate
+      IF_DEBUG_SROV { errs() << "SROV: scalar repl of: " << extractedVal << ") with " << numScalarRepls << " slots\n"; }
+      requestReplicate(extractedVal);
+      changedCode = true;
     }
+  }
+
+  if (replMap.size() > 0) {
+    Report() << "srov: replicated " << replMap.size() << " instructions\n";
   }
 
 // cleanup
