@@ -43,6 +43,7 @@
 #include "utils/rvTools.h"
 
 #include "rvConfig.h"
+#include "report.h"
 
 
 
@@ -165,16 +166,32 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vecInfo,
     return true;
 }
 
+// flag is set if the env var holds a string that starts on a non-'0' char
+static bool
+CheckFlag(const char * flagName) {
+  char * envVal = getenv(flagName);
+  if (!envVal) return false;
+  else return *envVal != '0';
+}
+
 bool
 VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree, const LoopInfo & loopInfo)
 {
   // transform allocas from Array-of-struct into Struct-of-vector where possibe
-  StructOpt sopt(vecInfo, platInfo.getDataLayout());
-  sopt.run();
+  if (!CheckFlag("RV_DISABLE_STRUCTOPT")) {
+    StructOpt sopt(vecInfo, platInfo.getDataLayout());
+    sopt.run();
+  } else {
+    Report() << "Struct opt disabled (RV_DISABLE_STRUCTOPT != 0)\n";
+  }
 
   // Scalar-Replication-Of-Varying-(Aggregates): split up structs of vectorizable elements to promote use of vector registers
-  SROVTransform srovTransform(vecInfo, platInfo);
-  srovTransform.run();
+  if (!CheckFlag("RV_DISABLE_SROV")) {
+    SROVTransform srovTransform(vecInfo, platInfo);
+    srovTransform.run();
+  } else {
+    Report() << "SROV opt disabled (RV_DISABLE_SROV != 0)\n";
+  }
 
   ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
   reda.analyze();
