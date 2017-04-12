@@ -20,6 +20,7 @@
 #include "rv/PlatformInfo.h"
 
 #include <rvConfig.h>
+#include "report.h"
 
 using namespace rv;
 using namespace llvm;
@@ -61,6 +62,8 @@ ReplicateMap {
   ValVec getReplVec(Value & val) { return replMap[&val]; }
 
   void clear() { replMap.clear(); }
+
+  size_t size() const { return replMap.size(); }
 
   ReplicateMap(VectorizationInfo & _vecInfo)
   : vecInfo(_vecInfo)
@@ -192,6 +195,10 @@ void
 finalize() {
   // attach inputs to replicated PHI nodes
   repairPhis();
+
+  if (replMap.size() > 0) {
+    Report() << "srov: replicated " << replMap.size() << " instructions\n";
+  }
 
   // re-aggregate replicated values for external users
   for (auto itMapped : replMap.replMap) {
@@ -372,6 +379,8 @@ getNumReplicates(Type & type) {
 
 bool
 run() {
+  bool changedCode = false;
+
   IF_DEBUG_SROV errs() << "---- SROV run log ----\n";
 
 // replicate instructions
@@ -403,6 +412,7 @@ run() {
       ConstValSet checkedSet;
       if (isa<ExtractValueInst>(I) && canReplicate(I, checkedSet)) {
         requestReplicate(*I.getOperand(0));
+        changedCode = true;
       };
     }
   }
@@ -414,7 +424,7 @@ run() {
   IF_DEBUG_SROV { errs() << "-- SROV finished --\n";  }
 
 
-  return false;
+  return changedCode;
 }
 
 };

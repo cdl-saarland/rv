@@ -5,6 +5,9 @@
 
 namespace rv {
 
+// check if an environment flag is set
+bool CheckFlag(const char * flagName);
+
 // output stream for diagnostic outputs
 llvm::raw_ostream & Report();
 

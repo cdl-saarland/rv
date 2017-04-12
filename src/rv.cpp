@@ -167,13 +167,6 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vecInfo,
 }
 
 // flag is set if the env var holds a string that starts on a non-'0' char
-static bool
-CheckFlag(const char * flagName) {
-  char * envVal = getenv(flagName);
-  if (!envVal) return false;
-  else return *envVal != '0';
-}
-
 bool
 VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree, const LoopInfo & loopInfo)
 {
