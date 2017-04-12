@@ -7,7 +7,7 @@
 namespace llvm {
 
 static cl::opt<unsigned>
-ForceTargetInstructionCost("force-target-instruction-cost", cl::init(0), cl::Hidden,
+ForceTargetInstructionCost("rv-force-target-instruction-cost", cl::init(0), cl::Hidden,
                            cl::desc("A flag that overrides the target's expected cost for "
                                     "an instruction to a single constant value. Mostly "
                                     "useful for getting consistent testing."));
