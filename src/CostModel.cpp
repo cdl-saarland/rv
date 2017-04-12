@@ -325,7 +325,7 @@ static int getVectorCallCost(CallInst *CI, unsigned VF, const TargetTransformInf
   for (unsigned long long i = 0, ie = Tys.size(); i != ie; ++i)
     ScalarizationCost += getScalarizationOverhead(Tys[i], false, true, TTI);
 
-  unsigned Cost = ScalarCallCost * VF + ScalarizationCost;
+  int Cost = ScalarCallCost * VF + ScalarizationCost;
 
   // If we can't emit a vector call for this function, then the currently found
   // cost is the cost we need to return.
@@ -346,8 +346,8 @@ static int getVectorCallCost(CallInst *CI, unsigned VF, const TargetTransformInf
 // factor VF.  Return the cost of the instruction, including scalarization
 // overhead if it's needed.
 static int getVectorIntrinsicCost(CallInst *CI, unsigned VF,
-                                       const TargetTransformInfo &TTI,
-                                       const TargetLibraryInfo *TLI)
+                                  const TargetTransformInfo &TTI,
+                                  const TargetLibraryInfo *TLI)
 {
   Intrinsic::ID ID = getIntrinsicIDForCall(CI, TLI);
   assert(ID && "Expected intrinsic call!");
