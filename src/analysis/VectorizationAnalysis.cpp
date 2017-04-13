@@ -271,10 +271,10 @@ void VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
   IF_DEBUG_VA errs() << "Marking " << New << ": " << *V << "\n";
   mValue2Shape[V] = New;
 
-  /* Add dependent elements to worklist */
+  // Add dependent elements to worklist
   addRelevantUsersToWL(V);
 
-  /* If an alloca was used it needs to be updated */
+  // If an alloca was used it needs to be updated
   if (!New.isUniform() && isa<Instruction>(V)) {
     updateAllocaOperands(cast<Instruction>(V));
   }
@@ -411,17 +411,8 @@ void VectorizationAnalysis::addRelevantUsersToWL(const Value* V) {
       }
     }
 
-    auto isUndef = [&](Value* v) {
-      return !isa<BasicBlock>(v) && !isa<Function>(v) && !getShape(v).isDefined();
-    };
-
-    IF_DEBUG_VA errs() << "Should insert " << *inst << "?\n";
-    if (!isa<PHINode>(inst) && any_of(inst->operands(), isUndef)) {
-      continue;
-    }
-
     mWorklist.push(inst);
-    IF_DEBUG_VA errs() << "Inserted relevant user of " << V->getName() << ":" << *user << "\n";
+    IF_DEBUG_VA errs() << "Inserted user of updated " << V->getName() << ":" << *user << "\n";
   }
 }
 
@@ -456,13 +447,13 @@ bool VectorizationAnalysis::allExitsUniform(const Loop* loop) {
   return true;
 }
 
-VectorShape VectorizationAnalysis::joinOperands(const Instruction* const I) {
+VectorShape VectorizationAnalysis::joinOperands(const Instruction& I) {
   VectorShape Join = VectorShape::undef();
-  for (auto& op : I->operands()) Join = VectorShape::join(Join, getShape(op));
+  for (const auto& op : I.operands()) Join = VectorShape::join(Join, getShape(op));
   return Join;
 }
 
-bool VectorizationAnalysis::allOperandsHaveShape(const Instruction* I) {
+bool VectorizationAnalysis::pushMissingOperands(const Instruction* I) {
   auto hasKnownShape = [this](Value* op)
   {
     if (isa<Instruction>(op) && !getShape(op).isDefined()) {
@@ -470,10 +461,33 @@ bool VectorizationAnalysis::allOperandsHaveShape(const Instruction* I) {
       mWorklist.push(cast<Instruction>(op));
     }
 
-    return !isa<Instruction>(op) || !getShape(op).isDefined();
+    return !isa<Instruction>(op) || getShape(op).isDefined();
   };
 
   return all_of(I->operands(), hasKnownShape);
+}
+
+VectorShape
+VectorizationAnalysis::computePHIShape(const PHINode & phi) {
+   // TODO factor PHI logic into separate method
+   // check if this PHINode actually joins different values
+   bool mixingPhi = false;
+   Value * singleVal = phi.getIncomingValue(0);
+   for (uint i = 1; i < phi.getNumIncomingValues(); ++i) {
+     if (singleVal != phi.getIncomingValue(i)) {
+       mixingPhi = true;
+       break;
+     }
+   }
+
+   // the PHI node is not actually varying iff all input operands are the same
+   // If the block is divergent the phi is varying
+   if (mixingPhi && getShape(phi.getParent()).isVarying()) {
+     // TODO infer greatest common alignment
+     return VectorShape::varying();
+   } else {
+     return joinOperands(phi);
+   }
 }
 
 void VectorizationAnalysis::compute(Function& F) {
@@ -485,7 +499,15 @@ void VectorizationAnalysis::compute(Function& F) {
 
     IF_DEBUG_VA { errs() << "# next: " << *I << "\n"; }
 
-    VectorShape New = computeShapeForInst(I);
+    VectorShape New;
+    // allow incomplete inputs for PHI nodes
+    if (isa<PHINode>(I)) {
+      New = computePHIShape(cast<PHINode>(*I));
+    } else if (!pushMissingOperands(I)) {
+      continue;
+    } else {
+      New = computeShapeForInst(I);
+    }
 
     // adjust result type to match alignment
     if (I->getType()->isPointerTy()) {
@@ -644,25 +666,6 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
       return mapping->resultShape;
     }
 
-    case Instruction::PHI:
-    {
-      // check if this PHINode actually joins different values
-      bool mixingPhi = false;
-      auto * phi = cast<PHINode>(I);
-      Value * singleVal = phi->getIncomingValue(0);
-      for (uint i = 1; i < phi->getNumIncomingValues(); ++i) {
-        if (singleVal != phi->getIncomingValue(i)) {
-          mixingPhi = true;
-          break;
-        }
-      }
-
-      // the PHI node is not actually varying iff all input operands are the same
-      // If the block is divergent the phi is varying
-      if (mixingPhi && getShape(I->getParent()).isVarying()) return VectorShape::varying();
-      return joinOperands(I);
-    }
-
     case Instruction::Load:
     {
       const Value* pointer = I->getOperand(0);
@@ -724,6 +727,8 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
     case Instruction::Add:
     case Instruction::FAdd:
     {
+      assert (shape1.isDefined() && shape2.isDefined());
+
       const bool fadd = I->getOpcode() == Instruction::FAdd;
 
       const unsigned resAlignment = gcd(alignment1, alignment2);
