@@ -12,6 +12,7 @@ namespace llvm {
   class DataLayout;
   class LoopInfo;
   class DominatorTree;
+  class PostDominatorTree;
 }
 
 namespace rv {
@@ -22,10 +23,11 @@ class BOSCCTransform {
   VectorizationInfo & vecInfo;
   PlatformInfo & platInfo;
   llvm::DominatorTree & domTree;
+  llvm::PostDominatorTree & postDomTree;
   llvm::LoopInfo & loopInfo;
 
 public:
-  BOSCCTransform(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo);
+  BOSCCTransform(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, llvm::DominatorTree & _domTree, llvm::PostDominatorTree & _postDomTree, llvm::LoopInfo & _loopInfo);
 
   bool run();
 };
