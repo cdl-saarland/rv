@@ -234,6 +234,8 @@ bosccHeuristic(BranchInst & branch) {
 
 bool
 run() {
+  domTree.recalculate(vecInfo.getScalarFunction());
+
   ReversePostOrderTraversal<Function*> RPOT(&vecInfo.getScalarFunction());
 
   for (auto * BB : RPOT) {
@@ -256,6 +258,8 @@ run() {
 
   // recover
   postDomTree.DT->recalculate(vecInfo.getScalarFunction());
+
+  domTree.verifyDomTree();
 
   return false;
 }
