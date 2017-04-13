@@ -112,7 +112,9 @@ private:
   bool isInRegion(const BasicBlock& BB);
   bool isInRegion(const Instruction& inst);
 
-  // specialized transfer functions
+// specialized transfer functions
+  VectorShape computePHIShape(const PHINode & phi);
+  // only call these if all operands have defined shape
   VectorShape computeShapeForInst(const Instruction* I);
   VectorShape computeShapeForBinaryInst(const BinaryOperator* I);
   VectorShape computeShapeForCastInst(const CastInst* I);
@@ -146,11 +148,11 @@ private:
 
   bool allExitsUniform(const Loop* loop);
 
-  VectorShape joinOperands(const Instruction* const I);
+  VectorShape joinOperands(const Instruction& I);
 
   // Returns true iff all operands currently have a computed shape
   // This is essentially a negated check for bottom
-  bool allOperandsHaveShape(const Instruction* I);
+  bool pushMissingOperands(const Instruction* I);
 
   // Returns true iff the constant is aligned respective to mVectorizationFactor
   unsigned getAlignment(const Constant* c) const;
