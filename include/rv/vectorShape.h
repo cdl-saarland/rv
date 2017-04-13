@@ -60,17 +60,10 @@ public:
   bool operator!=(const VectorShape &a) const;
   bool operator<(const VectorShape &a) const;
 
-  static VectorShape truncateToTypeSize(const VectorShape &a,
-                                        unsigned typeSize) {
-    if (!a.isDefined() || a.isVarying()) return a;
-
-    // FIXME can this become unaligned?
-    // This selects only the last typeSize digits
-    unsigned lastDigitsMask = (1U << typeSize) - 1U;
-    return VectorShape(a.getStride() & lastDigitsMask, a.alignment);
-  }
-
   std::string str() const;
+
+  static VectorShape truncateToTypeSize(const VectorShape &a,
+                                        unsigned typeSize);
 
   friend llvm::raw_ostream &operator<<(llvm::raw_ostream &O,
                                        const VectorShape &shape) {
