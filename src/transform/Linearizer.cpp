@@ -52,13 +52,51 @@ void
 Linearizer::addToBlockIndex(BasicBlock & block) {
   assert(relays.size() < INT_MAX);
   int id = relays.size();
+  assert(!blockIndex.count(&block));
   blockIndex[&block] = id;
   relays.push_back(RelayNode(block, id));
 }
 
 void
+Linearizer::scheduleLoop(Loop * loop, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd) {
+  int loopDepth = loop ? loop->getLoopDepth() : 0;
+
+  for (auto it = itStart; it != itEnd; ++it) {
+    auto * BB = *it;
+    if (!inRegion(*BB)) continue;
+
+    // not inside this loop -> skip
+    if (loop && !loop->contains(BB)) {
+      continue;
+    }
+
+    // nested loop header -> schedule that loop entirely before continuing
+    auto * bbLoop = li.getLoopFor(BB);
+    if (bbLoop != loop) {
+      if (bbLoop->getParentLoop() == loop && bbLoop->getHeader() == BB) {
+        scheduleLoop(bbLoop, it, itEnd);
+      }
+      continue;
+    }
+
+    // inside this context -> schedule
+    addToBlockIndex(*BB);
+  }
+}
+
+void
 Linearizer::buildBlockIndex() {
   relays.reserve(func.getBasicBlockList().size());
+
+  RPOT rpot(&func);
+
+  auto & entryBlock = vecInfo.getRegionEntry();
+
+  Loop * topLoop = li.getLoopFor(&entryBlock);
+
+  scheduleLoop(topLoop, rpot.begin(), rpot.end());
+  return;
+#if 0
 
   // FIXME this will diverge for non-canonical (LoopInfo) loops
   std::vector<BasicBlock*> stack;
@@ -146,7 +184,7 @@ Linearizer::buildBlockIndex() {
       }
     }
   }
-
+#endif
 }
 
 Value&
@@ -318,6 +356,10 @@ Linearizer::verifyLoopIndex(Loop & loop) {
 
 void
 Linearizer::verifyBlockIndex() {
+  for (auto & block : func) {
+    assert(!inRegion(block) || hasIndex(block));
+  }
+
   for (auto * loop : li) {
     verifyLoopIndex(*loop);
   }

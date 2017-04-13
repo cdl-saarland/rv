@@ -22,9 +22,15 @@
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/ADT/DenseSet.h>
+#include <llvm/IR/Function.h>
 
 #include <vector>
 #include <unordered_map>
+
+#include <llvm/IR/CFG.h>
+#include<llvm/ADT/PostOrderIterator.h>
+
+typedef llvm::ReversePostOrderTraversal<Function*> RPOT;
 
 namespace llvm {
   class PHINode;
@@ -47,6 +53,9 @@ namespace rv {
   class SuperInput;
 
   class Linearizer {
+
+  // block index helper
+  void scheduleLoop(Loop * loop, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
 
   // statistics
       // number of schedule heads that had to be diverted

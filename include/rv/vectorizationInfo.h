@@ -21,6 +21,7 @@ namespace llvm {
 
 #include "vectorShape.h"
 #include "vectorMapping.h"
+#include "region/Region.h"
 
 #include <unordered_map>
 #include <set>
@@ -47,7 +48,9 @@ public:
     bool inRegion(const llvm::BasicBlock & block) const;
     llvm::BasicBlock & getEntry() const;
 
-    Region* getRegion() const {
+    BasicBlock & getRegionEntry() { return getRegion() ? getRegion()->getRegionEntry() : *getScalarFunction().begin(); }
+    Region* getRegion() const
+    {
         return region;
     }
 
