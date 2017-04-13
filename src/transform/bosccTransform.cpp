@@ -124,15 +124,25 @@ transformBranch(BranchInst & branch, int succIdx) {
   }
 }
 
-#if 0
 size_t
-getDomRegionValue(BasicBlock & entry, BasicBlock & subBlock) {
-  if (!domTree.dominates(&entry, &subBlock)) return 0;
+getDomRegionValue(BasicBlock & entry, BasicBlock & subBlock, SmallSet<BasicBlock*, 32> & seenBlocks) {
+  if (&entry != &subBlock && !domTree.dominates(&entry, &subBlock)) return 0; // not in our dominance region
+  if (!seenBlocks.insert(&entry).second) return 0; // already factores in
+
+  // compute own score
+  size_t score = getBlockScore(subBlock);
+
+  // compute score of other (dominated) reachable blocks in the region
+  auto * termInst = subBlock.getTerminator();
+  for (int i = 0; i < termInst->getNumSuccessors(); ++i) {
+    auto & nextBlock = *termInst->getSuccessor(i);
+    score += getDomRegionValue(entry, nextBlock, seenBlocks);
+  }
+  return score;
 }
-#endif
 
 size_t
-getDomRegionScore(BasicBlock & entry) {
+getBlockScore(BasicBlock & entry) {
   size_t score = 0;
 
   for (auto & inst : entry) {
@@ -150,7 +160,7 @@ getDomRegionScore(BasicBlock & entry) {
       } else if (vecInfo.getVectorShape(*ptrOperand).isUniform()) {
         score += 1;
       } else { // strided
-        score += 4;
+        score += 2;
       }
       continue;
     }
@@ -160,15 +170,23 @@ getDomRegionScore(BasicBlock & entry) {
       if (!callee) { score += 8; continue; }
 
       if (!platInfo.isFunctionVectorizable(callee->getName(), vecInfo.getVectorWidth())) {
-        score += 6;
+        score += 2;
       }
+      score += 1;
       continue;
     }
+
+    score += 1;
   }
 
   return score;
 }
 
+size_t
+getDomRegionScore(BasicBlock & entry) {
+  SmallSet<BasicBlock*, 32> seenBlocks;
+  return getDomRegionValue(entry, entry, seenBlocks);
+}
 
 int
 GetNumPredecessors(BasicBlock & block) {
@@ -185,7 +203,7 @@ GetNumPredecessors(BasicBlock & block) {
 // -1 : boscc onTrue
 // 1 : boscc onFalse
 int
-bosccHeuristic(BranchInst & branch) {
+bosccHeuristic(BranchInst & branch, size_t & regScore) {
 // run legality checks
   auto * onTrueBlock = branch.getSuccessor(0);
   auto * onFalseBlock = branch.getSuccessor(1);
@@ -213,19 +231,35 @@ bosccHeuristic(BranchInst & branch) {
 
 
 // score the dominates parts of either branch target
+  // only accept regions that are post dominated by the oposing branch
   size_t onTrueScore = 0;
-  if (onTrueLegal) {
+  if (onTrueLegal) { // && postDomTree.dominates(onFalseBlock, onTrueBlock)) {
     onTrueScore = getDomRegionScore(*onTrueBlock);
   }
 
   size_t onFalseScore = 0;
-  if (onFalseLegal) {
+  if (onFalseLegal) { //  && postDomTree.dominates(onTrueBlock, onFalseBlock)) {
     onFalseScore = getDomRegionScore(*onFalseBlock);
   }
 
+  const size_t minScore = 64;
+  const size_t maxScore = 10000000;
+
 // otw try to skip the bigger dominated part
-  if (onTrueLegal && onTrueScore > onFalseScore) return -1;
-  else if (onFalseLegal && onFalseScore > onTrueScore) return 1;
+  if (onTrueLegal &&
+      onTrueScore <= maxScore && onTrueScore >= minScore &&
+      onTrueScore > onFalseScore)
+  {
+    regScore = onTrueScore;
+    return -1;
+  }
+  else if (onFalseLegal &&
+      onFalseScore <= maxScore && onFalseScore >= minScore &&
+      onFalseScore > onTrueScore)
+  {
+    regScore = onFalseScore;
+    return 1;
+  }
 
   // can not distinguish --> don't BOSCC
   // this holds e.g. if the branch does not dominate any of its successors
@@ -235,6 +269,8 @@ bosccHeuristic(BranchInst & branch) {
 bool
 run() {
   domTree.recalculate(vecInfo.getScalarFunction());
+
+  size_t numBosccBranches = 0;
 
   ReversePostOrderTraversal<Function*> RPOT(&vecInfo.getScalarFunction());
 
@@ -248,13 +284,18 @@ run() {
     if (!branchInst->isConditional()) continue;
     if (vecInfo.getVectorShape(*branchInst).isUniform()) continue;
 
-    int score = bosccHeuristic(*branchInst);
+    size_t regScore = 0;
+    int score = bosccHeuristic(*branchInst, regScore);
     if (score == 0) continue;
     int succIdx = score < 0 ? 0 : 1;
 
-    Report() << "boscc: skip succ " << succIdx << " of branch " << *branchInst << "\n";
+    ++numBosccBranches;
+
+    Report() << "boscc: skip succ " << branchInst->getSuccessor(succIdx)->getName() << " of block " << branchInst->getParent()->getName() << "  score: " << regScore << "\n";
     transformBranch(*branchInst, succIdx);
   }
+
+  if (numBosccBranches > 0) Report() << "boscc: inserted " << numBosccBranches << " BOSCC branches\n";
 
   // recover
   postDomTree.DT->recalculate(vecInfo.getScalarFunction());
