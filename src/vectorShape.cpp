@@ -114,4 +114,23 @@ std::string VectorShape::str() const {
 
   return ss.str();
 }
+
+VectorShape
+VectorShape::truncateToTypeSize(const VectorShape &a,
+                                        unsigned typeSize) {
+
+    if (!a.isDefined()) return a;
+
+    size_t factor = 1 << typeSize;
+    if (a.isVarying()) {
+      return VectorShape::varying(a.getAlignmentFirst() % factor);
+    }
+
+    // adapt the stride (if necessary)
+    // this may create uniform values for large strides
+    int newAlignment = gcd<size_t>(a.getAlignmentFirst(), factor);
+    return VectorShape::strided(a.getStride() % factor, newAlignment);
+}
+
+
 }
