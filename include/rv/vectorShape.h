@@ -62,6 +62,8 @@ public:
 
   static VectorShape truncateToTypeSize(const VectorShape &a,
                                         unsigned typeSize) {
+    if (!a.isDefined() || a.isVarying()) return a;
+
     // FIXME can this become unaligned?
     // This selects only the last typeSize digits
     unsigned lastDigitsMask = (1U << typeSize) - 1U;
