@@ -248,4 +248,5 @@ Function *PlatformInfo::requestMaskReductionFunc(const std::string &name) {
   redFunc->setDoesNotRecurse();
   return redFunc; // TODO add SIMD mapping
 }
+
 }
