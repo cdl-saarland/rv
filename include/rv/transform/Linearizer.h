@@ -78,6 +78,11 @@ namespace rv {
       , reachingBlocks()
       {}
 
+      // whether there is a post dominance constraint on this block
+      bool empty() {
+        return next == nullptr;
+      }
+
       void addReachingBlock(BasicBlock & reachingBlock) {
         reachingBlocks.insert(&reachingBlock);
       }

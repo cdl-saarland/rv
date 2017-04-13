@@ -1325,7 +1325,25 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   auto & term = *head.getTerminator();
 
   if (term.getNumSuccessors() == 0) {
-    IF_DEBUG_LIN { errs() << "\t control sink.\n"; }
+    auto * retInst = dyn_cast<ReturnInst>(&term);
+    if (!exitRelay) {
+       IF_DEBUG_LIN { errs() << "\t control sink.\n"; }
+       return;
+
+    // we can only lazily fold void returns atm
+    } else if (retInst && retInst->getNumOperands() == 0) {
+      IF_DEBUG_LIN { errs() << "\t replacing control sink with branch because of pending relays.\n"; }
+
+      auto * lateBranch = BranchInst::Create(exitRelay->block, retInst);
+      vecInfo.setVectorShape(*lateBranch, vecInfo.getVectorShape(*retInst));
+      retInst->eraseFromParent();
+      vecInfo.dropVectorShape(*retInst);
+      return;
+    }
+
+    errs() << "RV: error: Could not fold unconditional terminator!\n";
+    errs() << term << "\n";
+    abort();
     return;
   }
 

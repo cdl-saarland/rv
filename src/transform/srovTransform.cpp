@@ -6,18 +6,21 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Instructions.h>
-#include <llvm/ADT/SmallSet.h>
-#include <llvm/Transforms/Utils/ValueMapper.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/DataLayout.h>
-
+#include <llvm/IR/Constants.h>
 #include <llvm/IR/CFG.h>
+
+#include <llvm/ADT/SmallSet.h>
 #include <llvm/ADT/PostOrderIterator.h>
+
+#include <llvm/Transforms/Utils/ValueMapper.h>
 
 #include "rv/vectorizationInfo.h"
 #include "rv/PlatformInfo.h"
 
 #include <rvConfig.h>
+#include "report.h"
 
 using namespace rv;
 using namespace llvm;
@@ -60,6 +63,8 @@ ReplicateMap {
 
   void clear() { replMap.clear(); }
 
+  size_t size() const { return replMap.size(); }
+
   ReplicateMap(VectorizationInfo & _vecInfo)
   : vecInfo(_vecInfo)
   {}
@@ -77,7 +82,7 @@ struct Impl {
   ReplicateMap replMap;
 
   // replicated instructions that must not be stripped from the code
-  SmallSet<Value*, 16> keepSet;
+  SmallSet<Value*, 32> keepSet;
 Impl(Function & _F, VectorizationInfo & _vecInfo, const PlatformInfo & _platInfo)
 : F(_F)
 , vecInfo(_vecInfo)
@@ -111,6 +116,66 @@ repairPhis() {
   }
 }
 
+// check whether all uses of this will-be-replicated instruction can be recovered from the scalare replicates
+bool
+canRepairUses(Value & val) {
+  // can always repair constants
+  if (isa<Constant>(val)) return true;
+
+  if (isa<ExtractValueInst>(val)) return true;
+
+  for (auto * user : val.users()) {
+    if (!isa<PHINode>(user) && !isa<ExtractValueInst>(user) && !isa<SelectInst>(user) && !isa<InsertValueInst>(user)) {
+      IF_DEBUG_SROV { errs() << "can not repair use: " << *user << "\n"; }
+      return false;
+    }
+  }
+
+  return true;
+}
+
+typedef SmallSet<const Value*, 32> ConstValSet;
+
+bool
+canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
+  auto * constVal = dyn_cast<Constant>(&val);
+  auto * selInst = dyn_cast<SelectInst>(&val);
+  auto * phiInst = dyn_cast<PHINode>(&val);
+  auto * insertInst = dyn_cast<InsertValueInst>(&val);
+
+  // remark: checkedSet makes every value appear replicable on the second query
+  // However, a single negative reponse for a recursive constituent makes canReplicate fail anyway
+  if (!checkedSet.insert(&val).second) return true;
+
+  // value was already replicated
+  if (replMap.hasReplicate(val)) return true;
+
+  // check whether we could repair all uses
+  if (!canRepairUses(val)) return false;
+
+  // check whether the instruction itself is replicatable
+  if (constVal) return true;
+  if (phiInst) {
+    for (int i = 0; i < phiInst->getNumIncomingValues(); ++i) {
+      if (!canReplicate(*phiInst->getIncomingValue(i), checkedSet)) {
+        return false;
+      }
+    }
+    return true;
+
+  } else if (selInst) {
+    return canReplicate(*selInst->getTrueValue(), checkedSet) && canReplicate(*selInst->getFalseValue(), checkedSet);
+
+  } else if (insertInst) {
+    return canReplicate(*insertInst->getAggregateOperand(), checkedSet);
+  } else if (isa<ExtractValueInst>(val)) {
+    IF_DEBUG_SROV { errs() << "srov: recursive replication not supported!\n"; }
+    return false;
+  }
+
+  return false;
+}
+
 // re-aggregate @inst for external users of that value
 void
 repairExternalUses(Instruction & inst) {
@@ -132,6 +197,7 @@ repairExternalUses(Instruction & inst) {
     }
 
     // TODO re-aggregate if need be
+    errs() << "CAN NOT RE-aggregate " << *userInst << "\n";
     assert(false && "re-aggregation not yet implemented");
     abort();
   }
@@ -199,7 +265,7 @@ requestLaneReplicate(Value & val, int i) {
 
 // insertInst: if this is a matching insert return it, otw recursively descend into aggregate operand
   if (insertInst) {
-    auto * intoVal = insertInst->getOperand(0);
+    auto * intoVal = insertInst->getAggregateOperand();
     auto * elemVal = insertInst->getOperand(1);
     int32_t structOffset = insertInst->getIndices()[0];
 
@@ -220,8 +286,7 @@ requestLaneReplicate(Value & val, int i) {
     auto & replTy = getLaneReplType(*constVal->getType(), i);
     if (isa<UndefValue>(constVal)) return UndefValue::get(&replTy);
     else if (constVal->isNullValue()) return Constant::getNullValue(&replTy);
-    assert(false && "unsupported constant");
-    abort();
+    else return constVal->getOperand(i);
   }
 
 // Otw: request a replication of @val and pick the replicate at this position
@@ -242,7 +307,6 @@ requestReplicate(Value & val) {
 
   auto * phi = dyn_cast<PHINode>(&val);
   auto * inst = dyn_cast<Instruction>(&val);
-  auto * constVal = dyn_cast<Constant>(&val);
 
   IRBuilder<> builder(inst->getParent(), inst->getIterator());
 
@@ -257,12 +321,23 @@ requestReplicate(Value & val) {
       ss << oldInstName << ".repl." << i;
       std::string phiReplName = ss.str();
 
-      auto * replPhi = builder.CreatePHI(replTyVec[i], phi->getNumIncomingValues() , phiReplName);
+      auto * replPhi = builder.CreatePHI(replTyVec[i], phi->getNumIncomingValues(), phiReplName);
       replVec.push_back(replPhi);
       IF_DEBUG_SROV { errs() << "\t" << i << " : " << *replPhi << "\n"; }
     }
 
-    phi->getType();
+    // register PHI node as replicated
+    replMap.addReplicate(*phi, replVec);
+
+    // request operands
+    for (size_t i = 0; i < phi->getNumIncomingValues(); ++i) {
+      auto * inVal = phi->getIncomingValue(i);
+
+      // descend into non-trivial operand instructions
+      if (isa<Instruction>(inVal) && !isa<InsertValueInst>(inVal)) {
+        requestReplicate(*inVal);
+      }
+    }
 
 // generic instruction replication
   } else if (isa<StoreInst>(inst) || isa<LoadInst>(inst) || isa<CallInst>(inst)) {
@@ -286,18 +361,15 @@ requestReplicate(Value & val) {
       replVec.push_back(replSelect);
       IF_DEBUG_SROV { errs() << "\t" << i << " : " << *replSelect << "\n"; }
     }
+    replMap.addReplicate(val, replVec);
 
   } else {
-    errs() << "SROV: warning: can not replicate " << val <<"\n";
-    // FIXME don't attempt replication where its not possible
-    return replVec;
-
     assert(false && "un-replicatable operation");
     abort();
   }
 
 // register replcate
-  replMap.addReplicate(val, replVec);
+  assert(!replVec.empty());
 
   return replVec;
 }
@@ -312,12 +384,14 @@ getNumReplicates(Type & type) {
   auto & structTy = cast<StructType>(type);
 
 // check if this struct is composed entirely of int/bool or fp types
+#if 0
   for (size_t i = 0; i < structTy.getNumElements(); ++i) {
     auto & elemTy = *structTy.getElementType(i);
     if (!elemTy.isIntegerTy() && !elemTy.isFloatingPointTy()) {
       return 0;
     }
   }
+#endif
 
 // passed all tests
   // we will need a scalar replica for each elemnt
@@ -326,6 +400,8 @@ getNumReplicates(Type & type) {
 
 bool
 run() {
+  bool changedCode = false;
+
   IF_DEBUG_SROV errs() << "---- SROV run log ----\n";
 
 // replicate instructions
@@ -342,20 +418,33 @@ run() {
         continue;
       }
 
-    // check if this is is a replicatable type
-      int numScalarRepls = getNumReplicates(*I.getType());
+      // only start replication from extractvalue
+      if (!isa<ExtractValueInst>(I)) continue;
+
+      auto & extractedVal = *I.getOperand(0);
+
+      int numScalarRepls = getNumReplicates(*extractedVal.getType());
       if (numScalarRepls == 0) {
-        // IF_DEBUG_SROV { errs() <<"\tskpping (non-splittable type: " << *phi->getType() << ")\n"; }
+       IF_DEBUG_SROV { errs() << "SROV: can not replicate extractval operand: " << extractedVal << "). skipping..\n"; }
         continue;
       }
 
-      IF_DEBUG_SROV { errs() <<"SROV: scalar repl of: " << I << ") with " << numScalarRepls << " slots\n"; }
-      // in any case remap insert value on-demand
-      if (isa<InsertValueInst>(I)) { continue; }
+      // only try to replicate extract value insts
+      ConstValSet checkedSet;
+      if (!canReplicate(extractedVal, checkedSet)) {
+        IF_DEBUG_SROV { errs() << "SROV: can not replicate dependent operation of: " << I << " " << extractedVal << ". skipping..\n"; }
+        continue;
+      }
 
-      // only try to remap extract value insts
-      if (isa<ExtractValueInst>(I)) { requestReplicate(*I.getOperand(0)); };
+      // go ahead and replicate
+      IF_DEBUG_SROV { errs() << "SROV: scalar repl of: " << extractedVal << ") with " << numScalarRepls << " slots\n"; }
+      requestReplicate(extractedVal);
+      changedCode = true;
     }
+  }
+
+  if (replMap.size() > 0) {
+    Report() << "srov: replicated " << replMap.size() << " instructions\n";
   }
 
 // cleanup
@@ -365,7 +454,7 @@ run() {
   IF_DEBUG_SROV { errs() << "-- SROV finished --\n";  }
 
 
-  return false;
+  return changedCode;
 }
 
 };

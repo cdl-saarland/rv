@@ -13,6 +13,7 @@
 
 
 #include <rvConfig.h>
+#include "report.h"
 
 using namespace rv;
 using namespace llvm;
@@ -333,6 +334,8 @@ bool
 rv::StructOpt::run() {
   IF_DEBUG_SO { errs() << "-- struct opt log --\n"; }
 
+  size_t numTransformed = 0;
+
   bool change = false;
   for (auto & bb : vecInfo.getScalarFunction()) {
     auto itBegin = bb.begin(), itEnd = bb.end();
@@ -340,8 +343,14 @@ rv::StructOpt::run() {
       auto * allocaInst = dyn_cast<AllocaInst>(it++);
       if (!allocaInst) continue;
 
-      change |= optimizeAlloca(*allocaInst);
+      bool changedAlloca = optimizeAlloca(*allocaInst);
+      if (changedAlloca) { numTransformed++; }
+      change |= changedAlloca;
     }
+  }
+
+  if (numTransformed > 0) {
+    Report() << "structOpt: transformed " << numTransformed << " allocas to struct-of-vector layout\n";
   }
 
   IF_DEBUG_SO { errs() << "-- end of struct opt log --\n"; }
