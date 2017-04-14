@@ -55,8 +55,8 @@ namespace rv {
   class Linearizer {
 
   // block index helper
-  void scheduleLoop(Loop * loop, Loop * antiLoop, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
-  void scheduleDomRegion(BasicBlock * domEntry, Loop * loop, Loop * antiLoop, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
+  void scheduleLoop(Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
+  void scheduleDomRegion(BasicBlock * domEntry, Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
 
   // statistics
       // number of schedule heads that had to be diverted

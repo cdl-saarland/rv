@@ -46,6 +46,12 @@
 
 using namespace llvm;
 
+#if 0
+#define IF_DEBUG_INDEX IF_DEBUG
+#else
+#define IF_DEBUG_INDEX if (false)
+#endif
+
 namespace rv {
 
 void
@@ -58,67 +64,82 @@ Linearizer::addToBlockIndex(BasicBlock & block) {
 }
 
 void
-Linearizer::scheduleDomRegion(BasicBlock * domEntry, Loop * loop, Loop * antiLoop, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd) {
-  errs() << "Sched DomRegion for " << domEntry->getName() << "\n";
+Linearizer::scheduleDomRegion(BasicBlock * domEntry, Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd) {
+  IF_DEBUG_INDEX errs() << padStr << "Sched DomRegion for " << domEntry->getName() << " loop " << (loop ? loop->getHeader()->getName() : "") << "\n";
 
   // schedule the dom region entry
-
-  // do not add blocks to the index that are masked out
-  // if (!antiLoop || !antiLoop->contains(domEntry)) {
-  addToBlockIndex(*domEntry);
+  // if (!loop || loop->contains(domEntry)) {
+    // do not add blocks to the index that are masked out
+    addToBlockIndex(*domEntry);
   // }
 
   auto * domRegionNode = dt.getNode(domEntry);
 
-  // schedule all nested dom regions in repo order
+  // schedule all nested dom regions in rpo
   for (auto it = itStart; it != itEnd; ++it) {
     auto * BB = *it;
     if (!inRegion(*BB)) continue;
-
-    // not inside this dom region -> skip
-    if (!dt.dominates(domEntry, BB)) {
-      continue;
-    }
+    if (loop && !loop->contains(BB)) continue;
 
   // only directly schedule idom children
     auto * bbNode = dt.getNode(BB);
     auto * bbParentDom = bbNode->getIDom();
-
     if (bbParentDom != domRegionNode) {
       continue;
     }
 
-    auto * bbLoop = li.getLoopFor(BB);
 
   // schedule the entire loop as an IDom
-    // this includes dominated loop exits to the current loop
+    auto * bbLoop = li.getLoopFor(BB);
     if (bbLoop != loop) {
       // nested loop header -> schedule that loop entirely before continuing
       if (bbLoop && (bbLoop->getParentLoop() == loop && bbLoop->getHeader() == BB)) {
-        scheduleLoop(bbLoop, antiLoop, it, itEnd);
+        scheduleLoop(bbLoop, padStr +  "  ", it, itEnd);
       }
-      continue;
 
     // otw, simply schedule this idom block
     } else {
-      scheduleDomRegion(BB, loop, antiLoop, it, itEnd);
+      scheduleDomRegion(BB, loop, padStr + "  ", it, itEnd);
     }
   }
 }
 
+// schedule all idoms of the loop header
+// first all idoms wihin the loop, then all idoms after the loop (all in RPOT order)
 void
-Linearizer::scheduleLoop(Loop * loop, Loop * antiLoop, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd) {
+Linearizer::scheduleLoop(Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd) {
   auto * loopHeader = loop->getHeader();
+  auto * headerDom = dt.getNode(loopHeader);
 
-  errs() << "Sched Loop at " << loopHeader->getName() << "\n";
+  IF_DEBUG_INDEX errs() << padStr << "Sched Loop at " << loopHeader->getName() << "\n";
 
   // schedule all dominatesd block within the loop
-  scheduleDomRegion(loopHeader, loop, nullptr, itStart, itEnd);
+  scheduleDomRegion(loopHeader, loop, padStr+ "  ", itStart, itEnd);
+
+
+  auto * parentLoop = loop->getParentLoop();
+
+  // schedule all idoms that are not within this loop
+  for (auto it = itStart; it != itEnd; ++it) {
+    auto * BB = *it;
+
+    if (!inRegion(*BB)) continue;
+    if (loop->contains(BB)) continue;
+
+    // TODO what about idoms on different parent loop levels (masked out if loop is set in rec call)
+    if (loop->contains(dt.getNode(BB)->getIDom()->getBlock()) &&
+        (!parentLoop || parentLoop->contains(BB))) {
+     // dt.dominates(loopHeader, BB)) { //dt.getNode(BB)->getIDom() == headerDom) {
+      scheduleDomRegion(BB, parentLoop, padStr + "  ", it, itEnd);;
+    }
+  }
+#if 0
 
   // schedule all dominated parts in the parent loop that reach the outside loop
-  // scheduleDomRegion(loopHeader, loop->getParentLoop(), loop, itStart, itEnd);
+  scheduleDomRegion(loopHeader, loop->getParentLoop(), loop, itStart, itEnd);
+#endif
 
-#if 1
+#if 0
   SmallVector<BasicBlock*, 4> exitingBlocks;
   loop->getExitingBlocks(exitingBlocks);
 
@@ -150,9 +171,12 @@ Linearizer::scheduleLoop(Loop * loop, Loop * antiLoop, RPOT::rpo_iterator itStar
   // visit exiting blocks in RPOT order
   for (auto it = itStart; it != itEnd; ++it) {
     BasicBlock * exitBlock = *it;
+    // this exit as an idom of a loop exit
     if (pendingExits.count(exitBlock)) {
       errs() << "\t eligible exit " << exitBlock->getName() << "\n";
       scheduleDomRegion(exitBlock, loop->getParentLoop(), nullptr, it, itEnd);
+    // idom
+    } else if(dt.getNode(dt).getIDom() == headerNode) {
     }
   }
 #endif
@@ -168,7 +192,7 @@ Linearizer::buildBlockIndex() {
 
   Loop * topLoop = li.getLoopFor(&entryBlock);
 
-  scheduleDomRegion(&entryBlock, topLoop, nullptr, rpot.begin(), rpot.end());
+  scheduleDomRegion(&entryBlock, topLoop, "", rpot.begin(), rpot.end());
   return;
 #if 0
 
@@ -434,7 +458,7 @@ Linearizer::verifyCompactDominance(BasicBlock & head) {
   int maxIndex = 0;
   std::set<int> domSet;
 
-  errs() << "verifyCompactDom " << head.getName() << "\n";
+  IF_DEBUG_INDEX errs() << "verifyCompactDom " << head.getName() << "\n";
   auto * loop = li.getLoopFor(&head);
 
   for (auto & BB : vecInfo.getScalarFunction()) {
@@ -450,7 +474,7 @@ Linearizer::verifyCompactDominance(BasicBlock & head) {
     }
   }
 
-  errs() << "   [" << minIndex << ", " << maxIndex << "]\n";
+  IF_DEBUG_INDEX errs() << "   [" << minIndex << ", " << maxIndex << "]\n";
 
   for (int i = minIndex; i <= maxIndex; ++i) {
     assert(domSet.count(i));
@@ -1149,6 +1173,8 @@ Linearizer::run() {
   IF_DEBUG_LIN {
     errs() << "-- LoopInfo --\n";
     li.print(errs());
+    errs() << "-- domTree --\n";
+    dt.print(errs());
   }
 
 // initialize with a global topologic enumeration
@@ -1163,8 +1189,6 @@ Linearizer::run() {
 
 // dump divergent branches / loops
   IF_DEBUG_LIN {
-    dt.print(errs());
-
     errs() << "-- LIN: divergent loops/brances in the region --";
     for (int i = 0; i < getNumBlocks(); ++i) {
       auto & block = getBlock(i);
