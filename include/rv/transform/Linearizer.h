@@ -55,7 +55,8 @@ namespace rv {
   class Linearizer {
 
   // block index helper
-  void scheduleLoop(Loop * loop, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
+  void scheduleLoop(Loop * loop, Loop * antiLoop, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
+  void scheduleDomRegion(BasicBlock * domEntry, Loop * loop, Loop * antiLoop, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
 
   // statistics
       // number of schedule heads that had to be diverted
@@ -347,6 +348,7 @@ namespace rv {
     // b) the index range of loop blocks must be tight (there should be not blocks in the range that do not belong to the loop)
     void verifyBlockIndex();
     void verifyLoopIndex(llvm::Loop & loop);
+    void verifyCompactDominance(llvm::BasicBlock & head);
 
     // linearize all divergent control
     void linearizeControl();
