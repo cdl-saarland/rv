@@ -882,6 +882,8 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
 
   const int aligned = !rv::returnsVoidPtr(*castI) ? castOpShape.getAlignmentFirst() : 1;
 
+  if (castOpShape.isVarying()) return castOpShape;
+
   switch (castI->getOpcode()) {
     case Instruction::IntToPtr:
     {
