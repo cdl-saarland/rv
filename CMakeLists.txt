@@ -8,19 +8,19 @@ FIND_PACKAGE(LLVM 3.8 REQUIRED)
 # find out if this is a shared library build of LLVM
 get_target_property(t LLVMPasses TYPE)
 if("x${t}" STREQUAL "xSTATIC_LIBRARY")
-  SET ( LLVM_SHARED_LIBS 0)
+    SET ( LLVM_SHARED_LIBS 0)
 else()
-  SET ( LLVM_SHARED_LIBS 1)
+    SET ( LLVM_SHARED_LIBS 1)
 endif()
 
 IF (ENABLE_ASAN)
-  MESSAGE("-- Building with AddressSanitzer (ENABLE_ASAN)")
+    MESSAGE("-- Building with AddressSanitzer (ENABLE_ASAN)")
 ENDIF()
 
-IF (LLVM_SHARED_LIBS) 
-  MESSAGE("-- Found shared LLVM libraries." )
+IF (LLVM_SHARED_LIBS)
+    MESSAGE("-- Found shared LLVM libraries." )
 ELSE ()
-  MESSAGE("-- Found static LLVM libraries.")
+    MESSAGE("-- Found static LLVM libraries.")
 ENDIF()
 
 SET ( LLVM_PLATFORM_TOOLS_PATH ${LLVM_TOOLS_BINARY_DIR})
@@ -71,6 +71,3 @@ ADD_SUBDIRECTORY ( ${PROJ_SOURCE_DIR} )
 # rvTool
 SET ( RVTOOL_SOURCE_DIR  ${PROJ_ROOT_DIR}/tools )
 ADD_SUBDIRECTORY( ${RVTOOL_SOURCE_DIR} )
-
-
-

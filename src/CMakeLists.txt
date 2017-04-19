@@ -6,25 +6,24 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
 
 ADD_DEFINITIONS ( ${LLVM_DEFINITIONS} )
 
-IF ( ENABLE_ASAN ) 
-  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+IF ( ENABLE_ASAN )
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
 ENDIF()
 
 # this defaults to no-rtti builds, if this flag is not available
 IF (LLVM_ENABLE_RTTI)
-	ADD_DEFINITIONS( "-frtti" )
+    ADD_DEFINITIONS( "-frtti" )
 ELSE ()
-	ADD_DEFINITIONS( "-fno-rtti" )
+    ADD_DEFINITIONS( "-fno-rtti" )
 ENDIF ()
 
 # enable builtins
 IF (ENABLE_SLEEF)
-  ADD_DEFINITIONS( "-DRV_ENABLE_BUILTINS" )
+    ADD_DEFINITIONS( "-DRV_ENABLE_BUILTINS" )
 ENDIF ()
 
 ADD_DEFINITIONS ( "-std=c++14" )
 
-# enable c++11
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -Wall -Wpedantic" )
 
 SET ( RV_GLOBAL_INCLUDES "${PROJ_ROOT_DIR}/include" )
@@ -50,7 +49,7 @@ INCLUDE ( rv-shared )
 
 ADD_LIBRARY ( ${LIBRARY_NAME} SHARED ${RV_SOURCE_FILES} )
 IF (ENABLE_SLEEF)
-  TARGET_LINK_LIBRARIES( ${LIBRARY_NAME} gensleef )
+    TARGET_LINK_LIBRARIES( ${LIBRARY_NAME} gensleef )
 ENDIF ()
 
 LINK_DIRECTORIES ( ${LLVM_LIBRARY_DIRS} )
