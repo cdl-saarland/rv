@@ -92,6 +92,7 @@ public:
     void dump() const;
     void dump(const Value * val) const;
     void dumpBlockInfo(const BasicBlock & block) const;
+    void dumpArguments() const;
 
     void setDivergentLoop(const Loop* loop);
     void setLoopDivergence(const Loop & loop, bool toUniform);
