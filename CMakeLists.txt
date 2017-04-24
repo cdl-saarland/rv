@@ -1,76 +1,184 @@
-PROJECT ( RV )
+# Check if this is a in tree build.
+if (NOT DEFINED LLVM_MAIN_SRC_DIR)
+  project(RV)
+  cmake_minimum_required(VERSION 3.4.3)
 
-CMAKE_MINIMUM_REQUIRED ( VERSION 2.8.1 FATAL_ERROR )
+  # Where is LLVM installed?
+  set(LLVM_INSTALL_ROOT "" CACHE PATH "Root of LLVM install.")
+  # Check if the LLVM_INSTALL_ROOT valid.
+  if( NOT EXISTS ${LLVM_INSTALL_ROOT}/include/llvm )
+    message(FATAL_ERROR "LLVM_INSTALL_ROOT (${LLVM_INSTALL_ROOT}) is not a valid LLVM installation.")
+  endif(NOT EXISTS ${LLVM_INSTALL_ROOT}/include/llvm)
+  # FileCheck, not and llvm-lit are not install by default, warn the user to copy them.
+  if( NOT EXISTS ${LLVM_INSTALL_ROOT}/bin/FileCheck
+      OR NOT EXISTS ${LLVM_INSTALL_ROOT}/bin/not
+      OR NOT EXISTS ${LLVM_INSTALL_ROOT}/bin/llvm-lit )
+    message(WARNING "'FileCheck', 'not' and 'llvm-lit' are required by running regress tests, "
+                    "but they are not installed! Please copy them to "
+                    "${LLVM_INSTALL_ROOT}/bin.")
+  endif()
+  # Add the llvm header path.
+  include_directories(${LLVM_INSTALL_ROOT}/include/)
 
-### configure LLVM ###
-FIND_PACKAGE(LLVM 4.0 REQUIRED)
+  # Get the system librarys that will link into LLVM.
+  execute_process(COMMAND "${LLVM_INSTALL_ROOT}/bin/llvm-config" --system-libs
+                  OUTPUT_VARIABLE LLVM_SYSTEM_LIBS
+                  OUTPUT_STRIP_TRAILING_WHITESPACE)
+  message(STATUS "System libs required by LLVM: ${LLVM_SYSTEM_LIBS}")
 
-# find out if this is a shared library build of LLVM
-get_target_property(t LLVMPasses TYPE)
-if("x${t}" STREQUAL "xSTATIC_LIBRARY")
-  SET ( LLVM_SHARED_LIBS 0)
-else()
-  SET ( LLVM_SHARED_LIBS 1)
+  # Determine where LLVM stores its libraries.
+  execute_process(COMMAND "${LLVM_INSTALL_ROOT}/bin/llvm-config" --libdir
+                  OUTPUT_VARIABLE LLVM_LIBRARY_DIR
+                  OUTPUT_STRIP_TRAILING_WHITESPACE)
+  link_directories("${LLVM_LIBRARY_DIR}")
+
+  # Now set the header paths.
+  execute_process(COMMAND "${LLVM_INSTALL_ROOT}/bin/llvm-config" --includedir
+                  OUTPUT_VARIABLE LLVM_INCLUDE_DIR
+                  OUTPUT_STRIP_TRAILING_WHITESPACE)
+  include_directories( ${LLVM_INCLUDE_DIR} )
+
+  # Get the TARGET_TRIPLE
+  execute_process(COMMAND "${LLVM_INSTALL_ROOT}/bin/llvm-config" --host-target
+                  OUTPUT_VARIABLE TARGET_TRIPLE
+                  OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+  # And then set the cxx flags.
+  execute_process(COMMAND "${LLVM_INSTALL_ROOT}/bin/llvm-config" --cxxflags
+                  OUTPUT_VARIABLE LLVM_CXX_FLAGS
+                  OUTPUT_STRIP_TRAILING_WHITESPACE)
+  set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} ${LLVM_CXX_FLAGS})
+
+  # Check LLVM_ENABLE_ASSERTIONS
+  execute_process(COMMAND "${LLVM_INSTALL_ROOT}/bin/llvm-config" --assertion-mode
+                  OUTPUT_VARIABLE LLVM_ENABLE_ASSERTIONS
+                  OUTPUT_STRIP_TRAILING_WHITESPACE)
+  # Copied from LLVM's HandleLLVMOptions.cmake
+  if( LLVM_ENABLE_ASSERTIONS )
+    # MSVC doesn't like _DEBUG on release builds. See PR 4379.
+    if( NOT MSVC )
+      add_definitions( -D_DEBUG )
+    endif()
+    # On non-Debug builds cmake automatically defines NDEBUG, so we
+    # explicitly undefine it:
+    if( NOT uppercase_CMAKE_BUILD_TYPE STREQUAL "DEBUG" )
+      add_definitions( -UNDEBUG )
+      # Also remove /D NDEBUG to avoid MSVC warnings about conflicting defines.
+      foreach (flags_var_to_scrub
+          CMAKE_CXX_FLAGS_RELEASE
+          CMAKE_CXX_FLAGS_RELWITHDEBINFO
+          CMAKE_CXX_FLAGS_MINSIZEREL
+          CMAKE_C_FLAGS_RELEASE
+          CMAKE_C_FLAGS_RELWITHDEBINFO
+          CMAKE_C_FLAGS_MINSIZEREL)
+        string (REGEX REPLACE "(^| )[/-]D *NDEBUG($| )" " "
+          "${flags_var_to_scrub}" "${${flags_var_to_scrub}}")
+      endforeach()
+    endif()
+  endif()
+
+  # Sources available, too?
+  execute_process(COMMAND "${LLVM_INSTALL_ROOT}/bin/llvm-config" --src-root
+                  OUTPUT_VARIABLE MAIN_SRC_DIR
+                  OUTPUT_STRIP_TRAILING_WHITESPACE)
+  set(LLVM_SOURCE_ROOT ${MAIN_SRC_DIR} CACHE PATH "Path to LLVM source tree")
+
+  # Make sure the isl c files are built as fPIC
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
+else ()
+  set(LLVM_SOURCE_ROOT "${LLVM_MAIN_SRC_DIR}")
+endif ()
+
+set(RV_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(RV_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+set(RV_INCLUDE_DIR ${RV_SOURCE_DIR}/include PARENT_SCOPE)
+
+# Add path for custom modules
+set(CMAKE_MODULE_PATH
+  ${CMAKE_MODULE_PATH}
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
+  )
+
+include("rv_macros")
+
+# Add appropriate flags for GCC
+if (CMAKE_COMPILER_IS_GNUCXX)
+  # FIXME: Turn off exceptions, RTTI:
+  # -fno-exceptions -fno-rtti
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-common -Woverloaded-virtual -Wno-long-long -Wall -W -Wno-unused-parameter -Wwrite-strings -fno-exceptions -fno-rtti")
+elseif (MSVC)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHs-c-")
+  add_definitions("-D_HAS_EXCEPTIONS=0")
+else ()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -fno-rtti")
+endif ()
+
+# Add path for custom modules
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${RV_SOURCE_DIR}/cmake")
+
+SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
+include_directories(
+  BEFORE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${ISL_INCLUDE_DIRS}
+  ${CMAKE_CURRENT_SOURCE_DIR}/lib/External/JSON/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/lib/External/pet/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/lib/External
+  ${CMAKE_CURRENT_BINARY_DIR}/include
+  )
+
+if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
+  install(DIRECTORY include/
+    DESTINATION include
+    FILES_MATCHING
+    PATTERN "*.h"
+    PATTERN ".svn" EXCLUDE
+    )
+
+  install(DIRECTORY ${RV_BINARY_DIR}/include/
+    DESTINATION include
+    FILES_MATCHING
+    PATTERN "*.h"
+    PATTERN "CMakeFiles" EXCLUDE
+    PATTERN ".svn" EXCLUDE
+    )
 endif()
 
-IF (ENABLE_ASAN)
-  MESSAGE("-- Building with AddressSanitzer (ENABLE_ASAN)")
-ENDIF()
+add_definitions( -D_GNU_SOURCE )
 
-IF (LLVM_SHARED_LIBS) 
-  MESSAGE("-- Found shared LLVM libraries." )
-ELSE ()
-  MESSAGE("-- Found static LLVM libraries.")
-ENDIF()
+add_subdirectory(src)
+# add_subdirectory(tools)
 
-SET ( LLVM_PLATFORM_TOOLS_PATH ${LLVM_TOOLS_BINARY_DIR})
-# FIND_PATH ( LLVM_PLATFORM_TOOLS_PATH NAMES clang clang.exe PATHS ${LLVM_TOOLS_BINARY_DIR} ${LLVM_TOOLS_BINARY_DIR}/Debug ${LLVM_TOOLS_BINARY_DIR}/Release )
-MESSAGE ( STATUS "LLVM Tools path found: ${LLVM_PLATFORM_TOOLS_PATH}" )
-SET ( LLVM_TOOL_OPT "${LLVM_PLATFORM_TOOLS_PATH}/opt" )
-SET ( LLVM_TOOL_LINK "${LLVM_PLATFORM_TOOLS_PATH}/llvm-link" )
-SET ( LLVM_TOOL_LLVMAS "${LLVM_PLATFORM_TOOLS_PATH}/llvm-as" )
-SET ( LLVM_TOOL_CLANG "${LLVM_PLATFORM_TOOLS_PATH}/clang" )
-SET ( LLVM_TOOL_CLANGPP "${LLVM_PLATFORM_TOOLS_PATH}/clang++" )
+# Add target to check formatting of polly files
+file( GLOB_RECURSE files *.h src/*.cpp src/*.c tools/*.cpp tools/*.c tools/*.h)
+# file( GLOB_RECURSE external lib/External/*.h lib/External/*.c lib/External/*.cpp)
+# list( REMOVE_ITEM files ${external})
 
-
-### configure build ###
-SET ( PACKAGE_VERSION "2.0" )
-SET ( CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "limited config" FORCE )
-
-IF ( NOT CMAKE_BUILD_TYPE )
-    SET ( CMAKE_BUILD_TYPE Debug CACHE STRING "Debug or Release" FORCE )
-ENDIF ()
-
-SET ( PROJ_ROOT_DIR    ${PROJECT_SOURCE_DIR} )
-SET ( PROJ_SOURCE_DIR  ${PROJ_ROOT_DIR}/src )
-
-SET ( PROJ_BINARY_DIR  "bin" )
-SET ( PROJ_LIBRARY_DIR "lib" )
-SET ( PROJ_INCLUDE_DIR "include" )
-
-SET ( PROJ_NAME  ${PROJECT_NAME} )
-STRING ( TOUPPER ${PROJ_NAME} PROJ_PREFIX )
-
-SET ( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${PROJ_BINARY_DIR} )
-SET ( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${PROJ_LIBRARY_DIR} )
-SET ( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${PROJ_LIBRARY_DIR} )
-
-SET ( CMAKE_MODULE_PATH ${PROJ_ROOT_DIR} ${CMAKE_MODULE_PATH} )
-
-# cmake module install
-INSTALL ( FILES rv-config.cmake rv-shared.cmake DESTINATION share/rv/cmake )
-
-# vector math libraries
-# may generate extra sources (before libRV)
-ADD_SUBDIRECTORY( ${PROJ_ROOT_DIR}/vecmath )
-
-# libRV
-SET ( LIBRARY_NAME RV )
-ADD_SUBDIRECTORY ( ${PROJ_SOURCE_DIR} )
-
-# rvTool
-SET ( RVTOOL_SOURCE_DIR  ${PROJ_ROOT_DIR}/tools )
-ADD_SUBDIRECTORY( ${RVTOOL_SOURCE_DIR} )
-
-
+# set(check_format_depends)
+# set(update_format_depends)
+# set(i 0)
+# foreach (file IN LISTS files)
+#   add_custom_command(OUTPUT polly-check-format${i}
+#     COMMAND clang-format -sort-includes -style=llvm ${file} | diff -u ${file} -
+#     VERBATIM
+#     COMMENT "Checking format of ${file}..."
+#   )
+#   list(APPEND check_format_depends "polly-check-format${i}")
+# 
+#   add_custom_command(OUTPUT polly-update-format${i}
+#     COMMAND clang-format -sort-includes -i -style=llvm ${file}
+#     VERBATIM
+#     COMMENT "Updating format of ${file}..."
+#   )
+#   list(APPEND update_format_depends "polly-update-format${i}")
+# 
+#   math(EXPR i ${i}+1)
+# endforeach ()
+# 
+# add_custom_target(polly-check-format DEPENDS ${check_format_depends})
+# set_target_properties(polly-check-format PROPERTIES FOLDER "Polly")
+# 
+# add_custom_target(polly-update-format DEPENDS ${update_format_depends})
+# set_target_properties(polly-update-format PROPERTIES FOLDER "Polly")
 

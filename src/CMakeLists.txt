@@ -1,95 +1,98 @@
-# SET ( SLEEF_LIB_PATH "${CMAKE_BINARY_DIR}/rvlib.bc" CACHE FILEPATH "Wfv libary path" )
-SET ( RV_SLEEF_BC_DIR "${CMAKE_BINARY_DIR}/lib" )
-# SET ( RV_LIB_MATH_DIR "${RV_LIB_DIR}/mathfun" )
+set(LLVM_NO_RTTI 1)
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
+set(RV_HEADER_FILES)
+if (MSVC_IDE OR XCODE)
+  file(GLOB_RECURSE Rv_HEADER_FILES "${RV_SOURCE_DIR}/include/rv/**/*.h")
+endif ()
 
-ADD_DEFINITIONS ( ${LLVM_DEFINITIONS} )
+add_rv_library(RV
+  analysis/MandatoryAnalysis.cpp
+  analysis/BranchDependenceAnalysis.cpp
+  analysis/maskAnalysis.cpp
+  analysis/reductionAnalysis.cpp
+  analysis/DFG.cpp
+  analysis/ABAAnalysis.cpp
+  analysis/VectorizationAnalysis.cpp
+  native/ShuffleBuilder.cpp
+  native/Utils.cpp
+  native/MemoryAccessGrouper.cpp
+  native/NatBuilder.cpp
+  native/nativeBackendPass.cpp
+  rvConfig.cpp
+  transform/loopExitCanonicalizer.cpp
+  transform/maskGenerator.cpp
+  transform/LoopVectorizer.cpp
+  transform/Linearizer.cpp
+  transform/srovTransform.cpp
+  transform/structOpt.cpp
+  utils/maskGraphUtils.cpp
+  utils/rvTools.cpp
+  VectorizationInfoProxyPass.cpp
+  region/LoopRegion.cpp
+  region/Region.cpp
+  vectorMapping.cpp
+  sleefLibrary.cpp
+  PlatformInfo.cpp
+  init.cpp
+  vectorizationInfo.cpp
+  report.cpp
+  rv.cpp
+  vectorShape.cpp
+  ${RV_HEADER_FILES}
+  )
 
-IF ( ENABLE_ASAN ) 
-  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
-ENDIF()
+if (BUILD_SHARED_LIBS)
+  target_link_libraries(RV
+    LLVMSupport
+    LLVMCore
+    LLVMScalarOpts
+    LLVMInstCombine
+    LLVMTransformUtils
+    LLVMAnalysis
+    LLVMipo
+    LLVMMC
+    LLVMIRReader
+# The libraries below are required for darwin: http://PR26392
+    LLVMBitReader
+    LLVMMCParser
+    LLVMObject
+    LLVMProfileData
+    LLVMTarget
+    LLVMVectorize
+  )
+  link_directories(
+    ${LLVM_LIBRARY_DIR}
+  )
+elseif (LLVM_LINK_LLVM_DYLIB)
+  target_link_libraries(RV
+    LLVM
+  )
+  link_directories(
+    ${LLVM_LIBRARY_DIR}
+  )
+endif()
 
-# this defaults to no-rtti builds, if this flag is not available
-IF (LLVM_ENABLE_RTTI)
-	ADD_DEFINITIONS( "-frtti" )
-ELSE ()
-	ADD_DEFINITIONS( "-fno-rtti" )
-ENDIF ()
+# Build a monolithic Polly.a and a thin module LLVMPolly.moduleext that links to
+# that static library.
+if (MSVC)
+  # Add dummy target, because loadable modules are not supported on Windows
+  add_custom_target(LLVMRV)
+  set_target_properties(LLVMRV PROPERTIES FOLDER "rv")
+else ()
+  add_rv_loadable_module(LLVMRV
+    rv.cpp
+  )
 
-# enable builtins
-IF (ENABLE_SLEEF)
-  ADD_DEFINITIONS( "-DRV_ENABLE_BUILTINS" )
-ENDIF ()
+target_link_libraries(LLVMRV RV)
 
-ADD_DEFINITIONS ( "-std=c++14" )
+set_target_properties(LLVMRV
+    PROPERTIES
+    LINKER_LANGUAGE CXX
+    PREFIX "")
+endif ()
 
-# enable c++11
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -Wall -Wpedantic" )
+if (TARGET intrinsics_gen)
+  # Check if we are building as part of an LLVM build
+  add_dependencies(RV intrinsics_gen)
+endif()
 
-SET ( RV_GLOBAL_INCLUDES "${PROJ_ROOT_DIR}/include" )
-FILE ( GLOB RV_GLOBAL_INCLUDE_FILES "${RV_GLOBAL_INCLUDES}/rv/**/*.h" )
-
-INCLUDE_DIRECTORIES ( ${PROJ_SOURCE_DIR} )
-INCLUDE_DIRECTORIES ( ${RV_GLOBAL_INCLUDES} )
-INCLUDE_DIRECTORIES ( ${LLVM_INCLUDE_DIRS} )
-
-# get source files
-FILE ( GLOB NATIVE_CPP          native/*.cpp )
-FILE ( GLOB CPP_GLOBAL          *.cpp )
-FILE ( GLOB CPP_UTILS           utils/*.cpp )
-FILE ( GLOB CPP_ANALYSIS        analysis/*.cpp )
-FILE ( GLOB REGIONS             region/*.cpp )
-FILE ( GLOB TRANSFORMS          transform/*.cpp )
-FILE ( GLOB OPT_PASSES pass/*.cpp )
-
-SET ( RV_SOURCE_FILES ${CPP_GLOBAL} ${CPP_UTILS} ${CPP_ANALYSIS} ${REGIONS} ${NATIVE_CPP} ${OPT_PASSES} ${TRANSFORMS} )
-
-# create libRV
-INCLUDE ( rv-shared )
-
-ADD_LIBRARY ( ${LIBRARY_NAME} SHARED ${RV_SOURCE_FILES} )
-IF (ENABLE_SLEEF)
-  TARGET_LINK_LIBRARIES( ${LIBRARY_NAME} gensleef )
-ENDIF ()
-
-LINK_DIRECTORIES ( ${LLVM_LIBRARY_DIRS} )
-get_rv_llvm_dependency_libs ( LLVM_LIBRARIES )
-
-# link in shared LLVM libraries
-IF (LLVM_SHARED_LIBS)
-  TARGET_LINK_LIBRARIES ( ${LIBRARY_NAME} ${LLVM_LIBRARIES} )
-ENDIF ()
-
-# make install
-SET ( CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE )
-
-# public headers
-FILE ( GLOB RV_INCLUDES_RV "${RV_GLOBAL_INCLUDES}/rv/*.h" )
-INSTALL ( FILES ${RV_INCLUDES_RV} DESTINATION ${PROJ_INCLUDE_DIR}/rv )
-FILE ( GLOB RV_INCLUDES_RV_ANALYSIS "${RV_GLOBAL_INCLUDES}/rv/analysis/*.h" )
-INSTALL ( FILES ${RV_INCLUDES_RV_ANALYSIS} DESTINATION ${PROJ_INCLUDE_DIR}/rv/analysis )
-FILE ( GLOB RV_INCLUDES_RV_REGION "${RV_GLOBAL_INCLUDES}/rv/Region/*.h" )
-INSTALL ( FILES ${RV_INCLUDES_RV_REGION} DESTINATION ${PROJ_INCLUDE_DIR}/rv/Region )
-FILE ( GLOB RV_INCLUDES_RV_TRANSFORMS "${RV_GLOBAL_INCLUDES}/rv/transforms/*.h" )
-INSTALL ( FILES ${RV_INCLUDES_RV_TRANSFORMS} DESTINATION ${PROJ_INCLUDE_DIR}/rv/transforms )
-FILE ( GLOB RV_INCLUDES_RV_UTILS "${RV_GLOBAL_INCLUDES}/rv/utils/*.h" )
-INSTALL ( FILES ${RV_INCLUDES_RV_UTILS} DESTINATION ${PROJ_INCLUDE_DIR}/rv/utils )
-INSTALL ( FILES ${RV_LIB_PATH} DESTINATION ${PROJ_LIBRARY_DIR} )
-
-# libRV
-INSTALL ( TARGETS ${LIBRARY_NAME} LIBRARY DESTINATION lib)
-
-# make rvTestSuite
-SET ( RV_TEST_PATH "${PROJ_ROOT_DIR}/test" )
-
-IF ( APPLE )
-    SET ( STD_LIB "-std=c++11" "-stdlib=libstdc++" )
-ENDIF ()
-
-INCLUDE_DIRECTORIES ( ${RV_TEST_PATH}/include )
-
-#TODO: clion workaround for install target. remove before release
-add_custom_target(install_${PROJECT_NAME}
-        make install
-        COMMENT "Installing ${PROJECT_NAME}")
