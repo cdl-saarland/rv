@@ -5,6 +5,10 @@ if (MSVC_IDE OR XCODE)
   file(GLOB_RECURSE Rv_HEADER_FILES "${RV_SOURCE_DIR}/include/rv/**/*.h")
 endif ()
 
+if (RV_ENABLE_SLEEF) 
+  add_definitions( "-DRV_ENABLE_BUITINS" )
+endif()
+
 add_rv_library(RV
   analysis/MandatoryAnalysis.cpp
   analysis/BranchDependenceAnalysis.cpp
@@ -39,7 +43,12 @@ add_rv_library(RV
   rv.cpp
   vectorShape.cpp
   ${RV_HEADER_FILES}
+  ${RV_GENBC_SOURCES}
   )
+
+# if (RV_ENABLE_SLEEF)
+#   target_link_libraries(RV ${RV_GENBC_SOURCES})
+# endif()
 
 if (BUILD_SHARED_LIBS)
   target_link_libraries(RV

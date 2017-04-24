@@ -147,7 +147,10 @@ endif()
 
 add_definitions( -D_GNU_SOURCE )
 
+add_subdirectory(vecmath)
+
 add_subdirectory(src)
+
 # add_subdirectory(tools)
 
 # Add target to check formatting of polly files
