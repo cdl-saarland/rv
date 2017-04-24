@@ -34,20 +34,25 @@ INCLUDE_DIRECTORIES ( ${RV_GLOBAL_INCLUDES} )
 INCLUDE_DIRECTORIES ( ${LLVM_INCLUDE_DIRS} )
 
 # get source files
-FILE ( GLOB NATIVE_CPP          native/*.cpp )
-FILE ( GLOB CPP_GLOBAL          *.cpp )
-FILE ( GLOB CPP_UTILS           utils/*.cpp )
-FILE ( GLOB CPP_ANALYSIS        analysis/*.cpp )
-FILE ( GLOB REGIONS             region/*.cpp )
-FILE ( GLOB TRANSFORMS          transform/*.cpp )
-FILE ( GLOB OPT_PASSES pass/*.cpp )
+FILE ( GLOB NATIVE_CPP      native/*.cpp )
+FILE ( GLOB CPP_GLOBAL      *.cpp )
+FILE ( GLOB CPP_UTILS       utils/*.cpp )
+FILE ( GLOB CPP_ANALYSIS    analysis/*.cpp )
+FILE ( GLOB REGIONS         region/*.cpp )
+FILE ( GLOB TRANSFORMS      transform/*.cpp )
+FILE ( GLOB OPT_PASSES      pass/*.cpp )
 
 SET ( RV_SOURCE_FILES ${CPP_GLOBAL} ${CPP_UTILS} ${CPP_ANALYSIS} ${REGIONS} ${NATIVE_CPP} ${OPT_PASSES} ${TRANSFORMS} ../include/CostModel.h CostModel.cpp)
 
 # create libRV
 INCLUDE ( rv-shared )
 
-ADD_LIBRARY ( ${LIBRARY_NAME} SHARED ${RV_SOURCE_FILES} )
+if(LLVM_SHARED_LIBS)
+    ADD_LIBRARY ( ${LIBRARY_NAME} SHARED ${RV_SOURCE_FILES} )
+else()
+    ADD_LIBRARY ( ${LIBRARY_NAME} STATIC ${RV_SOURCE_FILES} )
+endif()
+
 IF (ENABLE_SLEEF)
     TARGET_LINK_LIBRARIES( ${LIBRARY_NAME} gensleef )
 ENDIF ()
@@ -73,7 +78,9 @@ INSTALL ( FILES ${RV_INCLUDES_RV_UTILS} DESTINATION ${PROJ_INCLUDE_DIR}/rv/utils
 INSTALL ( FILES ${RV_LIB_PATH} DESTINATION ${PROJ_LIBRARY_DIR} )
 
 # libRV
-INSTALL ( TARGETS ${LIBRARY_NAME} LIBRARY DESTINATION lib)
+INSTALL ( TARGETS ${LIBRARY_NAME} ARCHIVE DESTINATION lib
+                                  LIBRARY DESTINATION lib
+                                  RUNTIME DESTINATION bin )
 
 # make rvTestSuite
 SET ( RV_TEST_PATH "${PROJ_ROOT_DIR}/test" )
