@@ -31,7 +31,7 @@
 // generic transfer functions
 rv::VectorShape
 GenericTransfer(rv::VectorShape a) {
-  return a;
+  return a.isUniform() ? rv::VectorShape::uni() : rv::VectorShape::varying();
 }
 
 template<class ... Shapes>
