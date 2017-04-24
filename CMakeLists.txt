@@ -151,7 +151,7 @@ add_subdirectory(vecmath)
 
 add_subdirectory(src)
 
-# add_subdirectory(tools)
+add_subdirectory(tools)
 
 # Add target to check formatting of polly files
 file( GLOB_RECURSE files *.h src/*.cpp src/*.c tools/*.cpp tools/*.c tools/*.h)
