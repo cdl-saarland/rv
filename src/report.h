@@ -14,6 +14,8 @@ llvm::raw_ostream & Report();
 // output stream for error
 llvm::raw_ostream & Error();
 
+void fail(const std::string & text) __attribute__((noreturn));
+
 }
 
 #endif // RV_REPORT_H_

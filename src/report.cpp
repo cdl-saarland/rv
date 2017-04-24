@@ -27,5 +27,11 @@ Error() {
   return (llvm::errs() << "rv ERROR: ");
 }
 
+void
+fail(const std::string & text) {
+  Error() << text << "\n";
+  abort();
+}
+
 
 }

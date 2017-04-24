@@ -25,6 +25,7 @@
 #include "utils/rvTools.h"
 
 #include "rvConfig.h"
+#include "report.h"
 
 using namespace llvm;
 using namespace rv::MaskGraphUtils;
@@ -201,21 +202,21 @@ MaskAnalysis::analyze(Function& F)
     }
 
     // If an error occurred in one of the previous phases, abort.
-    try {
+    // try {
         createMaskGraph(F);
-    }
-    catch (std::logic_error& error)
-    {
-        errs() << "\nException occurred during MaskAnalysis: "
-        << error.what() << "\n";
-        return true;
-    }
-    catch (...)
-    {
-        errs() << "\nINTERNAL ERROR: Unexpected exception occurred during "
-        << "MaskAnalysis!\n";
-        return true;
-    }
+    // }
+    // catch (std::logic_error& error)
+    // {
+    //     errs() << "\nException occurred during MaskAnalysis: "
+    //     << error.what() << "\n";
+    //     return true;
+    // }
+    // catch (...)
+    // {
+    //     errs() << "\nINTERNAL ERROR: Unexpected exception occurred during "
+    //     << "MaskAnalysis!\n";
+    //     return true;
+    // }
 
     IF_DEBUG_MA { print(errs(), NULL); }
 
@@ -667,8 +668,7 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
             }
             else
             {
-                assert (false && "unsupported terminator instruction found!");
-                throw new std::logic_error("unsupported terminator instruction found!");
+                fail("unsupported terminator instruction found!");
             }
 
             trueMask = entryMask;
@@ -796,8 +796,7 @@ MaskAnalysis::createExitMasks(BasicBlock*              block,
         }
         else
         {
-            assert (false && "unsupported terminator instruction found!");
-            throw new std::logic_error("unsupported terminator instruction found!");
+            fail("unsupported terminator instruction found!");
         }
 
 

@@ -76,22 +76,7 @@ MaskGenerator::generate(Function& F)
             errs() << "#########################################################\n";
     }
 
-    // If an error occurred in one of the previous phases, abort.
-    try {
-        materializeMasks(F);
-    }
-    catch (std::logic_error& error)
-    {
-        errs() << "\nException occurred during MaskGenerator: "
-        << error.what() << "\n";
-        return false;
-    }
-    catch (...)
-    {
-        errs() << "\nINTERNAL ERROR: Unexpected exception occurred during "
-        << "MaskGenerator!\n";
-        return false;
-    }
+    materializeMasks(F);
 
     IF_DEBUG_MG {
       errs() << "-- Function after MaskGenerator --\n";
