@@ -349,12 +349,9 @@ requestReplicate(Value & val) {
     auto * ptr = load ? load->getPointerOperand() : store->getPointerOperand();
     VectorShape ptrShape = vecInfo.getVectorShape(*ptr);
 
-    ptr->dump();
-
     for (size_t i = 0; i < replTyVec.size(); ++i) {
       auto * elemGep = builder.CreateGEP(ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
       vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
-      errs() << "elem Gep " << i << " : " << *elemGep << "\n";
       Value * replInst = nullptr;
       if (load) {
         replInst = builder.CreateLoad(elemGep);
