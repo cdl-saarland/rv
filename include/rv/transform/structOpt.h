@@ -39,6 +39,13 @@ class StructOpt {
 
   // execute the data layout transformation
   void transformLayout(llvm::AllocaInst & allocaInst, llvm::ValueToValueMapTy & transformMap);
+
+  // aggressive mem2reg promotion of small allocas
+  bool shouldPromote(llvm::AllocaInst & allocaInst);
+  void promoteAlloca(llvm::AllocaInst & allocaInst);
+  size_t numTransformed;
+  size_t numPromoted;
+
 public:
   StructOpt(VectorizationInfo & _vecInfo, const llvm::DataLayout & _layout);
 
