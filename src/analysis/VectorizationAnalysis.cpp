@@ -472,16 +472,10 @@ bool VectorizationAnalysis::pushMissingOperands(const Instruction* I) {
 
 VectorShape
 VectorizationAnalysis::computePHIShape(const PHINode & phi) {
-   // TODO factor PHI logic into separate method
    // check if this PHINode actually joins different values
-   bool mixingPhi = false;
-   Value * singleVal = phi.getIncomingValue(0);
-   for (uint i = 1; i < phi.getNumIncomingValues(); ++i) {
-     if (singleVal != phi.getIncomingValue(i)) {
-       mixingPhi = true;
-       break;
-     }
-   }
+   const Value* first = phi.getIncomingValue(0);
+   bool mixingPhi = std::any_of(phi.op_begin() + 1, phi.op_end(),
+                                [&](const Value* op) { return op != first; });
 
    // the PHI node is not actually varying iff all input operands are the same
    // If the block is divergent the phi is varying
