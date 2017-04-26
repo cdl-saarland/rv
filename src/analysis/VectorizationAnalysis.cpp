@@ -20,6 +20,8 @@
 #include <llvm/IR/Dominators.h>
 #include <llvm/Analysis/LoopInfo.h>
 
+#include <numeric>
+
 #if 1
 #define IF_DEBUG_VA IF_DEBUG
 #else
@@ -454,17 +456,18 @@ VectorShape VectorizationAnalysis::joinOperands(const Instruction& I) {
 }
 
 bool VectorizationAnalysis::pushMissingOperands(const Instruction* I) {
-  auto hasKnownShape = [this](Value* op)
+  auto pushIfMissing = [this](bool prevpushed, Value* op)
   {
-    if (isa<Instruction>(op) && !getShape(op).isDefined()) {
+    bool push = isa<Instruction>(op) && !getShape(op).isDefined();
+    if (push) {
       IF_DEBUG_VA { errs() << "\tmissing op shape " << *op << "!\n"; }
       mWorklist.push(cast<Instruction>(op));
     }
 
-    return !isa<Instruction>(op) || getShape(op).isDefined();
+    return prevpushed || push;
   };
 
-  return all_of(I->operands(), hasKnownShape);
+  return std::accumulate(I->op_begin(), I->op_end(), false, pushIfMissing);
 }
 
 VectorShape
@@ -503,7 +506,7 @@ void VectorizationAnalysis::compute(Function& F) {
     // allow incomplete inputs for PHI nodes
     if (isa<PHINode>(I)) {
       New = computePHIShape(cast<PHINode>(*I));
-    } else if (!pushMissingOperands(I)) {
+    } else if (pushMissingOperands(I)) {
       continue;
     } else {
       New = computeShapeForInst(I);
