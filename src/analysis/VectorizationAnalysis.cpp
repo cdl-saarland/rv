@@ -109,27 +109,23 @@ VectorizationAnalysis::analyze(Function& F) {
 
   init(F);
   compute(F);
-  fillVectorizationInfo(F);
-
-  // checkEquivalentToOldAnalysis(F);
+  fixUndefinedShapes(F);
 }
 
 bool VectorizationAnalysis::isInRegion(const BasicBlock& BB) {
-  return mRegion ? mRegion->contains(&BB) : true;
+  return !mRegion || mRegion->contains(&BB);
 }
 
 bool VectorizationAnalysis::isInRegion(const Instruction& inst) {
-  return !mRegion || isInRegion(*inst.getParent());
+  return isInRegion(*inst.getParent());
 }
 
-void VectorizationAnalysis::fillVectorizationInfo(Function& F) {
+void VectorizationAnalysis::fixUndefinedShapes(Function& F) {
   for (const BasicBlock& BB : F) {
     if (!isInRegion(BB)) continue;
-    mVecinfo.setVectorShape(BB, getShape(&BB));
     for (const Instruction& I : BB) {
-      VectorShape shape = getShape(&I);
-
-      mVecinfo.setVectorShape(I, shape.isDefined() ? shape : VectorShape::uni());
+      if (!getShape(&I).isDefined())
+        mVecinfo.setVectorShape(I, VectorShape::uni());
     }
   }
 }
@@ -174,81 +170,86 @@ unsigned VectorizationAnalysis::getAlignment(const Constant* c) const {
   return static_cast<unsigned>(std::abs(intValue));
 }
 
-void VectorizationAnalysis::init(Function& F) {
-  // Initialize with undefined values
-  for (auto& arg : F.args()) mValue2Shape[&arg] = VectorShape::undef();
+void VectorizationAnalysis::adjustValueShapes(Function& F) {
+  // Enforce shapes to be existing, if absent, set to VectorShape::undef()
+  // If already there, also optimize alignment in case of pointer type
 
-  // initialize all insts in region(!) as undef
-  for (auto& BB : F) {
-    if (mVecinfo.inRegion(BB)) {
-       for (auto& I : BB) {
-         mValue2Shape[&I] = VectorShape::undef();
-       }
+  // Arguments
+  for (auto& arg : F.args()) {
+    if (!mVecinfo.hasKnownShape(arg)) {
+      mVecinfo.setVectorShape(arg, VectorShape::undef());
+    } else {
+      // Adjust pointer argument alignment
+      if (arg.getType()->isPointerTy()) {
+        VectorShape argShape = mVecinfo.getVectorShape(arg);
+        uint minAlignment = getBaseAlignment(arg, layout);
+        // max is the more precise one
+        argShape.setAlignment(std::max<uint>(minAlignment, argShape.getAlignmentFirst()));
+        mVecinfo.setVectorShape(arg, argShape);
+      }
     }
   }
+
+  // Instructions in region(!)
+  for (auto& BB : F) {
+    if (mVecinfo.inRegion(BB)) {
+      for (auto& I : BB) {
+        if (!mVecinfo.hasKnownShape(I))
+          mVecinfo.setVectorShape(I, VectorShape::undef());
+      }
+    }
+  }
+}
+
+void VectorizationAnalysis::init(Function& F) {
+  adjustValueShapes(F);
 
   // bootstrap with user defined shapes
   for (auto& BB : F) {
     for (auto& I : BB) {
-      if (mVecinfo.hasKnownShape(I)) {
-        IF_DEBUG_VA errs() << "OVERRIDE " << I << " shape " << mVecinfo.getVectorShape(I).str() << "\n";
+      VectorShape shape = mVecinfo.getVectorShape(I);
+
+      if (shape.isDefined()) {
+        IF_DEBUG_VA errs() << "Override for: " << I << ", shape: " << shape << "\n";
         overrides.insert(&I);
-        update(&I, mVecinfo.getVectorShape(I));
-        mVecinfo.dropVectorShape(I);
-      }
-      else {
-        mVecinfo.setVectorShape(I, VectorShape::uni());
+        // Drop + update so this gets recognized as a change
+        mVecinfo.setVectorShape(I, VectorShape::undef());
+        update(&I, shape);
       }
     }
   }
 
-  // Update initialized instructions
+  // Start iteration from arguments
   for (auto& arg : F.args()) {
-    if (mVecinfo.hasKnownShape(arg)) {
-      VectorShape argShape = mVecinfo.getVectorShape(arg);
-
-      if (arg.getType()->isPointerTy()) {
-        uint minAlignment = getBaseAlignment(arg, layout);
-        argShape.setAlignment(std::max<uint>(minAlignment, argShape.getAlignmentFirst()));
-        // max is the more precise one
-      }
-
-      /* Adjust pointer arguments to continous stride */
-      //if (arg.getType()->isPointerTy() && argShape.isVarying()) {
-      //  argShape = VectorShape::cont();
-      //}
-
-      update(&arg, argShape);
-    }
-    else {
+    if (!mVecinfo.getVectorShape(arg).isDefined()) {
       assert(mRegion && "will only default function args if in region mode");
       // set argument shapes to uniform if not known better
-      update(&arg, VectorShape::uni());
+      mVecinfo.setVectorShape(arg, VectorShape::uni());
     }
+
+    addRelevantUsersToWL(&arg);
   }
 
   // Propagation of vectorshapes starts at:
   // - Allocas
   // - Constants
-  // - Calls (theres no connection to them in the iteration if they have no parameters)
+  // - Calls (no connection to them if they have no parameters)
   for (const BasicBlock& BB : F) {
-    mValue2Shape[&BB] = VectorShape::uni();
+    mVecinfo.setVectorShape(BB, VectorShape::uni());
 
     for (const Instruction& I : BB) {
       if (isa<AllocaInst>(&I)) {
         update(&I, VectorShape::uni(mVecinfo.getMapping().vectorWidth));
-      }
-        /* Need to initialize WL with calls, they may not be reached o.w. */
-      else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
+      } else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
+        // Initialize WL with 0 parameter calls
         // Only makes sense if a value is returned
         if (call->getCalledFunction()->getReturnType()->isVoidTy()) continue;
         if (call->getNumArgOperands() != 0) continue;
 
         mWorklist.push(&I);
         IF_DEBUG_VA errs() << "Inserted call in initialization: " << I.getName() << "\n";
-      }
-        /* Phis that depend on constants are added to the WL */
-      else if (isa<PHINode>(I) && any_of(I.operands(), isa<Constant, Use>)) {
+      } else if (isa<PHINode>(I) && any_of(I.operands(), isa<Constant, Use>)) {
+        // Phis that depend on constants are added to the WL
         mWorklist.push(&I);
         IF_DEBUG_VA errs() << "Inserted PHI in initialization: " << I.getName() << "\n";
       }
@@ -257,19 +258,20 @@ void VectorizationAnalysis::init(Function& F) {
 }
 
 void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
-  updateShape(V, AT);
-  if (isa<BranchInst>(V))
+  bool changed = updateShape(V, AT);
+  if (changed && isa<BranchInst>(V))
     analyzeDivergence(cast<BranchInst>(V));
 }
 
-void VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
-  const VectorShape& New = VectorShape::join(getShape(V), AT);
+bool VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
+  VectorShape Old = getShape(V);
+  const VectorShape& New = VectorShape::join(Old, AT);
 
-  if (mValue2Shape[V] == New) return;// nothing changed
-  if (overrides.count(V) && getShape(V).isDefined()) return;//prevented by override
+  if (Old == New) return false;// nothing changed
+  if (overrides.count(V) && Old.isDefined()) return false;//prevented by override
 
   IF_DEBUG_VA errs() << "Marking " << New << ": " << *V << "\n";
-  mValue2Shape[V] = New;
+  mVecinfo.setVectorShape(*V, New);
 
   // Add dependent elements to worklist
   addRelevantUsersToWL(V);
@@ -278,6 +280,8 @@ void VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
   if (!New.isUniform() && isa<Instruction>(V)) {
     updateAllocaOperands(cast<Instruction>(V));
   }
+
+  return true;
 }
 
 void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
@@ -297,7 +301,7 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
     } // filter out irrelevant nodes (FIXME filter out directly in BDA)
 
     // Doesn't matter if already effected previously
-    if (mValue2Shape[BB].isVarying()) continue;
+    if (getShape(BB).isVarying()) continue;
 
     IF_DEBUG_VA errs() << "Branch " << *branch << " affects " << *BB << "\n";
 
@@ -342,7 +346,7 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
       if (allExitsUniform(endsVaryingLoop)) continue;
     }
 
-    mValue2Shape[BB] = VectorShape::varying();
+    mVecinfo.setVectorShape(*BB, VectorShape::varying());
 
     IF_DEBUG_VA {
       errs() << "\n"
@@ -364,35 +368,21 @@ void VectorizationAnalysis::updateAllocaOperands(const Instruction* I) {
   const int alignment = mVecinfo.getMapping().vectorWidth;
 
   for (const Value* op : I->operands()) {
-    while (isa<GetElementPtrInst>(op))
+    while (isa<GetElementPtrInst>(op)) {
       op = cast<Instruction>(op)->getOperand(0);
+    }
 
     if (!isa<AllocaInst>(op)) continue;
-
-    // Already processed
-    if (!getShape(op).isUniform()) continue;
-
-    // promote to all users
-    // eraseUserInfoRecursively(op);
+    if (!getShape(op).isUniform()) continue; // Already processed
 
     auto* PtrElemType = op->getType()->getPointerElementType();
     const bool Vectorizable = false;
 
-    int typeStoreSize = static_cast<int>(layout.getTypeStoreSize(PtrElemType));
+    int typeStoreSize = (int)(layout.getTypeStoreSize(PtrElemType));
 
     update(op, Vectorizable ?
                VectorShape::strided(typeStoreSize, alignment) :
                VectorShape::varying());
-  }
-}
-
-void VectorizationAnalysis::eraseUserInfoRecursively(const Value* V) {
-  if (!mValue2Shape[V].isDefined()) return;
-
-  mValue2Shape[V] = VectorShape::undef();
-
-  for (const Value* use : V->users()) {
-    eraseUserInfoRecursively(use);
   }
 }
 
@@ -963,10 +953,7 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
 }
 
 VectorShape VectorizationAnalysis::getShape(const Value* const V) {
-  auto found = mValue2Shape.find(V), end = mValue2Shape.end();
-  if (found != end) {
-    return found->second;
-  }
+  if (mVecinfo.hasKnownShape(*V)) return mVecinfo.getVectorShape(*V);
 
 #if 0
   if (isa<GlobalValue>(V)) return VectorShape::uni(0);
@@ -977,12 +964,6 @@ VectorShape VectorizationAnalysis::getShape(const Value* const V) {
   int alignment = isa<Constant>(V) ? getAlignment(cast<Constant>(V)) : 0;
   return VectorShape::uni(alignment);
 }
-
-typename ValueMap::iterator VectorizationAnalysis::begin() { return mValue2Shape.begin(); }
-typename ValueMap::iterator VectorizationAnalysis::end() { return mValue2Shape.end(); }
-typename ValueMap::const_iterator VectorizationAnalysis::begin() const { return mValue2Shape.begin(); }
-typename ValueMap::const_iterator VectorizationAnalysis::end() const { return mValue2Shape.end(); }
-
 
 FunctionPass*
 createVectorizationAnalysisPass() {
