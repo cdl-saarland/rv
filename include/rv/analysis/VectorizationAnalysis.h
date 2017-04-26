@@ -56,9 +56,6 @@ public:
 };
 
 class VectorizationAnalysis {
-  std::set<const Value*> overrides;
-  DataLayout layout;
-
 public:
   using ValueMap          = std::map<const Value*, VectorShape>;
   using InstructionSet    = llvm::SmallPtrSet<const Instruction*, 32>;
@@ -87,6 +84,9 @@ public:
   typename ValueMap::const_iterator end() const;
 
 private:
+  std::set<const Value*> overrides;
+  const DataLayout& layout;
+
   VectorizationInfo& mVecinfo;  // This will be the output
   const CDG& mCDG;      // Preserves CDG
   const DFG& mDFG;      // Preserves DFG

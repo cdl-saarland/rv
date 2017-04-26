@@ -90,7 +90,7 @@ VectorizationAnalysis::VectorizationAnalysis(PlatformInfo & platInfo,
          const DFG& dfg,
          const LoopInfo& LoopInfo, const DominatorTree & domTree, const PostDominatorTree & postDomTree)
 
-        : layout(""),
+        : layout(platInfo.getDataLayout()),
           mVecinfo(VecInfo),
           mCDG(cdg),
           mDFG(dfg),
@@ -175,8 +175,6 @@ unsigned VectorizationAnalysis::getAlignment(const Constant* c) const {
 }
 
 void VectorizationAnalysis::init(Function& F) {
-  layout = DataLayout(F.getParent());
-
   // Initialize with undefined values
   for (auto& arg : F.args()) mValue2Shape[&arg] = VectorShape::undef();
 
