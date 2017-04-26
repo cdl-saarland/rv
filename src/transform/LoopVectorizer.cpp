@@ -28,6 +28,8 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/Dominators.h"
 
+#include "report.h"
+
 using namespace rv;
 using namespace llvm;
 
@@ -100,18 +102,24 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInter
     return false;
 
   int TripCount = getTripCount(L, SE);
-  if (TripCount < 0)
+  if (TripCount < 0) {
+    Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Infered trip count was " << TripCount << "\n";
     return false;
+  }
 
   int VectorWidth = getVectorWidth(L, SE);
-  if (VectorWidth < 0)
+  if (VectorWidth < 0) {
+    Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Vector width was " << VectorWidth << "\n";
     return false;
+  }
 
-  if (!canAdjustTripCount(L, SE, VectorWidth, TripCount))
+  if (!canAdjustTripCount(L, SE, VectorWidth, TripCount)) {
+    Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Could not adjust trip count\n";
     return false;
+  }
 
-  IF_DEBUG { errs() << "Vectorize " << L.getName() << " with VW: " << VectorWidth
-         << " and TC: " << TripCount << "\n"; }
+  Report() << "loopVecPass: Vectorize " << L.getName() << " with VW: " << VectorWidth
+         << " and TC: " << TripCount << "\n";
 
   BasicBlock *ExitingBlock = L.getExitingBlock();
   Function &F = *ExitingBlock->getParent();
@@ -208,7 +216,7 @@ bool LoopVectorizer::vectorizeLoopOrSubLoops(Loop &L, ScalarEvolution &SE, Vecto
 }
 
 bool LoopVectorizer::runOnFunction(Function &F) {
-  IF_DEBUG { errs() << "LV run on " << F.getName() << "\n"; }
+  Report() << "loopVecPass: run on " << F.getName() << "\n";
   bool Changed = false;
   auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   auto &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
