@@ -83,7 +83,7 @@ def executeOuterLoopTest(scalarLL, options, profileMode):
     return (None, None) if profileMode else False
 
   # create OR reference version
-  optLL = scalarLL[:-2] + ".opt.ll"
+  optLL = scalarLL[:-2] + "opt.ll"
   ret = optimizeIR(optLL, scalarLL)
   assert ret == 0
 
