@@ -85,7 +85,7 @@ def executeOuterLoopTest(scalarLL, options, profileMode):
   vectorRes = runOuterLoopTest(vectorIR, launchCode, "loopvec", profileMode)
 
   if scalarRes is None or vectorRes is None:
-    return None, None if profileMode else False 
+    return (None, None) if profileMode else False 
 
   if profileMode:
     return vectorRes, scalarRes
