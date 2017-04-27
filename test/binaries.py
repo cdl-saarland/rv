@@ -102,7 +102,10 @@ launcherCache = set()
 
 def requestLauncher(launchCode, prefix):
     launcherCpp = "launcher/" + prefix + "_" + launchCode + ".cpp"
-    launcherLL= "build/verify_" + launchCode + ".ll"
+    if "profile" in prefix: # profileMoe
+      launcherLL= "build/" + prefix + "_" + launchCode + ".ll"
+    else:
+      launcherLL= "build/" + prefix + "_" + launchCode + ".ll"
     if launcherLL in launcherCache:
       return launcherLL
     else:
@@ -111,24 +114,42 @@ def requestLauncher(launchCode, prefix):
       launcherCache.add(launcherLL)
     return launcherLL
 
-def runWFVTest(testBC, launchCode):
+def runWFVTest(testBC, launchCode, profileMode):
     try:
       caseName = plainName(testBC)
-      launcherLL = requestLauncher(launchCode, "verify")
-      launcherBin = "./build/verify_" + caseName + ".bin"
-      shellCmd(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
-      retCode = shellCmd(launcherBin)
-      return retCode == 0
+      if profileMode:
+        launcherLL = requestLauncher(launchCode, "profile")
+        launcherBin = "./build/profile_" + caseName + ".bin"
+        shellCmd(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
+        retCode, result = runForOutput(launcherBin)
+        if retCode != 0:
+          return None
+        else:
+          return float(result)
+      else:
+        launcherLL = requestLauncher(launchCode, "verify")
+        launcherBin = "./build/verify_" + caseName + ".bin"
+        shellCmd(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
+        retCode = shellCmd(launcherBin)
+        return retCode == 0
     except:
       return False
 
-def runOuterLoopTest(testBC, launchCode, suffix):
+def runOuterLoopTest(testBC, launchCode, suffix, profileMode=False):
+  modeText = "profile" if profileMode else "verify"
   try:
     caseName = plainName(testBC)
-    launcherLL = requestLauncher(launchCode, "loopverify")
-    launcherBin = "./build/verify_" + caseName + "." + suffix + ".bin"
-    success, hashText = runForOutput(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
-    return hashText if success else None
+    launcherLL = requestLauncher(launchCode, "loop" + modeText)
+    launcherBin = "./build/" + modeText + "_" + caseName + "." + suffix + ".bin"
+    runForOutput(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
+
+    if profileMode:
+      success, timeText = runForOutput(launcherBin)
+      return float(timeText) if success else None
+    else:
+      success, hashText = runForOutput(launcherBin)
+      return (hashText if success else None)
+
   except:
       return None
 

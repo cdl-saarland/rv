@@ -16,9 +16,17 @@ from glob import glob
 from binaries import *
 from os import path
 
+patterns=None
+profileMode=False
 if len(sys.argv) > 1:
-  patterns = sys.argv[1:]
-else:
+  if sys.argv[1] == "-p":
+    profileMode=True
+    startArg = 2
+  else:
+    startArg = 1
+  patterns = sys.argv[startArg:]
+
+if patterns is None or len(patterns) == 0:
   patterns = ["suite/*.c*"]
 
 def wholeFunctionVectorize(srcFile, argMappings):
@@ -37,7 +45,7 @@ def outerLoopVectorize(srcFile, loopDesc):
   ret = runOuterLoopVec(srcFile, destFile, scalarName, loopDesc, logPrefix)
   return destFile if ret == 0 else None
 
-def executeWFVTest(scalarLL, options):
+def executeWFVTest(scalarLL, options, profileMode):
   sigInfo = options.split(",")
 
   for option in sigInfo:
@@ -48,9 +56,17 @@ def executeWFVTest(scalarLL, options):
       shapes = opSplit[1].strip()
 
   testBC = wholeFunctionVectorize(scalarLL, shapes)
-  return runWFVTest(testBC, launchCode) if testBC else False
+  if testBC:
+    result = runWFVTest(testBC, launchCode, profileMode)
+    if profileMode:
+      speedup = result
+      return 1.0, speedup # because code below expects runtimes and (spedup / 1.0 == speedup)
+    else:
+      return result
+  else:
+    return None, None if profileMode else False
 
-def executeOuterLoopTest(scalarLL, options):
+def executeOuterLoopTest(scalarLL, options, profileMode):
   sigInfo = options.split(",")
   # launchCode = options.split("-k")[1].split("-")[0].strip()
 
@@ -63,18 +79,24 @@ def executeOuterLoopTest(scalarLL, options):
 
   vectorIR = outerLoopVectorize(scalarLL, loopHint)
   if vectorIR is None:
-    return False
+    return None, None if profileMode else False
 
-  scalarRes = runOuterLoopTest(scalarLL, launchCode, "scalar")
-  vectorRes = runOuterLoopTest(vectorIR, launchCode, "loopvec")
+  scalarRes = runOuterLoopTest(scalarLL, launchCode, "scalar", profileMode)
+  vectorRes = runOuterLoopTest(vectorIR, launchCode, "loopvec", profileMode)
 
   if scalarRes is None or vectorRes is None:
-    return False
+    return None, None if profileMode else False 
 
-  return scalarRes == vectorRes
+  if profileMode:
+    return vectorRes, scalarRes
+  else:
+    return scalarRes == vectorRes
 
 
 print("-- RV tester --")
+if profileMode:
+  print("(profile mode)")
+
 for pattern in patterns:
   tests = [testCase for testCase in glob(pattern)]
   tests.sort()
@@ -92,10 +114,18 @@ for pattern in patterns:
     scalarLL = buildScalarIR(testCase)
 
     if mode == "wfv":
-      success = executeWFVTest(scalarLL, options)
+      result = executeWFVTest(scalarLL, options, profileMode)
     elif mode == "loop":
-      success = executeOuterLoopTest(scalarLL, options)
-    print("passed!" if success else "failed!")
+      result = executeOuterLoopTest(scalarLL, options, profileMode)
+
+    if profileMode:
+      rvTime, defTime = result
+      success = not (rvTime is None or defTime is None)
+      print("{:5.3f}".format(defTime / rvTime) if success else "failed!")
+
+    else:
+      success = result
+      print("passed!" if success else "failed!")
 
 
 
