@@ -1,3 +1,6 @@
+#ifndef RV_REDUCTIONANALYSIS_H
+#define RV_REDUCTIONANALYSIS_H
+
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/Analysis/LoopInfo.h>
@@ -66,3 +69,7 @@ public:
 
 
 } // namespace rv
+
+
+
+#endif // RV_REDUCTIONANALYSIS_H

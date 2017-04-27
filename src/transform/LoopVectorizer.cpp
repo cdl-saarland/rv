@@ -19,6 +19,7 @@
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
 #include "rv/sleefLibrary.h"
+#include "rv/analysis/reductionAnalysis.h"
 
 #include "rvConfig.h"
 
@@ -29,6 +30,12 @@
 #include "llvm/IR/Dominators.h"
 
 #include "report.h"
+
+#ifdef IF_DEBUG
+#undef IF_DEBUG
+#endif
+
+#define IF_DEBUG if (true)
 
 using namespace rv;
 using namespace llvm;
@@ -97,21 +104,46 @@ int LoopVectorizer::getVectorWidth(Loop &L, ScalarEvolution &SE) {
   return -1;
 }
 
+static
+rv::VectorShape
+GetShapeFromReduction(rv::Reduction & redInfo, int vectorWidth) {
+  auto & redInst = redInfo.getReductInst();
+
+  auto * inConst = dyn_cast<ConstantInt>(&redInfo.redInput);
+
+  if (redInst.getOpcode() != Instruction::Add) {
+    return VectorShape::varying();
+  }
+
+  if (!inConst) {
+    return VectorShape::varying();
+  }
+
+  auto constInc = inConst->getSExtValue();
+
+  return VectorShape::strided(constInc, constInc * vectorWidth);
+}
+
 bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInterface & vectorizer) {
   if (!canVectorizeLoop(L))
     return false;
 
-  int TripCount = getTripCount(L, SE);
-  if (TripCount < 0) {
-    Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Infered trip count was " << TripCount << "\n";
-    return false;
-  }
 
   int VectorWidth = getVectorWidth(L, SE);
   if (VectorWidth < 0) {
     Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Vector width was " << VectorWidth << "\n";
     return false;
   }
+
+#if 1
+  int TripCount = getTripCount(L, SE);
+  if (TripCount < 0) {
+    Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Infered trip count was " << TripCount << "\n";
+    return false;
+  }
+#else
+  int TripCount = VectorWidth;
+#endif
 
   if (!canAdjustTripCount(L, SE, VectorWidth, TripCount)) {
     Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Could not adjust trip count\n";
@@ -125,8 +157,42 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInter
   Function &F = *ExitingBlock->getParent();
   Module &M = *F.getParent();
 
+
+  VectorMapping targetMapping(&F, &F, VectorWidth);
+
+  LoopRegion LoopRegionImpl(L);
+  Region LoopRegion(LoopRegionImpl);
+
+  VectorizationInfo vecInfo(F, VectorWidth, LoopRegion);
+
+  IF_DEBUG { errs() << "rv: Vectorizing loop " << L.getName() << "\n"; }
+
+
+// Check reduction patterns of vector loop phis
+  // configure initial shape for induction variable
+  for (auto & inst : *L.getHeader()) {
+    auto * phi = dyn_cast<PHINode>(&inst);
+    if (!phi) continue;
+
+    rv::Reduction * redInfo = reda->getReductionInfo(*phi);
+    IF_DEBUG { errs() << "loopVecPass: header phi  " << *phi << " : "; }
+
+    if (!redInfo) {
+      errs() << "\n\tskip: non-reduction phi in vector loop header " << L.getName() << "\n";
+      return false;
+    }
+
+    rv::VectorShape phiShape = GetShapeFromReduction(*redInfo, VectorWidth);
+
+    IF_DEBUG{ redInfo->dump(); }
+    IF_DEBUG { errs() << "header phi " << phi->getName() << " has shape " << phiShape.str() << "\n"; }
+
+    vecInfo.setVectorShape(*phi, phiShape);
+  }
+
+
+// modify CFG
   // Adjust trip count
-  // TODO only if VectorWidth == TripCount
   assert(VectorWidth == TripCount);
   auto *ExitingBI = cast<BranchInst>(ExitingBlock->getTerminator());
   if (L.contains(ExitingBI->getSuccessor(0)))
@@ -134,15 +200,11 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInter
   else
     ExitingBI->setCondition(ConstantInt::getTrue(ExitingBI->getContext()));
 
-  VectorMapping targetMapping(&F, &F, VectorWidth);
 
+// prepare analyses
   auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   auto &PDT = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
   auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-
-  // rebuild dominator info
-  DT.recalculate(F);
-  PDT.recalculate(F);
 
   //DT.verifyDomTree();
   //LI.verify(DT);
@@ -155,24 +217,8 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInter
   CDG cdg(PDT);
   cdg.create(F);
 
-  LoopRegion LoopRegionImpl(L);
-  Region LoopRegion(LoopRegionImpl);
 
-  VectorizationInfo vecInfo(F, VectorWidth, LoopRegion);
-
-  // configure initial shape for induction variable
-  auto *header = L.getHeader();
-  PHINode *xPhi = cast<PHINode>(&*header->begin());
-  IF_DEBUG { errs() << "Vectorizing loop with induction variable " << *xPhi << "\n"; }
-  vecInfo.setVectorShape(*xPhi, VectorShape::cont(VectorWidth));
-
-  // configure exit condition to be non-divergent in any case
-  //vecInfo.setVectorShape(*ExitingTI, VectorShape::uni());
-  //vecInfo.setVectorShape(
-      //*cast<BranchInst>(ExitingTI)->getOperand(0),
-      //VectorShape::uni());
-
-
+// Vectorize
   // vectorizationAnalysis
   vectorizer.analyze(vecInfo, cdg, dfg, LI, PDT, DT);
 
@@ -201,6 +247,13 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInter
     llvm_unreachable("vector code generation failed");
 
   delete maskAnalysis;
+
+
+
+// restore analysis structures
+  DT.recalculate(F);
+  PDT.recalculate(F);
+
   return true;
 }
 
@@ -235,6 +288,9 @@ bool LoopVectorizer::runOnFunction(Function &F) {
 
   addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
   VectorizerInterface vectorizer(platformInfo);
+
+  reda.reset(new ReductionAnalysis(F, LI));
+  reda->analyze();
 
   for (Loop *L : LI)
     Changed |= vectorizeLoopOrSubLoops(*L, SE, vectorizer);

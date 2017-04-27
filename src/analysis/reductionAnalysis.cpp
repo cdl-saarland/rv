@@ -65,6 +65,7 @@ ReductionAnalysis::inferNeutralElement(Instruction & reductInst) {
       return ConstantFP::get(reductTy, 1.0);
 
     default:
+      IF_DEBUG_RED { errs() << "red: Unknown neutral element for " << reductInst << "\n"; }
       return nullptr;
   };
 }

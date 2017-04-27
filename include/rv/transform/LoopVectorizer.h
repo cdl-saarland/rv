@@ -12,6 +12,8 @@
 
 #include "llvm/Pass.h"
 
+#include "rv/analysis/reductionAnalysis.h"
+
 namespace llvm {
 class Loop;
 class LoopInfo;
@@ -27,7 +29,7 @@ class VectorizerInterface;
 class LoopVectorizer : public llvm::FunctionPass {
 public:
   static char ID;
-  LoopVectorizer() : llvm::FunctionPass(ID) {}
+  LoopVectorizer() : llvm::FunctionPass(ID), reda() {}
 
   bool runOnFunction(llvm::Function &F) override;
 
@@ -35,6 +37,7 @@ public:
   void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
 private:
+  std::unique_ptr<ReductionAnalysis> reda;
 
   bool canVectorizeLoop(llvm::Loop &L);
 
