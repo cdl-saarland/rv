@@ -103,15 +103,15 @@ private:
   bool isInRegion(const BasicBlock& BB);
   bool isInRegion(const Instruction& inst);
 
-// specialized transfer functions
-  VectorShape computePHIShape(const PHINode & phi);
+  // specialized transfer functions
+  VectorShape computePHIShape(const PHINode& phi);
   // only call these if all operands have defined shape
   VectorShape computeShapeForInst(const Instruction* I);
   VectorShape computeShapeForBinaryInst(const BinaryOperator* I);
   VectorShape computeShapeForCastInst(const CastInst* I);
 
   // generic (fallback) transfer function for instructions w/o side effects
-  VectorShape computeGenericArithmeticTransfer(const Instruction & I);
+  VectorShape computeGenericArithmeticTransfer(const Instruction& I);
 
   // Update a value with its computed shape, adding users to the WL if a change occured
   void update(const Value* const V, VectorShape AT);
@@ -121,25 +121,22 @@ private:
   void analyzeDivergence(const BranchInst* const branch);
 
   // Calls update on every user of this PHI that is not in its loop
-  // void updateOutsideLoopUsesVarying(const PHINode* PHI, const Loop* PHILoop);
   void updateOutsideLoopUsesVarying(const Loop* divLoop);
 
-  // Adds all users of V to the worklist to continue iterating,
-  // unless the concept of shape is not defined for the user (e.g. void return calls)
-  void addRelevantUsersToWL(const Value* V);
+  // Adds all dependent values of V to the worklist:
+  // - Any user of this value in the region (minus void-returning calls)
+  // - Any alloca used by this value if it is not of uniform shape
+  void addDependentValuesToWL(const Value* V);
 
-  // Updates the shapes for any alloca operand to continous/varying
-  void updateAllocaOperands(const Instruction* I);
-
+  // Return true iff all of loop's exit terminators have a uniform shape
   bool allExitsUniform(const Loop* loop);
 
+  // Joins operand shapes of I
   VectorShape joinOperands(const Instruction& I);
 
-  // Returns true iff all operands currently have a computed shape
-  // This is essentially a negated check for bottom
+  // Returns true iff any operand has been pushed
   bool pushMissingOperands(const Instruction* I);
 
-  // Returns true iff the constant is aligned respective to mVectorizationFactor
   unsigned getAlignment(const Constant* c) const;
 
   // Cast undefined instruction shapes to uniform shapes

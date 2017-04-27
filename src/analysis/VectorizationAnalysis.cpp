@@ -84,11 +84,13 @@ VAWrapperPass::runOnFunction(Function& F) {
   return false;
 }
 
-VectorizationAnalysis::VectorizationAnalysis(PlatformInfo & platInfo,
-         VectorizationInfo& VecInfo,
-         const CDG& cdg,
-         const DFG& dfg,
-         const LoopInfo& LoopInfo, const DominatorTree & domTree, const PostDominatorTree & postDomTree)
+VectorizationAnalysis::VectorizationAnalysis(PlatformInfo& platInfo,
+                                             VectorizationInfo& VecInfo,
+                                             const CDG& cdg,
+                                             const DFG& dfg,
+                                             const LoopInfo& LoopInfo,
+                                             const DominatorTree& domTree,
+                                             const PostDominatorTree& postDomTree)
 
         : layout(platInfo.getDataLayout()),
           mVecinfo(VecInfo),
@@ -103,9 +105,7 @@ VectorizationAnalysis::VectorizationAnalysis(PlatformInfo & platInfo,
 void
 VectorizationAnalysis::analyze(Function& F) {
   assert (!F.isDeclaration());
-
-  // FIXME mWorklist.clear()
-  while (!mWorklist.empty()) mWorklist.pop();
+  assert (mWorklist.empty());
 
   init(F);
   compute(F);
@@ -227,7 +227,7 @@ void VectorizationAnalysis::init(Function& F) {
       mVecinfo.setVectorShape(arg, VectorShape::uni());
     }
 
-    addRelevantUsersToWL(&arg);
+    addDependentValuesToWL(&arg);
   }
 
   // Propagation of vectorshapes starts at:
@@ -265,7 +265,7 @@ void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
 
 bool VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
   VectorShape Old = getShape(V);
-  const VectorShape& New = VectorShape::join(Old, AT);
+  VectorShape New = VectorShape::join(Old, AT);
 
   if (Old == New) return false;// nothing changed
   if (overrides.count(V) && Old.isDefined()) return false;//prevented by override
@@ -274,12 +274,7 @@ bool VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
   mVecinfo.setVectorShape(*V, New);
 
   // Add dependent elements to worklist
-  addRelevantUsersToWL(V);
-
-  // If an alloca was used it needs to be updated
-  if (!New.isUniform() && isa<Instruction>(V)) {
-    updateAllocaOperands(cast<Instruction>(V));
-  }
+  addDependentValuesToWL(V);
 
   return true;
 }
@@ -364,29 +359,8 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
   }
 }
 
-void VectorizationAnalysis::updateAllocaOperands(const Instruction* I) {
-  const int alignment = mVecinfo.getMapping().vectorWidth;
-
-  for (const Value* op : I->operands()) {
-    while (isa<GetElementPtrInst>(op)) {
-      op = cast<Instruction>(op)->getOperand(0);
-    }
-
-    if (!isa<AllocaInst>(op)) continue;
-    if (!getShape(op).isUniform()) continue; // Already processed
-
-    auto* PtrElemType = op->getType()->getPointerElementType();
-    const bool Vectorizable = false;
-
-    int typeStoreSize = (int)(layout.getTypeStoreSize(PtrElemType));
-
-    update(op, Vectorizable ?
-               VectorShape::strided(typeStoreSize, alignment) :
-               VectorShape::varying());
-  }
-}
-
-void VectorizationAnalysis::addRelevantUsersToWL(const Value* V) {
+void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
+  // Push users of this value
   for (const auto user : V->users()) {
     if (!isa<Instruction>(user)) continue;
     const Instruction* inst = cast<Instruction>(user);
@@ -403,6 +377,20 @@ void VectorizationAnalysis::addRelevantUsersToWL(const Value* V) {
 
     mWorklist.push(inst);
     IF_DEBUG_VA errs() << "Inserted user of updated " << V->getName() << ":" << *user << "\n";
+  }
+
+  const Instruction* I = dyn_cast<Instruction>(V);
+  if (!I || getShape(I).isUniform()) return;
+
+  // Push allocas used by this non-uniform value
+  for (const Value* op : I->operands()) {
+    // Skip GEPs
+    while (auto* gep = dyn_cast<GetElementPtrInst>(op)) op = gep->getPointerOperand();
+
+    if (!isa<AllocaInst>(op))      continue; // Only allocas
+    if (!getShape(op).isUniform()) continue; // Already processed
+
+    mWorklist.push(cast<Instruction>(op));
   }
 }
 
@@ -458,8 +446,7 @@ bool VectorizationAnalysis::pushMissingOperands(const Instruction* I) {
   return std::accumulate(I->op_begin(), I->op_end(), false, pushIfMissing);
 }
 
-VectorShape
-VectorizationAnalysis::computePHIShape(const PHINode & phi) {
+VectorShape VectorizationAnalysis::computePHIShape(const PHINode & phi) {
    // check if this PHINode actually joins different values
    const Value* first = phi.getIncomingValue(0);
    bool mixingPhi = std::any_of(phi.op_begin() + 1, phi.op_end(),
@@ -509,6 +496,19 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
   if (I->isCast()) return computeShapeForCastInst(cast<CastInst>(I));
 
   switch (I->getOpcode()) {
+    case Instruction::Alloca:
+    {
+      const int alignment = mVecinfo.getMapping().vectorWidth;
+      auto* AllocatedType = I->getType()->getPointerElementType();
+      const bool Vectorizable = false;
+
+      if (Vectorizable) {
+        int typeStoreSize = (int)(layout.getTypeStoreSize(AllocatedType));
+        return VectorShape::strided(typeStoreSize, alignment);
+      }
+
+      return VectorShape::varying();
+    }
     case Instruction::Br:
     {
       const BranchInst* branch = cast<BranchInst>(I);
@@ -680,9 +680,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
   return computeGenericArithmeticTransfer(*I);
 }
 
-
-VectorShape
-VectorizationAnalysis::computeGenericArithmeticTransfer(const Instruction & I) {
+VectorShape VectorizationAnalysis::computeGenericArithmeticTransfer(const Instruction & I) {
   assert(I.getNumOperands() > 0 && "can not compute arithmetic transfer for instructions w/o operands");
   // generic transfer function
   for (uint i = 0; i < I.getNumOperands(); ++i) {
@@ -965,8 +963,7 @@ VectorShape VectorizationAnalysis::getShape(const Value* const V) {
   return VectorShape::uni(alignment);
 }
 
-FunctionPass*
-createVectorizationAnalysisPass() {
+FunctionPass* createVectorizationAnalysisPass() {
   return new VAWrapperPass();
 }
 
