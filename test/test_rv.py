@@ -99,9 +99,7 @@ def executeOuterLoopTest(scalarLL, options, profileMode):
     return scalarRes == vectorRes
 
 
-print("-- RV tester --")
-if profileMode:
-  print("(profile mode)")
+print("-- RV tester {}--".format("(profile mode) " if profileMode else ""))
 
 for pattern in patterns:
   tests = [testCase for testCase in glob(pattern)]

@@ -104,15 +104,17 @@ launcherCache = set()
 
 def requestLauncher(launchCode, prefix):
     launcherCpp = "launcher/" + prefix + "_" + launchCode + ".cpp"
-    if "profile" in prefix: # profileMoe
+    if "profile" in prefix: # profileMode
       launcherLL= "build/" + prefix + "_" + launchCode + ".ll"
     else:
       launcherLL= "build/" + prefix + "_" + launchCode + ".ll"
+
     if launcherLL in launcherCache:
       return launcherLL
     else:
-      retCode = compileToIR(launcherCpp, launcherLL)
-      assert retCode == 0
+      success = compileToIR(launcherCpp, launcherLL)
+      if not success:
+        return None
       launcherCache.add(launcherLL)
     return launcherLL
 
@@ -121,10 +123,13 @@ def runWFVTest(testBC, launchCode, profileMode):
       caseName = plainName(testBC)
       if profileMode:
         launcherLL = requestLauncher(launchCode, "profile")
+        if launcherLL is None:
+          print("(could not build launcher {}) ".format(launchCode), end = "")
+          return None
         launcherBin = "./build/profile_" + caseName + ".bin"
         shellCmd(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
-        retCode, result = runForOutput(launcherBin)
-        if retCode != 0:
+        success, result = runForOutput(launcherBin)
+        if not success:
           return None
         else:
           return float(result)
@@ -159,10 +164,14 @@ def optimizeIR(destFile, srcFile):
   return shellCmd(optClangLine + " " + srcFile + " -S -o " + destFile)
 
 def compileToIR(srcFile, destFile):
-    if srcFile[-2:] == ".c":
-      return shellCmd(cClangLine + " " + srcFile + " -fno-unroll-loops -S -emit-llvm -c -o " + destFile)
-    else:
-      return shellCmd(clangLine + " " + srcFile + " -fno-unroll-loops -S -emit-llvm -c -o " + destFile)
+  if not path.exists(srcFile):
+    return False
+
+  if srcFile[-2:] == ".c":
+    retCode = shellCmd(cClangLine + " " + srcFile + " -fno-unroll-loops -S -emit-llvm -c -o " + destFile)
+  else:
+    retCode = shellCmd(clangLine + " " + srcFile + " -fno-unroll-loops -S -emit-llvm -c -o " + destFile)
+  return retCode == 0
 
 def disassemble(bcFile,suffix):
     return shellCmd("llvm-dis " + bcFile, "logs/dis_" + suffix) == 0
