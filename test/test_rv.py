@@ -77,11 +77,17 @@ def executeOuterLoopTest(scalarLL, options, profileMode):
     elif opSplit[0].strip() == "LoopHint":
       loopHint = opSplit[1].strip()
 
+  # create RV-vectorizer version
   vectorIR = outerLoopVectorize(scalarLL, loopHint)
   if vectorIR is None:
     return (None, None) if profileMode else False
 
-  scalarRes = runOuterLoopTest(scalarLL, launchCode, "scalar", profileMode)
+  # create OR reference version
+  optLL = scalarLL[:-2] + ".opt.ll"
+  ret = optimizeIR(optLL, scalarLL)
+  assert ret == 0
+
+  scalarRes = runOuterLoopTest(optLL, launchCode, "scalar", profileMode)
   vectorRes = runOuterLoopTest(vectorIR, launchCode, "loopvec", profileMode)
 
   if scalarRes is None or vectorRes is None:

@@ -57,6 +57,8 @@ def runForOutput(cmdText):
     except CalledProcessError as err:
         return False, err.output
 
+optClangLine="opt -march=native -O3 " # -fno-slp-vectorize"
+
 clangLine="clang++ -std=c++14 -march=native -m64 -O2 -fno-vectorize" # -fno-slp-vectorize"
 cClangLine="clang -march=native -m64 -O2 -fno-vectorize -fno-slp-vectorize"
 
@@ -152,6 +154,9 @@ def runOuterLoopTest(testBC, launchCode, suffix, profileMode=False):
 
   except:
       return None
+
+def optimizeIR(destFile, srcFile):
+  return shellCmd(optClangLine + " " + srcFile + " -S -o " + destFile)
 
 def compileToIR(srcFile, destFile):
     if srcFile[-2:] == ".c":
