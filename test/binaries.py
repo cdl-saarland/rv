@@ -53,7 +53,7 @@ def runForOutput(cmdText):
       print("CMD {}".format(cmdText))
     cmd = shlex.split(cmdText)
     try:
-        return True, subprocess.check_output(cmd)
+        return True, subprocess.check_output(cmd, stderr=subprocess.STDOUT)
     except CalledProcessError as err:
         return False, err.output
 
@@ -143,12 +143,12 @@ def runOuterLoopTest(testBC, launchCode, suffix, profileMode=False):
     launcherBin = "./build/" + modeText + "_" + caseName + "." + suffix + ".bin"
     runForOutput(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
 
+    success, result = runForOutput(launcherBin)
+
     if profileMode:
-      success, timeText = runForOutput(launcherBin)
-      return float(timeText) if success else None
+      return float(result) if success else None
     else:
-      success, hashText = runForOutput(launcherBin)
-      return (hashText if success else None)
+      return result if success else None
 
   except:
       return None

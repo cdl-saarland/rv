@@ -79,7 +79,7 @@ def executeOuterLoopTest(scalarLL, options, profileMode):
 
   vectorIR = outerLoopVectorize(scalarLL, loopHint)
   if vectorIR is None:
-    return None, None if profileMode else False
+    return (None, None) if profileMode else False
 
   scalarRes = runOuterLoopTest(scalarLL, launchCode, "scalar", profileMode)
   vectorRes = runOuterLoopTest(vectorIR, launchCode, "loopvec", profileMode)
@@ -125,7 +125,7 @@ for pattern in patterns:
 
     else:
       success = result
-      print("passed!" if success else "failed!")
+      print("passed" if success else "failed! <-")
 
 
 
