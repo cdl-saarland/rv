@@ -57,7 +57,7 @@ def runForOutput(cmdText):
     except CalledProcessError as err:
         return False, err.output
 
-optClangLine="opt -march=native -O3 " # -fno-slp-vectorize"
+optClangLine="clang -march=native -O3 -c -emit-llvm -S  " # -fno-slp-vectorize"
 
 clangLine="clang++ -std=c++14 -march=native -m64 -O2 -fno-vectorize" # -fno-slp-vectorize"
 cClangLine="clang -march=native -m64 -O2 -fno-vectorize -fno-slp-vectorize"
