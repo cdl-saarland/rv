@@ -16,6 +16,8 @@ from glob import glob
 from binaries import *
 from os import path
 
+numSamples = 15
+
 patterns=None
 profileMode=False
 if len(sys.argv) > 1:
@@ -28,6 +30,25 @@ if len(sys.argv) > 1:
 
 if patterns is None or len(patterns) == 0:
   patterns = ["suite/*.c*"]
+
+
+def profileTest(profileMode, numSamples, func):
+  if not profileMode:
+    return func()
+
+  samples = []
+  for i in range(numSamples):
+    s = func()
+    if s is None:
+      return None
+    samples.append(s)
+
+  if None in samples:
+    return None
+
+  resList = sorted(samples)
+  return resList[len(resList) // 2]
+
 
 def wholeFunctionVectorize(srcFile, argMappings):
   baseName = path.basename(srcFile)
@@ -57,7 +78,7 @@ def executeWFVTest(scalarLL, options, profileMode):
 
   testBC = wholeFunctionVectorize(scalarLL, shapes)
   if testBC:
-    result = runWFVTest(testBC, launchCode, profileMode)
+    result = profileTest(profileMode, numSamples, lambda: runWFVTest(testBC, launchCode, profileMode))
     if profileMode:
       speedup = result
       return 1.0, speedup # because code below expects runtimes and (spedup / 1.0 == speedup)
@@ -87,8 +108,8 @@ def executeOuterLoopTest(scalarLL, options, profileMode):
   ret = optimizeIR(optLL, scalarLL)
   assert ret == 0
 
-  scalarRes = runOuterLoopTest(optLL, launchCode, "scalar", profileMode)
-  vectorRes = runOuterLoopTest(vectorIR, launchCode, "loopvec", profileMode)
+  scalarRes = profileTest(profileMode, numSamples, lambda: runOuterLoopTest(optLL, launchCode, "scalar", profileMode))
+  vectorRes = profileTest(profileMode, numSamples, lambda: runOuterLoopTest(vectorIR, launchCode, "loopvec", profileMode))
 
   if scalarRes is None or vectorRes is None:
     return (None, None) if profileMode else False 
