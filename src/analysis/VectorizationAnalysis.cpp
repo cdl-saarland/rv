@@ -298,13 +298,14 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
     // Doesn't matter if already effected previously
     if (getShape(BB).isVarying()) continue;
 
-    IF_DEBUG_VA errs() << "Branch " << *branch << " affects " << *BB << "\n";
-
-    assert (isInRegion(*BB)); // Otherwise the region is ill-formed
+    IF_DEBUG_VA errs() << "Branch <" << *branch << "> affects " << BB->getName() << ".\n";
 
     // Loop headers are not marked divergent, but can be loop divergent
     if (mLoopInfo.isLoopHeader(BB)) {
       const Loop* BBLoop = mLoopInfo.getLoopFor(BB);
+
+      // Already divergent because of a different branch
+      if (mVecinfo.isDivergentLoop(BBLoop)) continue;
 
       // BB needs to be a header of the same or an outer loop
       if (!BBLoop->contains(endsVaryingLoop)) continue;
@@ -314,16 +315,11 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
         mVecinfo.setDivergentLoop(BBLoop);
 
         IF_DEBUG_VA {
-          errs() << "\n"
-                 << "The loop with header: \n"
-                 << "    " << BB->getName() << "\n"
-                 << "is divergent because of the non-uniform branch in:\n"
-                 << "    " << endsVarying->getName() << "\n\n";
+          errs() << "\nThe loop with header: " << BB->getName() << " is divergent, "
+                 << "because of the non-uniform branch in: " << endsVarying->getName() << "\n";
         }
 
-        for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it) {
-          updateOutsideLoopUsesVarying(BBLoop);
-        }
+        updateOutsideLoopUsesVarying(BBLoop);
       }
 
       continue;
@@ -333,10 +329,6 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
     // If any loop exit is varying, the block is divergent since the loop might
     // leak information before every thread is done
     if (endsVaryingLoop && !endsVaryingLoop->contains(BB)) {
-      // In case of only one exit block we can optimize considering it gets linearized
-      if (endsVaryingLoop->getUniqueExitBlock()) continue;
-
-      // For multiple exits, the loop shall be blackboxed
       // If all exits are uniform, we regard as uniform
       if (allExitsUniform(endsVaryingLoop)) continue;
     }
@@ -352,9 +344,9 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
     }
 
     // add phis to worklist
-    for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it) {
+    for (auto it = BB->begin(); BB->getFirstNonPHI() != it; ++it) {
       mWorklist.push(&*it);
-      IF_DEBUG_VA errs() << "Inserted PHI: " << (&*it)->getName() << "\n";
+      IF_DEBUG_VA errs() << "Inserted PHI: " << it->getName() << "\n";
     }
   }
 }
