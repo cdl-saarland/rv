@@ -948,6 +948,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     auto * inVal = phi.getIncomingValueForBlock(inBlock);
 
     auto * edgeMask = getEdgeMask(*inBlock, phiBlock);
+    assert(edgeMask && "edgeMask not available!");
 
   // make sure the mask predicate is available at this point
   // TODO use caching
