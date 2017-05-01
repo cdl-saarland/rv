@@ -22,7 +22,7 @@
 
 #include <numeric>
 
-#if 1
+#if 0
 #define IF_DEBUG_VA IF_DEBUG
 #else
 #define IF_DEBUG_VA if (false)
@@ -295,7 +295,7 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
       continue;
     } // filter out irrelevant nodes (FIXME filter out directly in BDA)
 
-    // Doesn't matter if already effected previously
+    // Doesn't matter if already affected previously
     if (getShape(BB).isVarying()) continue;
 
     IF_DEBUG_VA errs() << "Branch <" << *branch << "> affects " << BB->getName() << ".\n";
@@ -304,22 +304,18 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
     if (mLoopInfo.isLoopHeader(BB)) {
       const Loop* BBLoop = mLoopInfo.getLoopFor(BB);
 
-      // Already divergent because of a different branch
+      // Already divergent
       if (mVecinfo.isDivergentLoop(BBLoop)) continue;
 
-      // BB needs to be a header of the same or an outer loop
-      if (!BBLoop->contains(endsVaryingLoop)) continue;
+      // Loop divergence is caused by varying loop exits
+      if (!BBLoop->isLoopExiting(endsVarying)) continue;
 
-      const bool BranchExitsBBLoop = BBLoop->isLoopExiting(endsVarying);
-      if (BBLoop == endsVaryingLoop || BranchExitsBBLoop) {
-        mVecinfo.setDivergentLoop(BBLoop);
+      mVecinfo.setDivergentLoop(BBLoop);
+      updateLCSSAPhisVarying(BBLoop);
 
-        IF_DEBUG_VA {
-          errs() << "\nThe loop with header: " << BB->getName() << " is divergent, "
-                 << "because of the non-uniform branch in: " << endsVarying->getName() << "\n";
-        }
-
-        updateOutsideLoopUsesVarying(BBLoop);
+      IF_DEBUG_VA {
+        errs() << "\nThe loop with header: " << BB->getName() << " is divergent, "
+               << "because of the non-uniform branch in: " << endsVarying->getName() << "\n";
       }
 
       continue;
@@ -386,21 +382,16 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
   }
 }
 
-void VectorizationAnalysis::updateOutsideLoopUsesVarying(const Loop* divLoop) {
+void VectorizationAnalysis::updateLCSSAPhisVarying(const Loop* divLoop) {
   SmallVector<BasicBlock*, 3> exitBlocks;
   divLoop->getExitBlocks(exitBlocks);
+
   for (auto* exitBlock : exitBlocks) {
     if (!isInRegion(*exitBlock)) continue;
 
     for (auto& inst : *exitBlock) {
-      auto* phi = dyn_cast<PHINode>(&inst);
-      if (!phi) break;
-
-      // find outside uses and update varying
-      if (!divLoop->contains(mLoopInfo.getLoopFor(phi->getParent()))) {
-        update(phi, VectorShape::varying());
-      }
-
+      if (!isa<PHINode>(inst)) break;
+      update(&inst, VectorShape::varying());
     }
   }
 }

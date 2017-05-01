@@ -121,7 +121,7 @@ private:
   void analyzeDivergence(const BranchInst* const branch);
 
   // Calls update on every user of this PHI that is not in its loop
-  void updateOutsideLoopUsesVarying(const Loop* divLoop);
+  void updateLCSSAPhisVarying(const Loop* divLoop);
 
   // Adds all dependent values of V to the worklist:
   // - Any user of this value in the region (minus void-returning calls)
