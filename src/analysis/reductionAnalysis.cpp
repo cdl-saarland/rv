@@ -29,7 +29,7 @@ using namespace llvm;
 
 void
 Reduction::dump() const {
-  errs() << "Reduction { " << phi.getName() << " reductInst " << redInput << " with neutral elem " << neutralElem << "}\n";
+  errs() << "Reduction { " << phi.getName() << " reductor " << reductorInst << " with neutral elem " << neutralElem << "}\n";
 }
 
 

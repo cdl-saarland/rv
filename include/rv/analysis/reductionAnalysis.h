@@ -19,7 +19,7 @@ public:
   // neutral element of this reduction operation
   llvm::Constant & neutralElem;
   // instruction feeding into the reduction phi
-  llvm::Value & redInput;
+  llvm::Instruction & reductorInst;
   // reduction loop that contains the header phi
   llvm::Loop & redLoop;
 
@@ -28,19 +28,35 @@ public:
   int initInputIndex;
   int loopInputIndex;
 
-  llvm::Instruction & getReductInst() {
-    return llvm::cast<llvm::Instruction>(*phi.getIncomingValue(loopInputIndex));
+  llvm::Instruction & getReductor() {
+    return reductorInst;
   }
 
   llvm::Value & getInitValue() {
     return *phi.getIncomingValue(initInputIndex);
   }
 
+  // operand index of @phi in @reductorInst
+  int getReductorPhiIndex() {
+    int phiIdx = 1;
+    if (reductorInst.getOperand(0) == &phi) {
+      phiIdx = 0;
+    }
+    assert(reductorInst.getOperand(phiIdx) == &phi && "invalid reduction");
+    return phiIdx;
+  }
+
+  // value being reduced by @reductorInst into @phi
+  llvm::Value & getReducibleValue() {
+    int phiIdx = getReductorPhiIndex();
+    return *reductorInst.getOperand(1 - phiIdx);
+  }
+
   void dump() const;
 
-  Reduction(llvm::Constant & _neutralElem, llvm::Value & _reductInput, llvm::Loop & _reductLoop, llvm::PHINode & _phi, int _initInputIndex, int _loopInputIndex)
+  Reduction(llvm::Constant & _neutralElem, llvm::Instruction & _reductorInst, llvm::Loop & _reductLoop, llvm::PHINode & _phi, int _initInputIndex, int _loopInputIndex)
   : neutralElem(_neutralElem)
-  , redInput(_reductInput)
+  , reductorInst(_reductorInst)
   , redLoop(_reductLoop)
   , phi(_phi)
   , initInputIndex(_initInputIndex)

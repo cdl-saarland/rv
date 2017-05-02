@@ -107,17 +107,19 @@ int LoopVectorizer::getVectorWidth(Loop &L, ScalarEvolution &SE) {
 static
 rv::VectorShape
 GetShapeFromReduction(rv::Reduction & redInfo, int vectorWidth) {
-  auto & redInst = redInfo.getReductInst();
-
-  auto * inConst = dyn_cast<ConstantInt>(&redInfo.redInput);
+  auto & redInst = redInfo.getReductor();
 
   if (redInst.getOpcode() != Instruction::Add) {
+    errs() << redInst << "\n";
     return VectorShape::varying();
   }
+
+  auto *inConst = dyn_cast<ConstantInt>(&redInfo.getReducibleValue());
 
   if (!inConst) {
     return VectorShape::varying();
   }
+  errs() << *inConst << "\n";
 
   auto constInc = inConst->getSExtValue();
 
@@ -125,8 +127,8 @@ GetShapeFromReduction(rv::Reduction & redInfo, int vectorWidth) {
 }
 
 bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInterface & vectorizer) {
-  if (!canVectorizeLoop(L))
-    return false;
+  // if (!canVectorizeLoop(L))
+  //   return false;
 
 
   int VectorWidth = getVectorWidth(L, SE);
@@ -135,7 +137,7 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInter
     return false;
   }
 
-#if 1
+#if 0
   int TripCount = getTripCount(L, SE);
   if (TripCount < 0) {
     Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Infered trip count was " << TripCount << "\n";
@@ -269,6 +271,8 @@ bool LoopVectorizer::vectorizeLoopOrSubLoops(Loop &L, ScalarEvolution &SE, Vecto
 }
 
 bool LoopVectorizer::runOnFunction(Function &F) {
+  IF_DEBUG { errs() << " -- module before RV --\n"; F.getParent()->dump(); }
+
   Report() << "loopVecPass: run on " << F.getName() << "\n";
   bool Changed = false;
   auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
@@ -299,6 +303,8 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   // if (Changed) {
     vectorizer.finalize();
   // }
+
+  IF_DEBUG { errs() << " -- module after RV --\n"; F.getParent()->dump(); }
 
   return Changed;
 }

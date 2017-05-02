@@ -149,7 +149,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
         PHINode& phi = cast<PHINode>(*it);
         rv::Reduction* reduction = reductionAnalysis.getReductionInfo(phi);
 
-        Instruction& reductinst = reduction->getReductInst();
+        Instruction& reductinst = reduction->getReductor();
 
         if (reductinst.getOpcode() == BinaryOperator::Add &&
             (isa<ConstantInt>(reductinst.getOperand(0)) ||

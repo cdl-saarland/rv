@@ -1465,9 +1465,9 @@ NatBuilder::materializeReduction(Reduction & red) {
 
 // attach inputs (neutral elem and reduction inst)
   vecPhi->addIncoming(vecNeutral, vecInitInputBlock);
-  vecPhi->addIncoming(getVectorValue(&red.getReductInst()), vecLoopInputBlock);
+  vecPhi->addIncoming(getVectorValue(&red.getReductor()), vecLoopInputBlock);
 
-  auto & reductInst = red.getReductInst();
+  auto & reductInst = red.getReductor();
   auto & vecReductInst = *cast<Instruction>(getVectorValue(&reductInst));
 
 // reduce reduction phi for outside users
