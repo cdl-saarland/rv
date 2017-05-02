@@ -76,8 +76,15 @@ int LoopVectorizer::getTripCount(Loop &L, ScalarEvolution &SE) {
 
 int LoopVectorizer::getVectorWidth(Loop &L, ScalarEvolution &SE) {
   auto *LID = L.getLoopID();
-  if (!LID)
-    return -1;
+
+  // try to recover from latch
+  if (!LID) {
+    auto * latch = L.getLoopLatch();
+    LID = latch->getTerminator()->getMetadata("llvm.loop");
+    if (LID) IF_DEBUG { errs() << "Recovered loop MD from latch!\n"; }
+  }
+
+  if (!LID) return -1;
 
   for (int i = 0, e = LID->getNumOperands(); i < e; i++) {
     const MDOperand &Op = LID->getOperand(i);
