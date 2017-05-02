@@ -104,6 +104,14 @@ VectorShape operator-(const VectorShape& a, const VectorShape& b) {
   return VectorShape::strided(a.stride - b.stride, gcd(a.alignment, b.alignment));
 }
 
+VectorShape operator*(int m, const VectorShape& a) {
+  if (!a.defined) return a;
+
+  if (!a.hasConstantStride) return VectorShape::varying(((m > 0) ? m : -m) * a.alignment);
+
+  return VectorShape::strided(m * a.stride, ((m > 0) ? m : -m) * a.alignment);
+}
+
 VectorShape VectorShape::join(VectorShape a, VectorShape b) {
   if (!a.isDefined())
     return b;

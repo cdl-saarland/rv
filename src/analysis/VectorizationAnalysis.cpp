@@ -563,43 +563,29 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
 
       for (const Value* index : make_range(gep->idx_begin(), gep->idx_end())) {
         const VectorShape& indexShape = getShape(index);
-        const int indexStride = indexShape.getStride();
-        const unsigned indexalignmentFirst = indexShape.getAlignmentFirst();
-        const unsigned indexalignmentGeneral = indexShape.getAlignmentGeneral();
 
-        if (indexShape.isVarying()) return VectorShape::varying();
+        if (indexShape.isVarying())
+          return VectorShape::varying();
 
-        if (isa<StructType>(subT)) {
+        if (StructType* Struct = dyn_cast<StructType>(subT)) {
           if (!isa<ConstantInt>(index)) return VectorShape::varying();
 
-          auto structlayout = layout.getStructLayout(cast<StructType>(subT));
-          unsigned indexconstant = static_cast<uint>(cast<ConstantInt>(index)->getSExtValue());
-          unsigned elemoffset = static_cast<uint>(structlayout->getElementOffset(indexconstant));
+          auto structlayout = layout.getStructLayout(Struct);
+          unsigned idxconst = (unsigned) cast<ConstantInt>(index)->getSExtValue();
+          unsigned elemoffset = (unsigned) structlayout->getElementOffset(idxconst);
 
-          subT = cast<StructType>(subT)->getTypeAtIndex(index);
+          subT = Struct->getTypeAtIndex(index);
 
           // Behaves like addition, pointer + offset and offset is uniform, hence the stride stays
           unsigned newalignment = gcd(result.getAlignmentFirst(), elemoffset);
           result.setAlignment(newalignment);
-        }
-        else {
+        } else {
           subT = isa<PointerType>(subT) ? subT->getPointerElementType() : subT->getSequentialElementType();
 
-          unsigned typeSize = (unsigned) layout.getTypeStoreSize(subT);
-
-          int offsetstride = typeSize * indexStride;
-          unsigned offsetAlignmentFirst = typeSize * indexalignmentFirst;
-          unsigned offsetAlignmentGeneral = typeSize * indexalignmentGeneral;
-
-          if (result.isVarying()) {
-            result = VectorShape::varying(gcd(result.getAlignmentGeneral(), offsetAlignmentGeneral));
-          } else {
-            result = VectorShape::strided(result.getStride() + offsetstride,
-                                          gcd(result.getAlignmentFirst(), offsetAlignmentFirst));
-          }
+          const int typeSize = (int)layout.getTypeStoreSize(subT);
+          result = result + typeSize * indexShape;
         }
       }
-
 
       return result;
     }
@@ -692,15 +678,14 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
     case Instruction::Add:
     case Instruction::FAdd:
     {
-      const bool fadd = I->getOpcode() == Instruction::FAdd;
-
       VectorShape res = shape1 + shape2;
 
       // Only allow strided results for floating point addition if
       // according fast math flags are set
+      const bool fadd = I->getOpcode() == Instruction::FAdd;
       if (fadd) {
         FastMathFlags flags = I->getFastMathFlags();
-        if (!flags.unsafeAlgebra() && res.isUniform()) {
+        if (!flags.unsafeAlgebra() && !res.isUniform()) {
           res = VectorShape::varying();
         }
       }
@@ -712,15 +697,14 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
     case Instruction::Sub:
     case Instruction::FSub:
     {
-      const bool fsub = I->getOpcode() == Instruction::FSub;
-
       VectorShape res = shape1 - shape2;
 
       // Only allow strided results for floating point substraction if
       // according fast math flags are set
+      const bool fsub = I->getOpcode() == Instruction::FSub;
       if (fsub) {
         FastMathFlags flags = I->getFastMathFlags();
-        if (!flags.unsafeAlgebra() && res.isUniform()) {
+        if (!flags.unsafeAlgebra() && !res.isUniform()) {
           res = VectorShape::varying();
         }
       }

@@ -63,6 +63,7 @@ public:
   friend VectorShape operator-(const VectorShape& a);
   friend VectorShape operator+(const VectorShape& a, const VectorShape& b);
   friend VectorShape operator-(const VectorShape& a, const VectorShape& b);
+  friend VectorShape operator*(int m, const VectorShape& a);
 
   std::string str() const;
 
