@@ -21,8 +21,9 @@
 #include <llvm/Analysis/LoopInfo.h>
 
 #include <numeric>
+#include <algorithm>
 
-#if 0
+#if 1
 #define IF_DEBUG_VA IF_DEBUG
 #else
 #define IF_DEBUG_VA if (false)
@@ -511,35 +512,46 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
       const VectorShape& shape1 = getShape(op1);
       const VectorShape& shape2 = getShape(op2);
 
-      // If both operands have the same stride the comparison is uniform
-      if (shape1.isVarying() || shape2.isVarying()) return VectorShape::varying();
-      if (shape1.getStride() == shape2.getStride()) return VectorShape::uni();
-
-      using Pred_t = CmpInst::Predicate;
-      Pred_t predicate = cast<CmpInst>(I)->getPredicate();
-
-      const unsigned vectorWidth = mVecinfo.getMapping().vectorWidth;
-
-      const unsigned alignment1 = shape1.getAlignmentFirst();
-      const unsigned alignment2 = shape2.getAlignmentFirst();
-
-      const int mingap = int(gcd(alignment1, alignment2));
-
-      int strideDiff;
-      if (predicate == Pred_t::ICMP_SLT || predicate == Pred_t::ICMP_ULT) {
-        strideDiff = shape1.getStride() - shape2.getStride();
-      }
-      else if (predicate == Pred_t::ICMP_SGT || predicate == Pred_t::ICMP_UGT) {
-        strideDiff = shape2.getStride() - shape1.getStride();
-      }
-      else {
+      if (shape1.isVarying() || shape2.isVarying())
         return VectorShape::varying();
-      }
 
-      int maxincrease = strideDiff * int(vectorWidth);
-      // If the gap cannot get zero along the stride we stay less
-      if (maxincrease >= 0 && mingap - maxincrease >= 0)
-        return VectorShape::uni();
+      // Get a shape for op1 - op2 and see if it compares uniform to a full zero-vector
+      int diffalignment = int(gcd(shape1.getAlignmentFirst(), shape2.getAlignmentFirst()));
+      int diffStride    = shape1.getStride() - shape2.getStride();
+
+      CmpInst::Predicate predicate = cast<CmpInst>(I)->getPredicate();
+      switch (predicate) {
+        case CmpInst::Predicate::ICMP_SGT:
+        case CmpInst::Predicate::ICMP_UGT:
+        case CmpInst::Predicate::ICMP_SLE:
+        case CmpInst::Predicate::ICMP_ULE:
+          diffStride = -diffStride; // Negate and handle like LESS/GREATER_EQUAL
+        case CmpInst::Predicate::ICMP_SLT:
+        case CmpInst::Predicate::ICMP_ULT:
+        case CmpInst::Predicate::ICMP_SGE:
+        case CmpInst::Predicate::ICMP_UGE:
+        // These coincide because a >= b is equivalent to !(a < b)
+        {
+          const unsigned vectorWidth = mVecinfo.getMapping().vectorWidth;
+
+          if (diffStride >= 0 && diffalignment >= diffStride * int(vectorWidth))
+            return VectorShape::uni();
+
+          break;
+        }
+
+        case CmpInst::Predicate::ICMP_EQ:
+        case CmpInst::Predicate::ICMP_NE:
+        {
+          if (diffStride == 0)
+            return VectorShape::uni();
+
+          break;
+        }
+
+        default:
+          break;
+      }
 
       return VectorShape::varying();
     }
@@ -616,19 +628,9 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
         const VectorShape& expected = Arginfo[i++];
         const VectorShape& actual = getShape(op);
 
-        // Anything goes
-        if (expected.isVarying()) continue;
-
-        // Too unprecise
-        if (actual.isVarying()) return VectorShape::varying();
-
-        // The strides must be the same
-        // and alignment has to be strict enough
-        if (expected.getStride() != actual.getStride() ||
-                actual.getAlignmentFirst() % expected.getAlignmentFirst() == 0)
-        {
+        // If the expected shape is more precise than the computed shape, return varying
+        if (expected < actual)
           return VectorShape::varying();
-        }
       }
 
       return mapping->resultShape;
@@ -934,7 +936,11 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
 }
 
 VectorShape VectorizationAnalysis::getShape(const Value* const V) {
-  if (mVecinfo.hasKnownShape(*V)) return mVecinfo.getVectorShape(*V);
+  if (isa<Constant>(V))
+    return VectorShape::uni(getAlignment(cast<Constant>(V)));
+
+  if (mVecinfo.hasKnownShape(*V))
+    return mVecinfo.getVectorShape(*V);
 
 #if 0
   if (isa<GlobalValue>(V)) return VectorShape::uni(0);
@@ -942,8 +948,7 @@ VectorShape VectorizationAnalysis::getShape(const Value* const V) {
 
   assert (isa<Constant>(V) && "Value is not available");
 #endif
-  int alignment = isa<Constant>(V) ? getAlignment(cast<Constant>(V)) : 0;
-  return VectorShape::uni(alignment);
+  return VectorShape::uni(0);
 }
 
 FunctionPass* createVectorizationAnalysisPass() {
