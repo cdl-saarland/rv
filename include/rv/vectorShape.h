@@ -60,6 +60,10 @@ public:
   bool operator!=(const VectorShape &a) const;
   bool operator<(const VectorShape &a) const;
 
+  friend VectorShape operator-(const VectorShape& a);
+  friend VectorShape operator+(const VectorShape& a, const VectorShape& b);
+  friend VectorShape operator-(const VectorShape& a, const VectorShape& b);
+
   std::string str() const;
 
   static VectorShape truncateToTypeSize(const VectorShape &a,

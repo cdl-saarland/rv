@@ -509,15 +509,10 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
       const Value* op1 = I->getOperand(0);
       const Value* op2 = I->getOperand(1);
 
-      const VectorShape& shape1 = getShape(op1);
-      const VectorShape& shape2 = getShape(op2);
-
-      if (shape1.isVarying() || shape2.isVarying())
-        return VectorShape::varying();
-
       // Get a shape for op1 - op2 and see if it compares uniform to a full zero-vector
-      int diffalignment = int(gcd(shape1.getAlignmentFirst(), shape2.getAlignmentFirst()));
-      int diffStride    = shape1.getStride() - shape2.getStride();
+      VectorShape diffShape = getShape(op1) - getShape(op2);
+      if (diffShape.isVarying())
+        return diffShape;
 
       CmpInst::Predicate predicate = cast<CmpInst>(I)->getPredicate();
       switch (predicate) {
@@ -525,16 +520,18 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
         case CmpInst::Predicate::ICMP_UGT:
         case CmpInst::Predicate::ICMP_SLE:
         case CmpInst::Predicate::ICMP_ULE:
-          diffStride = -diffStride; // Negate and handle like LESS/GREATER_EQUAL
+          diffShape = -diffShape; // Negate and handle like LESS/GREATER_EQUAL
         case CmpInst::Predicate::ICMP_SLT:
         case CmpInst::Predicate::ICMP_ULT:
         case CmpInst::Predicate::ICMP_SGE:
         case CmpInst::Predicate::ICMP_UGE:
         // These coincide because a >= b is equivalent to !(a < b)
         {
-          const unsigned vectorWidth = mVecinfo.getMapping().vectorWidth;
-
-          if (diffStride >= 0 && diffalignment >= diffStride * int(vectorWidth))
+          const int vectorWidth = (int)mVecinfo.getMapping().vectorWidth;
+          const int stride = diffShape.getStride();
+          const int alignment = diffShape.getAlignmentFirst();
+          
+          if (stride >= 0 && alignment >= stride * vectorWidth)
             return VectorShape::uni();
 
           break;
@@ -543,7 +540,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
         case CmpInst::Predicate::ICMP_EQ:
         case CmpInst::Predicate::ICMP_NE:
         {
-          if (diffStride == 0)
+          if (diffShape.getStride() == 0)
             return VectorShape::uni();
 
           break;
@@ -695,23 +692,16 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
     case Instruction::Add:
     case Instruction::FAdd:
     {
-      assert (shape1.isDefined() && shape2.isDefined());
-
       const bool fadd = I->getOpcode() == Instruction::FAdd;
 
-      const unsigned resAlignment = gcd(alignment1, alignment2);
-
-      if (shape1.isVarying() || shape2.isVarying())
-        return VectorShape::varying(gcd(generalalignment1, generalalignment2));
-
-      VectorShape res = VectorShape::strided(stride1 + stride2, resAlignment);
+      VectorShape res = shape1 + shape2;
 
       // Only allow strided results for floating point addition if
       // according fast math flags are set
       if (fadd) {
         FastMathFlags flags = I->getFastMathFlags();
-        if (!flags.unsafeAlgebra()) {
-          res = res.isUniform() ? res : VectorShape::varying();
+        if (!flags.unsafeAlgebra() && res.isUniform()) {
+          res = VectorShape::varying();
         }
       }
 
@@ -724,19 +714,14 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
     {
       const bool fsub = I->getOpcode() == Instruction::FSub;
 
-      const unsigned resAlignment = gcd(alignment1, alignment2);
-
-      if (shape1.isVarying() || shape2.isVarying())
-        return VectorShape::varying(gcd(generalalignment1, generalalignment2));
-
-      VectorShape res = VectorShape::strided(stride1 - stride2, resAlignment);
+      VectorShape res = shape1 - shape2;
 
       // Only allow strided results for floating point substraction if
       // according fast math flags are set
       if (fsub) {
         FastMathFlags flags = I->getFastMathFlags();
-        if (!flags.unsafeAlgebra()) {
-          res = res.isUniform() ? res : VectorShape::varying();
+        if (!flags.unsafeAlgebra() && res.isUniform()) {
+          res = VectorShape::varying();
         }
       }
 

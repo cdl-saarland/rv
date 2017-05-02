@@ -79,6 +79,31 @@ bool VectorShape::operator<(const VectorShape &a) const {
   return false;
 }
 
+VectorShape operator-(const VectorShape& a) {
+  if (!a.defined || !a.hasConstantStride) return a;
+  return VectorShape::strided(-a.stride, a.alignment);
+}
+
+VectorShape operator+(const VectorShape& a, const VectorShape& b) {
+  if (!a.defined || !b.defined)
+    return VectorShape::undef();
+
+  if (!a.hasConstantStride || !b.hasConstantStride)
+    return VectorShape::varying(gcd(a.getAlignmentGeneral(), b.getAlignmentGeneral()));
+
+  return VectorShape::strided(a.stride + b.stride, gcd(a.alignment, b.alignment));
+}
+
+VectorShape operator-(const VectorShape& a, const VectorShape& b) {
+  if (!a.defined || !b.defined)
+    return VectorShape::undef();
+
+  if (!a.hasConstantStride || !b.hasConstantStride)
+    return VectorShape::varying(gcd(a.getAlignmentGeneral(), b.getAlignmentGeneral()));
+
+  return VectorShape::strided(a.stride - b.stride, gcd(a.alignment, b.alignment));
+}
+
 VectorShape VectorShape::join(VectorShape a, VectorShape b) {
   if (!a.isDefined())
     return b;
