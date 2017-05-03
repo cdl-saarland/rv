@@ -621,8 +621,11 @@ VectorShape VectorizationAnalysis::computeGenericArithmeticTransfer(const Instru
 }
 
 VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperator* I) {
-  const Value* op1 = I->getOperand(0);
-  const Value* op2 = I->getOperand(1);
+  Value* op1 = I->getOperand(0);
+  Value* op2 = I->getOperand(1);
+
+  // Assume constants are on the RHS
+  if (isa<Constant>(op1) && I->isCommutative()) std::swap(op1, op2);
 
   const VectorShape& shape1 = getShape(op1);
   const VectorShape& shape2 = getShape(op2);
@@ -653,18 +656,13 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
       if (shape1.isVarying() || shape2.isVarying())
         return VectorShape::varying(generalalignment1 * generalalignment2);
 
-      if (shape1.isUniform() && shape2.isUniform()) return VectorShape::uni(alignment1 * alignment2);
+      if (shape1.isUniform() && shape2.isUniform())
+        return VectorShape::uni(alignment1 * alignment2);
 
       // If the constant is known, compute the new shape directly
-      if (const ConstantInt* constantOp = dyn_cast<ConstantInt>(op1)) {
-        const int c = (int) constantOp->getSExtValue();
-        return VectorShape::strided(c * stride2, (c > 0 ? c : -c) * alignment2);
-      }
-
-      // Symmetric case
       if (const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2)) {
         const int c = (int) constantOp->getSExtValue();
-        return VectorShape::strided(c * stride1, (c > 0 ? c : -c) * alignment1);
+        return c * shape1;
       }
 
       return VectorShape::varying(generalalignment1 * generalalignment2);
@@ -672,47 +670,33 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
 
     case Instruction::Or: {
     // try to match and Add that as been lowered to an Or
-      int constOpId = 0;
-      if (isa<Constant>(I->getOperand(0))) {
-        constOpId = 0;
-      } else if (isa<Constant>(I->getOperand(1))) {
-        constOpId = 1;
-      } else {
-        break;
-      }
+      /*if (!isa<ConstantInt>(op2)) break;
+      if (shape1.isVarying()) break;
 
-      uint orConst = cast<ConstantInt>(I->getOperand(constOpId))->getZExtValue();
-      int otherOpId = 1 - constOpId;
-      VectorShape otherShape = getShape(I->getOperand(otherOpId));
-
-      if (!otherShape.hasStridedShape()) {
-        break;
-      }
+      unsigned orConst = (unsigned) cast<ConstantInt>(op2)->getZExtValue();
 
       // the or-ed constant is smaller than the alignment
       // in this case we can interpret as an add
-      if (otherShape.getAlignmentFirst() > orConst) {
-        auto resAlignment = gcd<uint>(orConst, otherShape.getAlignmentFirst());
-        return VectorShape::strided(otherShape.getStride(), resAlignment);
-      } else {
-        break;
-      }
+      // FIXME this is not true: <4, 5, 6, 7> | 3 = <7, 7, 7, 7>
+      if (alignment1 > orConst) {
+        auto resAlignment = gcd<uint>(orConst, alignment1);
+        return VectorShape::strided(shape1.getStride(), resAlignment);
+      } */
+
+      break;
     }
 
     case Instruction::Shl: {
       // interpret shift by constant as multiplication
-      if (isa<Constant>(I->getOperand(1))) {
-          auto * shiftConst = cast<ConstantInt>(I->getOperand(1));
-          int shiftAmount = (int) shiftConst->getSExtValue();
-          const auto valShape = getShape(I->getOperand(0));
-          if (shiftAmount > 0 && valShape.hasStridedShape()) {
-            int factor = 1 << shiftAmount;
-            return VectorShape::strided(valShape.getStride() * factor,
-                                        valShape.getAlignmentFirst() * factor);
-          } else {
-            break;
-          }
+      if (auto* shiftCI = dyn_cast<ConstantInt>(op2)) {
+        int shiftAmount = (int) shiftCI->getSExtValue();
+        if (shiftAmount > 0) {
+          int factor = 1 << shiftAmount;
+          return factor * shape1;
+        }
       }
+
+      break;
     }
 
     case Instruction::SDiv:
