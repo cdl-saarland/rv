@@ -425,10 +425,17 @@ void VectorizationAnalysis::compute(Function& F) {
       New = computeShapeForInst(I);
     }
 
-    // adjust result type to match alignment
     if (I->getType()->isPointerTy()) {
+      // adjust result type to match alignment
       uint minAlignment = getBaseAlignment(*I, layout);
       New.setAlignment(std::max<uint>(minAlignment, New.getAlignmentFirst()));
+    } else if (I->getType()->isFloatingPointTy()) {
+      // Only allow strided results for floating point instructions if
+      // according fast math flags are set
+      FastMathFlags flags = I->getFastMathFlags();
+      if (!flags.unsafeAlgebra() && !New.isUniform()) {
+        New = VectorShape::varying();
+      }
     }
 
     update(I, New);
@@ -630,43 +637,13 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
   const unsigned generalalignment2 = shape2.getAlignmentGeneral();
 
   switch (I->getOpcode()) {
-    // Addition can be optimized in case of strided shape (adding strides)
     case Instruction::Add:
     case Instruction::FAdd:
-    {
-      VectorShape res = shape1 + shape2;
+      return shape1 + shape2;
 
-      // Only allow strided results for floating point addition if
-      // according fast math flags are set
-      const bool fadd = I->getOpcode() == Instruction::FAdd;
-      if (fadd) {
-        FastMathFlags flags = I->getFastMathFlags();
-        if (!flags.unsafeAlgebra() && !res.isUniform()) {
-          res = VectorShape::varying();
-        }
-      }
-
-      return res;
-    }
-
-      // Substraction can be optimized in case of strided shape (substracting strides)
     case Instruction::Sub:
     case Instruction::FSub:
-    {
-      VectorShape res = shape1 - shape2;
-
-      // Only allow strided results for floating point substraction if
-      // according fast math flags are set
-      const bool fsub = I->getOpcode() == Instruction::FSub;
-      if (fsub) {
-        FastMathFlags flags = I->getFastMathFlags();
-        if (!flags.unsafeAlgebra() && !res.isUniform()) {
-          res = VectorShape::varying();
-        }
-      }
-
-      return res;
-    }
+      return shape1 - shape2;
 
     // Integer multiplication with a constant simply multiplies the shape offset
     // if existent with the constant value
