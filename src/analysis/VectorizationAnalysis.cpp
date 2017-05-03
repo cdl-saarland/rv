@@ -731,7 +731,6 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
   const Value* castOp = castI->getOperand(0);
   const VectorShape& castOpShape = getShape(castOp);
   const int castOpStride = castOpShape.getStride();
-  const DataLayout layout(castI->getModule());
 
   const int aligned = !rv::returnsVoidPtr(*castI) ? castOpShape.getAlignmentFirst() : 1;
 
@@ -756,12 +755,11 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
 
     case Instruction::PtrToInt:
     {
-      PointerType* SrcType = cast<PointerType>(castI->getSrcTy());
-      Type* SrcPointsTo = SrcType->getPointerElementType();
+      Type* SrcElemType = castI->getSrcTy()->getPointerElementType();
 
-      unsigned typeSize = (unsigned) layout.getTypeStoreSize(SrcPointsTo);
+      unsigned typeSize = (unsigned) layout.getTypeStoreSize(SrcElemType);
 
-      return VectorShape::strided(typeSize * castOpStride, 1);
+      return VectorShape::strided(typeSize * castOpStride, aligned);
     }
 
       // Truncation reinterprets the stride modulo the target type width
@@ -770,8 +768,7 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
     {
       Type* destTy = castI->getDestTy();
 
-      return VectorShape::truncateToTypeSize(castOpShape,
-                                             (unsigned) layout.getTypeStoreSize(destTy));
+      return truncateToTypeSize(castOpShape, (unsigned) layout.getTypeStoreSize(destTy));
     }
 
     // FIXME: is this correct?

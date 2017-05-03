@@ -70,11 +70,9 @@ public:
   friend VectorShape operator+(const VectorShape& a, const VectorShape& b);
   friend VectorShape operator-(const VectorShape& a, const VectorShape& b);
   friend VectorShape operator*(int m, const VectorShape& a);
+  friend VectorShape truncateToTypeSize(const VectorShape &a, unsigned typeSize);
 
   std::string str() const;
-
-  static VectorShape truncateToTypeSize(const VectorShape &a,
-                                        unsigned typeSize);
 
   friend llvm::raw_ostream &operator<<(llvm::raw_ostream &O,
                                        const VectorShape &shape) {
