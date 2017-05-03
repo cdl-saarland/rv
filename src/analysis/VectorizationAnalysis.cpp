@@ -522,28 +522,24 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
       Type* subT = gep->getPointerOperandType();
 
       for (const Value* index : make_range(gep->idx_begin(), gep->idx_end())) {
-        const VectorShape& indexShape = getShape(index);
-
-        if (indexShape.isVarying())
-          return VectorShape::varying();
-
         if (StructType* Struct = dyn_cast<StructType>(subT)) {
           if (!isa<ConstantInt>(index)) return VectorShape::varying();
+
+          subT = Struct->getTypeAtIndex(index);
 
           auto structlayout = layout.getStructLayout(Struct);
           unsigned idxconst = (unsigned) cast<ConstantInt>(index)->getSExtValue();
           unsigned elemoffset = (unsigned) structlayout->getElementOffset(idxconst);
 
-          subT = Struct->getTypeAtIndex(index);
-
           // Behaves like addition, pointer + offset and offset is uniform, hence the stride stays
           unsigned newalignment = gcd(result.getAlignmentFirst(), elemoffset);
           result.setAlignment(newalignment);
         } else {
-          subT = isa<PointerType>(subT) ? subT->getPointerElementType() : subT->getSequentialElementType();
+          // NOTE: If indexShape is varying, this still reasons about alignment
+          subT = subT->getSequentialElementType();
 
-          const int typeSize = (int)layout.getTypeStoreSize(subT);
-          result = result + typeSize * indexShape;
+          const int typeSizeInBytes = (int)layout.getTypeStoreSize(subT);
+          result = result + typeSizeInBytes * getShape(index);
         }
       }
 
