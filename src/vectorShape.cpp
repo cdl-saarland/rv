@@ -10,6 +10,8 @@
 #include <iostream>
 #include <sstream>
 #include <cmath>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/Function.h>
 
 #include "rv/utils/mathUtils.h"
 
@@ -29,6 +31,54 @@ VectorShape::VectorShape(uint _alignment)
 VectorShape::VectorShape(int _stride, unsigned _alignment)
     : stride(_stride), hasConstantStride(true), alignment(_alignment),
       defined(true) {}
+
+namespace {
+
+unsigned getAlignment(const llvm::Constant* c) {
+  assert (c);
+
+  if (isa<BasicBlock>(c) || isa<Function>(c))
+    return 1;
+
+  // An undef value is never aligned.
+  if (isa<UndefValue>(c)) return 1;
+
+  if (const ConstantInt* cint = dyn_cast<ConstantInt>(c)) {
+    return static_cast<unsigned>(std::abs(cint->getSExtValue()));
+  }
+
+  // Other than that, only integer vector constants can be aligned.
+  if (!c->getType()->isVectorTy()) return 1;
+
+  // A zero-vector is aligned.
+  if (isa<ConstantAggregateZero>(c)) return 0;
+
+  if (const ConstantDataVector* cdv = dyn_cast<ConstantDataVector>(c)) {
+    if (!cdv->getElementType()->isIntegerTy()) return 1;
+
+    const int intValue = (int) cast<ConstantInt>(cdv->getAggregateElement(0U))->getSExtValue();
+
+    return static_cast<unsigned>(std::abs(intValue));
+  }
+
+  assert (isa<ConstantVector>(c));
+  const ConstantVector* cv = cast<ConstantVector>(c);
+
+  if (!cv->getType()->getElementType()->isIntegerTy()) return 1;
+
+  assert (isa<ConstantInt>(cv->getOperand(0)));
+  const ConstantInt* celem = cast<ConstantInt>(cv->getOperand(0));
+  const int intValue = (int) celem->getSExtValue();
+
+  // The vector is aligned if its first element is aligned
+  return static_cast<unsigned>(std::abs(intValue));
+}
+
+}
+
+VectorShape VectorShape::fromConstant(const llvm::Constant* C) {
+  return VectorShape::uni(getAlignment(C));
+}
 
 unsigned VectorShape::getAlignmentGeneral() const {
   assert(defined && "alignment function called on undef value");

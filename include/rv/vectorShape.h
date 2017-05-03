@@ -15,6 +15,10 @@
 
 #include <llvm/Support/raw_ostream.h>
 
+namespace llvm {
+class Constant;
+}
+
 namespace rv {
 
 // describes how the contents of a vector vary with the vectorized dimension
@@ -53,6 +57,8 @@ public:
   static inline VectorShape uni(int aligned = 1) { return strided(0, aligned); }
   static inline VectorShape cont(int aligned = 1) { return strided(1, aligned); }
   static VectorShape undef() { return VectorShape(); } // bot
+
+  static VectorShape fromConstant(const llvm::Constant* C);
 
   static VectorShape join(VectorShape a, VectorShape b);
 
