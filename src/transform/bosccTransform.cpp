@@ -199,6 +199,12 @@ GetNumPredecessors(BasicBlock & block) {
   return numPred;
 }
 
+static int
+GetValue(const char * name, int defVal) {
+  auto * text = getenv(name);
+  if (!text) return defVal;
+  else return atoi(text);
+}
 // 0  : do not BOSCC
 // -1 : boscc onTrue
 // 1 : boscc onFalse
@@ -242,7 +248,7 @@ bosccHeuristic(BranchInst & branch, size_t & regScore) {
     onFalseScore = getDomRegionScore(*onFalseBlock);
   }
 
-  const size_t minScore = 64;
+  const size_t minScore = GetValue("BOSCC_LIMIT", 64);
   const size_t maxScore = 10000000;
 
 // otw try to skip the bigger dominated part
