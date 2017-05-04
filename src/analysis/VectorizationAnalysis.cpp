@@ -626,7 +626,7 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
   Value* op2 = I->getOperand(1);
 
   // Assume constants are on the RHS
-  if (isa<Constant>(op1) && I->isCommutative()) std::swap(op1, op2);
+  if (!isa<Constant>(op2) && I->isCommutative()) std::swap(op1, op2);
 
   const VectorShape& shape1 = getShape(op1);
   const VectorShape& shape2 = getShape(op2);
@@ -669,38 +669,23 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
     }
 
     case Instruction::Or: {
-      // try to match and Add that as been lowered to an Or
-      int constOpId = 0;
-      if (isa<Constant>(I->getOperand(0))) {
-        constOpId = 0;
-      } else if (isa<Constant>(I->getOperand(1))) {
-        constOpId = 1;
-      } else {
-        break;
-      }
+    // In some cases Or-with-constant can be interpreted as an Add-with-constant
+      // this holds e.g. for: <4, 6, 8, 10> | 1 = <5, 7, 9, 11>
+      if (!isa<ConstantInt>(op2)) break;
 
-      uint orConst = cast<ConstantInt>(I->getOperand(constOpId))->getZExtValue();
-      int otherOpId = 1 - constOpId;
-      VectorShape otherShape = getShape(I->getOperand(otherOpId));
+      uint orConst = cast<ConstantInt>(op2)->getZExtValue();
+      VectorShape otherShape = getShape(op1);
 
       if (orConst == 0) {
         // no-op
         return otherShape;
       }
 
-      // the Or can be interpreted as an Add under the following circumstances:
-      // this holds e.g. for: <4, 6, 8, 10> | 1 = <5, 7, 9, 11>
       uint laneAlignment = otherShape.getAlignmentGeneral();
       if (laneAlignment <= 1) break;
 
-      // for all lanes the bits [0,..,lowestLaneBit] are always zero
-      int lowestLaneBit = lowest_bit(laneAlignment);
-
       // all bits above constTopBit are zero
       uint constTopBit = static_cast<uint>(highest_bit(orConst));
-
-      assert(lowestLaneBit > 0 && constTopBit >= 0);
-
 
     // there is an overlap between the bits of the constant and a possible lane value
       if (constTopBit >= laneAlignment) {
