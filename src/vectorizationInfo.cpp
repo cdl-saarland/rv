@@ -90,6 +90,7 @@ VectorizationInfo::dump() const
     }
 
     for (const BasicBlock & block : *mapping.scalarFn) {
+      if (!inRegion(block)) continue;
       dumpBlockInfo(block);
     }
 
