@@ -10,8 +10,10 @@
 #include <iostream>
 #include <sstream>
 #include <cmath>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/Function.h>
 
-#include "rv/utils/mathUtils.h"
+#include "utils/mathUtils.h"
 
 #include "rv/vectorShape.h"
 #include "rv/vectorizationInfo.h"
@@ -29,6 +31,54 @@ VectorShape::VectorShape(uint _alignment)
 VectorShape::VectorShape(int _stride, unsigned _alignment)
     : stride(_stride), hasConstantStride(true), alignment(_alignment),
       defined(true) {}
+
+namespace {
+
+unsigned getAlignment(const llvm::Constant* c) {
+  assert (c);
+
+  if (isa<BasicBlock>(c) || isa<Function>(c))
+    return 1;
+
+  // An undef value is never aligned.
+  if (isa<UndefValue>(c)) return 1;
+
+  if (const ConstantInt* cint = dyn_cast<ConstantInt>(c)) {
+    return static_cast<unsigned>(std::abs(cint->getSExtValue()));
+  }
+
+  // Other than that, only integer vector constants can be aligned.
+  if (!c->getType()->isVectorTy()) return 1;
+
+  // A zero-vector is aligned.
+  if (isa<ConstantAggregateZero>(c)) return 0;
+
+  if (const ConstantDataVector* cdv = dyn_cast<ConstantDataVector>(c)) {
+    if (!cdv->getElementType()->isIntegerTy()) return 1;
+
+    const int intValue = (int) cast<ConstantInt>(cdv->getAggregateElement(0U))->getSExtValue();
+
+    return static_cast<unsigned>(std::abs(intValue));
+  }
+
+  assert (isa<ConstantVector>(c));
+  const ConstantVector* cv = cast<ConstantVector>(c);
+
+  if (!cv->getType()->getElementType()->isIntegerTy()) return 1;
+
+  assert (isa<ConstantInt>(cv->getOperand(0)));
+  const ConstantInt* celem = cast<ConstantInt>(cv->getOperand(0));
+  const int intValue = (int) celem->getSExtValue();
+
+  // The vector is aligned if its first element is aligned
+  return static_cast<unsigned>(std::abs(intValue));
+}
+
+}
+
+VectorShape VectorShape::fromConstant(const llvm::Constant* C) {
+  return VectorShape::uni(getAlignment(C));
+}
 
 unsigned VectorShape::getAlignmentGeneral() const {
   assert(defined && "alignment function called on undef value");
@@ -79,6 +129,39 @@ bool VectorShape::operator<(const VectorShape &a) const {
   return false;
 }
 
+VectorShape operator-(const VectorShape& a) {
+  if (!a.defined || !a.hasConstantStride) return a;
+  return VectorShape::strided(-a.stride, a.alignment);
+}
+
+VectorShape operator+(const VectorShape& a, const VectorShape& b) {
+  if (!a.defined || !b.defined)
+    return VectorShape::undef();
+
+  if (!a.hasConstantStride || !b.hasConstantStride)
+    return VectorShape::varying(gcd(a.getAlignmentGeneral(), b.getAlignmentGeneral()));
+
+  return VectorShape::strided(a.stride + b.stride, gcd(a.alignment, b.alignment));
+}
+
+VectorShape operator-(const VectorShape& a, const VectorShape& b) {
+  if (!a.defined || !b.defined)
+    return VectorShape::undef();
+
+  if (!a.hasConstantStride || !b.hasConstantStride)
+    return VectorShape::varying(gcd(a.getAlignmentGeneral(), b.getAlignmentGeneral()));
+
+  return VectorShape::strided(a.stride - b.stride, gcd(a.alignment, b.alignment));
+}
+
+VectorShape operator*(int m, const VectorShape& a) {
+  if (!a.defined) return a;
+
+  if (!a.hasConstantStride) return VectorShape::varying(((m > 0) ? m : -m) * a.alignment);
+
+  return VectorShape::strided(m * a.stride, ((m > 0) ? m : -m) * a.alignment);
+}
+
 VectorShape VectorShape::join(VectorShape a, VectorShape b) {
   if (!a.isDefined())
     return b;
@@ -115,21 +198,18 @@ std::string VectorShape::str() const {
   return ss.str();
 }
 
-VectorShape
-VectorShape::truncateToTypeSize(const VectorShape &a,
-                                        unsigned typeSize) {
+VectorShape truncateToTypeSize(const VectorShape &a, unsigned typeSize) {
+  if (!a.defined) return a;
 
-    if (!a.isDefined()) return a;
+  unsigned factor = 1U << typeSize;
+  unsigned newAlignment = gcd(a.alignment, factor);
+  if (!a.hasConstantStride) {
+    return VectorShape::varying(newAlignment);
+  }
 
-    size_t factor = 1 << typeSize;
-    if (a.isVarying()) {
-      return VectorShape::varying(a.getAlignmentFirst() % factor);
-    }
-
-    // adapt the stride (if necessary)
-    // this may create uniform values for large strides
-    int newAlignment = gcd<size_t>(a.getAlignmentFirst(), factor);
-    return VectorShape::strided(a.getStride() % factor, newAlignment);
+  // adapt the stride (if necessary)
+  // this may create uniform values for large strides
+  return VectorShape::strided(a.stride % factor, newAlignment);
 }
 
 

@@ -28,7 +28,7 @@ using namespace llvm;
 #if 1
 #define IF_DEBUG_SROV IF_DEBUG
 #else
-#define IF_DEBUG_SROV if (false)
+#define IF_DEBUG_SROV if (true)
 #endif
 
 namespace rv {
@@ -171,6 +171,8 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
   } else if (isa<ExtractValueInst>(val)) {
     IF_DEBUG_SROV { errs() << "srov: recursive replication not supported!\n"; }
     return false;
+  } else if (isa<LoadInst>(val) || isa<StoreInst>(val)) {
+    return true;
   }
 
   return false;
@@ -340,9 +342,27 @@ requestReplicate(Value & val) {
     }
 
 // generic instruction replication
-  } else if (isa<StoreInst>(inst) || isa<LoadInst>(inst) || isa<CallInst>(inst)) {
-    assert(false && "generic replication not yet implemented!");
-    abort();
+  } else if (isa<StoreInst>(inst) || isa<LoadInst>(inst)) {
+    auto * intTy = Type::getInt32Ty(builder.getContext());
+    auto * load = dyn_cast<LoadInst>(inst);
+    auto * store = dyn_cast<StoreInst>(inst);
+    auto * ptr = load ? load->getPointerOperand() : store->getPointerOperand();
+    VectorShape ptrShape = vecInfo.getVectorShape(*ptr);
+
+    for (size_t i = 0; i < replTyVec.size(); ++i) {
+      auto * elemGep = builder.CreateGEP(ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
+      vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
+      Value * replInst = nullptr;
+      if (load) {
+        replInst = builder.CreateLoad(elemGep);
+      } else if (store) {
+        assert(false && "not implemented!");
+        // replInst = builder.CreateStore(
+      }
+      replVec.push_back(replInst);
+    }
+
+    replMap.addReplicate(val, replVec);
 
   } else if (isa<SelectInst>(inst)) {
     auto * selectInst = cast<SelectInst>(inst);

@@ -14,11 +14,15 @@
 
 #include "rvConfig.h"
 #include "utils/rvTools.h"
-#include "rv/utils/mathUtils.h"
 
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/Analysis/LoopInfo.h>
+
+#include <numeric>
+#include <algorithm>
+
+#include "utils/mathUtils.h"
 
 #if 1
 #define IF_DEBUG_VA IF_DEBUG
@@ -82,13 +86,15 @@ VAWrapperPass::runOnFunction(Function& F) {
   return false;
 }
 
-VectorizationAnalysis::VectorizationAnalysis(PlatformInfo & platInfo,
-         VectorizationInfo& VecInfo,
-         const CDG& cdg,
-         const DFG& dfg,
-         const LoopInfo& LoopInfo, const DominatorTree & domTree, const PostDominatorTree & postDomTree)
+VectorizationAnalysis::VectorizationAnalysis(PlatformInfo& platInfo,
+                                             VectorizationInfo& VecInfo,
+                                             const CDG& cdg,
+                                             const DFG& dfg,
+                                             const LoopInfo& LoopInfo,
+                                             const DominatorTree& domTree,
+                                             const PostDominatorTree& postDomTree)
 
-        : layout(""),
+        : layout(platInfo.getDataLayout()),
           mVecinfo(VecInfo),
           mCDG(cdg),
           mDFG(dfg),
@@ -101,154 +107,111 @@ VectorizationAnalysis::VectorizationAnalysis(PlatformInfo & platInfo,
 void
 VectorizationAnalysis::analyze(Function& F) {
   assert (!F.isDeclaration());
-
-  // FIXME mWorklist.clear()
-  while (!mWorklist.empty()) mWorklist.pop();
+  assert (mWorklist.empty());
 
   init(F);
   compute(F);
-  fillVectorizationInfo(F);
-
-  // checkEquivalentToOldAnalysis(F);
+  fixUndefinedShapes(F);
 }
 
 bool VectorizationAnalysis::isInRegion(const BasicBlock& BB) {
-  return mRegion ? mRegion->contains(&BB) : true;
+  return !mRegion || mRegion->contains(&BB);
 }
 
 bool VectorizationAnalysis::isInRegion(const Instruction& inst) {
-  return !mRegion || isInRegion(*inst.getParent());
+  return isInRegion(*inst.getParent());
 }
 
-void VectorizationAnalysis::fillVectorizationInfo(Function& F) {
+void VectorizationAnalysis::fixUndefinedShapes(Function& F) {
   for (const BasicBlock& BB : F) {
     if (!isInRegion(BB)) continue;
-    mVecinfo.setVectorShape(BB, getShape(&BB));
     for (const Instruction& I : BB) {
-      VectorShape shape = getShape(&I);
-
-      mVecinfo.setVectorShape(I, shape.isDefined() ? shape : VectorShape::uni());
+      if (!getShape(&I).isDefined())
+        mVecinfo.setVectorShape(I, VectorShape::uni());
     }
   }
 }
 
-unsigned VectorizationAnalysis::getAlignment(const Constant* c) const {
-  assert (c);
+void VectorizationAnalysis::adjustValueShapes(Function& F) {
+  // Enforce shapes to be existing, if absent, set to VectorShape::undef()
+  // If already there, also optimize alignment in case of pointer type
 
-  if (isa<BasicBlock>(c) || isa<Function>(c))
-    return 1;
-
-  // An undef value is never aligned.
-  if (isa<UndefValue>(c)) return 1;
-
-  if (const ConstantInt* cint = dyn_cast<ConstantInt>(c)) {
-    return static_cast<unsigned>(std::abs(cint->getSExtValue()));
+  // Arguments
+  for (auto& arg : F.args()) {
+    if (!mVecinfo.hasKnownShape(arg)) {
+      mVecinfo.setVectorShape(arg, VectorShape::undef());
+    } else {
+      // Adjust pointer argument alignment
+      if (arg.getType()->isPointerTy()) {
+        VectorShape argShape = mVecinfo.getVectorShape(arg);
+        uint minAlignment = getBaseAlignment(arg, layout);
+        // max is the more precise one
+        argShape.setAlignment(std::max<uint>(minAlignment, argShape.getAlignmentFirst()));
+        mVecinfo.setVectorShape(arg, argShape);
+      }
+    }
   }
 
-  // Other than that, only integer vector constants can be aligned.
-  if (!c->getType()->isVectorTy()) return 1;
-
-  // A zero-vector is aligned.
-  if (isa<ConstantAggregateZero>(c)) return 0;
-
-  if (const ConstantDataVector* cdv = dyn_cast<ConstantDataVector>(c)) {
-    if (!cdv->getElementType()->isIntegerTy()) return 1;
-
-    const int intValue = (int) cast<ConstantInt>(cdv->getAggregateElement(0U))->getSExtValue();
-
-    return static_cast<unsigned>(std::abs(intValue));
+  // Instructions in region(!)
+  for (auto& BB : F) {
+    if (mVecinfo.inRegion(BB)) {
+      for (auto& I : BB) {
+        if (!mVecinfo.hasKnownShape(I))
+          mVecinfo.setVectorShape(I, VectorShape::undef());
+      }
+    }
   }
-
-  assert (isa<ConstantVector>(c));
-  const ConstantVector* cv = cast<ConstantVector>(c);
-
-  if (!cv->getType()->getElementType()->isIntegerTy()) return 1;
-
-  assert (isa<ConstantInt>(cv->getOperand(0)));
-  const ConstantInt* celem = cast<ConstantInt>(cv->getOperand(0));
-  const int intValue = (int) celem->getSExtValue();
-
-  // The vector is aligned if its first element is aligned
-  return static_cast<unsigned>(std::abs(intValue));
 }
 
 void VectorizationAnalysis::init(Function& F) {
-  layout = DataLayout(F.getParent());
-
-  // Initialize with undefined values
-  for (auto& arg : F.args()) mValue2Shape[&arg] = VectorShape::undef();
-
-  // initialize all insts in region(!) as undef
-  for (auto& BB : F) {
-    if (mVecinfo.inRegion(BB)) {
-       for (auto& I : BB) {
-         mValue2Shape[&I] = VectorShape::undef();
-       }
-    }
-  }
+  adjustValueShapes(F);
 
   // bootstrap with user defined shapes
   for (auto& BB : F) {
     for (auto& I : BB) {
-      if (mVecinfo.hasKnownShape(I)) {
-        IF_DEBUG_VA errs() << "OVERRIDE " << I << " shape " << mVecinfo.getVectorShape(I).str() << "\n";
+      VectorShape shape = mVecinfo.getVectorShape(I);
+
+      if (shape.isDefined()) {
+        IF_DEBUG_VA errs() << "Override for: " << I << ", shape: " << shape << "\n";
         overrides.insert(&I);
-        update(&I, mVecinfo.getVectorShape(I));
-        mVecinfo.dropVectorShape(I);
-      }
-      else {
-        mVecinfo.setVectorShape(I, VectorShape::uni());
+        // Drop + update so this gets recognized as a change
+        mVecinfo.setVectorShape(I, VectorShape::undef());
+        update(&I, shape);
       }
     }
   }
 
-  // Update initialized instructions
+  // Start iteration from arguments
   for (auto& arg : F.args()) {
-    if (mVecinfo.hasKnownShape(arg)) {
-      VectorShape argShape = mVecinfo.getVectorShape(arg);
-
-      if (arg.getType()->isPointerTy()) {
-        uint minAlignment = getBaseAlignment(arg, layout);
-        argShape.setAlignment(std::max<uint>(minAlignment, argShape.getAlignmentFirst()));
-        // max is the more precise one
-      }
-
-      /* Adjust pointer arguments to continous stride */
-      //if (arg.getType()->isPointerTy() && argShape.isVarying()) {
-      //  argShape = VectorShape::cont();
-      //}
-
-      update(&arg, argShape);
-    }
-    else {
+    if (!mVecinfo.getVectorShape(arg).isDefined()) {
       assert(mRegion && "will only default function args if in region mode");
       // set argument shapes to uniform if not known better
-      update(&arg, VectorShape::uni());
+      mVecinfo.setVectorShape(arg, VectorShape::uni());
     }
+
+    addDependentValuesToWL(&arg);
   }
 
   // Propagation of vectorshapes starts at:
   // - Allocas
   // - Constants
-  // - Calls (theres no connection to them in the iteration if they have no parameters)
+  // - Calls (no connection to them if they have no parameters)
   for (const BasicBlock& BB : F) {
-    mValue2Shape[&BB] = VectorShape::uni();
+    mVecinfo.setVectorShape(BB, VectorShape::uni());
 
     for (const Instruction& I : BB) {
       if (isa<AllocaInst>(&I)) {
         update(&I, VectorShape::uni(mVecinfo.getMapping().vectorWidth));
-      }
-        /* Need to initialize WL with calls, they may not be reached o.w. */
-      else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
+      } else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
+        // Initialize WL with 0 parameter calls
         // Only makes sense if a value is returned
         if (call->getCalledFunction()->getReturnType()->isVoidTy()) continue;
         if (call->getNumArgOperands() != 0) continue;
 
         mWorklist.push(&I);
         IF_DEBUG_VA errs() << "Inserted call in initialization: " << I.getName() << "\n";
-      }
-        /* Phis that depend on constants are added to the WL */
-      else if (isa<PHINode>(I) && any_of(I.operands(), isa<Constant, Use>)) {
+      } else if (isa<PHINode>(I) && any_of(I.operands(), isa<Constant, Use>)) {
+        // Phis that depend on constants are added to the WL
         mWorklist.push(&I);
         IF_DEBUG_VA errs() << "Inserted PHI in initialization: " << I.getName() << "\n";
       }
@@ -257,27 +220,25 @@ void VectorizationAnalysis::init(Function& F) {
 }
 
 void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
-  updateShape(V, AT);
-  if (isa<BranchInst>(V))
+  bool changed = updateShape(V, AT);
+  if (changed && isa<BranchInst>(V))
     analyzeDivergence(cast<BranchInst>(V));
 }
 
-void VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
-  const VectorShape& New = VectorShape::join(getShape(V), AT);
+bool VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
+  VectorShape Old = getShape(V);
+  VectorShape New = VectorShape::join(Old, AT);
 
-  if (mValue2Shape[V] == New) return;// nothing changed
-  if (overrides.count(V) && getShape(V).isDefined()) return;//prevented by override
+  if (Old == New) return false;// nothing changed
+  if (overrides.count(V) && Old.isDefined()) return false;//prevented by override
 
   IF_DEBUG_VA errs() << "Marking " << New << ": " << *V << "\n";
-  mValue2Shape[V] = New;
+  mVecinfo.setVectorShape(*V, New);
 
   // Add dependent elements to worklist
-  addRelevantUsersToWL(V);
+  addDependentValuesToWL(V);
 
-  // If an alloca was used it needs to be updated
-  if (!New.isUniform() && isa<Instruction>(V)) {
-    updateAllocaOperands(cast<Instruction>(V));
-  }
+  return true;
 }
 
 void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
@@ -296,35 +257,27 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
       continue;
     } // filter out irrelevant nodes (FIXME filter out directly in BDA)
 
-    // Doesn't matter if already effected previously
-    if (mValue2Shape[BB].isVarying()) continue;
+    // Doesn't matter if already affected previously
+    if (getShape(BB).isVarying()) continue;
 
-    IF_DEBUG_VA errs() << "Branch " << *branch << " affects " << *BB << "\n";
-
-    assert (isInRegion(*BB)); // Otherwise the region is ill-formed
+    IF_DEBUG_VA errs() << "Branch <" << *branch << "> affects " << BB->getName() << ".\n";
 
     // Loop headers are not marked divergent, but can be loop divergent
     if (mLoopInfo.isLoopHeader(BB)) {
       const Loop* BBLoop = mLoopInfo.getLoopFor(BB);
 
-      // BB needs to be a header of the same or an outer loop
-      if (!BBLoop->contains(endsVaryingLoop)) continue;
+      // Already divergent
+      if (mVecinfo.isDivergentLoop(BBLoop)) continue;
 
-      const bool BranchExitsBBLoop = BBLoop->isLoopExiting(endsVarying);
-      if (BBLoop == endsVaryingLoop || BranchExitsBBLoop) {
-        mVecinfo.setDivergentLoop(BBLoop);
+      // Loop divergence is caused by varying loop exits
+      if (!BBLoop->isLoopExiting(endsVarying)) continue;
 
-        IF_DEBUG_VA {
-          errs() << "\n"
-                 << "The loop with header: \n"
-                 << "    " << BB->getName() << "\n"
-                 << "is divergent because of the non-uniform branch in:\n"
-                 << "    " << endsVarying->getName() << "\n\n";
-        }
+      mVecinfo.setDivergentLoop(BBLoop);
+      updateLCSSAPhisVarying(BBLoop);
 
-        for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it) {
-          updateOutsideLoopUsesVarying(BBLoop);
-        }
+      IF_DEBUG_VA {
+        errs() << "\nThe loop with header: " << BB->getName() << " is divergent, "
+               << "because of the non-uniform branch in: " << endsVarying->getName() << "\n";
       }
 
       continue;
@@ -334,15 +287,11 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
     // If any loop exit is varying, the block is divergent since the loop might
     // leak information before every thread is done
     if (endsVaryingLoop && !endsVaryingLoop->contains(BB)) {
-      // In case of only one exit block we can optimize considering it gets linearized
-      if (endsVaryingLoop->getUniqueExitBlock()) continue;
-
-      // For multiple exits, the loop shall be blackboxed
       // If all exits are uniform, we regard as uniform
       if (allExitsUniform(endsVaryingLoop)) continue;
     }
 
-    mValue2Shape[BB] = VectorShape::varying();
+    mVecinfo.setVectorShape(*BB, VectorShape::varying());
 
     IF_DEBUG_VA {
       errs() << "\n"
@@ -353,50 +302,17 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
     }
 
     // add phis to worklist
-    for (auto it = BB->begin(); BB->getFirstNonPHI() != &*it; ++it) {
-      mWorklist.push(&*it);
-      IF_DEBUG_VA errs() << "Inserted PHI: " << (&*it)->getName() << "\n";
+    for (auto & inst : *BB) {
+      if (!isa<PHINode>(inst)) break;
+
+      mWorklist.push(&inst);
+      IF_DEBUG_VA errs() << "Inserted PHI: " << inst.getName() << "\n";
     }
   }
 }
 
-void VectorizationAnalysis::updateAllocaOperands(const Instruction* I) {
-  const int alignment = mVecinfo.getMapping().vectorWidth;
-
-  for (const Value* op : I->operands()) {
-    while (isa<GetElementPtrInst>(op))
-      op = cast<Instruction>(op)->getOperand(0);
-
-    if (!isa<AllocaInst>(op)) continue;
-
-    // Already processed
-    if (!getShape(op).isUniform()) continue;
-
-    // promote to all users
-    // eraseUserInfoRecursively(op);
-
-    auto* PtrElemType = op->getType()->getPointerElementType();
-    const bool Vectorizable = false;
-
-    int typeStoreSize = static_cast<int>(layout.getTypeStoreSize(PtrElemType));
-
-    update(op, Vectorizable ?
-               VectorShape::strided(typeStoreSize, alignment) :
-               VectorShape::varying());
-  }
-}
-
-void VectorizationAnalysis::eraseUserInfoRecursively(const Value* V) {
-  if (!mValue2Shape[V].isDefined()) return;
-
-  mValue2Shape[V] = VectorShape::undef();
-
-  for (const Value* use : V->users()) {
-    eraseUserInfoRecursively(use);
-  }
-}
-
-void VectorizationAnalysis::addRelevantUsersToWL(const Value* V) {
+void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
+  // Push users of this value
   for (const auto user : V->users()) {
     if (!isa<Instruction>(user)) continue;
     const Instruction* inst = cast<Instruction>(user);
@@ -414,23 +330,32 @@ void VectorizationAnalysis::addRelevantUsersToWL(const Value* V) {
     mWorklist.push(inst);
     IF_DEBUG_VA errs() << "Inserted user of updated " << V->getName() << ":" << *user << "\n";
   }
+
+  const Instruction* I = dyn_cast<Instruction>(V);
+  if (!I || getShape(I).isUniform()) return;
+
+  // Push allocas used by this non-uniform value
+  for (const Value* op : I->operands()) {
+    // Skip GEPs
+    while (auto* gep = dyn_cast<GetElementPtrInst>(op)) op = gep->getPointerOperand();
+
+    if (!isa<AllocaInst>(op))      continue; // Only allocas
+    if (!getShape(op).isUniform()) continue; // Already processed
+
+    mWorklist.push(cast<Instruction>(op));
+  }
 }
 
-void VectorizationAnalysis::updateOutsideLoopUsesVarying(const Loop* divLoop) {
+void VectorizationAnalysis::updateLCSSAPhisVarying(const Loop* divLoop) {
   SmallVector<BasicBlock*, 3> exitBlocks;
   divLoop->getExitBlocks(exitBlocks);
+
   for (auto* exitBlock : exitBlocks) {
     if (!isInRegion(*exitBlock)) continue;
 
     for (auto& inst : *exitBlock) {
-      auto* phi = dyn_cast<PHINode>(&inst);
-      if (!phi) break;
-
-      // find outside uses and update varying
-      if (!divLoop->contains(mLoopInfo.getLoopFor(phi->getParent()))) {
-        update(phi, VectorShape::varying());
-      }
-
+      if (!isa<PHINode>(inst)) break;
+      update(&inst, VectorShape::varying());
     }
   }
 }
@@ -454,31 +379,25 @@ VectorShape VectorizationAnalysis::joinOperands(const Instruction& I) {
 }
 
 bool VectorizationAnalysis::pushMissingOperands(const Instruction* I) {
-  auto hasKnownShape = [this](Value* op)
+  auto pushIfMissing = [this](bool prevpushed, Value* op)
   {
-    if (isa<Instruction>(op) && !getShape(op).isDefined()) {
+    bool push = isa<Instruction>(op) && !getShape(op).isDefined();
+    if (push) {
       IF_DEBUG_VA { errs() << "\tmissing op shape " << *op << "!\n"; }
       mWorklist.push(cast<Instruction>(op));
     }
 
-    return !isa<Instruction>(op) || getShape(op).isDefined();
+    return prevpushed || push;
   };
 
-  return all_of(I->operands(), hasKnownShape);
+  return std::accumulate(I->op_begin(), I->op_end(), false, pushIfMissing);
 }
 
-VectorShape
-VectorizationAnalysis::computePHIShape(const PHINode & phi) {
-   // TODO factor PHI logic into separate method
+VectorShape VectorizationAnalysis::computePHIShape(const PHINode & phi) {
    // check if this PHINode actually joins different values
-   bool mixingPhi = false;
-   Value * singleVal = phi.getIncomingValue(0);
-   for (uint i = 1; i < phi.getNumIncomingValues(); ++i) {
-     if (singleVal != phi.getIncomingValue(i)) {
-       mixingPhi = true;
-       break;
-     }
-   }
+   const Value* first = phi.getIncomingValue(0);
+   bool mixingPhi = std::any_of(phi.op_begin() + 1, phi.op_end(),
+                                [&](const Value* op) { return op != first; });
 
    // the PHI node is not actually varying iff all input operands are the same
    // If the block is divergent the phi is varying
@@ -503,16 +422,23 @@ void VectorizationAnalysis::compute(Function& F) {
     // allow incomplete inputs for PHI nodes
     if (isa<PHINode>(I)) {
       New = computePHIShape(cast<PHINode>(*I));
-    } else if (!pushMissingOperands(I)) {
+    } else if (pushMissingOperands(I)) {
       continue;
     } else {
       New = computeShapeForInst(I);
     }
 
-    // adjust result type to match alignment
     if (I->getType()->isPointerTy()) {
+      // adjust result type to match alignment
       uint minAlignment = getBaseAlignment(*I, layout);
       New.setAlignment(std::max<uint>(minAlignment, New.getAlignmentFirst()));
+    } else if (I->getType()->isFloatingPointTy()) {
+      // Only allow strided results for floating point instructions if
+      // according fast math flags are set
+      FastMathFlags flags = I->getFastMathFlags();
+      if (!flags.unsafeAlgebra() && !New.isUniform()) {
+        New = VectorShape::varying();
+      }
     }
 
     update(I, New);
@@ -524,6 +450,19 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
   if (I->isCast()) return computeShapeForCastInst(cast<CastInst>(I));
 
   switch (I->getOpcode()) {
+    case Instruction::Alloca:
+    {
+      const int alignment = mVecinfo.getMapping().vectorWidth;
+      auto* AllocatedType = I->getType()->getPointerElementType();
+      const bool Vectorizable = false;
+
+      if (Vectorizable) {
+        int typeStoreSize = (int)(layout.getTypeStoreSize(AllocatedType));
+        return VectorShape::strided(typeStoreSize, alignment);
+      }
+
+      return VectorShape::varying();
+    }
     case Instruction::Br:
     {
       const BranchInst* branch = cast<BranchInst>(I);
@@ -540,38 +479,46 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
       const Value* op1 = I->getOperand(0);
       const Value* op2 = I->getOperand(1);
 
-      const VectorShape& shape1 = getShape(op1);
-      const VectorShape& shape2 = getShape(op2);
+      // Get a shape for op1 - op2 and see if it compares uniform to a full zero-vector
+      VectorShape diffShape = getShape(op1) - getShape(op2);
+      if (diffShape.isVarying())
+        return diffShape;
 
-      // If both operands have the same stride the comparison is uniform
-      if (shape1.isVarying() || shape2.isVarying()) return VectorShape::varying();
-      if (shape1.getStride() == shape2.getStride()) return VectorShape::uni();
+      CmpInst::Predicate predicate = cast<CmpInst>(I)->getPredicate();
+      switch (predicate) {
+        case CmpInst::Predicate::ICMP_SGT:
+        case CmpInst::Predicate::ICMP_UGT:
+        case CmpInst::Predicate::ICMP_SLE:
+        case CmpInst::Predicate::ICMP_ULE:
+          diffShape = -diffShape; // Negate and handle like LESS/GREATER_EQUAL
+        case CmpInst::Predicate::ICMP_SLT:
+        case CmpInst::Predicate::ICMP_ULT:
+        case CmpInst::Predicate::ICMP_SGE:
+        case CmpInst::Predicate::ICMP_UGE:
+        // These coincide because a >= b is equivalent to !(a < b)
+        {
+          const int vectorWidth = (int)mVecinfo.getMapping().vectorWidth;
+          const int stride = diffShape.getStride();
+          const int alignment = diffShape.getAlignmentFirst();
 
-      using Pred_t = CmpInst::Predicate;
-      Pred_t predicate = cast<CmpInst>(I)->getPredicate();
+          if (stride >= 0 && alignment >= stride * vectorWidth)
+            return VectorShape::uni();
 
-      const unsigned vectorWidth = mVecinfo.getMapping().vectorWidth;
+          break;
+        }
 
-      const unsigned alignment1 = shape1.getAlignmentFirst();
-      const unsigned alignment2 = shape2.getAlignmentFirst();
+        case CmpInst::Predicate::ICMP_EQ:
+        case CmpInst::Predicate::ICMP_NE:
+        {
+          if (diffShape.getStride() == 0)
+            return VectorShape::uni();
 
-      const int mingap = int(gcd(alignment1, alignment2));
+          break;
+        }
 
-      int strideDiff;
-      if (predicate == Pred_t::ICMP_SLT || predicate == Pred_t::ICMP_ULT) {
-        strideDiff = shape1.getStride() - shape2.getStride();
+        default:
+          break;
       }
-      else if (predicate == Pred_t::ICMP_SGT || predicate == Pred_t::ICMP_UGT) {
-        strideDiff = shape2.getStride() - shape1.getStride();
-      }
-      else {
-        return VectorShape::varying();
-      }
-
-      int maxincrease = strideDiff * int(vectorWidth);
-      // If the gap cannot get zero along the stride we stay less
-      if (maxincrease >= 0 && mingap - maxincrease >= 0)
-        return VectorShape::uni();
 
       return VectorShape::varying();
     }
@@ -585,44 +532,26 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
       Type* subT = gep->getPointerOperandType();
 
       for (const Value* index : make_range(gep->idx_begin(), gep->idx_end())) {
-        const VectorShape& indexShape = getShape(index);
-        const int indexStride = indexShape.getStride();
-        const unsigned indexalignmentFirst = indexShape.getAlignmentFirst();
-        const unsigned indexalignmentGeneral = indexShape.getAlignmentGeneral();
-
-        if (indexShape.isVarying()) return VectorShape::varying();
-
-        if (isa<StructType>(subT)) {
+        if (StructType* Struct = dyn_cast<StructType>(subT)) {
           if (!isa<ConstantInt>(index)) return VectorShape::varying();
 
-          auto structlayout = layout.getStructLayout(cast<StructType>(subT));
-          unsigned indexconstant = static_cast<uint>(cast<ConstantInt>(index)->getSExtValue());
-          unsigned elemoffset = static_cast<uint>(structlayout->getElementOffset(indexconstant));
+          subT = Struct->getTypeAtIndex(index);
 
-          subT = cast<StructType>(subT)->getTypeAtIndex(index);
+          auto structlayout = layout.getStructLayout(Struct);
+          unsigned idxconst = (unsigned) cast<ConstantInt>(index)->getSExtValue();
+          unsigned elemoffset = (unsigned) structlayout->getElementOffset(idxconst);
 
           // Behaves like addition, pointer + offset and offset is uniform, hence the stride stays
           unsigned newalignment = gcd(result.getAlignmentFirst(), elemoffset);
           result.setAlignment(newalignment);
-        }
-        else {
+        } else {
+          // NOTE: If indexShape is varying, this still reasons about alignment
           subT = isa<PointerType>(subT) ? subT->getPointerElementType() : subT->getSequentialElementType();
 
-          unsigned typeSize = (unsigned) layout.getTypeStoreSize(subT);
-
-          int offsetstride = typeSize * indexStride;
-          unsigned offsetAlignmentFirst = typeSize * indexalignmentFirst;
-          unsigned offsetAlignmentGeneral = typeSize * indexalignmentGeneral;
-
-          if (result.isVarying()) {
-            result = VectorShape::varying(gcd(result.getAlignmentGeneral(), offsetAlignmentGeneral));
-          } else {
-            result = VectorShape::strided(result.getStride() + offsetstride,
-                                          gcd(result.getAlignmentFirst(), offsetAlignmentFirst));
-          }
+          const int typeSizeInBytes = (int)layout.getTypeStoreSize(subT);
+          result = result + typeSizeInBytes * getShape(index);
         }
       }
-
 
       return result;
     }
@@ -648,19 +577,9 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
         const VectorShape& expected = Arginfo[i++];
         const VectorShape& actual = getShape(op);
 
-        // Anything goes
-        if (expected.isVarying()) continue;
-
-        // Too unprecise
-        if (actual.isVarying()) return VectorShape::varying();
-
-        // The strides must be the same
-        // and alignment has to be strict enough
-        if (expected.getStride() != actual.getStride() ||
-                actual.getAlignmentFirst() % expected.getAlignmentFirst() == 0)
-        {
+        // If the expected shape is more precise than the computed shape, return varying
+        if (expected < actual)
           return VectorShape::varying();
-        }
       }
 
       return mapping->resultShape;
@@ -695,9 +614,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
   return computeGenericArithmeticTransfer(*I);
 }
 
-
-VectorShape
-VectorizationAnalysis::computeGenericArithmeticTransfer(const Instruction & I) {
+VectorShape VectorizationAnalysis::computeGenericArithmeticTransfer(const Instruction & I) {
   assert(I.getNumOperands() > 0 && "can not compute arithmetic transfer for instructions w/o operands");
   // generic transfer function
   for (uint i = 0; i < I.getNumOperands(); ++i) {
@@ -707,14 +624,16 @@ VectorizationAnalysis::computeGenericArithmeticTransfer(const Instruction & I) {
 }
 
 VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperator* I) {
-  const Value* op1 = I->getOperand(0);
-  const Value* op2 = I->getOperand(1);
+  Value* op1 = I->getOperand(0);
+  Value* op2 = I->getOperand(1);
+
+  // Assume constants are on the RHS
+  if (!isa<Constant>(op2) && I->isCommutative()) std::swap(op1, op2);
 
   const VectorShape& shape1 = getShape(op1);
   const VectorShape& shape2 = getShape(op2);
 
   const int stride1 = shape1.getStride();
-  const int stride2 = shape2.getStride();
 
   const unsigned alignment1 = shape1.getAlignmentFirst();
   const unsigned alignment2 = shape2.getAlignmentFirst();
@@ -723,57 +642,13 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
   const unsigned generalalignment2 = shape2.getAlignmentGeneral();
 
   switch (I->getOpcode()) {
-    // Addition can be optimized in case of strided shape (adding strides)
     case Instruction::Add:
     case Instruction::FAdd:
-    {
-      assert (shape1.isDefined() && shape2.isDefined());
+      return shape1 + shape2;
 
-      const bool fadd = I->getOpcode() == Instruction::FAdd;
-
-      const unsigned resAlignment = gcd(alignment1, alignment2);
-
-      if (shape1.isVarying() || shape2.isVarying())
-        return VectorShape::varying(gcd(generalalignment1, generalalignment2));
-
-      VectorShape res = VectorShape::strided(stride1 + stride2, resAlignment);
-
-      // Only allow strided results for floating point addition if
-      // according fast math flags are set
-      if (fadd) {
-        FastMathFlags flags = I->getFastMathFlags();
-        if (!flags.unsafeAlgebra()) {
-          res = res.isUniform() ? res : VectorShape::varying();
-        }
-      }
-
-      return res;
-    }
-
-      // Substraction can be optimized in case of strided shape (substracting strides)
     case Instruction::Sub:
     case Instruction::FSub:
-    {
-      const bool fsub = I->getOpcode() == Instruction::FSub;
-
-      const unsigned resAlignment = gcd(alignment1, alignment2);
-
-      if (shape1.isVarying() || shape2.isVarying())
-        return VectorShape::varying(gcd(generalalignment1, generalalignment2));
-
-      VectorShape res = VectorShape::strided(stride1 - stride2, resAlignment);
-
-      // Only allow strided results for floating point substraction if
-      // according fast math flags are set
-      if (fsub) {
-        FastMathFlags flags = I->getFastMathFlags();
-        if (!flags.unsafeAlgebra()) {
-          res = res.isUniform() ? res : VectorShape::varying();
-        }
-      }
-
-      return res;
-    }
+      return shape1 - shape2;
 
     // Integer multiplication with a constant simply multiplies the shape offset
     // if existent with the constant value
@@ -783,67 +658,66 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
       if (shape1.isVarying() || shape2.isVarying())
         return VectorShape::varying(generalalignment1 * generalalignment2);
 
-      if (shape1.isUniform() && shape2.isUniform()) return VectorShape::uni(alignment1 * alignment2);
+      if (shape1.isUniform() && shape2.isUniform())
+        return VectorShape::uni(alignment1 * alignment2);
 
       // If the constant is known, compute the new shape directly
-      if (const ConstantInt* constantOp = dyn_cast<ConstantInt>(op1)) {
-        const int c = (int) constantOp->getSExtValue();
-        const int cAlignment = getAlignment(constantOp);
-        return VectorShape::strided(c * stride2, cAlignment * alignment2);
-      }
-
-      // Symmetric case
       if (const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2)) {
         const int c = (int) constantOp->getSExtValue();
-        return VectorShape::strided(c * stride1, getAlignment(constantOp) * alignment1);
+        return c * shape1;
       }
 
       return VectorShape::varying(generalalignment1 * generalalignment2);
     }
 
     case Instruction::Or: {
-    // try to match and Add that as been lowered to an Or
-      int constOpId = 0;
-      if (isa<Constant>(I->getOperand(0))) {
-        constOpId = 0;
-      } else if (isa<Constant>(I->getOperand(1))) {
-        constOpId = 1;
-      } else {
+    // In some cases Or-with-constant can be interpreted as an Add-with-constant
+      // this holds e.g. for: <4, 6, 8, 10> | 1 = <5, 7, 9, 11>
+      if (!isa<ConstantInt>(op2)) break;
+
+      uint orConst = cast<ConstantInt>(op2)->getZExtValue();
+      VectorShape otherShape = getShape(op1);
+
+      if (orConst == 0) {
+        // no-op
+        return otherShape;
+      }
+
+      uint laneAlignment = otherShape.getAlignmentGeneral();
+      if (laneAlignment <= 1) break;
+
+      // all bits above constTopBit are zero
+      uint constTopBit = static_cast<uint>(highest_bit(orConst));
+
+    // there is an overlap between the bits of the constant and a possible lane value
+      if (constTopBit >= laneAlignment) {
         break;
       }
 
-      uint orConst = cast<ConstantInt>(I->getOperand(constOpId))->getZExtValue();
-      int otherOpId = 1 - constOpId;
-      VectorShape otherShape = getShape(I->getOperand(otherOpId));
-
-      if (!otherShape.hasStridedShape()) {
-        break;
-      }
-
-      // the or-ed constant is smaller than the alignment
-      // in this case we can interpret as an add
-      if (otherShape.getAlignmentFirst() > orConst) {
+    // from this point we know that the Or behaves like an Add
+      if (otherShape.hasStridedShape()) {
+        // the Or operates like an Add with an uniform value
         auto resAlignment = gcd<uint>(orConst, otherShape.getAlignmentFirst());
         return VectorShape::strided(otherShape.getStride(), resAlignment);
+
       } else {
-        break;
+        return VectorShape::varying(gcd<uint>(laneAlignment, orConst));
       }
+
+      break;
     }
 
     case Instruction::Shl: {
       // interpret shift by constant as multiplication
-      if (isa<Constant>(I->getOperand(1))) {
-          auto * shiftConst = cast<ConstantInt>(I->getOperand(1));
-          int shiftAmount = (int) shiftConst->getSExtValue();
-          const auto valShape = getShape(I->getOperand(0));
-          if (shiftAmount > 0 && valShape.hasStridedShape()) {
-            int factor = 1 << shiftAmount;
-            return VectorShape::strided(valShape.getStride() * factor,
-                                        valShape.getAlignmentFirst() * factor);
-          } else {
-            break;
-          }
+      if (auto* shiftCI = dyn_cast<ConstantInt>(op2)) {
+        int shiftAmount = (int) shiftCI->getSExtValue();
+        if (shiftAmount > 0) {
+          int factor = 1 << shiftAmount;
+          return factor * shape1;
+        }
       }
+
+      break;
     }
 
     case Instruction::SDiv:
@@ -878,7 +752,6 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
   const Value* castOp = castI->getOperand(0);
   const VectorShape& castOpShape = getShape(castOp);
   const int castOpStride = castOpShape.getStride();
-  const DataLayout layout(castI->getModule());
 
   const int aligned = !rv::returnsVoidPtr(*castI) ? castOpShape.getAlignmentFirst() : 1;
 
@@ -903,12 +776,11 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
 
     case Instruction::PtrToInt:
     {
-      PointerType* SrcType = cast<PointerType>(castI->getSrcTy());
-      Type* SrcPointsTo = SrcType->getPointerElementType();
+      Type* SrcElemType = castI->getSrcTy()->getPointerElementType();
 
-      unsigned typeSize = (unsigned) layout.getTypeStoreSize(SrcPointsTo);
+      unsigned typeSize = (unsigned) layout.getTypeStoreSize(SrcElemType);
 
-      return VectorShape::strided(typeSize * castOpStride, 1);
+      return VectorShape::strided(typeSize * castOpStride, aligned);
     }
 
       // Truncation reinterprets the stride modulo the target type width
@@ -917,8 +789,7 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
     {
       Type* destTy = castI->getDestTy();
 
-      return VectorShape::truncateToTypeSize(castOpShape,
-                                             (unsigned) layout.getTypeStoreSize(destTy));
+      return truncateToTypeSize(castOpShape, (unsigned) layout.getTypeStoreSize(destTy));
     }
 
     // FIXME: is this correct?
@@ -968,10 +839,11 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
 }
 
 VectorShape VectorizationAnalysis::getShape(const Value* const V) {
-  auto found = mValue2Shape.find(V), end = mValue2Shape.end();
-  if (found != end) {
-    return found->second;
-  }
+  if (const Constant* C = dyn_cast<Constant>(V))
+    return VectorShape::fromConstant(C);
+
+  if (mVecinfo.hasKnownShape(*V))
+    return mVecinfo.getVectorShape(*V);
 
 #if 0
   if (isa<GlobalValue>(V)) return VectorShape::uni(0);
@@ -979,18 +851,10 @@ VectorShape VectorizationAnalysis::getShape(const Value* const V) {
 
   assert (isa<Constant>(V) && "Value is not available");
 #endif
-  int alignment = isa<Constant>(V) ? getAlignment(cast<Constant>(V)) : 0;
-  return VectorShape::uni(alignment);
+  return VectorShape::uni(0);
 }
 
-typename ValueMap::iterator VectorizationAnalysis::begin() { return mValue2Shape.begin(); }
-typename ValueMap::iterator VectorizationAnalysis::end() { return mValue2Shape.end(); }
-typename ValueMap::const_iterator VectorizationAnalysis::begin() const { return mValue2Shape.begin(); }
-typename ValueMap::const_iterator VectorizationAnalysis::end() const { return mValue2Shape.end(); }
-
-
-FunctionPass*
-createVectorizationAnalysisPass() {
+FunctionPass* createVectorizationAnalysisPass() {
   return new VAWrapperPass();
 }
 

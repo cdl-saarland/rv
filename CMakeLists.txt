@@ -155,33 +155,3 @@ add_subdirectory(tools)
 
 # Add target to check formatting of polly files
 file( GLOB_RECURSE files *.h src/*.cpp src/*.c tools/*.cpp tools/*.c tools/*.h)
-# file( GLOB_RECURSE external lib/External/*.h lib/External/*.c lib/External/*.cpp)
-# list( REMOVE_ITEM files ${external})
-
-# set(check_format_depends)
-# set(update_format_depends)
-# set(i 0)
-# foreach (file IN LISTS files)
-#   add_custom_command(OUTPUT polly-check-format${i}
-#     COMMAND clang-format -sort-includes -style=llvm ${file} | diff -u ${file} -
-#     VERBATIM
-#     COMMENT "Checking format of ${file}..."
-#   )
-#   list(APPEND check_format_depends "polly-check-format${i}")
-# 
-#   add_custom_command(OUTPUT polly-update-format${i}
-#     COMMAND clang-format -sort-includes -i -style=llvm ${file}
-#     VERBATIM
-#     COMMENT "Updating format of ${file}..."
-#   )
-#   list(APPEND update_format_depends "polly-update-format${i}")
-# 
-#   math(EXPR i ${i}+1)
-# endforeach ()
-# 
-# add_custom_target(polly-check-format DEPENDS ${check_format_depends})
-# set_target_properties(polly-check-format PROPERTIES FOLDER "Polly")
-# 
-# add_custom_target(polly-update-format DEPENDS ${update_format_depends})
-# set_target_properties(polly-update-format PROPERTIES FOLDER "Polly")
-

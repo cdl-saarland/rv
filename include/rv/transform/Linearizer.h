@@ -47,6 +47,24 @@ namespace rv {
 
   class Linearizer {
 
+  // statistics
+      // number of schedule heads that had to be diverted
+      size_t numDivertedHeads;
+      // number of lost returns
+      size_t numDelayedReturns;
+      // number of folded branches
+      size_t numFoldedBranches;
+      // number of preserved uniform branches
+      size_t numPreservedBranches;
+      // number of uniform loops
+      size_t numUniformLoops;
+      // number of divergent loops
+      size_t numDivergentLoops;
+      // number of preserved kill exits
+      size_t numKillExits;
+      // number of select instructions
+      size_t numBlends;
+
   // relay logic
     // we need to defer these edges to we can schedule linearized blocks in between
     struct RelayNode {
@@ -368,7 +386,16 @@ namespace rv {
     void fixSSA();
   public:
     Linearizer(VectorizationInfo & _vecInfo, MaskAnalysis & _maskAnalysis, llvm::DominatorTree & _dt, llvm::LoopInfo & _li)
-    : vecInfo(_vecInfo)
+    : numDivertedHeads(0)
+    , numDelayedReturns(0)
+    , numFoldedBranches(0)
+    , numPreservedBranches(0)
+    , numUniformLoops(0)
+    , numDivergentLoops(0)
+    , numKillExits(0)
+    , numBlends(0)
+
+    , vecInfo(_vecInfo)
     , maskAnalysis(_maskAnalysis)
     , region(vecInfo.getRegion())
     , dt(_dt)
