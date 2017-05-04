@@ -497,7 +497,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
           const int vectorWidth = (int)mVecinfo.getMapping().vectorWidth;
           const int stride = diffShape.getStride();
           const int alignment = diffShape.getAlignmentFirst();
-          
+
           if (stride >= 0 && alignment >= stride * vectorWidth)
             return VectorShape::uni();
 
@@ -631,7 +631,6 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
   const VectorShape& shape2 = getShape(op2);
 
   const int stride1 = shape1.getStride();
-  const int stride2 = shape2.getStride();
 
   const unsigned alignment1 = shape1.getAlignmentFirst();
   const unsigned alignment2 = shape2.getAlignmentFirst();
@@ -669,19 +668,53 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
     }
 
     case Instruction::Or: {
-    // try to match and Add that as been lowered to an Or
-      /*if (!isa<ConstantInt>(op2)) break;
-      if (shape1.isVarying()) break;
+      // try to match and Add that as been lowered to an Or
+      int constOpId = 0;
+      if (isa<Constant>(I->getOperand(0))) {
+        constOpId = 0;
+      } else if (isa<Constant>(I->getOperand(1))) {
+        constOpId = 1;
+      } else {
+        break;
+      }
 
-      unsigned orConst = (unsigned) cast<ConstantInt>(op2)->getZExtValue();
+      uint orConst = cast<ConstantInt>(I->getOperand(constOpId))->getZExtValue();
+      int otherOpId = 1 - constOpId;
+      VectorShape otherShape = getShape(I->getOperand(otherOpId));
 
-      // the or-ed constant is smaller than the alignment
-      // in this case we can interpret as an add
-      // FIXME this is not true: <4, 5, 6, 7> | 3 = <7, 7, 7, 7>
-      if (alignment1 > orConst) {
-        auto resAlignment = gcd<uint>(orConst, alignment1);
-        return VectorShape::strided(shape1.getStride(), resAlignment);
-      } */
+      if (orConst == 0) {
+        // no-op
+        return otherShape;
+      }
+
+      // the Or can be interpreted as an Add under the following circumstances:
+      // this holds e.g. for: <4, 6, 8, 10> | 1 = <5, 7, 9, 11>
+      uint laneAlignment = otherShape.getAlignmentGeneral();
+      if (laneAlignment <= 1) break;
+
+      // for all lanes the bits [0,..,lowestLaneBit] are always zero
+      int lowestLaneBit = lowest_bit(laneAlignment);
+
+      // all bits above constTopBit are zero
+      uint constTopBit = static_cast<uint>(highest_bit(orConst));
+
+      assert(lowestLaneBit > 0 && constTopBit >= 0);
+
+
+    // there is an overlap between the bits of the constant and a possible lane value
+      if (constTopBit >= laneAlignment) {
+        break;
+      }
+
+    // from this point we know that the Or behaves like an Add
+      if (otherShape.hasStridedShape()) {
+        // the Or operates like an Add with an uniform value
+        auto resAlignment = gcd<uint>(orConst, otherShape.getAlignmentFirst());
+        return VectorShape::strided(otherShape.getStride(), resAlignment);
+
+      } else {
+        return VectorShape::varying(gcd<uint>(laneAlignment, orConst));
+      }
 
       break;
     }
