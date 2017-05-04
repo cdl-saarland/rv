@@ -119,6 +119,13 @@ VectorShape
 VectorShape::truncateToTypeSize(const VectorShape &a,
                                         unsigned typeSize) {
 
+  // FIXME
+    // observed in SimpleBarrier2D:
+    // %41 = <someInst> : stride(32)
+    // %42 = trunc i64 i64 %41 to i32
+    return a;
+
+#if 0
     if (!a.isDefined()) return a;
 
     size_t factor = 1 << typeSize;
@@ -130,6 +137,7 @@ VectorShape::truncateToTypeSize(const VectorShape &a,
     // this may create uniform values for large strides
     int newAlignment = gcd<size_t>(a.getAlignmentFirst(), factor);
     return VectorShape::strided(a.getStride() % factor, newAlignment);
+#endif
 }
 
 
