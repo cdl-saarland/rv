@@ -14,7 +14,6 @@
 
 #include "rvConfig.h"
 #include "utils/rvTools.h"
-#include "rv/utils/mathUtils.h"
 
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Dominators.h>
@@ -22,6 +21,8 @@
 
 #include <numeric>
 #include <algorithm>
+
+#include "utils/mathUtils.h"
 
 #if 1
 #define IF_DEBUG_VA IF_DEBUG

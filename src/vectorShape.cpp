@@ -13,7 +13,7 @@
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Function.h>
 
-#include "rv/utils/mathUtils.h"
+#include "utils/mathUtils.h"
 
 #include "rv/vectorShape.h"
 #include "rv/vectorizationInfo.h"

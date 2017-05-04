@@ -2,7 +2,7 @@
 #define RV_UTILS_MATHUTILS_H_
 
 #include <utility>
-
+#include <strings.h>
 
 template<typename N>
 static N gcd(N a, N b) {
@@ -31,7 +31,7 @@ int lowest_bit(N n);
 
 template<> inline
 int lowest_bit(unsigned int n) {
-  return __builtin_ffs(n) - 1;
+  return ffs(n) - 1; // POSIX
 }
 
 
