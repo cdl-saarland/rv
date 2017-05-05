@@ -127,8 +127,8 @@ GetShapeFromReduction(rv::Reduction & redInfo, int vectorWidth) {
 }
 
 bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInterface & vectorizer) {
-  // if (!canVectorizeLoop(L))
-  //   return false;
+  if (!canVectorizeLoop(L))
+    return false;
 
 
   int VectorWidth = getVectorWidth(L, SE);
@@ -137,7 +137,7 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInter
     return false;
   }
 
-#if 0
+#if 1
   int TripCount = getTripCount(L, SE);
   if (TripCount < 0) {
     Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Infered trip count was " << TripCount << "\n";
@@ -271,6 +271,8 @@ bool LoopVectorizer::vectorizeLoopOrSubLoops(Loop &L, ScalarEvolution &SE, Vecto
 }
 
 bool LoopVectorizer::runOnFunction(Function &F) {
+  if (getenv("RV_DISABLE")) return false;
+
   IF_DEBUG { errs() << " -- module before RV --\n"; F.getParent()->dump(); }
 
   Report() << "loopVecPass: run on " << F.getName() << "\n";

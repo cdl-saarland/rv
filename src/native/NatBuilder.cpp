@@ -56,7 +56,7 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     basicBlockMap(),
     grouperMap(),
     phiVector(),
-    willNotVectorize(),
+//    willNotVectorize(),
     lazyInstructions() {}
 
 void NatBuilder::vectorize() {
@@ -206,9 +206,10 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       // note: this is ONLY allowed IFF
       // (1) no calls that have alloca instructions as arguments OR
       // (2) there exists a function mapping which allows that. e.g.: float * -> <4 x float> *
-      if (canVectorize(inst))
-        vectorizeAllocaInstruction(alloca);
-      else
+      // TODO: fix alloca mapping/vectorization
+//      if (canVectorize(inst))
+//        vectorizeAllocaInstruction(alloca);
+//      else
         for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
           copyInstruction(inst, lane);
         }
@@ -1143,74 +1144,64 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   // if value is integer or floating type, contiguous and has value for lane 0, add laneIdx
   Value *reqVal = nullptr;
 
+  if (vectorizationInfo.hasKnownShape(*value)) {
+    VectorShape shape = getShape(*value);
+    Type *type = value->getType();
+    mappedVal = getScalarValue(value);
+    if (mappedVal && (shape.isContiguous() || shape.isStrided()) &&
+        (type->isIntegerTy() || type->isFloatingPointTy())) {
+      Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())
+                                                    : ConstantInt::get(type, laneIdx * shape.getStride());
+      reqVal = type->isFloatingPointTy() ? builder.CreateFAdd(mappedVal, laneInt,
+                                                              value->getName() + "lane" + std::to_string(laneIdx))
+                                         : builder.CreateAdd(mappedVal, laneInt,
+                                                             value->getName() + "_lane" + std::to_string(laneIdx));
+    }
+  }
+
   // if value has a vector mapping -> extract from vector. if not -> clone scalar op
   if (!reqVal) {
     mappedVal = getVectorValue(value);
-    if (mappedVal) {
-      // to avoid dominance problems assume: if we only have a vectorized value and need a scalar one -> do not map!
-      skipMappingWhenDone = true;
-      Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
-      auto oldIP = builder.GetInsertPoint();
-      auto oldIB = builder.GetInsertBlock();
-      if (mappedInst) {
-        if (mappedInst->getParent()->getTerminator())
-          builder.SetInsertPoint(mappedInst->getParent()->getTerminator());
-        else
-          builder.SetInsertPoint(mappedInst->getParent());
-      }
-      IF_DEBUG {
-        errs() << "Extracting a scalar value from a vector:\n";
-        errs() << "Original Value: ";
-        value->dump();
-        errs() << "Vector Value: ";
-        mappedVal->dump();
-      };
+    // to avoid dominance problems assume: if we only have a vectorized value and need a scalar one -> do not map!
+    skipMappingWhenDone = true;
+    Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
+    auto oldIP = builder.GetInsertPoint();
+    auto oldIB = builder.GetInsertBlock();
+    if (mappedInst) {
+      if (mappedInst->getParent()->getTerminator())
+        builder.SetInsertPoint(mappedInst->getParent()->getTerminator());
+      else
+        builder.SetInsertPoint(mappedInst->getParent());
+    }
+    IF_DEBUG {
+      errs() << "Extracting a scalar value from a vector:\n";
+      errs() << "Original Value: ";
+      value->dump();
+      errs() << "Vector Value: ";
+      mappedVal->dump();
+    };
 
-      // if the mappedVal is a alloca instruction, create a GEP instruction
-      if (isa<AllocaInst>(mappedVal))
-        reqVal = builder.CreateGEP(mappedVal, ConstantInt::get(i32Ty, laneIdx));
-      else {
-        // extract from GEPs are not allowed. in that case recreate the scalar instruction and get that new value
-        if (isa<GetElementPtrInst>(mappedVal) && isa<GetElementPtrInst>(value)) {
-          reqVal = vectorizeGEPInstruction(cast<GetElementPtrInst>(value), false, laneIdx, true);
-          mapScalarValue(value, reqVal, laneIdx);
-        } else {
-          assert(!isa<GetElementPtrInst>(mappedVal) && "Extract from GEPs are not allowed!!");
-          reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
-        }
-      }
-
-
-      if (reqVal->getType() != value->getType()) {
-        reqVal = builder.CreateBitCast(reqVal, value->getType(), "bc");
-      }
-
-      if (mappedInst)
-        builder.SetInsertPoint(oldIB, oldIP);
-    } else {
-      if (vectorizationInfo.hasKnownShape(*value)) {
-        VectorShape shape = getShape(*value);
-        Type *type = value->getType();
-        mappedVal = getScalarValue(value);
-        if (mappedVal && (shape.isContiguous() || shape.isStrided()) &&
-            (type->isIntegerTy() || type->isFloatingPointTy())) {
-          Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())
-                                                        : ConstantInt::get(type, laneIdx * shape.getStride());
-          reqVal = type->isFloatingPointTy() ? builder.CreateFAdd(mappedVal, laneInt,
-                                                                  value->getName() + "lane" + std::to_string(laneIdx))
-                                             : builder.CreateAdd(mappedVal, laneInt,
-                                                                 value->getName() + "_lane" + std::to_string(laneIdx));
-        }
-      }
-
-      if (!reqVal) {
-        Instruction *inst = cast<Instruction>(value);
-        Instruction *mapInst;
-        reqVal = mapInst = inst->clone();
-        mapOperandsInto(inst, mapInst, false);
-        builder.Insert(mapInst, inst->getName());
+    // if the mappedVal is a alloca instruction, create a GEP instruction
+    if (isa<AllocaInst>(mappedVal))
+      reqVal = builder.CreateGEP(mappedVal, ConstantInt::get(i32Ty, laneIdx));
+    else {
+      // extract from GEPs are not allowed. in that case recreate the scalar instruction and get that new value
+      if (isa<GetElementPtrInst>(mappedVal) && isa<GetElementPtrInst>(value)) {
+        reqVal = vectorizeGEPInstruction(cast<GetElementPtrInst>(value), false, laneIdx, true);
+        mapScalarValue(value, reqVal, laneIdx);
+      } else {
+        assert(!isa<GetElementPtrInst>(mappedVal) && "Extract from GEPs are not allowed!!");
+        reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
       }
     }
+
+
+    if (reqVal->getType() != value->getType()) {
+      reqVal = builder.CreateBitCast(reqVal, value->getType(), "bc");
+    }
+
+    if (mappedInst)
+      builder.SetInsertPoint(oldIB, oldIP);
   }
 
   // only map if normal request. fresh requests will not get mapped
@@ -1664,7 +1655,7 @@ bool NatBuilder::canVectorize(Instruction *const inst) {
   }
 // check for type vectorizability
   auto * instTy = inst->getType();
-  if (!instTy->isVoidTy() && !instTy->isIntegerTy() && !instTy->isFloatingPointTy()) return false;
+  if (!instTy->isVoidTy() && !instTy->isIntegerTy() && !instTy->isFloatingPointTy() && !instTy->isPointerTy()) return false;
 
 // for AllocaInst: vectorize if not used in calls. replicate else
   if (isa<AllocaInst>(inst)) {
@@ -1680,75 +1671,51 @@ bool NatBuilder::canVectorize(Instruction *const inst) {
 
 bool NatBuilder::shouldVectorize(Instruction *inst) {
   // we should vectorize iff
-  // 1) varying vector shape OR
-  // 2) Alloca AND contiguous
-  // 3) no vector shape && one or more operands varying
-  // 4) GEP that is strided or varying
-  // EXCEPTION: GEP with vector-pointer base
-  // 5) return instruction and function return-type is vector type
-  // 6) has an operand that will be vectorized
+  // 1) varying vector shape
+  // 2) GEP and non-uniform shape
+  // 3) return instruction in function with vector return type
+  // 4) at least one of these conditions holds for at least one operand
+  // Note: branch instructions are never vectorized
+
+  VectorShape shape = getShape(*inst);
+
+  if (isa<BranchInst>(inst)) {
+    assert(shape.isUniform() && "non-uniform branch!");
+    return false;
+  }
 
   if (isa<GetElementPtrInst>(inst)) {
     GetElementPtrInst *gep = cast<GetElementPtrInst>(inst);
-    Value *pointer = gep->getPointerOperand();
-    Value *mappedPtr = getScalarValue(pointer);
-    if (mappedPtr) {
-      PointerType *pty = cast<PointerType>(mappedPtr->getType());
-      if (pty->getElementType()->isVectorTy()) {
-        willNotVectorize.push_back(inst);
-        return false;
-      }
-    }
-    VectorShape shape = getShape(*gep);
-    if (shape.isStrided(gep->getResultElementType()->getPrimitiveSizeInBits() / 8)) {
-      willNotVectorize.push_back(inst);
-      return false;
-    } else if (shape.isStrided() || shape.isVarying())
-      return true;
+    return !(shape.isUniform() || shape.isContiguous() || shape.isStrided((int) layout.getTypeStoreSize(gep->getResultElementType())));
   }
 
   if (isa<ReturnInst>(inst)) {
     Function &func = vectorizationInfo.getVectorFunction();
     if (func.getReturnType()->isVectorTy()) {
       IF_DEBUG {
-        if (getShape(*inst).isUniform()) {
+        const VectorShape &retShape = getShape(*inst);
+        if (retShape.isUniform()) {
           errs() << "Warning: Uniform return in Function with Vector Type!\n";
           inst->dump();
         }
       };
-      return true; // THIS SHOULD NEVER HAPPEN!
-    }
-  }
-
-  if (vectorizationInfo.hasKnownShape(*inst)) {
-    VectorShape shape = getShape(*inst);
-    if (isa<AllocaInst>(inst) || isa<LoadInst>(inst) ? !shape.isUniform() : shape.isVarying())
       return true;
-    else if (shape.isUniform()) {
-      willNotVectorize.push_back(inst);
-      return false;
     }
-
   }
+
+  if (shape.isVarying())
+    return true;
 
   for (unsigned i = 0; i < inst->getNumOperands(); ++i) {
-    // operands are either constants or have shapes
-    Value *val = inst->getOperand(i);
-    assert((isa<Constant>(val) || vectorizationInfo.hasKnownShape(*val)) &&
-           "expected either a constant or a known shape!");
-    if (isa<Constant>(val)) continue;
-    else {
-      VectorShape shape = getShape(*val);
-      if (shape.isVarying() || (isa<StoreInst>(inst) && !shape.isUniform())) return true;
-    }
+    Value *op = inst->getOperand(i);
+    VectorShape opShape = getShape(*op);
 
-    // if we already checked this instruction, return the last value. by construction, all operands that are
-    // instructions will have been checked already. therefore we do not need to save the concrete <true/false> value
-    // and instead will insert into a vector if we should not vectorize and then check if this instruction is inside
-    if (isa<Instruction>(val) && std::find(willNotVectorize.begin(), willNotVectorize.end(), cast<Instruction>(val)) == willNotVectorize.end())
+    if (opShape.isVarying())
+      return true;
+
+    if (isa<GetElementPtrInst>(op) && !opShape.isUniform())
       return true;
   }
-  // all operands uniform, should not be vectorized
-  willNotVectorize.push_back(inst);
+
   return false;
 }

@@ -76,6 +76,19 @@ VectorizationInfo::dumpBlockInfo(const BasicBlock & block) const {
   out << "\n";
 }
 
+void VectorizationInfo::dumpArguments() const {
+  llvm::raw_ostream& out = llvm::errs();
+  const Function* F = mapping.scalarFn;
+
+  out << "\nArguments:\n";
+
+  for (auto& arg : F->args()) {
+    out << arg << " : " << (hasKnownShape(arg) ? getVectorShape(arg).str() : "missing") << "\n";
+  }
+
+  out << "\n";
+}
+
 void
 VectorizationInfo::dump() const
 {
@@ -83,11 +96,13 @@ VectorizationInfo::dump() const
     out << "VectorizationInfo ";
 
     if (region) {
-        out << " for Region " << region->str() << "\n";
+        out << "for Region " << region->str() << "\n";
     }
     else {
-        out << " for function " << mapping.scalarFn->getName() << "\n";
+        out << "for function " << mapping.scalarFn->getName() << "\n";
     }
+
+    dumpArguments();
 
     for (const BasicBlock & block : *mapping.scalarFn) {
       if (!inRegion(block)) continue;
@@ -102,8 +117,8 @@ VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, uint vectorWidth,
 {
     mapping.resultShape = VectorShape::uni();
     for (auto& arg : parentFn.getArgumentList()) {
-      (void) arg;
       mapping.argShapes.push_back(VectorShape::uni());
+      setVectorShape(arg, VectorShape::uni());
     }
 }
 

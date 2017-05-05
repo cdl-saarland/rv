@@ -26,6 +26,8 @@
 #include <climits>
 #include <set>
 
+#include "report.h"
+
 #include "rvConfig.h"
 
 #if 1
@@ -551,6 +553,7 @@ public:
     IRBuilder<> builder(&exiting, exiting.getTerminator()->getIterator()); // exit mask needs to be defined in @exiting
     int lastDefIndex = lin.getIndex(exiting);
     auto * updateInst = cast<Instruction>(builder.CreateSelect(&exitMask, &val, lastTrackerState, "update_" + val.getName()));
+    ++lin.numBlends;
     vecInfo.setVectorShape(*updateInst, VectorShape::varying());
 
   // promote the partial def to all surrounding loops
@@ -641,6 +644,7 @@ public:
     if (!vecInfo.isMandatory(&exitBlock)) {
       // finalExit = true;
       // this exit kills the loop so we do not need to track any values for it
+      lin.numKillExits++;
       IF_DEBUG_LIN errs() << "kill exit " << exitBlock.getName() << " skipping..\n";
       return;
     }
@@ -944,6 +948,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     auto * inVal = phi.getIncomingValueForBlock(inBlock);
 
     auto * edgeMask = getEdgeMask(*inBlock, phiBlock);
+    assert(edgeMask && "edgeMask not available!");
 
   // make sure the mask predicate is available at this point
   // TODO use caching
@@ -966,6 +971,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     if (isa<UndefValue>(inVal)) continue; // no need to blend in undef
     if (isa<UndefValue>(blendedVal)) { blendedVal = inVal; continue; }
 
+    ++numBlends; // statistics
     blendedVal = builder.CreateSelect(edgeMask, inVal, blendedVal);
     vecInfo.setVectorShape(*blendedVal, phiShape);
   }
@@ -1134,6 +1140,8 @@ Linearizer::processLoop(int headId, Loop * loop) {
   // assert(headRelay && "could not find relay for loop header");
 
   if (vecInfo.isDivergentLoop(loop)) {
+    ++numDivergentLoops;
+
     RelayNode * exitRelay = nullptr;
     if (headRelay) {
       exitRelay = headRelay -> next;
@@ -1142,12 +1150,15 @@ Linearizer::processLoop(int headId, Loop * loop) {
     // convert loop into a non-divergent form
     convertToSingleExitLoop(*loop, exitRelay);
 
-  } else if (headRelay) {
-    // forward header reaching blocks to loop exits
-    SmallVector<BasicBlock*, 4> exitBlocks;
-    loop->getExitBlocks(exitBlocks);
-    for (auto * exitBlock : exitBlocks) {
-      mergeInReaching(getRelayUnchecked(getIndex(*exitBlock)), *headRelay);
+  } else {
+    ++numUniformLoops;
+    if (headRelay) {
+      // forward header reaching blocks to loop exits
+      SmallVector<BasicBlock*, 4> exitBlocks;
+      loop->getExitBlocks(exitBlocks);
+      for (auto * exitBlock : exitBlocks) {
+        mergeInReaching(getRelayUnchecked(getIndex(*exitBlock)), *headRelay);
+      }
     }
   }
 
@@ -1338,6 +1349,9 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
       vecInfo.setVectorShape(*lateBranch, vecInfo.getVectorShape(*retInst));
       retInst->eraseFromParent();
       vecInfo.dropVectorShape(*retInst);
+
+      ++numDelayedReturns;
+
       return;
     }
 
@@ -1354,8 +1368,14 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
 // Unconditional branch case
   if (!branch->isConditional()) {
     auto & nextBlock = *branch->getSuccessor(0);
+    int nextBlockId = getIndex(nextBlock);
 
-    auto & relay = addTargetToRelay(exitRelay, getIndex(nextBlock));
+    auto & relay = addTargetToRelay(exitRelay, nextBlockId);
+
+    // statistics (cant branch to the block we wanted to go)
+    if (relay.id < nextBlockId && dt.dominates(&head, &nextBlock)) {
+      ++numDivertedHeads;
+    }
 
     // if the branch target feeds a phi and the edge is relayed -> track reachability
     if (containsOriginalPhis(nextBlock)) {
@@ -1387,6 +1407,27 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   BasicBlock * secondBlock = branch->getSuccessor(secondSuccIdx);
   int secondId = getIndex(*secondBlock);
   assert(firstId > 0 && secondId > 0 && "branch leaves the region!");
+
+// statistics: check if we are about to loose a schedule head
+  // our exitRelay has a lower id than the actual branch targets
+  // if this branch is uniform, it will be folded never the less so both reach the exitRelay (bad!)
+  if (!mustFoldBranch) {
+    bool canKeepBranch = true;
+    if (exitRelay) {
+      int exitId = exitRelay->id;
+      if ((dt.dominates(&head, firstBlock) && exitId < firstId) ||
+          (dt.dominates(&head, secondBlock) && exitId < secondId)) {
+        canKeepBranch = false;
+      }
+    }
+    if (canKeepBranch) {
+      ++numPreservedBranches;
+    } else {
+      ++numDivertedHeads;
+    }
+  } else {
+    ++numFoldedBranches;
+  }
 
   IF_DEBUG_LIN {
     if (mustFoldBranch) {  errs() << "\tneeds folding. first is " << firstBlock->getName() << " at " << firstId << " , second is " << secondBlock->getName() << " at " << secondId << "\n"; }
@@ -1511,6 +1552,25 @@ Linearizer::run() {
 
 // verify control integrity
   IF_DEBUG_LIN verify();
+
+// report statistics
+  if (numFoldedBranches > 0 || numDivertedHeads > 0 || numDivergentLoops > 0) {
+    Report() << "lin:\n";
+  }
+  if (numFoldedBranches > 0) {
+    Report() << "\t"
+             << numFoldedBranches << " folded branches,\n\t"
+             << numPreservedBranches << " preserved branches,\n\t"
+             << numBlends << " blends.\n";
+  }
+  if (numDivertedHeads > 0) {
+    Report() << "\t" << numDivertedHeads << " diverted relays.\n";
+  }
+  if (numDivergentLoops > 0) {
+    Report() << "\t"
+      << numUniformLoops << " uniform loops,\n\t"
+      << numDivergentLoops << " divergent loops with " << numKillExits << " kill exits.\n";
+  }
 }
 
 void

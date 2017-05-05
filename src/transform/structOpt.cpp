@@ -8,6 +8,7 @@
 #include <llvm/Transforms/Utils/ValueMapper.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/DataLayout.h>
+#include <llvm/Transforms/Utils/SSAUpdater.h>
 
 #include <rv/vectorizationInfo.h>
 
@@ -15,7 +16,6 @@
 #include <rvConfig.h>
 #include "report.h"
 
-using namespace rv;
 using namespace llvm;
 
 #if 1
@@ -24,21 +24,26 @@ using namespace llvm;
 #define IF_DEBUG_SO if (false)
 #endif
 
+namespace rv {
+
+
 // TODO move this into vecInfo
 VectorShape
-rv::StructOpt::getVectorShape(llvm::Value & val) const {
+StructOpt::getVectorShape(llvm::Value & val) const {
   if (vecInfo.hasKnownShape(val)) return vecInfo.getVectorShape(val);
   else if (isa<Constant>(val)) return VectorShape::uni();
   else return VectorShape::undef();
 }
 
-rv::StructOpt::StructOpt(VectorizationInfo & _vecInfo, const DataLayout & _layout)
+StructOpt::StructOpt(VectorizationInfo & _vecInfo, const DataLayout & _layout)
 : vecInfo(_vecInfo)
 , layout(_layout)
+, numTransformed(0)
+, numPromoted(0)
 {}
 
 void
-rv::StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & transformMap) {
+StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & transformMap) {
   SmallSet<Value*, 16> seen;
   std::vector<Instruction*> allocaUsers;
   allocaUsers.push_back(&allocaInst);
@@ -169,7 +174,7 @@ static bool VectorizableType(Type & type) {
 /// whether any address computation on this alloc is uniform
 /// the alloca can still be varying because of stored varying values
 bool
-rv::StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
+StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
   SmallSet<Value*, 16> seen;
   std::vector<Instruction*> allocaUsers;
   allocaUsers.push_back(&allocaInst);
@@ -252,12 +257,57 @@ rv::StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
   return true;
 }
 
+bool
+StructOpt::shouldPromote(llvm::AllocaInst & allocaInst) {
+  if (!isa<StructType>(allocaInst.getType()->getPointerElementType())) return false; // TODO can be extended to small arrays
+
+// check that the alloca is only ever accessed as a whole (no GEPs)
+  for (auto & use : allocaInst.uses()) {
+    auto * load = dyn_cast<LoadInst>(use.getUser());
+    auto * store = dyn_cast<StoreInst>(use.getUser());
+    if (!load && !store) {
+      IF_DEBUG_SO { errs() << "\t non-load/stire user -> can not promote\n";}
+      return false;
+    }
+    if (store) {
+      if (store->getValueOperand() == &allocaInst) {
+        IF_DEBUG_SO { errs() << "\t alloca value stored away -> can not promote\n"; }
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+void
+StructOpt::promoteAlloca(llvm::AllocaInst & allocaInst) {
+  SmallVector<PHINode*, 8> phiVec;
+
+  SSAUpdater ssaUpdater(&phiVec);
+  ssaUpdater.Initialize(allocaInst.getType()->getPointerElementType(), allocaInst.getName());
+
+  SmallVector<Instruction*, 8> instVec;
+  LoadAndStorePromoter promoter(instVec, ssaUpdater, allocaInst.getName());
+
+  for (auto & use : allocaInst.uses()) {
+    instVec.push_back(cast<Instruction>(use.getUser()));
+  }
+
+  promoter.run(instVec);
+
+  // TODO set shapes
+  for (auto * phi : phiVec) {
+    vecInfo.setVectorShape(*phi, VectorShape::varying());
+  }
+}
+
 /// try to optimize the layout of this alloca
 bool
-rv::StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
+StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
   IF_DEBUG_SO {errs() << "\n# trying to optimize Alloca " << allocaInst << "\n"; }
 
-// legality checks
+  // legality checks
   if (getVectorShape(allocaInst).isUniform()) {
     IF_DEBUG_SO {errs() << "skip: uniform.n"; }
     return false;
@@ -269,6 +319,15 @@ rv::StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
     IF_DEBUG_SO { errs() << "skip: non-vectorizable type.\n"; }
     return false;
   }
+
+  // TODO check if this value should be promoted to a value
+  if (shouldPromote(allocaInst)) {
+    promoteAlloca(allocaInst);
+    IF_DEBUG_SO { errs() << "\t promoted!\n"; }
+    numPromoted++;
+    return true;
+  }
+
   IF_DEBUG_SO { errs() << "vectorized type: " << *vecAllocTy << "\n"; }
   //
   // this alloca may only be:
@@ -292,11 +351,13 @@ rv::StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
 // update all gep/phi shapes
   transformLayout(allocaInst, transformMap);
 
-  return false;
+  numTransformed++;
+
+  return true;
 }
 
 llvm::Type *
-rv::StructOpt::vectorizeType(llvm::Type & scalarAllocaTy) {
+StructOpt::vectorizeType(llvm::Type & scalarAllocaTy) {
 // primite type -> vector
   if (scalarAllocaTy.isIntegerTy() ||
       scalarAllocaTy.isFloatingPointTy())
@@ -331,10 +392,11 @@ rv::StructOpt::vectorizeType(llvm::Type & scalarAllocaTy) {
 }
 
 bool
-rv::StructOpt::run() {
+StructOpt::run() {
   IF_DEBUG_SO { errs() << "-- struct opt log --\n"; }
 
-  size_t numTransformed = 0;
+  numTransformed = 0;
+  numPromoted = 0;
 
   bool change = false;
   for (auto & bb : vecInfo.getScalarFunction()) {
@@ -344,7 +406,6 @@ rv::StructOpt::run() {
       if (!allocaInst) continue;
 
       bool changedAlloca = optimizeAlloca(*allocaInst);
-      if (changedAlloca) { numTransformed++; }
       change |= changedAlloca;
     }
   }
@@ -352,9 +413,14 @@ rv::StructOpt::run() {
   if (numTransformed > 0) {
     Report() << "structOpt: transformed " << numTransformed << " allocas to struct-of-vector layout\n";
   }
+  if (numPromoted > 0) {
+    Report() << "structOpt: promoted " << numPromoted << " allocas to values\n";
+  }
 
   IF_DEBUG_SO { errs() << "-- end of struct opt log --\n"; }
 
   return change;
 }
 
+
+} // namespace rv
