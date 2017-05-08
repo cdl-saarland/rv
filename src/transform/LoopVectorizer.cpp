@@ -1,6 +1,6 @@
 //===- LoopVectorizer.cpp - Vectorize Loops  ----------------===//
 //
-//                     The LLVM Compiler Infrastructure
+//                     The Region Vectorizer
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
@@ -28,6 +28,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/Analysis/MemoryDependenceAnalysis.h"
 
 #include "report.h"
 
@@ -39,6 +40,7 @@
 
 using namespace rv;
 using namespace llvm;
+
 
 bool LoopVectorizer::canVectorizeLoop(Loop &L) {
   if (!L.isAnnotatedParallel())
@@ -54,16 +56,30 @@ bool LoopVectorizer::canVectorizeLoop(Loop &L) {
   return true;
 }
 
-bool LoopVectorizer::canAdjustTripCount(Loop &L, ScalarEvolution &SE,
-                                        int VectorWidth, int TripCount) {
+int
+LoopVectorizer::getDependenceDistance(Loop & L) {
+  if (!canVectorizeLoop(L)) return 1;
+  return ParallelDistance; // fully parallel
+}
+
+int
+LoopVectorizer::getTripAlignment(Loop & L) {
+  int tripCount = getTripCount(L);
+  if (tripCount > 0) return tripCount;
+  return 1;
+}
+
+
+bool LoopVectorizer::canAdjustTripCount(Loop &L, int VectorWidth, int TripCount) {
   if (VectorWidth == TripCount)
     return true;
 
   return false;
 }
 
-int LoopVectorizer::getTripCount(Loop &L, ScalarEvolution &SE) {
-  auto *BTC = dyn_cast<SCEVConstant>(SE.getBackedgeTakenCount(&L));
+int
+LoopVectorizer::getTripCount(Loop &L) {
+  auto *BTC = dyn_cast<SCEVConstant>(SE->getBackedgeTakenCount(&L));
   if (!BTC)
     return -1;
 
@@ -74,7 +90,7 @@ int LoopVectorizer::getTripCount(Loop &L, ScalarEvolution &SE) {
   return BTCVal + 1;
 }
 
-int LoopVectorizer::getVectorWidth(Loop &L, ScalarEvolution &SE) {
+int LoopVectorizer::getVectorWidth(Loop &L) {
   auto *LID = L.getLoopID();
 
   // try to recover from latch
@@ -133,34 +149,28 @@ GetShapeFromReduction(rv::Reduction & redInfo, int vectorWidth) {
   return VectorShape::strided(constInc, constInc * vectorWidth);
 }
 
-bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInterface & vectorizer) {
-  if (!canVectorizeLoop(L))
-    return false;
+bool
+LoopVectorizer::vectorizeLoop(Loop &L) {
+// check the dependence distance of this loop
+  int depDist = getDependenceDistance(L);
+  if (depDist <= 1) return false;
 
+  //
+  int tripAlign = getTripAlignment(L);
 
-  int VectorWidth = getVectorWidth(L, SE);
+  int VectorWidth = getVectorWidth(L);
   if (VectorWidth < 0) {
     Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Vector width was " << VectorWidth << "\n";
     return false;
   }
 
-#if 1
-  int TripCount = getTripCount(L, SE);
-  if (TripCount < 0) {
-    Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Infered trip count was " << TripCount << "\n";
-    return false;
-  }
-#else
-  int TripCount = VectorWidth;
-#endif
-
-  if (!canAdjustTripCount(L, SE, VectorWidth, TripCount)) {
+  if (tripAlign % VectorWidth != 0) {
     Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Could not adjust trip count\n";
     return false;
   }
 
   Report() << "loopVecPass: Vectorize " << L.getName() << " with VW: " << VectorWidth
-         << " and TC: " << TripCount << "\n";
+         << " and TripAlignment: " << tripAlign << "\n";
 
   BasicBlock *ExitingBlock = L.getExitingBlock();
   Function &F = *ExitingBlock->getParent();
@@ -202,18 +212,16 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInter
 
 // modify CFG
   // Adjust trip count
-  assert(VectorWidth == TripCount);
+  assert((VectorWidth % tripAlign == 0) && "remainder loop vectorization not yet supported");
   auto *ExitingBI = cast<BranchInst>(ExitingBlock->getTerminator());
   if (L.contains(ExitingBI->getSuccessor(0)))
     ExitingBI->setCondition(ConstantInt::getFalse(ExitingBI->getContext()));
   else
     ExitingBI->setCondition(ConstantInt::getTrue(ExitingBI->getContext()));
 
-
 // prepare analyses
   auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   auto &PDT = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
-  auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 
   //DT.verifyDomTree();
   //LI.verify(DT);
@@ -229,21 +237,21 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInter
 
 // Vectorize
   // vectorizationAnalysis
-  vectorizer.analyze(vecInfo, cdg, dfg, LI, PDT, DT);
+  vectorizer->analyze(vecInfo, cdg, dfg, *LI, PDT, DT);
 
   // mask analysis
-  auto *maskAnalysis = vectorizer.analyzeMasks(vecInfo, LI);
+  auto *maskAnalysis = vectorizer->analyzeMasks(vecInfo, *LI);
   assert(maskAnalysis);
   IF_DEBUG { maskAnalysis->print(errs(), &M); }
 
   // mask generator
-  bool genMaskOk = vectorizer.generateMasks(vecInfo, *maskAnalysis, LI);
+  bool genMaskOk = vectorizer->generateMasks(vecInfo, *maskAnalysis, *LI);
   if (!genMaskOk)
     llvm_unreachable("mask generation failed.");
 
   // control conversion
   bool linearizeOk =
-      vectorizer.linearizeCFG(vecInfo, *maskAnalysis, LI, DT);
+      vectorizer->linearizeCFG(vecInfo, *maskAnalysis, *LI, DT);
   if (!linearizeOk)
     llvm_unreachable("linearization failed.");
 
@@ -251,7 +259,8 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInter
       *vecInfo.getMapping().scalarFn); // Control conversion does not preserve
                                        // the domTree so we have to rebuild it
                                        // for now
-  bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew, LI);
+  ValueToValueMapTy vecInstMap;
+  bool vectorizeOk = vectorizer->vectorize(vecInfo, domTreeNew, *LI, *SE, *MDR, &vecInstMap);
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
 
@@ -266,13 +275,13 @@ bool LoopVectorizer::vectorizeLoop(Loop &L, ScalarEvolution &SE, VectorizerInter
   return true;
 }
 
-bool LoopVectorizer::vectorizeLoopOrSubLoops(Loop &L, ScalarEvolution &SE, VectorizerInterface & vectorizer) {
-  if (vectorizeLoop(L, SE, vectorizer))
+bool LoopVectorizer::vectorizeLoopOrSubLoops(Loop &L) {
+  if (vectorizeLoop(L))
     return true;
 
   bool Changed = false;
   for (Loop* SubL : L)
-    Changed |= vectorizeLoopOrSubLoops(*SubL, SE, vectorizer);
+    Changed |= vectorizeLoopOrSubLoops(*SubL);
 
   return Changed;
 }
@@ -284,37 +293,38 @@ bool LoopVectorizer::runOnFunction(Function &F) {
 
   Report() << "loopVecPass: run on " << F.getName() << "\n";
   bool Changed = false;
-  auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-  auto &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
 
+  // query analysis results
+  LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+  SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
+  MDR = &getAnalysis<MemoryDependenceWrapperPass>().getMemDep();
+  TargetTransformInfo & tti = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
+  TargetLibraryInfo & tli = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
 
-  FunctionAnalysisManager fam;
-  ModuleAnalysisManager mam;
+  // setup vectorizer session
+  PlatformInfo platInfo(*F.getParent(), &tti, &tli);
 
-  TargetIRAnalysis irAnalysis;
-  TargetTransformInfo tti = irAnalysis.run(F, fam);
-  TargetLibraryAnalysis libAnalysis;
-  TargetLibraryInfo tli = libAnalysis.run(*F.getParent(), mam);
-  PlatformInfo platformInfo(*F.getParent(), &tti, &tli);
-
+  // TODO query target capabilities
   bool useSSE = false, useAVX = true, useAVX2 = true, useImpreciseFunctions = true;
+  addSleefMappings(useSSE, useAVX, useAVX2, platInfo, useImpreciseFunctions);
+  vectorizer.reset(new VectorizerInterface(platInfo));
 
-  addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
-  VectorizerInterface vectorizer(platformInfo);
-
-  reda.reset(new ReductionAnalysis(F, LI));
+  reda.reset(new ReductionAnalysis(F, *LI));
   reda->analyze();
 
-  for (Loop *L : LI)
-    Changed |= vectorizeLoopOrSubLoops(*L, SE, vectorizer);
 
-  // cleanup
-  // if (Changed) {
-    vectorizer.finalize();
-  // }
+  for (Loop *L : *LI)
+    Changed |= vectorizeLoopOrSubLoops(*L);
+
 
   IF_DEBUG { errs() << " -- module after RV --\n"; F.getParent()->dump(); }
 
+  // cleanup
+  reda.reset();
+  vectorizer.reset();
+  LI = nullptr;
+  SE = nullptr;
+  MDR = nullptr;
   return Changed;
 }
 

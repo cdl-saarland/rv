@@ -37,7 +37,6 @@
 #include "rv/transform/structOpt.h"
 #include "rv/transform/srovTransform.h"
 
-#include "native/nativeBackendPass.h"
 #include "native/NatBuilder.h"
 
 #include "utils/rvTools.h"
@@ -168,7 +167,7 @@ VectorizerInterface::linearizeCFG(VectorizationInfo& vecInfo,
 
 // flag is set if the env var holds a string that starts on a non-'0' char
 bool
-VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree, const LoopInfo & loopInfo)
+VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree, const LoopInfo & loopInfo, ScalarEvolution & SE, MemoryDependenceResults & MDR, ValueToValueMapTy * vecInstMap)
 {
   // transform allocas from Array-of-struct into Struct-of-vector where possibe
   if (!CheckFlag("RV_DISABLE_STRUCTOPT")) {
@@ -193,16 +192,11 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
   ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
   reda.analyze();
 
+  bool embedControl = !vecInstMap;
+
 // vectorize with native
-//    native::NatBuilder natBuilder(platInfo, vecInfo, domTree);
-//    natBuilder.vectorize();
-  legacy::FunctionPassManager fpm(vecInfo.getScalarFunction().getParent());
-  fpm.add(new MemoryDependenceWrapperPass());
-  fpm.add(new ScalarEvolutionWrapperPass());
-  fpm.add(new NativeBackendPass(&vecInfo, &platInfo, &domTree, &reda));
-  fpm.doInitialization();
-  fpm.run(vecInfo.getScalarFunction());
-  fpm.doFinalization();
+  native::NatBuilder natBuilder(platInfo, vecInfo, domTree, MDR, SE, reda);
+  natBuilder.vectorize(embedControl, vecInstMap);
 
   IF_DEBUG verifyFunction(vecInfo.getVectorFunction());
 

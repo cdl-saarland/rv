@@ -21,7 +21,6 @@ add_rv_library(RV
   native/Utils.cpp
   native/MemoryAccessGrouper.cpp
   native/NatBuilder.cpp
-  native/nativeBackendPass.cpp
   rvConfig.cpp
   transform/loopExitCanonicalizer.cpp
   transform/maskGenerator.cpp
@@ -62,6 +61,7 @@ if (BUILD_SHARED_LIBS)
     LLVMipo
     LLVMMC
     LLVMIRReader
+    LLVMPasses
 # The libraries below are required for darwin: http://PR26392
     LLVMBitReader
     LLVMMCParser

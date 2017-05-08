@@ -21,13 +21,18 @@
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Support/FileSystem.h>
+
+#include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
+#include <llvm/Analysis/MemoryDependenceAnalysis.h>
+
 #include <rv/analysis/reductionAnalysis.h>
 
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Passes/PassBuilder.h"
 
 #include "llvm/Support/raw_ostream.h"
 
@@ -114,8 +119,26 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
               CDG& cdg, DominatorTree& domTree, PostDominatorTree& postDomTree)
 {
     // assert: function is already normalized
-
     Module& mod = *parentFn.getParent();
+
+
+    // set up analysis infrastructure
+    FunctionAnalysisManager fam;
+    ModuleAnalysisManager mam;
+
+    PassBuilder PB;
+    PB.registerFunctionAnalyses(fam);
+    PB.registerModuleAnalyses(mam);
+
+    // query LLVM passes
+    TargetIRAnalysis irAnalysis;
+    TargetTransformInfo tti = irAnalysis.run(parentFn, fam);
+    TargetLibraryAnalysis libAnalysis;
+    TargetLibraryInfo tli = libAnalysis.run(*parentFn.getParent(), mam);
+
+    ScalarEvolutionAnalysis seAnalysis;
+    ScalarEvolution SE = seAnalysis.run(parentFn, fam);
+
 
     // set-up for loop vectorization
     rv::VectorMapping targetMapping(&parentFn, &parentFn, vectorWidth);
@@ -124,14 +147,10 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     rv::Region loopRegion(loopRegionImpl);
     rv::VectorizationInfo vecInfo(parentFn, vectorWidth, loopRegion);
 
-    FunctionAnalysisManager fam;
-    ModuleAnalysisManager mam;
-
-    TargetIRAnalysis irAnalysis;
-    TargetTransformInfo tti = irAnalysis.run(parentFn, fam);
-    TargetLibraryAnalysis libAnalysis;
-    TargetLibraryInfo tli = libAnalysis.run(*parentFn.getParent(), mam);
     rv::PlatformInfo platformInfo(mod, &tti, &tli);
+
+    MemoryDependenceAnalysis mdAnalysis;
+    MemoryDependenceResults MDR = mdAnalysis.run(parentFn, fam);
 
     // link in SIMD library
     const bool useSSE = false;
@@ -190,7 +209,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     const DominatorTree domTreeNew(*vecInfo.getMapping()
                                            .scalarFn); // Control conversion does not preserve the domTree so we have to rebuild it for now
-    bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew, loopInfo);
+    bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew, loopInfo, SE, MDR, nullptr);
     if (!vectorizeOk) fail("vector code generation failed");
 
     // cleanup
@@ -250,9 +269,6 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     ValueToValueMapTy valueMap;
     Function* scalarCopy = CloneFunction(scalarFn, valueMap, nullptr);
 
-    FunctionAnalysisManager fam;
-    ModuleAnalysisManager mam;
-
     assert (scalarCopy);
     scalarCopy->setCallingConv(scalarFn->getCallingConv());
     scalarCopy->setAttributes(scalarFn->getAttributes());
@@ -262,6 +278,13 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
 
     // normalize
     normalizeFunction(*scalarCopy);
+    FunctionAnalysisManager fam;
+    ModuleAnalysisManager mam;
+
+    // setup LLVM analysis infrastructure
+    PassBuilder PB;
+    PB.registerFunctionAnalyses(fam);
+    PB.registerModuleAnalyses(mam);
 
     // platform API
     TargetIRAnalysis irAnalysis;
@@ -289,6 +312,12 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     PostDominatorTree postDomTree;
     postDomTree.recalculate(*scalarCopy);
     LoopInfo loopInfo(domTree);
+
+    ScalarEvolutionAnalysis seAnalysis;
+    ScalarEvolution SE = seAnalysis.run(*scalarCopy, fam);
+
+    MemoryDependenceAnalysis mdAnalysis;
+    MemoryDependenceResults MDR = mdAnalysis.run(*scalarCopy, fam);
 
     // Dominance Frontier Graph
     DFG dfg(domTree);
@@ -319,7 +348,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
 
     // Control conversion does not preserve the domTree so we have to rebuild it for now
     const DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn);
-    bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew, loopInfo);
+    bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew, loopInfo, SE, MDR, nullptr);
     if (!vectorizeOk) fail("vector code generation failed.");
 
     // cleanup

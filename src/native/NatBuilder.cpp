@@ -59,7 +59,7 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
 //    willNotVectorize(),
     lazyInstructions() {}
 
-void NatBuilder::vectorize() {
+void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   const Function *func = vectorizationInfo.getMapping().scalarFn;
   Function *vecFunc = vectorizationInfo.getMapping().vectorFn;
 
@@ -121,6 +121,25 @@ void NatBuilder::vectorize() {
   if (!region) return;
 
   // TODO what about outside uses?
+
+  // register vector insts
+  if (vecInstMap) {
+    for (auto & BB : *vecFunc) {
+      if (region->contains(&BB)) {
+        (*vecInstMap)[&BB] = getVectorValue(&BB);
+      }
+      for (auto & I : BB) {
+        auto * vecInst = getVectorValue(&I);
+        if (vecInst) {
+          (*vecInstMap)[&I] = vecInst;
+        } else {
+          (*vecInstMap)[&I] = getScalarValue(&I, 0);
+        }
+      }
+    }
+  }
+
+  if (!embedRegion) return;
 
   // rewire branches outside the region to go to the region instead
   std::vector<BasicBlock *> oldBlocks;

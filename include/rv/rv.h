@@ -12,10 +12,14 @@
 #include "rv/PlatformInfo.h"
 #include "rv/analysis/DFG.h"
 
+#include "llvm/Transforms/Utils/ValueMapper.h"
+
 namespace llvm {
   class LoopInfo;
   struct PostDominatorTree;
   class DominatorTree;
+  class ScalarEvolution;
+  class MemoryDependenceResults;
 }
 
 namespace rv {
@@ -81,7 +85,7 @@ public:
      * Produce vectorized instructions
      */
     bool
-    vectorize(VectorizationInfo &vecInfo, const llvm::DominatorTree &domTree, const llvm::LoopInfo & loopInfo);
+    vectorize(VectorizationInfo &vecInfo, const llvm::DominatorTree &domTree, const llvm::LoopInfo & loopInfo, llvm::ScalarEvolution & SE, llvm::MemoryDependenceResults & MDR, llvm::ValueToValueMapTy * vecInstMap);
 
     /*
      * Ends the vectorization process on this function, removes metadata and
