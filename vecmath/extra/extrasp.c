@@ -15,10 +15,10 @@ __m256 xcopysignf(__m256 x, __m256 y) {
     return _mm256_or_ps(_mm256_and_ps(x, _mm256_set1_ps(as_float(0x7FFFFFFF))), s);
 }
 __m256 xfminf(__m256 x, __m256 y) {
-    return _mm256_blendv_ps(y, x, _mm256_cmp_ps(x, y, 1));
+    return _mm256_min_ps(x, y);
 }
 __m256 xfmaxf(__m256 x, __m256 y) {
-    return _mm256_blendv_ps(y, x, _mm256_cmp_ps(x, y, 6));
+    return _mm256_max_ps(x, y);
 }
 #endif
 
@@ -31,9 +31,9 @@ __m128 xcopysignf(__m128 x, __m128 y) {
     return _mm_or_ps(_mm_and_ps(x, _mm_set1_ps(as_float(0x7FFFFFFF))), s);
 }
 __m128 xfminf(__m128 x, __m128 y) {
-    return _mm_blendv_ps(y, x, _mm_cmplt_ps(x, y));
+    return _mm_min_ps(x, y);
 }
 __m128 xfmaxf(__m128 x, __m128 y) {
-    return _mm_blendv_ps(y, x, _mm_cmpnle_ps(x, y));
+    return _mm_max_ps(x, y);
 }
 #endif
