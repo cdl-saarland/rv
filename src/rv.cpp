@@ -122,10 +122,10 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
 
 }
 
-MaskAnalysis*
+std::unique_ptr<MaskAnalysis>
 VectorizerInterface::analyzeMasks(VectorizationInfo& vecInfo, const LoopInfo& loopinfo)
 {
-    MaskAnalysis* maskAnalysis = new MaskAnalysis(vecInfo, loopinfo);
+    auto maskAnalysis = make_unique<MaskAnalysis>(vecInfo, loopinfo);
     maskAnalysis->analyze(vecInfo.getScalarFunction());
     return maskAnalysis;
 }

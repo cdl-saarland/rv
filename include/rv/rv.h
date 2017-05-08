@@ -63,7 +63,7 @@ public:
      * Analyze mask values needed to mask certain values and preserve semantics of the function
      * after its control flow is linearized where needed.
      */
-    MaskAnalysis* analyzeMasks(VectorizationInfo& vectorizationInfo, const llvm::LoopInfo& loopinfo);
+    std::unique_ptr<MaskAnalysis> analyzeMasks(VectorizationInfo& vectorizationInfo, const llvm::LoopInfo& loopinfo);
 
     /*
      * Materialize the mask information.

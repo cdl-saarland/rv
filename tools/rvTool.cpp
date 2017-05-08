@@ -195,7 +195,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     vectorizer.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
 
     // mask analysis
-    auto* maskAnalysis = vectorizer.analyzeMasks(vecInfo, loopInfo);
+    auto maskAnalysis = vectorizer.analyzeMasks(vecInfo, loopInfo);
     assert(maskAnalysis);
     maskAnalysis->print(errs(), &mod);
 
@@ -214,8 +214,6 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     // cleanup
     vectorizer.finalize();
-
-    delete maskAnalysis;
 }
 
 // Use case: Outer-loop Vectorizer
@@ -335,7 +333,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     vectorizer.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
 
     // mask analysis
-    auto* maskAnalysis = vectorizer.analyzeMasks(vecInfo, loopInfo);
+    auto maskAnalysis = vectorizer.analyzeMasks(vecInfo, loopInfo);
     assert(maskAnalysis);
 
     // mask generator
@@ -354,7 +352,6 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     // cleanup
     vectorizer.finalize();
 
-    delete maskAnalysis;
     scalarCopy->eraseFromParent();
 }
 

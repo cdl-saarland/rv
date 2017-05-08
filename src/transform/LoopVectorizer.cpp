@@ -240,7 +240,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   vectorizer->analyze(vecInfo, cdg, dfg, *LI, PDT, DT);
 
   // mask analysis
-  auto *maskAnalysis = vectorizer->analyzeMasks(vecInfo, *LI);
+  auto maskAnalysis = vectorizer->analyzeMasks(vecInfo, *LI);
   assert(maskAnalysis);
   IF_DEBUG { maskAnalysis->print(errs(), &M); }
 
@@ -263,8 +263,6 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   bool vectorizeOk = vectorizer->vectorize(vecInfo, domTreeNew, *LI, *SE, *MDR, &vecInstMap);
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
-
-  delete maskAnalysis;
 
 
 
@@ -327,13 +325,6 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   MDR = nullptr;
   return Changed;
 }
-
-#if 0
-bool LoopVectorizer::vectorizeRVLoop(RVInfo &RVI) {
-
-  return true;
-}
-#endif
 
 void LoopVectorizer::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<LoopInfoWrapperPass>();
