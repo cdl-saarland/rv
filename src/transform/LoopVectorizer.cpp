@@ -243,9 +243,11 @@ struct LoopRemainderTransform {
     }
 
   // dispatch to vector loop header or the scalar guard
-    // TODO cost model / pre-conditions
     Value * constTrue = ConstantInt::getTrue(context);
-    BranchInst::Create(vecHead, scalarGuardBlock, constTrue, vecGuardBlock);
+    // TODO cost model / pre-conditions
+    auto * vecLoopCond = constTrue;
+
+    BranchInst::Create(vecHead, scalarGuardBlock, vecLoopCond, vecGuardBlock);
 
   // make the vector loop exit to vecToScalar
     auto * scalarTerm = ScalarL.getExitingBlock()->getTerminator();
@@ -258,7 +260,9 @@ struct LoopRemainderTransform {
     }
 
   // branch from vecToScalarExit to the scalarGuard
-    BranchInst::Create(scalarGuardBlock, vecToScalarExit);
+    // TODO add an early exit branch (whenever no iterations remain)
+    auto * remainderCond = constTrue;
+    BranchInst::Create(scalarGuardBlock, loopExit, remainderCond, vecToScalarExit);
 
   // make scalarGuard the new preheader of the scalar loop
     BranchInst::Create(scalarHead, scalarGuardBlock);
@@ -314,8 +318,8 @@ struct LoopRemainderTransform {
           }
 
           // otw, reduce it now
-          ReduceValueToScalar(Inst, *vecToScalarExit);
-          assert(false && "");
+          auto & reducedLiveOut = ReduceValueToScalar(Inst, *vecToScalarExit);
+          vecLiveOuts[&Inst] = &reducedLiveOut;
         }
       }
     }
@@ -348,6 +352,110 @@ struct LoopRemainderTransform {
     // take scaGuardPhi from the new preHeader of the scalar loop (scalarGuardBlock)
       scalarPhi.setIncomingBlock(preHeaderIdx, scalarGuardBlock);
       scalarPhi.setIncomingValue(preHeaderIdx, &scaGuardPhi);
+    }
+  }
+
+  static
+  Value&
+  ReplicateExpression(Value & val, ValueToValueMapTy & replMap, std::function<Value* (Instruction&)> leafFunc, IRBuilder<> & builder) {
+    // we must stay in this basic block
+    assert(!isa<PHINode>(val) && "can not replicate this!");
+
+    auto * inst = dyn_cast<Instruction>(&val);
+
+    // preserve non-insts
+    if (!inst) {
+      return val;
+    }
+
+    // already copied?
+    auto itRepl = replMap.find(inst);
+    if (itRepl != replMap.end()) {
+      return *itRepl->second;
+    }
+
+    // do we have a custom leaf mapping for this value?
+    auto * replaceWith = leafFunc(*inst);
+    if (replaceWith) {
+      return *replaceWith;
+    }
+
+    // otw, start cloning
+    auto & clone = *inst->clone();
+    auto cloneName = inst->getName().str() + ".copy";
+
+    // TODO we can not have cycles in legal IR (we break on PHIs). Still insert now to not diverge on degenerate IR.
+    replMap[&val] = &clone;
+
+    // remap its operands
+    for (size_t i = 0; i < inst->getNumOperands(); ++i) {
+      auto & clonedOp = ReplicateExpression(*inst->getOperand(i), replMap, leafFunc, builder);
+      clone.setOperand(i, &clonedOp);
+    }
+
+    // insert the clone after its dependences
+    builder.Insert(&clone, cloneName);
+
+    return clone;
+  }
+
+  static
+  int
+  GetLoopIncomingIndex(Loop & L, const PHINode & phi) {
+    for (size_t i = 0; i < phi.getNumIncomingValues(); ++i) {
+      auto * inBlock = phi.getIncomingBlock(i);
+      if (L.contains(inBlock)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  // replicate the scalar loop exit condition in vecToScalarExit
+  // @ret *exitCondition = materialized exit condition
+  // @ret != 0 if exitCondition needs to be negated
+  void
+  SupplementVectorExit(ValueToValueMapTy & vecLoopPhis) {
+    auto & scaExiting = *GetUniqueExiting(ScalarL);
+    auto & exitingBr = cast<BranchInst>(*scaExiting.getTerminator());
+    int exitSuccIdx = exitingBr.getSuccessor(0) == loopExit ? 0 : 1;
+
+    ValueToValueMapTy replMap;
+
+    IRBuilder<> builder(vecToScalarExit, vecToScalarExit->getTerminator()->getIterator());
+
+    // insert vector reduced values as leaves
+    ValueToValueMapTy leafMap;
+    for (auto it : vecLoopPhis) {
+      auto & scalarPhi = cast<PHINode>(*it->first);
+      auto & scalarInitVal = *it->second;
+      int loopIdx = GetLoopIncomingIndex(ScalarL, scalarPhi);
+      assert(loopIdx >= 0);
+
+      auto * loopInVal = scalarPhi.getIncomingValue(loopIdx);
+      leafMap[loopInVal] = &scalarInitVal;
+    }
+
+    // replicate the exit condition
+    auto & exitVal =
+      ReplicateExpression(*exitingBr.getCondition(), replMap,
+         [&](Instruction & inst) -> Value* {
+           if (!ScalarL.contains(inst.getParent())) return &inst;
+
+           auto it = leafMap.find(&inst);
+           return it != leafMap.end() ? it->second : nullptr;
+          },
+      builder
+      );
+
+    auto & vecExitBr = *cast<BranchInst>(vecToScalarExit->getTerminator());
+    vecExitBr.setCondition(&exitVal);
+
+    // swap the exits to negate the condition
+    if (exitSuccIdx == 0) {
+      assert(exitSuccIdx == 1);
+      vecExitBr.setSuccessor(0, loopExit);
+      vecExitBr.setSuccessor(1, scalarGuardBlock);
     }
   }
 
@@ -421,6 +529,10 @@ struct LoopRemainderTransform {
 
     // repair vector loop liveouts
     updateExitLiveOuts(vecLiveOuts);
+
+  // insert a condition for the vecToScalarBlock -> loopExit edge
+    // this edge is taken if no iterations remain for the scalar loop
+    SupplementVectorExit(vecLoopPhis);
   }
 };
 
@@ -483,7 +595,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   //   return false;
   // }
 
-  Report() << "loopVecPass: Vectorize " << L.getName() << " with VW: " << VectorWidth
+  Report() << "loopVecPass: Vectorize " << L.getName() << " with VW: " << VectorWidth << " , Dependence Distance: " << depDist
          << " and TripAlignment: " << tripAlign << "\n";
 
   BasicBlock *ExitingBlock = L.getExitingBlock();
@@ -523,8 +635,8 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   }
 
 // Force the loop exit branch to uniform (which it is going to be after the transformation)
-  auto * exitBr = L.getExitingBlock()->getTerminator();
-  vecInfo.setVectorShape(*exitBr, VectorShape::uni());
+  auto * exitBr = cast<BranchInst>(L.getExitingBlock()->getTerminator());
+  vecInfo.setVectorShape(*exitBr->getCondition(), VectorShape::uni());
 
 // prepare analyses
   auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
