@@ -12,6 +12,8 @@
 
 #include "llvm/Pass.h"
 
+#include "llvm/Transforms/Utils/ValueMapper.h"
+
 #include "rv/analysis/reductionAnalysis.h"
 #include <limits>
 
@@ -26,6 +28,7 @@ namespace llvm {
 
 namespace rv {
 
+class VectorizationInfo;
 class VectorizerInterface;
 
 class LoopVectorizer : public llvm::FunctionPass {
@@ -46,6 +49,7 @@ public:
   void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
 private:
+  llvm::Function * F;
   llvm::LoopInfo * LI;
   llvm::ScalarEvolution * SE;
   llvm::MemoryDependenceResults * MDR;
@@ -53,6 +57,8 @@ private:
   std::unique_ptr<VectorizerInterface> vectorizer;
 
   bool canVectorizeLoop(llvm::Loop &L);
+
+  void embedVectorizedLoop(llvm::Loop &L, llvm::ValueToValueMapTy & vecValMap, VectorizationInfo & vecInfo, int VectorWidth, int tripAlign);
 
   bool canAdjustTripCount(llvm::Loop &L, int VectorWidth, int TripCount);
 

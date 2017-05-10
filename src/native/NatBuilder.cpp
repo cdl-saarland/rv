@@ -1445,7 +1445,7 @@ llvm::Value *NatBuilder::maskInactiveLanes(llvm::Value *const value, const Basic
 Value&
 NatBuilder::materializeVectorReduce(IRBuilder<> & builder, Value & initVal, Value & vecVal, Instruction & reductOp) {
   Value * accu = &initVal;
-  for (int i = 0; i < vectorizationInfo.getVectorWidth(); ++i) {
+  for (uint i = 0; i < vectorizationInfo.getVectorWidth(); ++i) {
     auto * laneVal = builder.CreateExtractElement(&vecVal, i, "red_ext");
 
     Instruction * copy = reductOp.clone();
@@ -1459,7 +1459,40 @@ NatBuilder::materializeVectorReduce(IRBuilder<> & builder, Value & initVal, Valu
 }
 
 void
-NatBuilder::materializeReduction(Reduction & red) {
+NatBuilder::materializeStridedReduction(Reduction & red) {
+  auto & vecReductor = *cast<Instruction>(getScalarValue(&red.getReductor(), 0));
+  auto redShape = vectorizationInfo.getVectorShape(red.getReductor());
+
+  if (redShape.isUniform()) return;
+
+  assert(redShape.hasStridedShape());
+
+  auto & scalarConst = cast<ConstantInt>(red.getReducibleValue());
+
+  // widen stride to full vectorWidth
+  int vectorWidth = vectorizationInfo.getVectorWidth();
+  int vecStride = vectorWidth * redShape.getStride();
+
+  // FIXME need to maintain old stride for users in this iteration
+
+  // extend stride
+  auto & vecConst = *ConstantInt::getSigned(scalarConst.getType(), vecStride);
+  vecReductor.replaceUsesOfWith(&scalarConst, &vecConst);
+
+  // remap phi operands
+  int loopOpIdx = red.loopInputIndex;
+  int initOpIdx = red.initInputIndex;
+  PHINode & vecPhi = cast<PHINode>(*getScalarValue(&red.phi, 0));
+
+  // attach reduced inputs to phi
+  vecPhi.addIncoming(&red.getInitValue(), red.phi.getIncomingBlock(initOpIdx));
+  auto * vecLatch = cast<BasicBlock>(getVectorValue(red.phi.getIncomingBlock(loopOpIdx)));
+
+  vecPhi.addIncoming(&vecReductor, vecLatch);
+}
+
+void
+NatBuilder::materializeVaryingReduction(Reduction & red) {
   const int vectorWidth = vectorizationInfo.getVectorWidth();
   auto * vecPhi = cast<PHINode>(getVectorValue(&red.phi));
 
@@ -1556,10 +1589,14 @@ void NatBuilder::addValuesToPHINodes() {
     auto *red = reda.getReductionInfo(*scalPhi);
 
     bool isVectorLoopHeader = region && &region->getRegionEntry() == scalPhi->getParent();
-    if (isVectorLoopHeader && shape.isVarying() && red) {
+    if (isVectorLoopHeader && shape.hasStridedShape() && red) {
+      IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
+      materializeStridedReduction(*red);
+
+    } else if (isVectorLoopHeader && shape.isVarying() && red) {
       // reduction phi handling
       IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
-      materializeReduction(*red);
+      materializeVaryingReduction(*red);
 
     } else {
       // default phi handling

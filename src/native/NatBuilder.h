@@ -57,7 +57,11 @@ namespace native {
     rv::VectorShape getShape(const Value & val);
 
     // generate reduction code (after all other instructions have been vectorized)
-    void materializeReduction(rv::Reduction & red);
+    void materializeVaryingReduction(rv::Reduction & red);
+
+    // fixup the
+    void materializeStridedReduction(rv::Reduction & red);
+
     llvm::Value& materializeVectorReduce(llvm::IRBuilder<> & builder, llvm::Value & phiInitVal, llvm::Value & vecVal, llvm::Instruction & reduceOp);
 
   public:

@@ -23,12 +23,15 @@
 
 #include "rvConfig.h"
 
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Dominators.h"
+
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
-#include "llvm/IR/Dominators.h"
 #include "llvm/Analysis/MemoryDependenceAnalysis.h"
+
 
 #include "report.h"
 
@@ -58,6 +61,9 @@ bool LoopVectorizer::canVectorizeLoop(Loop &L) {
 
 int
 LoopVectorizer::getDependenceDistance(Loop & L) {
+  int vectorWidth = getVectorWidth(L);
+  if (vectorWidth > 0) return vectorWidth;
+
   if (!canVectorizeLoop(L)) return 1;
   return ParallelDistance; // fully parallel
 }
@@ -127,6 +133,297 @@ int LoopVectorizer::getVectorWidth(Loop &L) {
   return -1;
 }
 
+typedef std::map<PHINode*, PHINode*> PHIMap;
+typedef std::map<Instruction*, Instruction*> InstMap;
+
+struct LoopRemainderTransform {
+  Function & F;
+  Loop & ScalarL;
+  ValueToValueMapTy & vecValMap;
+  VectorizationInfo & vecInfo;
+  ReductionAnalysis & reda;
+  int tripAlign;
+  int vectorWidth;
+
+  // - original loop -
+  //
+  // entry
+  //   |
+  // ScalarL <>
+  //   |
+  //  Exit
+  //
+  // - transformed loop -
+  // entry --> ... // entry branch to the loop
+  //   |
+  // vecGuard // cost model block and VectorL preheader
+  //  |   \
+  //  |   VectorL <> // vector loop produced by RV
+  //  |    |
+  //  |   VecToScalar --> Exit  // reduces vector values to scalars
+  //  |   /
+  //  ScalarGuard //  scalar loop preHeader
+  //    |
+  //  ScalarL <> --> Exit
+
+// scalar loop context
+  // the old preheader
+  BasicBlock * entryBlock;
+
+  // the single loop exit
+  BasicBlock * loopExit;
+
+// embedding blocks
+  // either dispatches to the vectorized or the scalar loop
+  BasicBlock * vecGuardBlock;
+
+  // entry point to the scalar loop (scalar loop prehader)W
+  BasicBlock * scalarGuardBlock;
+
+  // exit of the vector loop to the scalar guard
+  BasicBlock * vecToScalarExit;
+
+  static
+  BasicBlock*
+  GetUniqueExiting(llvm::Loop & L) {
+    auto * exitBlock = L.getExitBlock();
+    for (auto & use : exitBlock->uses()) {
+      auto * exitingBr = dyn_cast<BranchInst>(use.getUser());
+      if (!exitingBr) continue;
+      if (!L.contains(exitingBr->getParent())) continue;
+
+      return exitingBr->getParent();
+    }
+    return nullptr;
+  }
+
+  LoopRemainderTransform(Function & _F, Loop & _ScalarL, ValueToValueMapTy & _vecValMap, VectorizationInfo & _vecInfo, ReductionAnalysis & _reda, int _tripAlign, int _vectorWidth)
+  : F(_F)
+  , ScalarL(_ScalarL)
+  , vecValMap(_vecValMap)
+  , vecInfo(_vecInfo)
+  , reda(_reda)
+  , tripAlign(_tripAlign)
+  , vectorWidth(_vectorWidth)
+  , entryBlock(ScalarL.getLoopPreheader())
+  , loopExit(ScalarL.getExitBlock())
+  , vecGuardBlock(nullptr)
+  , scalarGuardBlock(nullptr)
+  , vecToScalarExit(nullptr)
+  {
+    assert(loopExit && "multi exit loops unsupported (yet)");
+    assert(ScalarL.getExitingBlock() && "Scalar loop does not have a unique exiting block (unsupported)");
+
+    // create all basic blocks
+    setupControl();
+
+    // repair value flow through the blocks
+    repairValueFlow();
+  }
+
+  // set-up the vector loop CFG
+  void
+  setupControl() {
+    auto * scalarHead = ScalarL.getHeader();
+    auto & context = scalarHead->getContext();
+    auto * vecHead = cast<BasicBlock>(vecValMap[scalarHead]);
+
+    std::string loopName = ScalarL.getName().str();
+    vecGuardBlock = BasicBlock::Create(context, loopName + ".vecg", &F, scalarHead);
+    scalarGuardBlock = BasicBlock::Create(context, loopName + ".scag", &F, scalarHead);
+    vecToScalarExit = BasicBlock::Create(context, loopName + ".vec2scalar", &F, scalarHead);
+
+  // branch to vecGuard instead to the scalar loop
+    auto * entryTerm = entryBlock->getTerminator();
+    for (size_t i = 0; i < entryTerm->getNumSuccessors(); ++i) {
+      if (scalarHead == entryTerm->getSuccessor(i)) {
+        entryTerm->setSuccessor(i, vecGuardBlock);
+        break;
+      }
+    }
+
+  // dispatch to vector loop header or the scalar guard
+    // TODO cost model / pre-conditions
+    Value * constTrue = ConstantInt::getTrue(context);
+    BranchInst::Create(vecHead, scalarGuardBlock, constTrue, vecGuardBlock);
+
+  // make the vector loop exit to vecToScalar
+    auto * scalarTerm = ScalarL.getExitingBlock()->getTerminator();
+    auto * vecTerm = cast<TerminatorInst>(vecValMap[scalarTerm]);
+
+    for (size_t i = 0; i < scalarTerm->getNumSuccessors(); ++i) {
+      if (scalarTerm->getSuccessor(i) != loopExit) continue;
+      vecTerm->setSuccessor(i, vecToScalarExit);
+      break;
+    }
+
+  // branch from vecToScalarExit to the scalarGuard
+    BranchInst::Create(scalarGuardBlock, vecToScalarExit);
+
+  // make scalarGuard the new preheader of the scalar loop
+    BranchInst::Create(scalarHead, scalarGuardBlock);
+  }
+
+  // reduce a vector loop liveout to a scalar value
+  Value&
+  ReduceValueToScalar(Value & scalarVal, BasicBlock & where) {
+    auto valShape = vecInfo.getVectorShape(scalarVal);
+    if (valShape.isUniform()) {
+      return scalarVal;
+
+    } else if (valShape.hasStridedShape()) {
+      int64_t reducedStride = valShape.getStride() * vecInfo.getVectorWidth();
+      IRBuilder<> builder(&where, where.getTerminator()->getIterator());
+      return *builder.CreateAdd(vecValMap[&scalarVal], ConstantInt::get(scalarVal.getType(), reducedStride));
+
+    } else {
+      errs() << "general on-the-fly reduction not yet implemented!\n";
+      abort();
+    }
+  }
+
+  // reduce all vector values to scalar values
+  // vecLoopHis will contain the reduced loop header phis (to be used as initial values in the scalar loop)
+  // vecLiveOuts will contain all reduced liveouts of the scalar loop
+  // header phis may be contained in both sets
+  void
+  reduceVectorLiveOuts(ValueToValueMapTy & vecLoopPhis, ValueToValueMapTy & vecLiveOuts) {
+    auto * scalHeader = ScalarL.getHeader();
+
+  // reduce all loop header phis
+    for (auto & scalInst : *scalHeader) {
+      if (!isa<PHINode>(scalInst)) break;
+      auto & scalarPhi = cast<PHINode>(scalInst);
+
+      auto & reducedVecPhi = ReduceValueToScalar(scalarPhi, *vecToScalarExit);
+
+      vecLoopPhis[&scalarPhi] = &reducedVecPhi;
+    }
+
+  // reduce all remaining live outs
+    for (auto * BB : ScalarL.blocks()) {
+      for (auto & Inst : *BB) {
+        for (auto & use : Inst.uses()) {
+          auto * userInst = cast<Instruction>(use.getUser());
+          if (ScalarL.contains(userInst)) continue;
+
+          // we already reduced this loop header phi
+          if (vecLoopPhis.count(&Inst)) {
+            vecLiveOuts[&Inst] = vecLoopPhis[&Inst];
+            continue;
+          }
+
+          // otw, reduce it now
+          ReduceValueToScalar(Inst, *vecToScalarExit);
+          assert(false && "");
+        }
+      }
+    }
+    // TODO not supported yet
+  }
+
+  void
+  updateScalarLoopStartValues(ValueToValueMapTy & vecLoopPhis) {
+    auto * scalHeader = ScalarL.getHeader();
+
+    IRBuilder<> scaGuardBuilder(scalarGuardBlock, scalarGuardBlock->begin());
+
+    for (auto & scalInst : *scalHeader) {
+      if (!isa<PHINode>(scalInst)) break;
+      auto & scalarPhi = cast<PHINode>(scalInst);
+
+      std::string phiName = scalarPhi.getName().str();
+
+      int preHeaderIdx = scalarPhi.getBasicBlockIndex(entryBlock);
+      assert(preHeaderIdx >= 0);
+      auto & initialValue = *scalarPhi.getIncomingValue(preHeaderIdx);
+
+    // create a PHI for every loop header phi in the scalar loop
+      // when coming from the vectorGuard -> use the old initial values
+      // when coming from the vecToScalarExit -> use the reduced scalar values from the vector loop
+      auto &scaGuardPhi = *scaGuardBuilder.CreatePHI(scalarPhi.getType(), 2, phiName + ".scaGuard");
+      scaGuardPhi.addIncoming(vecLoopPhis[&scalarPhi], vecToScalarExit);
+      scaGuardPhi.addIncoming(&initialValue, vecGuardBlock);
+
+    // take scaGuardPhi from the new preHeader of the scalar loop (scalarGuardBlock)
+      scalarPhi.setIncomingBlock(preHeaderIdx, scalarGuardBlock);
+      scalarPhi.setIncomingValue(preHeaderIdx, &scaGuardPhi);
+    }
+  }
+
+  void
+  updateExitLiveOuts(ValueToValueMapTy & vecLiveOuts) {
+  // reduce all remaining live outs
+    IRBuilder<> exitBuilder(loopExit, loopExit->begin());
+
+    for (auto * BB : ScalarL.blocks()) {
+      for (auto & Inst : *BB) {
+        PHINode * mergePhi = nullptr;
+        for (auto & use : Inst.uses()) {
+          auto * userInst = cast<Instruction>(use.getUser());
+          if (ScalarL.contains(userInst)) continue;
+
+          auto scaLiveOut = &Inst;
+          auto vecLiveOut = vecLiveOuts[scaLiveOut];
+
+          assert(vecLiveOut && "live out was not reduced in vector loop");
+
+          if (isa<PHINode>(userInst) && userInst->getParent() == mergePhi->getParent()) {
+            auto & userPhi = *cast<PHINode>(userInst);
+            int exitingIdx = userPhi.getBasicBlockIndex(ScalarL.getExitingBlock());
+            assert(exitingIdx >= 0);
+
+            // vector loop is exiting to this block now as well
+            userPhi.addIncoming(vecLiveOut, vecToScalarExit);
+
+          } else {
+
+            // Create a new phi node to receive this value
+            if (!mergePhi) {
+              std::string liveOutName = scaLiveOut->getName().str();
+              mergePhi = exitBuilder.CreatePHI(scaLiveOut->getType(), 2, liveOutName + ".merge");
+              mergePhi->addIncoming(scaLiveOut, ScalarL.getExitingBlock());
+              mergePhi->addIncoming(vecLiveOut, vecToScalarExit);
+              IF_DEBUG { errs() << "\tCreated merge phi " << *mergePhi << "\n"; }
+            }
+
+            userInst->setOperand(use.getOperandNo(), mergePhi);
+            IF_DEBUG { errs() << "\t- fixed user " << *userInst << "\n"; }
+          }
+        }
+      }
+    }
+  }
+
+  void
+  fixVecLoopHeaderPhis() {
+    auto vecHead = cast<BasicBlock>(vecValMap[ScalarL.getHeader()]);
+    for (auto & Inst : *vecHead) {
+      auto * phi = dyn_cast<PHINode>(&Inst);
+      if (!phi) break;
+      int initOpIdx = phi->getBasicBlockIndex(entryBlock);
+      phi->setIncomingBlock(initOpIdx, vecGuardBlock);
+    }
+  }
+
+  void
+  repairValueFlow() {
+    ValueToValueMapTy vecLoopPhis, vecLiveOuts;
+
+    // start edge now coming from vecGuardBlock (instead of old preheader entrBlock)
+    fixVecLoopHeaderPhis();
+
+    // reduce loop live outs and ALL vector loop phis (that existed in the scalar loop)
+    reduceVectorLiveOuts(vecLoopPhis, vecLiveOuts);
+
+    // let the scalar loop start from the remainder vector loop remainder (if the VL was executed)
+    updateScalarLoopStartValues(vecLoopPhis);
+
+    // repair vector loop liveouts
+    updateExitLiveOuts(vecLiveOuts);
+  }
+};
+
 static
 rv::VectorShape
 GetShapeFromReduction(rv::Reduction & redInfo, int vectorWidth) {
@@ -149,11 +446,28 @@ GetShapeFromReduction(rv::Reduction & redInfo, int vectorWidth) {
   return VectorShape::strided(constInc, constInc * vectorWidth);
 }
 
+
+void
+LoopVectorizer::embedVectorizedLoop(Loop &L, llvm::ValueToValueMapTy & vecValMap, VectorizationInfo & vecInfo, int VectorWidth, int tripAlign) {
+  IF_DEBUG { errs() << "\tCreating scalar remainder Loop for " << L.getName() << "\n"; }
+
+  // TODO update vector loop trip count
+
+  // run remainder transform
+  LoopRemainderTransform remTrans(*F, L, vecValMap, vecInfo, *reda, VectorWidth, tripAlign);
+
+// modify CFG
+  // Adjust trip count
+}
+
 bool
 LoopVectorizer::vectorizeLoop(Loop &L) {
 // check the dependence distance of this loop
   int depDist = getDependenceDistance(L);
-  if (depDist <= 1) return false;
+  if (depDist <= 1) {
+    Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Min dependence distance was " << depDist << "\n";
+    return false;
+  }
 
   //
   int tripAlign = getTripAlignment(L);
@@ -164,10 +478,10 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     return false;
   }
 
-  if (tripAlign % VectorWidth != 0) {
-    Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Could not adjust trip count\n";
-    return false;
-  }
+  // if (tripAlign % VectorWidth != 0) {
+  //   Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Could not adjust trip count\n";
+  //   return false;
+  // }
 
   Report() << "loopVecPass: Vectorize " << L.getName() << " with VW: " << VectorWidth
          << " and TripAlignment: " << tripAlign << "\n";
@@ -175,7 +489,6 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   BasicBlock *ExitingBlock = L.getExitingBlock();
   Function &F = *ExitingBlock->getParent();
   Module &M = *F.getParent();
-
 
   VectorMapping targetMapping(&F, &F, VectorWidth);
 
@@ -209,15 +522,9 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     vecInfo.setVectorShape(*phi, phiShape);
   }
 
-
-// modify CFG
-  // Adjust trip count
-  assert((VectorWidth % tripAlign == 0) && "remainder loop vectorization not yet supported");
-  auto *ExitingBI = cast<BranchInst>(ExitingBlock->getTerminator());
-  if (L.contains(ExitingBI->getSuccessor(0)))
-    ExitingBI->setCondition(ConstantInt::getFalse(ExitingBI->getContext()));
-  else
-    ExitingBI->setCondition(ConstantInt::getTrue(ExitingBI->getContext()));
+// Force the loop exit branch to uniform (which it is going to be after the transformation)
+  auto * exitBr = L.getExitingBlock()->getTerminator();
+  vecInfo.setVectorShape(*exitBr, VectorShape::uni());
 
 // prepare analyses
   auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
@@ -259,12 +566,21 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
       *vecInfo.getMapping().scalarFn); // Control conversion does not preserve
                                        // the domTree so we have to rebuild it
                                        // for now
+
+  // FIXME do this for tripCount == vectorWidth loops
+  // auto *ExitingBI = cast<BranchInst>(ExitingBlock->getTerminator());
+  // if (L.contains(ExitingBI->getSuccessor(0)))
+  //   ExitingBI->setCondition(ConstantInt::getFalse(ExitingBI->getContext()));
+  // else
+  //   ExitingBI->setCondition(ConstantInt::getTrue(ExitingBI->getContext()));
+
   ValueToValueMapTy vecInstMap;
   bool vectorizeOk = vectorizer->vectorize(vecInfo, domTreeNew, *LI, *SE, *MDR, &vecInstMap);
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
 
-
+// embed vectorized loop in CFG
+  embedVectorizedLoop(L, vecInstMap, vecInfo, VectorWidth, tripAlign);
 
 // restore analysis structures
   DT.recalculate(F);
@@ -293,9 +609,11 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   bool Changed = false;
 
   // query analysis results
-  LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-  SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
-  MDR = &getAnalysis<MemoryDependenceWrapperPass>().getMemDep();
+  this->LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+  this->SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
+  this->MDR = &getAnalysis<MemoryDependenceWrapperPass>().getMemDep();
+  this->F = &F;
+
   TargetTransformInfo & tti = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
   TargetLibraryInfo & tli = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
 
@@ -327,10 +645,15 @@ bool LoopVectorizer::runOnFunction(Function &F) {
 }
 
 void LoopVectorizer::getAnalysisUsage(AnalysisUsage &AU) const {
+  AU.addRequired<MemoryDependenceWrapperPass>();
   AU.addRequired<LoopInfoWrapperPass>();
   AU.addRequired<DominatorTreeWrapperPass>();
   AU.addRequired<ScalarEvolutionWrapperPass>();
   AU.addRequired<PostDominatorTreeWrapperPass>();
+
+  // PlatformInfo
+  AU.addRequired<TargetTransformInfoWrapperPass>();
+  AU.addRequired<TargetLibraryInfoWrapperPass>();
 }
 
 char LoopVectorizer::ID = 0;
