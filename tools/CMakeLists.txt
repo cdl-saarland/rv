@@ -5,4 +5,28 @@ SET ( RVTOOL_SOURCE_FILES rvTool.cpp rvTool.h )
 INCLUDE_DIRECTORIES ( include/ )
 
 ADD_EXECUTABLE ( ${RVTOOL_NAME} ${RVTOOL_SOURCE_FILES} )
-TARGET_LINK_LIBRARIES ( ${RVTOOL_NAME} RV )
+
+# link with libRV in any case
+target_link_libraries(${RVTOOL_NAME}
+  RV
+  LLVMSupport
+  LLVMCore
+  LLVMScalarOpts
+  LLVMInstCombine
+  LLVMTransformUtils
+  LLVMAnalysis
+  LLVMipo
+  LLVMMC
+  LLVMIRReader
+  LLVMPasses
+# The libraries below are required for darwin: http://PR26392
+  LLVMBitReader
+  LLVMMCParser
+  LLVMObject
+  LLVMProfileData
+  LLVMTarget
+  LLVMVectorize
+)
+link_directories(
+  ${LLVM_LIBRARY_DIR}
+)
