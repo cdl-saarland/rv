@@ -10,6 +10,14 @@ namespace llvm {
   class DominatorTree;
 }
 
+template<class T>
+inline
+T&
+LookUp(llvm::ValueToValueMapTy & valMap, T& key) {
+  return *llvm::cast<T>(valMap[&key]);
+}
+
+
 namespace rv {
 
 class ReductionAnalysis;

@@ -40,13 +40,6 @@ namespace rv {
 typedef std::map<PHINode*, PHINode*> PHIMap;
 typedef std::map<Instruction*, Instruction*> InstMap;
 
-template<class T>
-inline
-T&
-LookUp(ValueToValueMapTy & valMap, T& key) {
-  return *cast<T>(valMap[&key]);
-}
-
 struct LoopTransformer {
   Function & F;
   Loop & ScalarL;

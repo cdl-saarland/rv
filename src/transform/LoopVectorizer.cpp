@@ -24,6 +24,7 @@
 
 #include "rvConfig.h"
 
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Dominators.h"
 
@@ -33,6 +34,7 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/MemoryDependenceAnalysis.h"
 
+#include "llvm/Transforms/Utils/Cloning.h"
 
 #include "report.h"
 
@@ -254,10 +256,27 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   CDG cdg(PDT);
   cdg.create(F);
 
+  // clone all original scalar blocks as the scalar loop will be modified by the linearizer
+  // FIXME do not modify the original loop
+  ValueToValueMapTy backUpMap;
+  SmallVector<BasicBlock*, 16> backUpBlocks;
+
+  for (auto * BB : L.blocks()) {
+    auto * clonedBlock = CloneBasicBlock(BB, backUpMap, "", nullptr, nullptr);
+    errs() << "CLONED " << *clonedBlock << "\n";
+    backUpBlocks.push_back(clonedBlock);
+    backUpMap[BB] = clonedBlock;
+  }
+
+  // remap backup blocks internally
+  remapInstructionsInBlocks(backUpBlocks, backUpMap);
 
 // Vectorize
   // vectorizationAnalysis
   vectorizer->analyze(vecInfo, cdg, dfg, *LI, PDT, DT);
+
+  F.dump();
+  assert(L.getLoopPreheader());
 
   // mask analysis
   auto maskAnalysis = vectorizer->analyzeMasks(vecInfo, *LI);
@@ -292,8 +311,68 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
 
+  auto * oldPreHead = L.getLoopPreheader();
+
 // embed vectorized loop in CFG
   embedVectorizedLoop(L, vecInstMap, vecInfo, VectorWidth, tripAlign);
+
+// recover the original scalar loop
+  // FIXME do not break the scalar loop
+
+  // turn old scalar loop into dead code
+  auto * scalarGuardBlock = L.getLoopPreheader();
+  auto * oldTerm = scalarGuardBlock->getTerminator();
+  auto * oldHead = L.getHeader();
+  auto & clonedHead = LookUp(backUpMap, *L.getHeader());
+  auto * constTrue = ConstantInt::getTrue(oldTerm->getContext());
+  BranchInst::Create(&clonedHead, L.getHeader(), constTrue, scalarGuardBlock);
+  oldTerm->eraseFromParent();
+
+  // in the meantime the old preheader has been replaced by the scalarGuardBlock
+  for (auto & Inst : clonedHead) {
+    auto * phi = dyn_cast<PHINode>(&Inst);
+    if (!phi) break;
+    int preIdx = phi->getBasicBlockIndex(oldPreHead);
+    phi->setIncomingBlock(preIdx, scalarGuardBlock);
+  }
+
+  // old header phis are invalid -> replace by undef
+  for (auto itPhi = oldHead->begin(); itPhi != oldHead->end() && isa<PHINode>(*itPhi);) {
+    auto & phi = *cast<PHINode>(itPhi++);
+    phi.replaceAllUsesWith(UndefValue::get(phi.getType()));
+    phi.eraseFromParent();
+  }
+
+  // convert remaining branches to the loop header into unreachables
+  for (auto & use : oldHead->uses()) {
+    auto * term = dyn_cast<TerminatorInst>(use.getUser());
+    if (!term || term->getParent() == scalarGuardBlock) continue; // preserve the fake attachment from scalarGuardBlock
+    new UnreachableInst(term->getContext(), term->getParent());
+    term->eraseFromParent();
+  }
+
+  // replace all remaining out-of-loop uses with mapped values
+  for (BasicBlock * BB : L.blocks()) {
+    // assume the replaced block's place and name
+    auto & clonedBlock = LookUp(backUpMap, *BB);
+    clonedBlock.takeName(BB);
+    F.getBasicBlockList().insert(BB->getIterator(), &clonedBlock);
+
+    // rewire pending branches
+    // if (BB != oldHead) BB->replaceAllUsesWith(&clonedBlock);
+    //
+
+    for (auto & Inst : *BB) {
+      if (Inst.getType()->isVoidTy()) {
+        continue;
+      }
+      Value * replacement = backUpMap[&Inst];
+      if (!replacement) {
+        replacement = UndefValue::get(Inst.getType());
+      }
+      Inst.replaceAllUsesWith(replacement);
+    }
+  }
 
 // restore analysis structures
   DT.recalculate(F);
@@ -351,9 +430,10 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   // cleanup
   reda.reset();
   vectorizer.reset();
-  LI = nullptr;
-  SE = nullptr;
-  MDR = nullptr;
+  this->F = nullptr;
+  this->LI = nullptr;
+  this->SE = nullptr;
+  this->MDR = nullptr;
   return Changed;
 }
 

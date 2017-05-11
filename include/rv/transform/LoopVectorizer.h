@@ -26,6 +26,7 @@ namespace llvm {
   class MemoryDependenceResults;
 }
 
+
 namespace rv {
 
 class VectorizationInfo;
