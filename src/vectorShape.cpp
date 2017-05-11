@@ -204,13 +204,13 @@ VectorShape truncateToTypeSize(const VectorShape &a, unsigned typeSize) {
   // FIXME
     // observed in SimpleBarrier2D:
     // %41 = <someInst> : stride(32)
-    // %42 = trunc i64 i64 %41 to i32
+    // %42 = trunc i64 i64 %41 to i32 : uni
     return a;
 
 #if 0
     if (!a.isDefined()) return a;
 
-    size_t factor = 1 << typeSize;
+    int factor = typeSize > 8 ? 256 : 1 << typeSize;
     if (a.isVarying()) {
       return VectorShape::varying(a.getAlignmentFirst() % factor);
     }

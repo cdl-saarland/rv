@@ -26,6 +26,7 @@ add_rv_library(RV
   transform/maskGenerator.cpp
   transform/LoopVectorizer.cpp
   transform/Linearizer.cpp
+  transform/remTransform.cpp
   transform/srovTransform.cpp
   transform/structOpt.cpp
   utils/maskGraphUtils.cpp
