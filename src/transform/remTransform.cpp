@@ -46,8 +46,8 @@ struct LoopTransformer {
   ValueToValueMapTy & vecValMap;
   VectorizationInfo & vecInfo;
   ReductionAnalysis & reda;
-  int tripAlign;
   int vectorWidth;
+  int tripAlign;
 
   // - original loop -
   //
@@ -101,14 +101,14 @@ struct LoopTransformer {
     return nullptr;
   }
 
-  LoopTransformer(Function & _F, Loop & _ScalarL, ValueToValueMapTy & _vecValMap, VectorizationInfo & _vecInfo, ReductionAnalysis & _reda, int _tripAlign, int _vectorWidth)
+  LoopTransformer(Function & _F, Loop & _ScalarL, ValueToValueMapTy & _vecValMap, VectorizationInfo & _vecInfo, ReductionAnalysis & _reda, int _vectorWidth, int _tripAlign)
   : F(_F)
   , ScalarL(_ScalarL)
   , vecValMap(_vecValMap)
   , vecInfo(_vecInfo)
   , reda(_reda)
-  , tripAlign(_tripAlign)
   , vectorWidth(_vectorWidth)
+  , tripAlign(_tripAlign)
   , entryBlock(ScalarL.getLoopPreheader())
   , loopExit(ScalarL.getExitBlock())
   , vecGuardBlock(nullptr)
@@ -315,11 +315,64 @@ struct LoopTransformer {
     return -1;
   }
 
+  // fix the vector loop exit condition
+  void
+  RepairVectorLoopCondition(ValueToValueMapTy & vecLoopPhis) {
+    auto & vecHead = LookUp(vecValMap, *ScalarL.getHeader());
+
+    // map vector phis to their shapes
+    std::map<Value*, rv::VectorShape> phiShapes;
+    for (auto & Inst : *ScalarL.getHeader()) {
+      auto * phi = dyn_cast<PHINode>(&Inst);
+      if (!phi) break;
+      auto & vecPhi = LookUp(vecValMap, *phi);
+      phiShapes[&vecPhi] = vecInfo.getVectorShape(*phi);
+    }
+
+    // replicate the vector loop exit condition
+    auto & scaExiting = *GetUniqueExiting(ScalarL);
+    auto & vecExiting = LookUp(vecValMap, scaExiting);
+
+    auto & vecExitingBr = cast<BranchInst>(*vecExiting.getTerminator());
+
+    // replicate the vector loop exit condition
+    IRBuilder<> builder(&vecHead, vecHead.getTerminator()->getIterator());
+
+    // TODO create a llvm::Loop for the vector loop
+    std::map<const BasicBlock*, const BasicBlock*> vecLoopBlocks;
+    for (auto * BB : ScalarL.blocks()) {
+      vecLoopBlocks[&LookUp(vecValMap, *BB)] = BB;
+    }
+
+    ValueToValueMapTy replMap;
+    auto & exitVal =
+      ReplicateExpression(*vecExitingBr.getCondition(), replMap,
+         [&](Instruction & inst, IRBuilder<>& builder) -> Value* {
+           assert (!isa<CallInst>(inst));
+
+           if (!vecLoopBlocks.count(inst.getParent())) return &inst;
+
+           auto it = phiShapes.find(&inst);
+           if (it == phiShapes.end()) return nullptr;
+
+           VectorShape shape = it->second;
+           //
+           // we hit a header phi -> forward by (vectorWidth-1) many iterations
+           errs() << "SHAPE FIX: " <<  inst << " " << shape.str() << "\n";
+           int64_t amount = shape.getStride() * (vectorWidth - 1);
+           return builder.CreateAdd(&inst, ConstantInt::getSigned(inst.getType(), amount));
+          },
+      builder
+      );
+
+    // use forwarded exit condition
+    vecExitingBr.setCondition(&exitVal);
+  }
+
   // supplement the vector loop guard condition
   // the Vloop is executed if there is at least one full vector of iterations
   void
   SupplementVectorGuard() {
-
     ValueToValueMapTy replMap;
 
     // map vector loop header phis to their initial values
@@ -530,6 +583,9 @@ struct LoopTransformer {
   // supplement the vector loop guard condition (vecGuardBlock -> vector loop edge)
     // the vector loop will execute on at least one full vector
     SupplementVectorGuard();
+
+    // repair the vector loop exit condition to check for the next iteration (instead on the phi + strie * vectorWidth -th)
+    RepairVectorLoopCondition(vecLoopPhis);
   }
 };
 
