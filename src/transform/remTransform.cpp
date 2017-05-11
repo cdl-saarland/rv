@@ -522,7 +522,7 @@ struct LoopTransformer {
 
           assert(vecLiveOut && "live out was not reduced in vector loop");
 
-          if (isa<PHINode>(userInst) && userInst->getParent() == mergePhi->getParent()) {
+          if (isa<PHINode>(userInst) && userInst->getParent() == loopExit) {
             auto & userPhi = *cast<PHINode>(userInst);
             int exitingIdx = userPhi.getBasicBlockIndex(ScalarL.getExitingBlock());
             assert(exitingIdx >= 0);
