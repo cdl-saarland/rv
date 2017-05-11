@@ -45,6 +45,13 @@ using namespace rv;
 using namespace llvm;
 
 
+template<class T>
+inline
+T&
+LookUp(ValueToValueMapTy & valMap, T& key) {
+  return *cast<T>(valMap[&key]);
+}
+
 bool LoopVectorizer::canVectorizeLoop(Loop &L) {
   if (!L.isAnnotatedParallel())
     return false;
@@ -224,19 +231,19 @@ struct LoopRemainderTransform {
   // set-up the vector loop CFG
   void
   setupControl() {
-    auto * scalarHead = ScalarL.getHeader();
-    auto & context = scalarHead->getContext();
-    auto * vecHead = cast<BasicBlock>(vecValMap[scalarHead]);
+    auto & scalarHead = *ScalarL.getHeader();
+    auto & context = scalarHead.getContext();
+    auto & vecHead = LookUp(vecValMap, scalarHead);
 
     std::string loopName = ScalarL.getName().str();
-    vecGuardBlock = BasicBlock::Create(context, loopName + ".vecg", &F, scalarHead);
-    scalarGuardBlock = BasicBlock::Create(context, loopName + ".scag", &F, scalarHead);
-    vecToScalarExit = BasicBlock::Create(context, loopName + ".vec2scalar", &F, scalarHead);
+    vecGuardBlock = BasicBlock::Create(context, loopName + ".vecg", &F, &scalarHead);
+    scalarGuardBlock = BasicBlock::Create(context, loopName + ".scag", &F, &scalarHead);
+    vecToScalarExit = BasicBlock::Create(context, loopName + ".vec2scalar", &F, &scalarHead);
 
   // branch to vecGuard instead to the scalar loop
     auto * entryTerm = entryBlock->getTerminator();
     for (size_t i = 0; i < entryTerm->getNumSuccessors(); ++i) {
-      if (scalarHead == entryTerm->getSuccessor(i)) {
+      if (&scalarHead == entryTerm->getSuccessor(i)) {
         entryTerm->setSuccessor(i, vecGuardBlock);
         break;
       }
@@ -247,7 +254,7 @@ struct LoopRemainderTransform {
     // TODO cost model / pre-conditions
     auto * vecLoopCond = constTrue;
 
-    BranchInst::Create(vecHead, scalarGuardBlock, vecLoopCond, vecGuardBlock);
+    BranchInst::Create(&vecHead, scalarGuardBlock, vecLoopCond, vecGuardBlock);
 
   // make the vector loop exit to vecToScalar
     auto * scalarTerm = ScalarL.getExitingBlock()->getTerminator();
@@ -265,7 +272,7 @@ struct LoopRemainderTransform {
     BranchInst::Create(scalarGuardBlock, loopExit, remainderCond, vecToScalarExit);
 
   // make scalarGuard the new preheader of the scalar loop
-    BranchInst::Create(scalarHead, scalarGuardBlock);
+    BranchInst::Create(&scalarHead, scalarGuardBlock);
   }
 
   // reduce a vector loop liveout to a scalar value
@@ -278,7 +285,7 @@ struct LoopRemainderTransform {
     } else if (valShape.hasStridedShape()) {
       int64_t reducedStride = valShape.getStride() * vecInfo.getVectorWidth();
       IRBuilder<> builder(&where, where.getTerminator()->getIterator());
-      return *builder.CreateAdd(vecValMap[&scalarVal], ConstantInt::get(scalarVal.getType(), reducedStride));
+      return *builder.CreateAdd(&LookUp(vecValMap, scalarVal), ConstantInt::get(scalarVal.getType(), reducedStride));
 
     } else {
       errs() << "general on-the-fly reduction not yet implemented!\n";
@@ -357,10 +364,7 @@ struct LoopRemainderTransform {
 
   static
   Value&
-  ReplicateExpression(Value & val, ValueToValueMapTy & replMap, std::function<Value* (Instruction&)> leafFunc, IRBuilder<> & builder) {
-    // we must stay in this basic block
-    assert(!isa<PHINode>(val) && "can not replicate this!");
-
+  ReplicateExpression(Value & val, ValueToValueMapTy & replMap, std::function<Value* (Instruction&, IRBuilder<>&)> leafFunc, IRBuilder<> & builder) {
     auto * inst = dyn_cast<Instruction>(&val);
 
     // preserve non-insts
@@ -375,10 +379,13 @@ struct LoopRemainderTransform {
     }
 
     // do we have a custom leaf mapping for this value?
-    auto * replaceWith = leafFunc(*inst);
+    auto * replaceWith = leafFunc(*inst, builder);
     if (replaceWith) {
       return *replaceWith;
     }
+
+    // we must stay in this basic block
+    assert(!isa<PHINode>(val) && "can not replicate this!");
 
     // otw, start cloning
     auto & clone = *inst->clone();
@@ -411,9 +418,72 @@ struct LoopRemainderTransform {
     return -1;
   }
 
+  // supplement the vector loop guard condition
+  // the Vloop is executed if there is at least one full vector of iterations
+  void
+  SupplementVectorGuard() {
+
+    ValueToValueMapTy replMap;
+
+    // map vector loop header phis to their initial values
+    ValueToValueMapTy leafMap;
+    for (auto & Inst : *ScalarL.getHeader()) {
+      auto * phi = dyn_cast<PHINode>(&Inst);
+      if (!phi) break;
+
+      int loopIdx = GetLoopIncomingIndex(ScalarL, *phi);
+      assert(loopIdx >= 0);
+
+      auto & vecPhi = LookUp(vecValMap, *phi);
+
+      auto * loopInVal = vecPhi.getIncomingValue(loopIdx);
+
+      leafMap[&vecPhi] = loopInVal;
+    }
+
+    // replicate the vector loop exit condition
+    auto & scaExiting = *GetUniqueExiting(ScalarL);
+    auto & vecExiting = LookUp(vecValMap, scaExiting);
+
+    auto & vecExitingBr = cast<BranchInst>(*vecExiting.getTerminator());
+    int vecExitSuccIdx = vecExitingBr.getSuccessor(0) == vecToScalarExit ? 0 : 1;
+    assert(vecExitingBr.getSuccessor(vecExitSuccIdx) == vecToScalarExit);
+
+    // replicate the vector loop exit condition
+    IRBuilder<> builder(vecGuardBlock, vecGuardBlock->getTerminator()->getIterator());
+
+
+    // TODO create a llvm::Loop for the vector loop
+    std::map<const BasicBlock*, const BasicBlock*> vecLoopBlocks;
+    for (auto * BB : ScalarL.blocks()) {
+      vecLoopBlocks[&LookUp(vecValMap, *BB)] = BB;
+    }
+
+    auto & exitVal =
+      ReplicateExpression(*vecExitingBr.getCondition(), replMap,
+         [&](Instruction & inst, IRBuilder<>&) -> Value* {
+           assert (!isa<CallInst>(inst));
+
+           if (!vecLoopBlocks.count(inst.getParent())) return &inst;
+
+           auto it = leafMap.find(&inst);
+           return it != leafMap.end() ? it->second : nullptr;
+          },
+      builder
+      );
+
+    // supplement the vector loop guard condition
+    auto & vecGuardBr = *cast<BranchInst>(vecGuardBlock->getTerminator());
+    vecGuardBr.setCondition(&exitVal);
+
+    // swap the exits to negate the condition
+    if (vecExitSuccIdx == 0) {
+      vecGuardBr.setSuccessor(0, loopExit);
+      vecGuardBr.setSuccessor(1, scalarGuardBlock);
+    }
+  }
+
   // replicate the scalar loop exit condition in vecToScalarExit
-  // @ret *exitCondition = materialized exit condition
-  // @ret != 0 if exitCondition needs to be negated
   void
   SupplementVectorExit(ValueToValueMapTy & vecLoopPhis) {
     auto & scaExiting = *GetUniqueExiting(ScalarL);
@@ -426,22 +496,49 @@ struct LoopRemainderTransform {
 
     // insert vector reduced values as leaves
     ValueToValueMapTy leafMap;
+
+    // map scalar header phis to reduced values
+    ValueToValueMapTy headerPhiMap;
+
+    // prepare a look up set for scalar loop header PHis
+    // if we hit those during replication, we need to restore their value from the previous iteration
     for (auto it : vecLoopPhis) {
-      auto & scalarPhi = cast<PHINode>(*it->first);
+      const auto & scalarPhi = cast<PHINode>(*it->first);
       auto & scalarInitVal = *it->second;
       int loopIdx = GetLoopIncomingIndex(ScalarL, scalarPhi);
       assert(loopIdx >= 0);
 
       auto * loopInVal = scalarPhi.getIncomingValue(loopIdx);
       leafMap[loopInVal] = &scalarInitVal;
+      headerPhiMap[&scalarPhi] = &scalarInitVal;
     }
+
 
     // replicate the exit condition
     auto & exitVal =
       ReplicateExpression(*exitingBr.getCondition(), replMap,
-         [&](Instruction & inst) -> Value* {
+         [&](Instruction & inst, IRBuilder<>&) -> Value* {
+         // loop invariant value
            if (!ScalarL.contains(inst.getParent())) return &inst;
 
+           assert (!isa<CallInst>(inst));
+         // this refers to the last iteration (value in the last vector lane)
+           // emulate this value starting from the vector loop phi "vecPhi + stride*(vectorWidth - 1)"
+           auto itPhi = headerPhiMap.find(&inst);
+           if (itPhi != headerPhiMap.end()) {
+             auto & scaPhi = cast<PHINode>(inst);
+             auto & vecPhi = LookUp(vecValMap, scaPhi);
+
+             auto vecPhiShape = vecInfo.getVectorShape(scaPhi);
+             assert(vecPhiShape.hasStridedShape() && "can not rollback non-strided iteration variabels");
+             int scalarStride = vecPhiShape.getStride() / vectorWidth;
+
+             assert(scaPhi.getType()->isIntegerTy() && "rollback of non-ints not implemented!");
+             auto lastIterValue = builder.CreateAdd(&vecPhi,ConstantInt::getSigned(scaPhi.getType(), scalarStride * (vectorWidth - 1)));
+             return lastIterValue;
+           }
+
+         // this refers to the next iteration after the vector loop -> replace with the scalar loop init value
            auto it = leafMap.find(&inst);
            return it != leafMap.end() ? it->second : nullptr;
           },
@@ -453,7 +550,6 @@ struct LoopRemainderTransform {
 
     // swap the exits to negate the condition
     if (exitSuccIdx == 0) {
-      assert(exitSuccIdx == 1);
       vecExitBr.setSuccessor(0, loopExit);
       vecExitBr.setSuccessor(1, scalarGuardBlock);
     }
@@ -505,8 +601,8 @@ struct LoopRemainderTransform {
 
   void
   fixVecLoopHeaderPhis() {
-    auto vecHead = cast<BasicBlock>(vecValMap[ScalarL.getHeader()]);
-    for (auto & Inst : *vecHead) {
+    auto & vecHead = LookUp(vecValMap, *ScalarL.getHeader());
+    for (auto & Inst : vecHead) {
       auto * phi = dyn_cast<PHINode>(&Inst);
       if (!phi) break;
       int initOpIdx = phi->getBasicBlockIndex(entryBlock);
@@ -530,9 +626,13 @@ struct LoopRemainderTransform {
     // repair vector loop liveouts
     updateExitLiveOuts(vecLiveOuts);
 
-  // insert a condition for the vecToScalarBlock -> loopExit edge
+  // supplement the scalar remainder condition (vecToScalarBlock -> loopExit edge)
     // this edge is taken if no iterations remain for the scalar loop
     SupplementVectorExit(vecLoopPhis);
+
+  // supplement the vector loop guard condition (vecGuardBlock -> vector loop edge)
+    // the vector loop will execute on at least one full vector
+    SupplementVectorGuard();
   }
 };
 
@@ -757,11 +857,11 @@ bool LoopVectorizer::runOnFunction(Function &F) {
 }
 
 void LoopVectorizer::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.addRequired<MemoryDependenceWrapperPass>();
-  AU.addRequired<LoopInfoWrapperPass>();
   AU.addRequired<DominatorTreeWrapperPass>();
-  AU.addRequired<ScalarEvolutionWrapperPass>();
+  AU.addRequired<LoopInfoWrapperPass>();
+  AU.addRequired<MemoryDependenceWrapperPass>();
   AU.addRequired<PostDominatorTreeWrapperPass>();
+  AU.addRequired<ScalarEvolutionWrapperPass>();
 
   // PlatformInfo
   AU.addRequired<TargetTransformInfoWrapperPass>();
@@ -774,9 +874,13 @@ Pass *rv::createLoopVectorizerPass() { return new LoopVectorizer(); }
 
 INITIALIZE_PASS_BEGIN(LoopVectorizer, "rv-loop-vectorize",
                       "RV - Vectorize loops", false, false)
-INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(MemoryDependenceWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
+// PlatformInfo
+INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
 INITIALIZE_PASS_END(LoopVectorizer, "rv-loop-vectorize", "RV - Vectorize loops",
                     false, false)
