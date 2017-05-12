@@ -37,6 +37,7 @@
 #include "llvm/Transforms/Utils/Cloning.h"
 
 #include "report.h"
+#include <map>
 
 #ifdef IF_DEBUG
 #undef IF_DEBUG
@@ -47,6 +48,107 @@
 using namespace rv;
 using namespace llvm;
 
+// typedef DomTreeNodeBase<BasicBlock*> DomTreeNode;
+
+struct LoopCloner {
+  DominatorTree & DT;
+  LoopInfo & LI;
+
+  LoopCloner(DominatorTree & _DT, LoopInfo & _LI)
+  : DT(_DT)
+  , LI(_LI)
+  {}
+
+  // the preheader will be modified to branch to the original loop on true and to the old loop on false
+  // Note that this will not repair the analysis structures beyond the exits edges
+  std::pair<Loop*, DomTreeNode*>
+  CloneLoop(Loop & L, ValueToValueMapTy & valueMap) {
+    auto * loopPreHead = L.getLoopPreheader();
+    auto * preTerm = loopPreHead->getTerminator();
+    auto & loopHead = *L.getHeader();
+
+    auto * splitBranch = BranchInst::Create(&loopHead, &loopHead, ConstantInt::getTrue(loopHead.getContext()), loopPreHead);
+    preTerm->eraseFromParent();
+
+    // clone all basic blocks
+    CloneLoopBlocks(L, valueMap);
+
+    // on false branch to the copy
+    splitBranch->setSuccessor(1, &LookUp(valueMap, loopHead));
+    // the same in both worlds (needed by idom repair)
+    valueMap[loopPreHead] = loopPreHead;
+
+    auto & clonedHead = LookUp(valueMap, loopHead);
+
+    // repair LoopInfo & DomTree
+    CloneLoopAnalyses(L.getParentLoop(), L, valueMap);
+    auto * clonedLoop = LI.getLoopFor(&clonedHead);
+    assert(clonedLoop);
+
+    // repair the dom tree
+    CloneDomTree(*loopPreHead, L, loopHead, valueMap);
+    auto * clonedDomNode = DT.getNode(&clonedHead);
+    assert(clonedDomNode);
+
+    // return the analyses structure roots for the cloned loop
+    return std::pair<Loop*, DomTreeNode*>(clonedLoop, clonedDomNode);
+  }
+
+  // clone and remap all loop blocks internally
+  void
+  CloneLoopBlocks(Loop& L, ValueToValueMapTy & valueMap) {
+    // clone loop blocks
+    SmallVector<BasicBlock*, 16> clonedBlockVec;
+    for (auto * BB : L.blocks()) {
+      auto * clonedBlock = CloneBasicBlock(BB, valueMap, "C");
+      valueMap[BB] = clonedBlock;
+      clonedBlockVec.push_back(clonedBlock);
+    }
+
+    remapInstructionsInBlocks(clonedBlockVec, valueMap);
+  }
+
+  // register with the dom tree
+  void
+  CloneDomTree(BasicBlock & clonedIDom, Loop & L, BasicBlock & currentBlock, ValueToValueMapTy & valueMap) {
+    if (!L.contains(&currentBlock)) return;
+
+    auto & currentClone = LookUp(valueMap, currentBlock);
+    DT.addNewBlock(&currentClone, &clonedIDom);
+
+    auto * domNode = DT.getNode(&currentBlock);
+    for (auto * childDom : *domNode) {
+      CloneDomTree(currentClone, L, *childDom->getBlock(), valueMap);
+    }
+  }
+
+  // returns a dom tree node and a loop representing the cloned loop
+  // L is the original loop
+  void
+  CloneLoopAnalyses(Loop * clonedParentLoop, Loop & L, ValueToValueMapTy & valueMap) {
+    // create a loop object
+    auto * clonedLoop = new Loop();
+
+    // add blocks to the loop
+    for (auto * BB : L.blocks()) {
+      clonedLoop->addBasicBlockToLoop(&LookUp(valueMap, *BB), LI);
+    }
+
+    // embed the loop object in the loop tree
+    if (!clonedParentLoop) {
+      LI.addTopLevelLoop(clonedLoop);
+    } else {
+      clonedParentLoop->addChildLoop(clonedLoop);
+    }
+
+    // recursively build child loops
+    for (auto * childLoop : L) {
+      DomTreeNode * childDomNode = nullptr;
+      CloneLoopAnalyses(clonedLoop, *childLoop, valueMap);
+      assert(childDomNode);
+    }
+  }
+};
 
 
 bool LoopVectorizer::canVectorizeLoop(Loop &L) {
