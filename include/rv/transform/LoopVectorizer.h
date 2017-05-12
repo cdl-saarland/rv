@@ -61,7 +61,9 @@ private:
 
   bool canVectorizeLoop(llvm::Loop &L);
 
-  void embedVectorizedLoop(llvm::Loop &L, llvm::ValueToValueMapTy & vecValMap, VectorizationInfo & vecInfo, int VectorWidth, int tripAlign);
+  // convert L into a vectorizable loop
+  // this will create a new scalar loop that can be vectorized directly with RV
+  llvm::Loop* transformToVectorizableLoop(llvm::Loop &L, int VectorWidth, int tripAlign);
 
   bool canAdjustTripCount(llvm::Loop &L, int VectorWidth, int TripCount);
 

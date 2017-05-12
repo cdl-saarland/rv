@@ -50,111 +50,6 @@ using namespace llvm;
 
 // typedef DomTreeNodeBase<BasicBlock*> DomTreeNode;
 
-struct LoopCloner {
-  Function & F;
-  DominatorTree & DT;
-  LoopInfo & LI;
-
-  LoopCloner(Function & _F, DominatorTree & _DT, LoopInfo & _LI)
-  : F(_F)
-  , DT(_DT)
-  , LI(_LI)
-  {}
-
-  // the preheader will be modified to branch to the original loop on true and to the old loop on false
-  // Note that this will not repair the analysis structures beyond the exits edges
-  std::pair<Loop*, DomTreeNode*>
-  CloneLoop(Loop & L, ValueToValueMapTy & valueMap) {
-    auto * loopPreHead = L.getLoopPreheader();
-    auto * preTerm = loopPreHead->getTerminator();
-    auto & loopHead = *L.getHeader();
-
-    auto * splitBranch = BranchInst::Create(&loopHead, &loopHead, ConstantInt::getTrue(loopHead.getContext()), loopPreHead);
-    preTerm->eraseFromParent();
-
-    // clone all basic blocks
-    CloneLoopBlocks(L, valueMap);
-
-    // on false branch to the copy
-    splitBranch->setSuccessor(1, &LookUp(valueMap, loopHead));
-    // the same in both worlds (needed by idom repair)
-    valueMap[loopPreHead] = loopPreHead;
-
-    auto & clonedHead = LookUp(valueMap, loopHead);
-
-    // repair LoopInfo & DomTree
-    CloneLoopAnalyses(L.getParentLoop(), L, valueMap);
-    auto * clonedLoop = LI.getLoopFor(&clonedHead);
-    assert(clonedLoop);
-
-    // repair the dom tree
-    CloneDomTree(*loopPreHead, L, loopHead, valueMap);
-    auto * clonedDomNode = DT.getNode(&clonedHead);
-    assert(clonedDomNode);
-
-    // return the analyses structure roots for the cloned loop
-    return std::pair<Loop*, DomTreeNode*>(clonedLoop, clonedDomNode);
-  }
-
-  // clone and remap all loop blocks internally
-  void
-  CloneLoopBlocks(Loop& L, ValueToValueMapTy & valueMap) {
-    auto * loopHead = L.getHeader();
-    // clone loop blocks
-    SmallVector<BasicBlock*, 16> clonedBlockVec;
-    for (auto * BB : L.blocks()) {
-      auto * clonedBlock = CloneBasicBlock(BB, valueMap, "C");
-      valueMap[BB] = clonedBlock;
-      clonedBlockVec.push_back(clonedBlock);
-
-      // add to block list
-      F.getBasicBlockList().insert(loopHead->getIterator(), clonedBlock);
-    }
-
-    remapInstructionsInBlocks(clonedBlockVec, valueMap);
-  }
-
-  // register with the dom tree
-  void
-  CloneDomTree(BasicBlock & clonedIDom, Loop & L, BasicBlock & currentBlock, ValueToValueMapTy & valueMap) {
-    if (!L.contains(&currentBlock)) return;
-
-    auto & currentClone = LookUp(valueMap, currentBlock);
-    DT.addNewBlock(&currentClone, &clonedIDom);
-
-    auto * domNode = DT.getNode(&currentBlock);
-    for (auto * childDom : *domNode) {
-      CloneDomTree(currentClone, L, *childDom->getBlock(), valueMap);
-    }
-  }
-
-  // returns a dom tree node and a loop representing the cloned loop
-  // L is the original loop
-  void
-  CloneLoopAnalyses(Loop * clonedParentLoop, Loop & L, ValueToValueMapTy & valueMap) {
-    // create a loop object
-    auto * clonedLoop = new Loop();
-
-    // add blocks to the loop
-    for (auto * BB : L.blocks()) {
-      clonedLoop->addBasicBlockToLoop(&LookUp(valueMap, *BB), LI);
-    }
-
-    // embed the loop object in the loop tree
-    if (!clonedParentLoop) {
-      LI.addTopLevelLoop(clonedLoop);
-    } else {
-      clonedParentLoop->addChildLoop(clonedLoop);
-    }
-
-    // recursively build child loops
-    for (auto * childLoop : L) {
-      DomTreeNode * childDomNode = nullptr;
-      CloneLoopAnalyses(clonedLoop, *childLoop, valueMap);
-      assert(childDomNode);
-    }
-  }
-};
 
 
 bool LoopVectorizer::canVectorizeLoop(Loop &L) {
@@ -246,41 +141,15 @@ int LoopVectorizer::getVectorWidth(Loop &L) {
 }
 
 
-static
-rv::VectorShape
-GetShapeFromReduction(rv::Reduction & redInfo, int vectorWidth) {
-  auto & redInst = redInfo.getReductor();
-
-  if (redInst.getOpcode() != Instruction::Add) {
-    errs() << redInst << "\n";
-    return VectorShape::varying();
-  }
-
-  auto *inConst = dyn_cast<ConstantInt>(&redInfo.getReducibleValue());
-
-  if (!inConst) {
-    return VectorShape::varying();
-  }
-  errs() << *inConst << "\n";
-
-  auto constInc = inConst->getSExtValue();
-
-  return VectorShape::strided(constInc, constInc * vectorWidth);
-}
-
-
-void
-LoopVectorizer::embedVectorizedLoop(Loop &L, llvm::ValueToValueMapTy & vecValMap, VectorizationInfo & vecInfo, int VectorWidth, int tripAlign) {
+Loop*
+LoopVectorizer::transformToVectorizableLoop(Loop &L, int VectorWidth, int tripAlign) {
   IF_DEBUG { errs() << "\tCreating scalar remainder Loop for " << L.getName() << "\n"; }
 
-  // TODO update vector loop trip count
+  // try to applu the remainder transformation
+  RemainderTransform remTrans(*F, *DT, *LI, *reda);
+  auto * preparedLoop = remTrans.createVectorizableLoop(L, VectorWidth, tripAlign);
 
-  // run remainder transform
-  RemainderTransform remTrans(*F, *LI, *reda);
-  remTrans.embedVectorLoop(L, vecValMap, vecInfo, VectorWidth, tripAlign);
-
-// modify CFG
-  // Adjust trip count
+  return preparedLoop;
 }
 
 bool
@@ -306,32 +175,29 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   //   return false;
   // }
 
+  // TODO check legality
+
   Report() << "loopVecPass: Vectorize " << L.getName() << " with VW: " << VectorWidth << " , Dependence Distance: " << depDist
          << " and TripAlignment: " << tripAlign << "\n";
+
+  auto * PreparedLoop = transformToVectorizableLoop(L, VectorWidth, tripAlign);
 
   BasicBlock *ExitingBlock = L.getExitingBlock();
   Module &M = *F->getParent();
 
+// start vectorizing the prepared loop
+  IF_DEBUG { errs() << "rv: Vectorizing loop " << L.getName() << "\n"; }
+
   VectorMapping targetMapping(F, F, VectorWidth);
-
-  LoopCloner loopCloner(*F, *DT, *LI);
-  ValueToValueMapTy cloneMap;
-  loopCloner.CloneLoop(L, cloneMap);
-
-  assert(false && "NOT YET IMPLEMENTED!");
-  abort();
-
-  LoopRegion LoopRegionImpl(L);
+  LoopRegion LoopRegionImpl(*PreparedLoop);
   Region LoopRegion(LoopRegionImpl);
 
   VectorizationInfo vecInfo(*F, VectorWidth, LoopRegion);
 
-  IF_DEBUG { errs() << "rv: Vectorizing loop " << L.getName() << "\n"; }
-
 
 // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable
-  for (auto & inst : *L.getHeader()) {
+  for (auto & inst : *PreparedLoop->getHeader()) {
     auto * phi = dyn_cast<PHINode>(&inst);
     if (!phi) continue;
 
@@ -343,7 +209,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
       return false;
     }
 
-    rv::VectorShape phiShape = GetShapeFromReduction(*redInfo, VectorWidth);
+    rv::VectorShape phiShape = redInfo->getShape(VectorWidth);
 
     IF_DEBUG{ redInfo->dump(); }
     IF_DEBUG { errs() << "header phi " << phi->getName() << " has shape " << phiShape.str() << "\n"; }
@@ -352,7 +218,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   }
 
 // Force the loop exit branch to uniform (which it is going to be after the transformation)
-  auto * exitBr = cast<BranchInst>(L.getExitingBlock()->getTerminator());
+  auto * exitBr = cast<BranchInst>(PreparedLoop->getExitingBlock()->getTerminator());
   vecInfo.setVectorShape(*exitBr->getCondition(), VectorShape::uni());
 
 // prepare analyses
@@ -369,21 +235,6 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   // Control Dependence Graph
   CDG cdg(PDT);
   cdg.create(*F);
-
-  // clone all original scalar blocks as the scalar loop will be modified by the linearizer
-  // FIXME do not modify the original loop
-  ValueToValueMapTy backUpMap;
-  SmallVector<BasicBlock*, 16> backUpBlocks;
-
-  for (auto * BB : L.blocks()) {
-    auto * clonedBlock = CloneBasicBlock(BB, backUpMap, "", nullptr, nullptr);
-    errs() << "CLONED " << *clonedBlock << "\n";
-    backUpBlocks.push_back(clonedBlock);
-    backUpMap[BB] = clonedBlock;
-  }
-
-  // remap backup blocks internally
-  remapInstructionsInBlocks(backUpBlocks, backUpMap);
 
 // Vectorize
   // vectorizationAnalysis
@@ -413,80 +264,12 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
                                        // the domTree so we have to rebuild it
                                        // for now
 
-  // FIXME do this for tripCount == vectorWidth loops
-  // auto *ExitingBI = cast<BranchInst>(ExitingBlock->getTerminator());
-  // if (L.contains(ExitingBI->getSuccessor(0)))
-  //   ExitingBI->setCondition(ConstantInt::getFalse(ExitingBI->getContext()));
-  // else
-  //   ExitingBI->setCondition(ConstantInt::getTrue(ExitingBI->getContext()));
-
-  ValueToValueMapTy vecInstMap;
-  bool vectorizeOk = vectorizer->vectorize(vecInfo, domTreeNew, *LI, *SE, *MDR, &vecInstMap);
+  // vectorize the prepared loop embedding it in its context
+  bool vectorizeOk = vectorizer->vectorize(vecInfo, domTreeNew, *LI, *SE, *MDR, nullptr);
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
 
   auto * oldPreHead = L.getLoopPreheader();
-
-// embed vectorized loop in CFG
-  embedVectorizedLoop(L, vecInstMap, vecInfo, VectorWidth, tripAlign);
-
-// recover the original scalar loop
-  // FIXME do not break the scalar loop
-
-  // turn old scalar loop into dead code
-  auto * scalarGuardBlock = L.getLoopPreheader();
-  auto * oldTerm = scalarGuardBlock->getTerminator();
-  auto * oldHead = L.getHeader();
-  auto & clonedHead = LookUp(backUpMap, *L.getHeader());
-  auto * constTrue = ConstantInt::getTrue(oldTerm->getContext());
-  BranchInst::Create(&clonedHead, L.getHeader(), constTrue, scalarGuardBlock);
-  oldTerm->eraseFromParent();
-
-  // in the meantime the old preheader has been replaced by the scalarGuardBlock
-  for (auto & Inst : clonedHead) {
-    auto * phi = dyn_cast<PHINode>(&Inst);
-    if (!phi) break;
-    int preIdx = phi->getBasicBlockIndex(oldPreHead);
-    phi->setIncomingBlock(preIdx, scalarGuardBlock);
-  }
-
-  // old header phis are invalid -> replace by undef
-  for (auto itPhi = oldHead->begin(); itPhi != oldHead->end() && isa<PHINode>(*itPhi);) {
-    auto & phi = *cast<PHINode>(itPhi++);
-    phi.replaceAllUsesWith(UndefValue::get(phi.getType()));
-    phi.eraseFromParent();
-  }
-
-  // convert remaining branches to the loop header into unreachables
-  for (auto & use : oldHead->uses()) {
-    auto * term = dyn_cast<TerminatorInst>(use.getUser());
-    if (!term || term->getParent() == scalarGuardBlock) continue; // preserve the fake attachment from scalarGuardBlock
-    new UnreachableInst(term->getContext(), term->getParent());
-    term->eraseFromParent();
-  }
-
-  // replace all remaining out-of-loop uses with mapped values
-  for (BasicBlock * BB : L.blocks()) {
-    // assume the replaced block's place and name
-    auto & clonedBlock = LookUp(backUpMap, *BB);
-    clonedBlock.takeName(BB);
-    F->getBasicBlockList().insert(BB->getIterator(), &clonedBlock);
-
-    // rewire pending branches
-    // if (BB != oldHead) BB->replaceAllUsesWith(&clonedBlock);
-    //
-
-    for (auto & Inst : *BB) {
-      if (Inst.getType()->isVoidTy()) {
-        continue;
-      }
-      Value * replacement = backUpMap[&Inst];
-      if (!replacement) {
-        replacement = UndefValue::get(Inst.getType());
-      }
-      Inst.replaceAllUsesWith(replacement);
-    }
-  }
 
 // restore analysis structures
   DT.recalculate(*F);
