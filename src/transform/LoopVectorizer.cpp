@@ -51,11 +51,13 @@ using namespace llvm;
 // typedef DomTreeNodeBase<BasicBlock*> DomTreeNode;
 
 struct LoopCloner {
+  Function & F;
   DominatorTree & DT;
   LoopInfo & LI;
 
-  LoopCloner(DominatorTree & _DT, LoopInfo & _LI)
-  : DT(_DT)
+  LoopCloner(Function & _F, DominatorTree & _DT, LoopInfo & _LI)
+  : F(_F)
+  , DT(_DT)
   , LI(_LI)
   {}
 
@@ -97,12 +99,16 @@ struct LoopCloner {
   // clone and remap all loop blocks internally
   void
   CloneLoopBlocks(Loop& L, ValueToValueMapTy & valueMap) {
+    auto * loopHead = L.getHeader();
     // clone loop blocks
     SmallVector<BasicBlock*, 16> clonedBlockVec;
     for (auto * BB : L.blocks()) {
       auto * clonedBlock = CloneBasicBlock(BB, valueMap, "C");
       valueMap[BB] = clonedBlock;
       clonedBlockVec.push_back(clonedBlock);
+
+      // add to block list
+      F.getBasicBlockList().insert(loopHead->getIterator(), clonedBlock);
     }
 
     remapInstructionsInBlocks(clonedBlockVec, valueMap);
@@ -304,15 +310,21 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
          << " and TripAlignment: " << tripAlign << "\n";
 
   BasicBlock *ExitingBlock = L.getExitingBlock();
-  Function &F = *ExitingBlock->getParent();
-  Module &M = *F.getParent();
+  Module &M = *F->getParent();
 
-  VectorMapping targetMapping(&F, &F, VectorWidth);
+  VectorMapping targetMapping(F, F, VectorWidth);
+
+  LoopCloner loopCloner(*F, *DT, *LI);
+  ValueToValueMapTy cloneMap;
+  loopCloner.CloneLoop(L, cloneMap);
+
+  assert(false && "NOT YET IMPLEMENTED!");
+  abort();
 
   LoopRegion LoopRegionImpl(L);
   Region LoopRegion(LoopRegionImpl);
 
-  VectorizationInfo vecInfo(F, VectorWidth, LoopRegion);
+  VectorizationInfo vecInfo(*F, VectorWidth, LoopRegion);
 
   IF_DEBUG { errs() << "rv: Vectorizing loop " << L.getName() << "\n"; }
 
@@ -352,11 +364,11 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
   // Domin Frontier Graph
   DFG dfg(DT);
-  dfg.create(F);
+  dfg.create(*F);
 
   // Control Dependence Graph
   CDG cdg(PDT);
-  cdg.create(F);
+  cdg.create(*F);
 
   // clone all original scalar blocks as the scalar loop will be modified by the linearizer
   // FIXME do not modify the original loop
@@ -377,7 +389,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   // vectorizationAnalysis
   vectorizer->analyze(vecInfo, cdg, dfg, *LI, PDT, DT);
 
-  F.dump();
+  IF_DEBUG F->dump();
   assert(L.getLoopPreheader());
 
   // mask analysis
@@ -458,7 +470,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     // assume the replaced block's place and name
     auto & clonedBlock = LookUp(backUpMap, *BB);
     clonedBlock.takeName(BB);
-    F.getBasicBlockList().insert(BB->getIterator(), &clonedBlock);
+    F->getBasicBlockList().insert(BB->getIterator(), &clonedBlock);
 
     // rewire pending branches
     // if (BB != oldHead) BB->replaceAllUsesWith(&clonedBlock);
@@ -477,8 +489,8 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   }
 
 // restore analysis structures
-  DT.recalculate(F);
-  PDT.recalculate(F);
+  DT.recalculate(*F);
+  PDT.recalculate(*F);
 
   return true;
 }
@@ -502,16 +514,16 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   Report() << "loopVecPass: run on " << F.getName() << "\n";
   bool Changed = false;
 
-  // query analysis results
+// stash function analyses
+  this->F = &F;
+  this->DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   this->LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   this->SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   this->MDR = &getAnalysis<MemoryDependenceWrapperPass>().getMemDep();
-  this->F = &F;
 
+// setup PlatformInfo
   TargetTransformInfo & tti = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
   TargetLibraryInfo & tli = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
-
-  // setup vectorizer session
   PlatformInfo platInfo(*F.getParent(), &tti, &tli);
 
   // TODO query target capabilities
@@ -533,6 +545,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   reda.reset();
   vectorizer.reset();
   this->F = nullptr;
+  this->DT = nullptr;
   this->LI = nullptr;
   this->SE = nullptr;
   this->MDR = nullptr;

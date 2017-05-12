@@ -37,6 +37,7 @@ public:
   static char ID;
   LoopVectorizer()
   : llvm::FunctionPass(ID)
+  , DT(nullptr)
   , LI(nullptr)
   , SE(nullptr)
   , MDR(nullptr)
@@ -51,6 +52,7 @@ public:
 
 private:
   llvm::Function * F;
+  llvm::DominatorTree * DT;
   llvm::LoopInfo * LI;
   llvm::ScalarEvolution * SE;
   llvm::MemoryDependenceResults * MDR;
