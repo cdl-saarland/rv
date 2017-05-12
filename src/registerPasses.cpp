@@ -23,6 +23,8 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "llvm/Transforms/Scalar.h"
+
 
 using namespace llvm;
 
@@ -47,6 +49,7 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
   }
 
   PM.add(rv::createLoopVectorizerPass());
+  PM.add(createAggressiveDCEPass());
 }
 
 
