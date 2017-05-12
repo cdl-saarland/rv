@@ -40,11 +40,128 @@ namespace rv {
 typedef std::map<PHINode*, PHINode*> PHIMap;
 typedef std::map<Instruction*, Instruction*> InstMap;
 
+struct LoopCloner {
+  Function & F;
+  DominatorTree & DT;
+  LoopInfo & LI;
+
+  LoopCloner(Function & _F, DominatorTree & _DT, LoopInfo & _LI)
+  : F(_F)
+  , DT(_DT)
+  , LI(_LI)
+  {}
+
+  // TODO pretend that the new loop is inserted
+  // LoopInfo and DomTree will be updated as-if the preheader branches to both the original and the sclar loop
+  // Note that this will not repair the analysis structures beyond the exits edges
+  std::pair<Loop*, DomTreeNode*>
+  CloneLoop(Loop & L, ValueToValueMapTy & valueMap) {
+    auto * loopPreHead = L.getLoopPreheader();
+    auto * preTerm = loopPreHead->getTerminator();
+    auto & loopHead = *L.getHeader();
+
+    auto * splitBranch = BranchInst::Create(&loopHead, &loopHead, ConstantInt::getTrue(loopHead.getContext()), loopPreHead);
+
+    // clone all basic blocks
+    CloneLoopBlocks(L, valueMap);
+
+    // on false branch to the copy
+    splitBranch->setSuccessor(1, &LookUp(valueMap, loopHead));
+
+    // the same in both worlds (needed by idom repair)
+    valueMap[loopPreHead] = loopPreHead;
+
+    auto & clonedHead = LookUp(valueMap, loopHead);
+
+    // repair LoopInfo & DomTree
+    CloneLoopAnalyses(L.getParentLoop(), L, valueMap);
+    auto * clonedLoop = LI.getLoopFor(&clonedHead);
+    assert(clonedLoop);
+
+    // repair the dom tree
+    CloneDomTree(*loopPreHead, L, loopHead, valueMap);
+    auto * clonedDomNode = DT.getNode(&clonedHead);
+    assert(clonedDomNode);
+
+    // drop the fake branch again (we created it to fake a sound CFG during analyses repair)
+    splitBranch->eraseFromParent();
+    assert(loopPreHead->getTerminator() == preTerm);
+
+    // return the analyses structure roots for the cloned loop
+    return std::pair<Loop*, DomTreeNode*>(clonedLoop, clonedDomNode);
+  }
+
+  // clone and remap all loop blocks internally
+  void
+  CloneLoopBlocks(Loop& L, ValueToValueMapTy & valueMap) {
+    auto * loopHead = L.getHeader();
+    // clone loop blocks
+    SmallVector<BasicBlock*, 16> clonedBlockVec;
+    for (auto * BB : L.blocks()) {
+      auto * clonedBlock = CloneBasicBlock(BB, valueMap, "C");
+      valueMap[BB] = clonedBlock;
+      clonedBlockVec.push_back(clonedBlock);
+
+      // add to block list
+      F.getBasicBlockList().insert(loopHead->getIterator(), clonedBlock);
+    }
+
+    remapInstructionsInBlocks(clonedBlockVec, valueMap);
+  }
+
+  // register with the dom tree
+  void
+  CloneDomTree(BasicBlock & clonedIDom, Loop & L, BasicBlock & currentBlock, ValueToValueMapTy & valueMap) {
+    if (!L.contains(&currentBlock)) return;
+
+    auto & currentClone = LookUp(valueMap, currentBlock);
+    DT.addNewBlock(&currentClone, &clonedIDom);
+
+    auto * domNode = DT.getNode(&currentBlock);
+    for (auto * childDom : *domNode) {
+      CloneDomTree(currentClone, L, *childDom->getBlock(), valueMap);
+    }
+  }
+
+  // returns a dom tree node and a loop representing the cloned loop
+  // L is the original loop
+  void
+  CloneLoopAnalyses(Loop * clonedParentLoop, Loop & L, ValueToValueMapTy & valueMap) {
+    // create a loop object
+    auto * clonedLoop = new Loop();
+
+    // add blocks to the loop
+    for (auto * BB : L.blocks()) {
+      clonedLoop->addBasicBlockToLoop(&LookUp(valueMap, *BB), LI);
+    }
+
+    // embed the loop object in the loop tree
+    if (!clonedParentLoop) {
+      LI.addTopLevelLoop(clonedLoop);
+    } else {
+      clonedParentLoop->addChildLoop(clonedLoop);
+    }
+
+    // recursively build child loops
+    for (auto * childLoop : L) {
+      DomTreeNode * childDomNode = nullptr;
+      CloneLoopAnalyses(clonedLoop, *childLoop, valueMap);
+      assert(childDomNode);
+    }
+  }
+};
+
+
+
 struct LoopTransformer {
   Function & F;
+  DominatorTree & DT;
+  LoopInfo & LI;
+
   Loop & ScalarL;
+  Loop & ClonedL;
+
   ValueToValueMapTy & vecValMap;
-  VectorizationInfo & vecInfo;
   ReductionAnalysis & reda;
   int vectorWidth;
   int tripAlign;
@@ -101,11 +218,13 @@ struct LoopTransformer {
     return nullptr;
   }
 
-  LoopTransformer(Function & _F, Loop & _ScalarL, ValueToValueMapTy & _vecValMap, VectorizationInfo & _vecInfo, ReductionAnalysis & _reda, int _vectorWidth, int _tripAlign)
+  LoopTransformer(Function & _F, DominatorTree & _DT, LoopInfo & _LI, ReductionAnalysis & _reda, Loop & _ScalarL, Loop & _ClonedL, ValueToValueMapTy & _vecValMap, int _vectorWidth, int _tripAlign)
   : F(_F)
+  , DT(_DT)
+  , LI(_LI)
   , ScalarL(_ScalarL)
+  , ClonedL(_ClonedL)
   , vecValMap(_vecValMap)
-  , vecInfo(_vecInfo)
   , reda(_reda)
   , vectorWidth(_vectorWidth)
   , tripAlign(_tripAlign)
@@ -589,9 +708,21 @@ struct LoopTransformer {
   }
 };
 
-void
-RemainderTransform::embedVectorLoop(Loop & L, ValueToValueMapTy & vecValMap, VectorizationInfo & vecInfo, int vectorWidth, int tripAlign) {
-  LoopTransformer remTrans(F, L, vecValMap, vecInfo, reda, vectorWidth, tripAlign);
+Loop*
+RemainderTransform::createVectorizableLoop(Loop & L, int vectorWidth, int tripAlign) {
+// run capability checks
+  if (!canTransformLoop(L)) return nullptr;
+
+// otw, clone the scalar loop
+  LoopCloner loopCloner(F, DT, LI);
+  ValueToValueMapTy cloneMap;
+  auto it = loopCloner.CloneLoop(L, cloneMap);
+  auto & clonedLoop = *it.first;
+
+  reda.updateForClones(LI, cloneMap);
+
+// embed the cloned loop
+  LoopTransformer loopTrans(F, DT, LI, reda, L, clonedLoop, cloneMap, vectorWidth, tripAlign);
 }
 
 } // namespace rv

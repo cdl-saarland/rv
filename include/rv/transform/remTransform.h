@@ -25,17 +25,23 @@ class VectorizationInfo;
 
 class RemainderTransform {
   llvm::Function & F;
+  llvm::DominatorTree & DT;
   llvm::LoopInfo & LI;
   ReductionAnalysis & reda;
 
+  bool canTransformLoop(llvm::Loop & L) { return false; }
+
 public:
-  RemainderTransform(llvm::Function &_F, llvm::LoopInfo & _LI, ReductionAnalysis & _reda)
+  RemainderTransform(llvm::Function &_F, llvm::DominatorTree & _DT, llvm::LoopInfo & _LI, ReductionAnalysis & _reda)
   : F(_F)
+  , DT(_DT)
   , LI(_LI)
   , reda(_reda)
   {}
 
-  void embedVectorLoop(llvm::Loop & L, llvm::ValueToValueMapTy & vecValMap, VectorizationInfo & vecInfo, int vectorWidth, int tripAlign);
+  // create a vectorizable loop or return nullptr if that is not possible
+  llvm::Loop*
+  createVectorizableLoop(llvm::Loop & L, int vectorWidth, int tripAlign);
 };
 
 }
