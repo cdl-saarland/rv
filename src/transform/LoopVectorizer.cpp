@@ -232,6 +232,12 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   //DT.verifyDomTree();
   //LI.verify(DT);
 
+
+  IF_DEBUG {
+    DT.verifyDomTree();
+    PDT.print(errs());
+  }
+
   // Domin Frontier Graph
   DFG dfg(DT);
   dfg.create(*F);
