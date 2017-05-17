@@ -146,7 +146,7 @@ LoopVectorizer::transformToVectorizableLoop(Loop &L, int VectorWidth, int tripAl
   IF_DEBUG { errs() << "\tCreating scalar remainder Loop for " << L.getName() << "\n"; }
 
   // try to applu the remainder transformation
-  RemainderTransform remTrans(*F, *DT, *LI, *reda);
+  RemainderTransform remTrans(*F, *DT, *PDT, *LI, *reda);
   auto * preparedLoop = remTrans.createVectorizableLoop(L, VectorWidth, tripAlign);
 
   return preparedLoop;
@@ -225,30 +225,26 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   auto * exitBr = cast<BranchInst>(PreparedLoop->getExitingBlock()->getTerminator());
   vecInfo.setVectorShape(*exitBr->getCondition(), VectorShape::uni());
 
-// prepare analyses
-  auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  auto &PDT = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
-
   //DT.verifyDomTree();
   //LI.verify(DT);
 
 
   IF_DEBUG {
-    DT.verifyDomTree();
-    PDT.print(errs());
+    DT->verifyDomTree();
+    PDT->print(errs());
   }
 
   // Domin Frontier Graph
-  DFG dfg(DT);
+  DFG dfg(*DT);
   dfg.create(*F);
 
   // Control Dependence Graph
-  CDG cdg(PDT);
+  CDG cdg(*PDT);
   cdg.create(*F);
 
 // Vectorize
   // vectorizationAnalysis
-  vectorizer->analyze(vecInfo, cdg, dfg, *LI, PDT, DT);
+  vectorizer->analyze(vecInfo, cdg, dfg, *LI, *PDT, *DT);
 
   IF_DEBUG F->dump();
   assert(L.getLoopPreheader());
@@ -265,7 +261,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
   // control conversion
   bool linearizeOk =
-      vectorizer->linearizeCFG(vecInfo, *maskAnalysis, *LI, DT);
+      vectorizer->linearizeCFG(vecInfo, *maskAnalysis, *LI, *DT);
   if (!linearizeOk)
     llvm_unreachable("linearization failed.");
 
@@ -279,11 +275,9 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
 
-  auto * oldPreHead = L.getLoopPreheader();
-
 // restore analysis structures
-  DT.recalculate(*F);
-  PDT.recalculate(*F);
+  DT->recalculate(*F);
+  PDT->recalculate(*F);
 
   return true;
 }
@@ -310,6 +304,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
 // stash function analyses
   this->F = &F;
   this->DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+  this->PDT = &getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
   this->LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   this->SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   this->MDR = &getAnalysis<MemoryDependenceWrapperPass>().getMemDep();
@@ -339,6 +334,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   vectorizer.reset();
   this->F = nullptr;
   this->DT = nullptr;
+  this->PDT = nullptr;
   this->LI = nullptr;
   this->SE = nullptr;
   this->MDR = nullptr;

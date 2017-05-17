@@ -44,22 +44,33 @@ typedef std::map<Instruction*, Instruction*> InstMap;
 struct LoopCloner {
   Function & F;
   DominatorTree & DT;
+  PostDominatorTree & PDT;
   LoopInfo & LI;
 
-  LoopCloner(Function & _F, DominatorTree & _DT, LoopInfo & _LI)
+  LoopCloner(Function & _F, DominatorTree & _DT, PostDominatorTree & _PDT, LoopInfo & _LI)
   : F(_F)
   , DT(_DT)
+  , PDT(_PDT)
   , LI(_LI)
   {}
 
   // TODO pretend that the new loop is inserted
   // LoopInfo and DomTree will be updated as-if the preheader branches to both the original and the sclar loop
   // Note that this will not repair the analysis structures beyond the exits edges
-  std::pair<Loop*, DomTreeNode*>
+
+  struct LoopCloneInfo {
+    llvm::Loop & clonedLoop;
+    DomTreeNode & headerDomNode;
+    DomTreeNode & exitingPostDom;
+  };
+
+  LoopCloneInfo
   CloneLoop(Loop & L, ValueToValueMapTy & valueMap) {
     auto * loopPreHead = L.getLoopPreheader();
     auto * preTerm = loopPreHead->getTerminator();
     auto & loopHead = *L.getHeader();
+    auto * loopExiting = L.getExitingBlock();
+    assert(loopPreHead && loopExiting && " can only clone single exit loops");
 
     auto * splitBranch = BranchInst::Create(&loopHead, &loopHead, ConstantInt::getTrue(loopHead.getContext()), loopPreHead);
 
@@ -73,6 +84,7 @@ struct LoopCloner {
     valueMap[loopPreHead] = loopPreHead;
 
     auto & clonedHead = LookUp(valueMap, loopHead);
+    auto & clonedExiting = LookUp(valueMap, *loopExiting);
 
     // repair LoopInfo & DomTree
     CloneLoopAnalyses(L.getParentLoop(), L, valueMap);
@@ -84,12 +96,15 @@ struct LoopCloner {
     auto * clonedDomNode = DT.getNode(&clonedHead);
     assert(clonedDomNode);
 
+    auto * loopPostDom = PDT.getNode(loopExiting)->getIDom()->getBlock();
+    ClonePostDomTree(*loopPostDom, L, *loopExiting, valueMap);
+    auto * clonedExitingPostDom = PDT.getNode(&clonedExiting);
+
     // drop the fake branch again (we created it to fake a sound CFG during analyses repair)
     splitBranch->eraseFromParent();
     assert(loopPreHead->getTerminator() == preTerm);
 
-    // return the analyses structure roots for the cloned loop
-    return std::pair<Loop*, DomTreeNode*>(clonedLoop, clonedDomNode);
+    return LoopCloneInfo{*clonedLoop, *clonedDomNode, *clonedExitingPostDom};
   }
 
   // clone and remap all loop blocks internally
@@ -121,6 +136,20 @@ struct LoopCloner {
     auto * domNode = DT.getNode(&currentBlock);
     for (auto * childDom : *domNode) {
       CloneDomTree(currentClone, L, *childDom->getBlock(), valueMap);
+    }
+  }
+
+  // register with the post dom tree
+  void
+  ClonePostDomTree(BasicBlock & clonedIDom, Loop & L, BasicBlock & currentBlock, ValueToValueMapTy & valueMap) {
+    if (!L.contains(&currentBlock)) return;
+
+    auto & currentClone = LookUp(valueMap, currentBlock);
+    PDT.addNewBlock(&currentClone, &clonedIDom);
+
+    auto * pDomNode = DT.getNode(&currentBlock);
+    for (auto * childPostDom : *pDomNode) {
+      ClonePostDomTree(currentClone, L, *childPostDom->getBlock(), valueMap);
     }
   }
 
@@ -157,6 +186,7 @@ struct LoopCloner {
 struct LoopTransformer {
   Function & F;
   DominatorTree & DT;
+  PostDominatorTree & PDT;
   LoopInfo & LI;
 
   Loop & ScalarL;
@@ -219,9 +249,10 @@ struct LoopTransformer {
     return nullptr;
   }
 
-  LoopTransformer(Function & _F, DominatorTree & _DT, LoopInfo & _LI, ReductionAnalysis & _reda, Loop & _ScalarL, Loop & _ClonedL, ValueToValueMapTy & _vecValMap, int _vectorWidth, int _tripAlign)
+  LoopTransformer(Function & _F, DominatorTree & _DT, PostDominatorTree & _PDT, LoopInfo & _LI, ReductionAnalysis & _reda, Loop & _ScalarL, Loop & _ClonedL, ValueToValueMapTy & _vecValMap, int _vectorWidth, int _tripAlign)
   : F(_F)
   , DT(_DT)
+  , PDT(_PDT)
   , LI(_LI)
   , ScalarL(_ScalarL)
   , ClonedL(_ClonedL)
@@ -298,6 +329,20 @@ struct LoopTransformer {
     auto * scaGuardNode = DT.addNewBlock(scalarGuardBlock, vecGuardBlock); // vecGuardBlock >= scaGuarBlock
     DT.changeImmediateDominator(DT.getNode(&scalarHead), scaGuardNode);
     DT.addNewBlock(vecToScalarExit, vecLoopExiting); // vecLoopExiting >= vecToScalarExit
+
+  // update postDomTree
+    bool loopPostDomsEntry = PDT.dominates(&scalarHead, entryBlock);
+    auto * vecLoopExitingPostDom = PDT.getNode(vecLoopExiting);
+    PDT.addNewBlock(scalarGuardBlock, &scalarHead); // scalarHead >= scaGuardBlock
+    auto * vecToScalarPostDom = PDT.addNewBlock(vecToScalarExit, loopExit); // loopExit >= vecToScalar
+    PDT.changeImmediateDominator(vecLoopExitingPostDom, vecToScalarPostDom); // vecToScalar >= vecLoopExiting
+
+    PDT.addNewBlock(vecGuardBlock, loopExit); // loopExit >= vecGuardBlock(?)
+
+    if (loopPostDomsEntry) {
+      // (if scaHead >= preHeader) vecGuard >= preHeader
+      PDT.changeImmediateDominator(entryBlock, vecGuardBlock);
+    }
 
     // TODO update PDT
   }
@@ -758,15 +803,15 @@ RemainderTransform::createVectorizableLoop(Loop & L, int vectorWidth, int tripAl
   if (!canTransformLoop(L)) return nullptr;
 
 // otw, clone the scalar loop
-  LoopCloner loopCloner(F, DT, LI);
+  LoopCloner loopCloner(F, DT, PDT, LI);
   ValueToValueMapTy cloneMap;
-  auto it = loopCloner.CloneLoop(L, cloneMap);
-  auto & clonedLoop = *it.first;
+  LoopCloner::LoopCloneInfo cloneInfo = loopCloner.CloneLoop(L, cloneMap);
+  auto & clonedLoop = cloneInfo.clonedLoop;
 
   reda.updateForClones(LI, cloneMap);
 
 // embed the cloned loop
-  LoopTransformer loopTrans(F, DT, LI, reda, L, clonedLoop, cloneMap, vectorWidth, tripAlign);
+  LoopTransformer loopTrans(F, DT, PDT, LI, reda, L, clonedLoop, cloneMap, vectorWidth, tripAlign);
 
   F.dump();
 

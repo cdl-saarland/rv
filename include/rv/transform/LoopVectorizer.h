@@ -21,6 +21,7 @@ namespace llvm {
   class Loop;
   class LoopInfo;
   class DominatorTree;
+  class PostDominatorTree;
   class ScalarEvolution;
   struct PostDominatorTree;
   class MemoryDependenceResults;
@@ -38,6 +39,7 @@ public:
   LoopVectorizer()
   : llvm::FunctionPass(ID)
   , DT(nullptr)
+  , PDT(nullptr)
   , LI(nullptr)
   , SE(nullptr)
   , MDR(nullptr)
@@ -53,6 +55,7 @@ public:
 private:
   llvm::Function * F;
   llvm::DominatorTree * DT;
+  llvm::PostDominatorTree * PDT;
   llvm::LoopInfo * LI;
   llvm::ScalarEvolution * SE;
   llvm::MemoryDependenceResults * MDR;
