@@ -275,6 +275,7 @@ struct LoopTransformer {
 
   // make the vector loop exit to vecToScalar
     auto * scalarTerm = ScalarL.getExitingBlock()->getTerminator();
+    auto * vecLoopExiting = &LookUp(vecValMap, *scalarTerm->getParent());
     auto * vecTerm = cast<TerminatorInst>(vecValMap[scalarTerm]);
 
     for (size_t i = 0; i < scalarTerm->getNumSuccessors(); ++i) {
@@ -290,6 +291,15 @@ struct LoopTransformer {
 
   // make scalarGuard the new preheader of the scalar loop
     BranchInst::Create(&scalarHead, scalarGuardBlock);
+
+  // update DomTree
+    auto * vecGuardDomNode = DT.addNewBlock(vecGuardBlock, entryBlock); // entry >= vecGuardBlock
+    DT.changeImmediateDominator(DT.getNode(&vecHead), vecGuardDomNode); // vecGuardBlock >= vecLoopHead
+    auto * scaGuardNode = DT.addNewBlock(scalarGuardBlock, vecGuardBlock); // vecGuardBlock >= scaGuarBlock
+    DT.changeImmediateDominator(DT.getNode(&scalarHead), scaGuardNode);
+    DT.addNewBlock(vecToScalarExit, vecLoopExiting); // vecLoopExiting >= vecToScalarExit
+
+    // TODO update PDT
   }
 
   // reduce a vector loop liveout to a scalar value
@@ -390,7 +400,7 @@ struct LoopTransformer {
 
   static
   Value&
-  ReplicateExpression(Value & val, ValueToValueMapTy & replMap, std::function<Value* (Instruction&, IRBuilder<>&)> leafFunc, IRBuilder<> & builder) {
+  ReplicateExpression(std::string suffix, Value & val, ValueToValueMapTy & replMap, std::function<Value* (Instruction&, IRBuilder<>&)> leafFunc, IRBuilder<> & builder) {
     auto * inst = dyn_cast<Instruction>(&val);
 
     // preserve non-insts
@@ -415,14 +425,14 @@ struct LoopTransformer {
 
     // otw, start cloning
     auto & clone = *inst->clone();
-    auto cloneName = inst->getName().str() + ".copy";
+    auto cloneName = inst->getName().str() + suffix;
 
     // TODO we can not have cycles in legal IR (we break on PHIs). Still insert now to not diverge on degenerate IR.
     replMap[&val] = &clone;
 
     // remap its operands
     for (size_t i = 0; i < inst->getNumOperands(); ++i) {
-      auto & clonedOp = ReplicateExpression(*inst->getOperand(i), replMap, leafFunc, builder);
+      auto & clonedOp = ReplicateExpression(suffix, *inst->getOperand(i), replMap, leafFunc, builder);
       clone.setOperand(i, &clonedOp);
     }
 
@@ -475,7 +485,7 @@ struct LoopTransformer {
 
     ValueToValueMapTy replMap;
     auto & exitVal =
-      ReplicateExpression(*vecExitingBr.getCondition(), replMap,
+      ReplicateExpression(".vecExit", *vecExitingBr.getCondition(), replMap,
          [&](Instruction & inst, IRBuilder<>& builder) -> Value* {
            assert (!isa<CallInst>(inst));
 
@@ -539,7 +549,7 @@ struct LoopTransformer {
     }
 
     auto & exitVal =
-      ReplicateExpression(*vecExitingBr.getCondition(), replMap,
+      ReplicateExpression(".vecGuard", *vecExitingBr.getCondition(), replMap,
          [&](Instruction & inst, IRBuilder<>&) -> Value* {
            assert (!isa<CallInst>(inst));
 
@@ -595,7 +605,7 @@ struct LoopTransformer {
 
     // replicate the exit condition
     auto & exitVal =
-      ReplicateExpression(*exitingBr.getCondition(), replMap,
+      ReplicateExpression(".v2s", *exitingBr.getCondition(), replMap,
          [&](Instruction & inst, IRBuilder<>&) -> Value* {
          // loop invariant value
            if (!ScalarL.contains(inst.getParent())) return &inst;
