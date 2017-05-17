@@ -29,7 +29,7 @@ class RemainderTransform {
   llvm::LoopInfo & LI;
   ReductionAnalysis & reda;
 
-  bool canTransformLoop(llvm::Loop & L) { return false; }
+  bool canTransformLoop(llvm::Loop & L);
 
 public:
   RemainderTransform(llvm::Function &_F, llvm::DominatorTree & _DT, llvm::LoopInfo & _LI, ReductionAnalysis & _reda)

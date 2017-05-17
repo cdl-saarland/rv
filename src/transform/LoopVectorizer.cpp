@@ -181,6 +181,10 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
          << " and TripAlignment: " << tripAlign << "\n";
 
   auto * PreparedLoop = transformToVectorizableLoop(L, VectorWidth, tripAlign);
+  if (!PreparedLoop) {
+    Report() << "loopVecPass: Can not prepare vectorization of the loop\n";
+    return false;
+  }
 
   BasicBlock *ExitingBlock = L.getExitingBlock();
   Module &M = *F->getParent();

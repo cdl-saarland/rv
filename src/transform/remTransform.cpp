@@ -28,6 +28,7 @@
 #include "llvm/Transforms/Utils/Cloning.h"
 
 #include "rvConfig.h"
+#include "report.h"
 
 #include <map>
 
@@ -293,15 +294,14 @@ struct LoopTransformer {
 
   // reduce a vector loop liveout to a scalar value
   Value&
-  ReduceValueToScalar(Value & scalarVal, BasicBlock & where) {
-    auto valShape = vecInfo.getVectorShape(scalarVal);
+  ReduceValueToScalar(Value & val, BasicBlock & where, VectorShape valShape) {
     if (valShape.isUniform()) {
-      return scalarVal;
+      return val;
 
     } else if (valShape.hasStridedShape()) {
-      int64_t reducedStride = valShape.getStride() * vecInfo.getVectorWidth();
+      int64_t reducedStride = valShape.getStride() * vectorWidth;
       IRBuilder<> builder(&where, where.getTerminator()->getIterator());
-      return *builder.CreateAdd(&LookUp(vecValMap, scalarVal), ConstantInt::get(scalarVal.getType(), reducedStride));
+      return *builder.CreateAdd(&val, ConstantInt::get(val.getType(), reducedStride));
 
     } else {
       errs() << "general on-the-fly reduction not yet implemented!\n";
@@ -321,12 +321,21 @@ struct LoopTransformer {
     for (auto & scalInst : *scalHeader) {
       if (!isa<PHINode>(scalInst)) break;
       auto & scalarPhi = cast<PHINode>(scalInst);
+      assert(vecValMap.count(&scalarPhi));
+      auto & vecPhi = LookUp(vecValMap, scalarPhi);
 
-      auto & reducedVecPhi = ReduceValueToScalar(scalarPhi, *vecToScalarExit);
+      // int loopIdx = GetLoopIncomingIndex(ScalarL, scalarPhi);
+      // auto & vecLoopLive = *vecPhi.getIncomingValue(loopIdx);
 
-      vecLoopPhis[&scalarPhi] = &reducedVecPhi;
+      auto & red = *reda.getReductionInfo(scalarPhi);
+      auto valShape = red.getShape(vectorWidth);
+      auto & reducedLoopVal = ReduceValueToScalar(vecPhi, *vecToScalarExit, valShape);
+
+      vecLoopPhis[&scalarPhi] = &reducedLoopVal;
     }
 
+  // TODO we do not support non-reduction live outs yet
+#if 0
   // reduce all remaining live outs
     for (auto * BB : ScalarL.blocks()) {
       for (auto & Inst : *BB) {
@@ -346,6 +355,7 @@ struct LoopTransformer {
         }
       }
     }
+#endif
     // TODO not supported yet
   }
 
@@ -445,7 +455,7 @@ struct LoopTransformer {
       auto * phi = dyn_cast<PHINode>(&Inst);
       if (!phi) break;
       auto & vecPhi = LookUp(vecValMap, *phi);
-      phiShapes[&vecPhi] = vecInfo.getVectorShape(*phi);
+      phiShapes[&vecPhi] = reda.getReductionInfo(*phi)->getShape(vectorWidth);
     }
 
     // replicate the vector loop exit condition
@@ -598,7 +608,7 @@ struct LoopTransformer {
              auto & scaPhi = cast<PHINode>(inst);
              auto & vecPhi = LookUp(vecValMap, scaPhi);
 
-             auto vecPhiShape = vecInfo.getVectorShape(scaPhi);
+             auto vecPhiShape = reda.getReductionInfo(scaPhi)->getShape(vectorWidth);
              assert(vecPhiShape.hasStridedShape() && "can not rollback non-strided iteration variabels");
              int scalarStride = vecPhiShape.getStride() / vectorWidth;
 
@@ -708,6 +718,30 @@ struct LoopTransformer {
   }
 };
 
+
+bool
+RemainderTransform::canTransformLoop(llvm::Loop & L) {
+
+  if (!L.getExitingBlock()) {
+    Report() << "loopVecPass remTrans: multi exit loops not supported yet\n";
+    return false;
+  }
+
+  // only attempt loops with recognized reduction patterns
+  for (auto & Inst : *L.getHeader()) {
+    auto * phi = dyn_cast<PHINode>(&Inst);
+    if (!phi) break;
+
+    if (!reda.getReductionInfo(*phi)) {
+      Report() << "loopVecPass remTrans: unsupported header PHI " << *phi << "\n";
+      return false;
+    }
+
+  }
+
+  return true;
+}
+
 Loop*
 RemainderTransform::createVectorizableLoop(Loop & L, int vectorWidth, int tripAlign) {
 // run capability checks
@@ -723,6 +757,10 @@ RemainderTransform::createVectorizableLoop(Loop & L, int vectorWidth, int tripAl
 
 // embed the cloned loop
   LoopTransformer loopTrans(F, DT, LI, reda, L, clonedLoop, cloneMap, vectorWidth, tripAlign);
+
+  F.dump();
+
+  return &clonedLoop;
 }
 
 } // namespace rv
