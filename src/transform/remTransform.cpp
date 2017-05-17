@@ -776,9 +776,20 @@ struct LoopTransformer {
 
 bool
 RemainderTransform::canTransformLoop(llvm::Loop & L) {
+  auto * loopExiting = L.getExitingBlock();
+  if (!loopExiting) {
+    Report() << "remTrans: multi-exit loops not supported yet\n";
+    return false;
+  }
 
-  if (!L.getExitingBlock()) {
-    Report() << "loopVecPass remTrans: multi exit loops not supported yet\n";
+  auto * loopLatch = L.getLoopLatch();
+  if (!loopLatch) {
+    Report() << "remTrans: multi-latch loops not supported yet\n";
+    return false;
+  }
+
+  if (loopLatch != L.getExitingBlock()) {
+    Report() << "remTrans: only support latch exit loops at the moment\n";
     return false;
   }
 
