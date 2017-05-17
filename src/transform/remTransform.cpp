@@ -31,6 +31,7 @@
 #include "report.h"
 
 #include <map>
+#include <set>
 
 
 using namespace llvm;
@@ -196,6 +197,9 @@ struct LoopTransformer {
   ReductionAnalysis & reda;
   int vectorWidth;
   int tripAlign;
+
+  // instructions that will have a uniform shape
+  std::set<Instruction*> uniformOverrides;
 
   // - original loop -
   //
@@ -364,6 +368,7 @@ struct LoopTransformer {
     }
   }
 
+#if 0
   // reduce all vector values to scalar values
   // vecLoopHis will contain the reduced loop header phis (to be used as initial values in the scalar loop)
   // vecLiveOuts will contain all reduced liveouts of the scalar loop
@@ -413,6 +418,7 @@ struct LoopTransformer {
 #endif
     // TODO not supported yet
   }
+#endif
 
   void
   updateScalarLoopStartValues(ValueToValueMapTy & vecLoopPhis) {
@@ -433,8 +439,11 @@ struct LoopTransformer {
     // create a PHI for every loop header phi in the scalar loop
       // when coming from the vectorGuard -> use the old initial values
       // when coming from the vecToScalarExit -> use the reduced scalar values from the vector loop
+      auto & vecPhi = LookUp(vecValMap, scalarPhi);
+      auto & vectorLiveOut = reda.getReductionInfo(vecPhi)->getReductor();
+
       auto &scaGuardPhi = *scaGuardBuilder.CreatePHI(scalarPhi.getType(), 2, phiName + ".scaGuard");
-      scaGuardPhi.addIncoming(vecLoopPhis[&scalarPhi], vecToScalarExit);
+      scaGuardPhi.addIncoming(&vectorLiveOut, vecToScalarExit);
       scaGuardPhi.addIncoming(&initialValue, vecGuardBlock);
 
     // take scaGuardPhi from the new preHeader of the scalar loop (scalarGuardBlock)
@@ -505,12 +514,17 @@ struct LoopTransformer {
     auto & vecHead = LookUp(vecValMap, *ScalarL.getHeader());
 
     // map vector phis to their shapes
-    std::map<Value*, rv::VectorShape> phiShapes;
+    std::map<Value*, rv::VectorShape> valShapes;
+    std::map<Value*, PHINode*> reductors;
     for (auto & Inst : *ScalarL.getHeader()) {
       auto * phi = dyn_cast<PHINode>(&Inst);
       if (!phi) break;
       auto & vecPhi = LookUp(vecValMap, *phi);
-      phiShapes[&vecPhi] = reda.getReductionInfo(*phi)->getShape(vectorWidth);
+      auto * red = reda.getReductionInfo(vecPhi);
+      auto & vecReductor = red->getReductor();
+      auto redShape = red->getShape(vectorWidth);
+      valShapes[&vecPhi] = redShape;
+      reductors[&vecReductor] = &vecPhi;
     }
 
     // replicate the vector loop exit condition
@@ -534,17 +548,35 @@ struct LoopTransformer {
          [&](Instruction & inst, IRBuilder<>& builder) -> Value* {
            assert (!isa<CallInst>(inst));
 
+           errs() << inst << "\n";
+
+           // loop invariant value
            if (!vecLoopBlocks.count(inst.getParent())) return &inst;
 
-           auto it = phiShapes.find(&inst);
-           if (it == phiShapes.end()) return nullptr;
+           // anticipated icmp in the exit condition
+           if (isa<CmpInst>(inst)) return nullptr;
 
-           VectorShape shape = it->second;
-           //
-           // we hit a header phi -> forward by (vectorWidth-1) many iterations
-           errs() << "SHAPE FIX: " <<  inst << " " << shape.str() << "\n";
-           int64_t amount = shape.getStride() * (vectorWidth - 1);
-           return builder.CreateAdd(&inst, ConstantInt::getSigned(inst.getType(), amount));
+           // did we hit the header phi
+           auto itHeaderPhi = valShapes.find(&inst);
+
+           // determine the shape of the tested iteration variable
+           VectorShape shape;
+           if (itHeaderPhi != valShapes.end()) {
+             // we are checking the header phi directly
+             shape = itHeaderPhi->second;
+           } else {
+             // we checking the reductor result on the header phi (next iteration value)
+             assert(reductors.find(&inst) != reductors.end() && "not testing a reductor");
+             auto * matchingHeaderPhi = reductors[&inst];
+             shape = valShapes[matchingHeaderPhi];
+           }
+           int64_t amount = shape.getStride() * (2 * vectorWidth) - 1;
+
+           // emulate the value of the tested iteration variable in iteration 2*vectorWidth-1 relative to the current value
+           auto * forwardAdd = cast<Instruction>(builder.CreateAdd(&inst, ConstantInt::getSigned(inst.getType(), amount)));
+           uniformOverrides.insert(forwardAdd);
+
+           return forwardAdd;
           },
       builder
       );
@@ -600,6 +632,8 @@ struct LoopTransformer {
 
            if (!vecLoopBlocks.count(inst.getParent())) return &inst;
 
+           if (isa<CmpInst>(inst)) return nullptr;
+
            auto it = leafMap.find(&inst);
            return it != leafMap.end() ? it->second : nullptr;
           },
@@ -628,32 +662,37 @@ struct LoopTransformer {
 
     IRBuilder<> builder(vecToScalarExit, vecToScalarExit->getTerminator()->getIterator());
 
-    // insert vector reduced values as leaves
-    ValueToValueMapTy leafMap;
+    // maps scalar reductors to their phi nodes
+    std::set<Value*> reductors;
+    for (auto & inst : *ScalarL.getHeader()) {
+      auto * scaPhi = dyn_cast<PHINode>(&inst);
+      if (!scaPhi) break;
 
-    // map scalar header phis to reduced values
-    ValueToValueMapTy headerPhiMap;
-
-    // prepare a look up set for scalar loop header PHis
-    // if we hit those during replication, we need to restore their value from the previous iteration
-    for (auto it : vecLoopPhis) {
-      const auto & scalarPhi = cast<PHINode>(*it->first);
-      auto & scalarInitVal = *it->second;
-      int loopIdx = GetLoopIncomingIndex(ScalarL, scalarPhi);
-      assert(loopIdx >= 0);
-
-      auto * loopInVal = scalarPhi.getIncomingValue(loopIdx);
-      leafMap[loopInVal] = &scalarInitVal;
-      headerPhiMap[&scalarPhi] = &scalarInitVal;
+      auto & reductor = reda.getReductionInfo(*scaPhi)->getReductor();
+      reductors.insert(&reductor);
     }
 
-
-    // replicate the exit condition
+  // replicate the exit condition
+    // replace scalar reductors with their vector-loop versions
     auto & exitVal =
       ReplicateExpression(".v2s", *exitingBr.getCondition(), replMap,
          [&](Instruction & inst, IRBuilder<>&) -> Value* {
-         // loop invariant value
+           // loop invariant value
            if (!ScalarL.contains(inst.getParent())) return &inst;
+
+           // if we hit a reduction/induction value replace it with its vector version
+           if (isa<PHINode>(inst) || reductors.count(&inst)) {
+             return &LookUp(vecValMap, inst);
+           }
+
+           // Otw, copy that operation
+           return nullptr;
+#if 0
+
+           if (isa<PHINode>(inst)) {
+
+              assert(inst->getParent() == scalarHead);
+           }
 
            assert (!isa<CallInst>(inst));
          // this refers to the last iteration (value in the last vector lane)
@@ -675,6 +714,7 @@ struct LoopTransformer {
          // this refers to the next iteration after the vector loop -> replace with the scalar loop init value
            auto it = leafMap.find(&inst);
            return it != leafMap.end() ? it->second : nullptr;
+#endif
           },
       builder
       );
@@ -752,7 +792,7 @@ struct LoopTransformer {
     fixVecLoopHeaderPhis();
 
     // reduce loop live outs and ALL vector loop phis (that existed in the scalar loop)
-    reduceVectorLiveOuts(vecLoopPhis, vecLiveOuts);
+    // reduceVectorLiveOuts(vecLoopPhis, vecLiveOuts);
 
     // let the scalar loop start from the remainder vector loop remainder (if the VL was executed)
     updateScalarLoopStartValues(vecLoopPhis);

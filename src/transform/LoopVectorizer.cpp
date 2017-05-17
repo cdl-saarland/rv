@@ -222,6 +222,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   }
 
 // Force the loop exit branch to uniform (which it is going to be after the transformation)
+  // TODO this is redundant: let remainder transform handle this
   auto * exitBr = cast<BranchInst>(PreparedLoop->getExitingBlock()->getTerminator());
   vecInfo.setVectorShape(*exitBr->getCondition(), VectorShape::uni());
 
