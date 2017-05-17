@@ -188,15 +188,18 @@ ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) 
     if (it == cloneMap.end()) {
       continue;
     }
-    auto * clonedPhi = cast<PHINode>(cloneMap[itRed.first]);
 
+    auto * clonedPhi = cast<PHINode>(cloneMap[itRed.first]);
     auto & origRed = *itRed.second;
+    auto * clonedReductor = cast<Instruction>(cloneMap[&origRed.reductorInst]);
+
+    assert(clonedPhi && clonedReductor);
 
     auto * clonedLoop = LI.getLoopFor(cast<BasicBlock>(cloneMap[origRed.redLoop.getHeader()]));
 
     auto * clonedRed = new Reduction(
         origRed.neutralElem,
-        *cast<Instruction>(cloneMap[&origRed.reductorInst]),
+        *clonedReductor,
         *clonedLoop,
         *clonedPhi,
         origRed.initInputIndex,
