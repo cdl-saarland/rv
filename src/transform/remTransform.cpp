@@ -773,6 +773,25 @@ struct LoopTransformer {
   }
 };
 
+bool
+RemainderTransform::canHandleExitCondition(llvm::Loop & L) {
+  auto * loopExiting = L.getExitingBlock();
+
+  // loop exit conditions constraints
+  auto * exitingBr = dyn_cast<BranchInst>(loopExiting->getTerminator());
+  if (!exitingBr) return false;
+
+  auto * exitingCmp = dyn_cast<CmpInst>(exitingBr->getCondition());
+  if (!exitingCmp) return false;
+
+  auto cmpPred = exitingCmp->getPredicate();
+  if (cmpPred != CmpInst::ICMP_SLT && cmpPred !=CmpInst::ICMP_ULT) {
+    return false;
+  }
+
+  // all checks passed
+  return true;
+}
 
 bool
 RemainderTransform::canTransformLoop(llvm::Loop & L) {
@@ -789,8 +808,12 @@ RemainderTransform::canTransformLoop(llvm::Loop & L) {
   }
 
   if (loopLatch != L.getExitingBlock()) {
-    Report() << "remTrans: only support latch exit loops at the moment\n";
+    Report() << "remTrans: only support latch exit loops\n";
     return false;
+  }
+
+  if (!canHandleExitCondition(L)) {
+    Report() << "remTrans: can not handle loop exit condition\n";
   }
 
   // only attempt loops with recognized reduction patterns

@@ -31,6 +31,10 @@ class RemainderTransform {
   llvm::LoopInfo & LI;
   ReductionAnalysis & reda;
 
+// RemainderTransform capability checks
+  // check if remTrans currently handles the loop exit condition
+  bool canHandleExitCondition(llvm::Loop & L);
+  // if this returns true RemainderTransform must not fail during the transformation and has to return a vectorizable loop
   bool canTransformLoop(llvm::Loop & L);
 
 public:
@@ -42,7 +46,7 @@ public:
   , reda(_reda)
   {}
 
-  // create a vectorizable loop or return nullptr if that is not possible
+  // create a vectorizable loop or return nullptr if remTrans can not currently do it
   llvm::Loop*
   createVectorizableLoop(llvm::Loop & L, int vectorWidth, int tripAlign);
 };
