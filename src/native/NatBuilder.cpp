@@ -1444,6 +1444,43 @@ llvm::Value *NatBuilder::maskInactiveLanes(llvm::Value *const value, const Basic
 
 Value&
 NatBuilder::materializeVectorReduce(IRBuilder<> & builder, Value & initVal, Value & vecVal, Instruction & reductOp) {
+  uint vecWidth = vecVal.getType()->getVectorNumElements();
+
+  auto * intTy = Type::getInt32Ty(builder.getContext());
+
+  auto * accu = &vecVal;
+
+  for (int range = vecWidth / 2; range >= 1; range /= 2) {
+  // create a permutation vector
+    std::vector<Constant*> shuffleVec;
+    shuffleVec.reserve(vecWidth);
+
+    // 4 5 6 7 * * * *
+    // 2 3 * * * * * *
+    // 1 * * * * * * *
+    for (int i = 0; i < range; ++i) {
+      shuffleVec.push_back(ConstantInt::getSigned(intTy, range + i));
+    }
+    // fill up with undef elements
+    while (shuffleVec.size() < vecWidth) shuffleVec.push_back( UndefValue::get(intTy) );
+
+  // fold
+    auto * mask = ConstantVector::get(shuffleVec);
+    auto * folded = builder.CreateShuffleVector(accu, UndefValue::get(vecVal.getType()), mask, "fold");
+
+  // Create reduction
+    auto *reduce = reductOp.clone();
+    reduce->mutateType(vecVal.getType());
+    reduce->setOperand(0, accu);
+    reduce->setOperand(1, folded);
+    builder.Insert(reduce, "reduce");
+
+    accu = reduce;
+  }
+
+  return *builder.CreateExtractElement(accu, ConstantInt::getNullValue(intTy), "reduce_last");
+
+#if 0
   Value * accu = &initVal;
   for (uint i = 0; i < vectorizationInfo.getVectorWidth(); ++i) {
     auto * laneVal = builder.CreateExtractElement(&vecVal, i, "red_ext");
@@ -1456,6 +1493,7 @@ NatBuilder::materializeVectorReduce(IRBuilder<> & builder, Value & initVal, Valu
   }
 
   return *accu;
+#endif
 }
 
 void
