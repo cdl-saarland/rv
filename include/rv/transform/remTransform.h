@@ -4,6 +4,8 @@
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "llvm/IR/Function.h"
 
+#include <set>
+
 namespace llvm {
   class LoopInfo;
   class Loop;
@@ -19,6 +21,8 @@ LookUp(llvm::ValueToValueMapTy & valMap, T& key) {
 }
 
 
+using ValueSet = std::set<llvm::Value*>;
+
 namespace rv {
 
 class ReductionAnalysis;
@@ -30,6 +34,7 @@ class RemainderTransform {
   llvm::PostDominatorTree & PDT;
   llvm::LoopInfo & LI;
   ReductionAnalysis & reda;
+
 
 // RemainderTransform capability checks
   // check if remTrans currently handles the loop exit condition
@@ -48,7 +53,7 @@ public:
 
   // create a vectorizable loop or return nullptr if remTrans can not currently do it
   llvm::Loop*
-  createVectorizableLoop(llvm::Loop & L, int vectorWidth, int tripAlign);
+  createVectorizableLoop(llvm::Loop & L, ValueSet & uniOverrides, int vectorWidth, int tripAlign);
 };
 
 }

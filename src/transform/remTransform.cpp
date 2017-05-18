@@ -195,11 +195,10 @@ struct LoopTransformer {
 
   ValueToValueMapTy & vecValMap;
   ReductionAnalysis & reda;
+  std::set<Value*> & uniOverrides;
+
   int vectorWidth;
   int tripAlign;
-
-  // instructions that will have a uniform shape
-  std::set<Instruction*> uniformOverrides;
 
   // - original loop -
   //
@@ -253,7 +252,7 @@ struct LoopTransformer {
     return nullptr;
   }
 
-  LoopTransformer(Function & _F, DominatorTree & _DT, PostDominatorTree & _PDT, LoopInfo & _LI, ReductionAnalysis & _reda, Loop & _ScalarL, Loop & _ClonedL, ValueToValueMapTy & _vecValMap, int _vectorWidth, int _tripAlign)
+  LoopTransformer(Function & _F, DominatorTree & _DT, PostDominatorTree & _PDT, LoopInfo & _LI, ReductionAnalysis & _reda, std::set<Value*> & _uniOverrides, Loop & _ScalarL, Loop & _ClonedL, ValueToValueMapTy & _vecValMap, int _vectorWidth, int _tripAlign)
   : F(_F)
   , DT(_DT)
   , PDT(_PDT)
@@ -262,6 +261,7 @@ struct LoopTransformer {
   , ClonedL(_ClonedL)
   , vecValMap(_vecValMap)
   , reda(_reda)
+  , uniOverrides(_uniOverrides)
   , vectorWidth(_vectorWidth)
   , tripAlign(_tripAlign)
   , entryBlock(ScalarL.getLoopPreheader())
@@ -561,20 +561,23 @@ struct LoopTransformer {
 
            // determine the shape of the tested iteration variable
            VectorShape shape;
+           Value * headerPhi = nullptr;
            if (itHeaderPhi != valShapes.end()) {
              // we are checking the header phi directly
+             headerPhi = &inst;
              shape = itHeaderPhi->second;
            } else {
              // we checking the reductor result on the header phi (next iteration value)
              assert(reductors.find(&inst) != reductors.end() && "not testing a reductor");
              auto * matchingHeaderPhi = reductors[&inst];
              shape = valShapes[matchingHeaderPhi];
+             headerPhi = matchingHeaderPhi;
            }
            int64_t amount = shape.getStride() * (2 * vectorWidth) - 1;
 
            // emulate the value of the tested iteration variable in iteration 2*vectorWidth-1 relative to the current value
-           auto * forwardAdd = cast<Instruction>(builder.CreateAdd(&inst, ConstantInt::getSigned(inst.getType(), amount)));
-           uniformOverrides.insert(forwardAdd);
+           auto * forwardAdd = cast<Instruction>(builder.CreateAdd(headerPhi, ConstantInt::getSigned(inst.getType(), amount)));
+           if (isa<Instruction>(forwardAdd)) uniOverrides.insert(forwardAdd);
 
            return forwardAdd;
           },
@@ -583,72 +586,86 @@ struct LoopTransformer {
 
     // use forwarded exit condition
     vecExitingBr.setCondition(&exitVal);
+
+    // annotate the vector loop exit condition as uniform
+    uniOverrides.insert(&exitVal);
   }
 
   // supplement the vector loop guard condition
   // the Vloop is executed if there is at least one full vector of iterations
   void
   SupplementVectorGuard() {
-    ValueToValueMapTy replMap;
-
-    // map vector loop header phis to their initial values
-    ValueToValueMapTy leafMap;
+    // map vector phis to their shapes
+    std::map<Value*, rv::VectorShape> valShapes;
+    std::map<Value*, PHINode*> reductors;
     for (auto & Inst : *ScalarL.getHeader()) {
       auto * phi = dyn_cast<PHINode>(&Inst);
       if (!phi) break;
-
-      int loopIdx = GetLoopIncomingIndex(ScalarL, *phi);
-      assert(loopIdx >= 0);
-
-      auto & vecPhi = LookUp(vecValMap, *phi);
-
-      auto * loopInVal = vecPhi.getIncomingValue(loopIdx);
-
-      leafMap[&vecPhi] = loopInVal;
+      auto * red = reda.getReductionInfo(*phi);
+      auto & reductor = red->getReductor();
+      auto redShape = red->getShape(vectorWidth);
+      valShapes[phi] = redShape;
+      reductors[&reductor] = phi;
     }
 
-    // replicate the vector loop exit condition
+    // replicate the scalar loop exit condition
     auto & scaExiting = *GetUniqueExiting(ScalarL);
-    auto & vecExiting = LookUp(vecValMap, scaExiting);
+    auto & scaExitingBr = cast<BranchInst>(*scaExiting.getTerminator());
 
-    auto & vecExitingBr = cast<BranchInst>(*vecExiting.getTerminator());
-    int vecExitSuccIdx = vecExitingBr.getSuccessor(0) == vecToScalarExit ? 0 : 1;
-    assert(vecExitingBr.getSuccessor(vecExitSuccIdx) == vecToScalarExit);
+    auto & vecGuardBr = *cast<BranchInst>(vecGuardBlock->getTerminator());
 
     // replicate the vector loop exit condition
-    IRBuilder<> builder(vecGuardBlock, vecGuardBlock->getTerminator()->getIterator());
+    IRBuilder<> builder(vecGuardBlock, vecGuardBr.getIterator());
 
-
-    // TODO create a llvm::Loop for the vector loop
-    std::map<const BasicBlock*, const BasicBlock*> vecLoopBlocks;
-    for (auto * BB : ScalarL.blocks()) {
-      vecLoopBlocks[&LookUp(vecValMap, *BB)] = BB;
-    }
-
+    ValueToValueMapTy replMap;
     auto & exitVal =
-      ReplicateExpression(".vecGuard", *vecExitingBr.getCondition(), replMap,
-         [&](Instruction & inst, IRBuilder<>&) -> Value* {
+      ReplicateExpression(".vecGuard", *scaExitingBr.getCondition(), replMap,
+         [&](Instruction & inst, IRBuilder<>& builder) -> Value* {
            assert (!isa<CallInst>(inst));
 
-           if (!vecLoopBlocks.count(inst.getParent())) return &inst;
+           errs() << inst << "\n";
 
+           // loop invariant value
+           if (!ScalarL.contains(inst.getParent())) return &inst;
+
+           // anticipated icmp in the exit condition
            if (isa<CmpInst>(inst)) return nullptr;
 
-           auto it = leafMap.find(&inst);
-           return it != leafMap.end() ? it->second : nullptr;
+           // did we hit the header phi
+           auto itHeaderPhi = valShapes.find(&inst);
+
+           // determine the shape of the tested iteration variable
+           VectorShape shape;
+           PHINode * headerPhi = nullptr;
+           if (itHeaderPhi != valShapes.end()) {
+             // we are checking the header phi directly
+             headerPhi = cast<PHINode>(&inst);
+             shape = itHeaderPhi->second;
+           } else {
+             // we checking the reductor result on the header phi (next iteration value)
+             assert(reductors.find(&inst) != reductors.end() && "not testing a reductor");
+             auto * matchingHeaderPhi = reductors[&inst];
+             shape = valShapes[matchingHeaderPhi];
+             headerPhi = matchingHeaderPhi;
+           }
+
+           // FIXME don't reconstruct the init value -> map this somewhere before the transformation
+           auto & vecPhi = LookUp(vecValMap, *headerPhi);
+           int initIdx = vecPhi.getBasicBlockIndex(vecGuardBlock);
+           auto * initVal = vecPhi.getIncomingValue(initIdx);
+
+           // check the exit condition for the last lane iteration
+           int64_t amount = shape.getStride() * (vectorWidth - 1);
+
+           // emulate the value of the tested iteration variable in iteration 2*vectorWidth-1 relative to the current value
+           return builder.CreateAdd(initVal, ConstantInt::getSigned(inst.getType(), amount));
           },
       builder
       );
 
-    // supplement the vector loop guard condition
-    auto & vecGuardBr = *cast<BranchInst>(vecGuardBlock->getTerminator());
+    // TODO negate condition as necessary
+    // use forwarded exit condition
     vecGuardBr.setCondition(&exitVal);
-
-    // swap the exits to negate the condition
-    if (vecExitSuccIdx == 0) {
-      vecGuardBr.setSuccessor(0, loopExit);
-      vecGuardBr.setSuccessor(1, scalarGuardBlock);
-    }
   }
 
   // replicate the scalar loop exit condition in vecToScalarExit
@@ -804,12 +821,12 @@ struct LoopTransformer {
     // this edge is taken if no iterations remain for the scalar loop
     SupplementVectorExit(vecLoopPhis);
 
+    // repair the vector loop exit condition to check for the next iteration (instead on the phi + strie * vectorWidth -th)
+    RepairVectorLoopCondition(vecLoopPhis);
+
   // supplement the vector loop guard condition (vecGuardBlock -> vector loop edge)
     // the vector loop will execute on at least one full vector
     SupplementVectorGuard();
-
-    // repair the vector loop exit condition to check for the next iteration (instead on the phi + strie * vectorWidth -th)
-    RepairVectorLoopCondition(vecLoopPhis);
   }
 };
 
@@ -872,7 +889,7 @@ RemainderTransform::canTransformLoop(llvm::Loop & L) {
 }
 
 Loop*
-RemainderTransform::createVectorizableLoop(Loop & L, int vectorWidth, int tripAlign) {
+RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, int vectorWidth, int tripAlign) {
 // run capability checks
   if (!canTransformLoop(L)) return nullptr;
 
@@ -885,7 +902,7 @@ RemainderTransform::createVectorizableLoop(Loop & L, int vectorWidth, int tripAl
   reda.updateForClones(LI, cloneMap);
 
 // embed the cloned loop
-  LoopTransformer loopTrans(F, DT, PDT, LI, reda, L, clonedLoop, cloneMap, vectorWidth, tripAlign);
+  LoopTransformer loopTrans(F, DT, PDT, LI, reda, uniOverrides, L, clonedLoop, cloneMap, vectorWidth, tripAlign);
 
   F.dump();
 

@@ -13,6 +13,7 @@
 #include "llvm/Pass.h"
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
+#include "rv/transform/remTransform.h"
 
 #include "rv/analysis/reductionAnalysis.h"
 #include <limits>
@@ -66,7 +67,7 @@ private:
 
   // convert L into a vectorizable loop
   // this will create a new scalar loop that can be vectorized directly with RV
-  llvm::Loop* transformToVectorizableLoop(llvm::Loop &L, int VectorWidth, int tripAlign);
+  llvm::Loop* transformToVectorizableLoop(llvm::Loop &L, int VectorWidth, int tripAlign, ValueSet & uniformOverrides);
 
   bool canAdjustTripCount(llvm::Loop &L, int VectorWidth, int TripCount);
 

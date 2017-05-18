@@ -142,12 +142,12 @@ int LoopVectorizer::getVectorWidth(Loop &L) {
 
 
 Loop*
-LoopVectorizer::transformToVectorizableLoop(Loop &L, int VectorWidth, int tripAlign) {
+LoopVectorizer::transformToVectorizableLoop(Loop &L, int VectorWidth, int tripAlign, ValueSet & uniformOverrides) {
   IF_DEBUG { errs() << "\tCreating scalar remainder Loop for " << L.getName() << "\n"; }
 
   // try to applu the remainder transformation
   RemainderTransform remTrans(*F, *DT, *PDT, *LI, *reda);
-  auto * preparedLoop = remTrans.createVectorizableLoop(L, VectorWidth, tripAlign);
+  auto * preparedLoop = remTrans.createVectorizableLoop(L, uniformOverrides, VectorWidth, tripAlign);
 
   return preparedLoop;
 }
@@ -180,7 +180,8 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   Report() << "loopVecPass: Vectorize " << L.getName() << " with VW: " << VectorWidth << " , Dependence Distance: " << depDist
          << " and TripAlignment: " << tripAlign << "\n";
 
-  auto * PreparedLoop = transformToVectorizableLoop(L, VectorWidth, tripAlign);
+  ValueSet uniOverrides;
+  auto * PreparedLoop = transformToVectorizableLoop(L, VectorWidth, tripAlign, uniOverrides);
   if (!PreparedLoop) {
     Report() << "loopVecPass: Can not prepare vectorization of the loop\n";
     return false;
@@ -221,10 +222,12 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     vecInfo.setVectorShape(*phi, phiShape);
   }
 
-// Force the loop exit branch to uniform (which it is going to be after the transformation)
-  // TODO this is redundant: let remainder transform handle this
-  auto * exitBr = cast<BranchInst>(PreparedLoop->getExitingBlock()->getTerminator());
-  vecInfo.setVectorShape(*exitBr->getCondition(), VectorShape::uni());
+  // set uniform overrides
+  IF_DEBUG { errs() << "-- Setting remTrans uni overrides --\n"; }
+  for (auto * val : uniOverrides) {
+    IF_DEBUG { errs() << "- " << *val << "\n"; }
+    vecInfo.setVectorShape(*val, VectorShape::uni());
+  }
 
   //DT.verifyDomTree();
   //LI.verify(DT);
