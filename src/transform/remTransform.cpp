@@ -99,6 +99,7 @@ struct LoopCloner {
 
     auto * loopPostDom = PDT.getNode(loopExiting)->getIDom()->getBlock();
     ClonePostDomTree(*loopPostDom, L, *loopExiting, valueMap);
+    PDT.recalculate(F);
     auto * clonedExitingPostDom = PDT.getNode(&clonedExiting);
 
     // drop the fake branch again (we created it to fake a sound CFG during analyses repair)
@@ -159,20 +160,29 @@ struct LoopCloner {
   void
   CloneLoopAnalyses(Loop * clonedParentLoop, Loop & L, ValueToValueMapTy & valueMap) {
     // create a loop object
-    auto * clonedLoop = new Loop();
-
-    // add blocks to the loop (that really sit on this level)
-    for (auto * BB : L.blocks()) {
-      if (LI.getLoopFor(BB) == &L) {
-        clonedLoop->addBasicBlockToLoop(&LookUp(valueMap, *BB), LI);
-      }
-    }
+    auto * clonedHead = &LookUp(valueMap, *L.getHeader());
+    auto * clonedLoop = new Loop(); //Loop(clonedHead);
 
     // embed the loop object in the loop tree
     if (!clonedParentLoop) {
       LI.addTopLevelLoop(clonedLoop);
     } else {
       clonedParentLoop->addChildLoop(clonedLoop);
+    }
+
+    // add the header first
+    clonedLoop->addBasicBlockToLoop(clonedHead, LI); //->addBlockEntry(clonedHead);
+
+    // add blocks to the loop (that really sit on this level)
+    for (auto * BB : L.blocks()) {
+      if (BB == L.getHeader()) continue;
+      if (LI.getLoopFor(BB) != &L) continue;
+
+      auto * clonedBlock = &LookUp(valueMap, *BB);
+      clonedLoop->addBasicBlockToLoop(clonedBlock, LI);
+      // LI.changeLoopFor(clonedBlock, clonedLoop);
+      // if (BB == clonedHead) continue;
+      // clonedLoop->addBlockEntry(clonedBlock);
     }
 
     // recursively build child loops
