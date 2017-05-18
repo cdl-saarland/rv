@@ -161,9 +161,11 @@ struct LoopCloner {
     // create a loop object
     auto * clonedLoop = new Loop();
 
-    // add blocks to the loop
+    // add blocks to the loop (that really sit on this level)
     for (auto * BB : L.blocks()) {
-      clonedLoop->addBasicBlockToLoop(&LookUp(valueMap, *BB), LI);
+      if (LI.getLoopFor(BB) == &L) {
+        clonedLoop->addBasicBlockToLoop(&LookUp(valueMap, *BB), LI);
+      }
     }
 
     // embed the loop object in the loop tree
@@ -175,9 +177,7 @@ struct LoopCloner {
 
     // recursively build child loops
     for (auto * childLoop : L) {
-      DomTreeNode * childDomNode = nullptr;
       CloneLoopAnalyses(clonedLoop, *childLoop, valueMap);
-      assert(childDomNode);
     }
   }
 };
