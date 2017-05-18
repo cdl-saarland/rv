@@ -787,9 +787,7 @@ struct LoopTransformer {
           if (ScalarL.contains(userInst)) continue;
 
           auto scaLiveOut = &Inst;
-          auto vecLiveOut = vecLiveOuts[scaLiveOut];
-
-          assert(vecLiveOut && "live out was not reduced in vector loop");
+          auto vecLiveOut = &LookUp(vecValMap, Inst);
 
           if (isa<PHINode>(userInst) && userInst->getParent() == loopExit) {
             auto & userPhi = *cast<PHINode>(userInst);
