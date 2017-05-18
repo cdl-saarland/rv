@@ -302,6 +302,13 @@ struct LoopTransformer {
     scalarGuardBlock = BasicBlock::Create(context, loopName + ".scag", &F, &scalarHead);
     vecToScalarExit = BasicBlock::Create(context, loopName + ".vec2scalar", &F, &scalarHead);
 
+    auto * parentLoop = ScalarL.getParentLoop();
+    if (parentLoop) {
+      parentLoop->addBasicBlockToLoop(vecGuardBlock, LI);
+      parentLoop->addBasicBlockToLoop(scalarGuardBlock, LI);
+      parentLoop->addBasicBlockToLoop(vecToScalarExit, LI);
+    }
+
   // branch to vecGuard instead to the scalar loop
     auto * entryTerm = entryBlock->getTerminator();
     for (size_t i = 0; i < entryTerm->getNumSuccessors(); ++i) {
@@ -319,7 +326,8 @@ struct LoopTransformer {
     BranchInst::Create(&vecHead, scalarGuardBlock, vecLoopCond, vecGuardBlock);
 
   // make the vector loop exit to vecToScalar
-    auto * scalarTerm = ScalarL.getExitingBlock()->getTerminator();
+    auto * scaExiting = ScalarL.getExitingBlock();
+    auto * scalarTerm = scaExiting->getTerminator();
     auto * vecLoopExiting = &LookUp(vecValMap, *scalarTerm->getParent());
     auto * vecTerm = cast<TerminatorInst>(vecValMap[scalarTerm]);
 
@@ -338,11 +346,16 @@ struct LoopTransformer {
     BranchInst::Create(&scalarHead, scalarGuardBlock);
 
   // update DomTree
+    bool scaLoopDominatedExit = DT.dominates(scaExiting, loopExit);
     auto * vecGuardDomNode = DT.addNewBlock(vecGuardBlock, entryBlock); // entry >= vecGuardBlock
     DT.changeImmediateDominator(DT.getNode(&vecHead), vecGuardDomNode); // vecGuardBlock >= vecLoopHead
     auto * scaGuardNode = DT.addNewBlock(scalarGuardBlock, vecGuardBlock); // vecGuardBlock >= scaGuarBlock
     DT.changeImmediateDominator(DT.getNode(&scalarHead), scaGuardNode);
     DT.addNewBlock(vecToScalarExit, vecLoopExiting); // vecLoopExiting >= vecToScalarExit
+
+    if (scaLoopDominatedExit) {
+      DT.changeImmediateDominator(loopExit, vecGuardBlock);
+    }
 
   // update postDomTree
     bool loopPostDomsEntry = PDT.dominates(&scalarHead, entryBlock);
