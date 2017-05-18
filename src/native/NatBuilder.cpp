@@ -22,6 +22,8 @@
 #include "ShuffleBuilder.h"
 
 #define IF_DEBUG_NAT IF_DEBUG
+#undef IF_DEBUG
+#define IF_DEBUG if (true)
 
 using namespace native;
 using namespace llvm;
@@ -1459,8 +1461,72 @@ NatBuilder::materializeVectorReduce(IRBuilder<> & builder, Value & initVal, Valu
 }
 
 void
+NatBuilder::repairOutsideUses(Instruction & scaChainInst, std::function<Value& (Value &,BasicBlock &)> repairFunc) {
+  std::map<BasicBlock*, Value*> fixMap;
+
+  // actually used value
+  Value * vecUsed = getScalarValue(&scaChainInst);
+  if (!vecUsed) vecUsed = getVectorValue(&scaChainInst, 0);
+
+  assert(vecUsed && "could not infer vector version of scalar instruction");
+
+  // iterate over all uses and invoke @repairFunc for use edges that leave the region
+  for (auto itUse = scaChainInst.use_begin(); itUse != scaChainInst.use_end(); ){
+    auto & use = *itUse++;
+
+    int opIdx = use.getOperandNo();
+    auto & userInst = cast<Instruction>(*use.getUser());
+
+    // user is in the region
+    if (vectorizationInfo.inRegion(*userInst.getParent())) continue;
+
+    auto * userPhi = dyn_cast<PHINode>(&userInst);
+    bool isLcssaPhi = userPhi && userPhi->getNumIncomingValues() == 1;
+
+    // for non-LCSSA phis ust the incoming block as def block
+    BasicBlock * userBlock = userInst.getParent();
+    if (userPhi && !isLcssaPhi) {
+      int incomingIdx = userPhi->getIncomingValueNumForOperand(opIdx);
+      userBlock = userPhi->getIncomingBlock(incomingIdx);
+    }
+
+    // look for a dominating definition somewhere
+    // TODO take the incoming block for non-lcssa phis
+    decltype(fixMap)::iterator itFix = fixMap.begin();
+    for (; itFix != fixMap.end(); ++itFix) {
+      auto *defBlock = itFix->first;
+      if (dominatorTree.dominates(defBlock, userBlock)) break;
+    }
+
+    Value * reducedVal = nullptr;
+    if (itFix != fixMap.end()) {
+      reducedVal = itFix->second; // TODO make sure this comes before the user...
+    } else {
+      IF_DEBUG errs() << "Repairing use " << userInst << "\n";
+      // invoke custom reduction function
+      reducedVal = &repairFunc(*vecUsed, *userBlock);
+      assert(&reducedVal);
+      IF_DEBUG errs() << "\t reduced: " << *reducedVal << "\n";
+      fixMap[userInst.getParent()] = reducedVal;
+    }
+
+    if (isLcssaPhi) {
+      // TODO maintain LCSSA
+      userInst.replaceAllUsesWith(reducedVal);
+      userInst.eraseFromParent();
+
+    } else {
+      // regular use
+      userInst.setOperand(opIdx, reducedVal);
+    }
+  }
+
+}
+
+void
 NatBuilder::materializeStridedReduction(Reduction & red) {
-  auto & vecReductor = *cast<Instruction>(getScalarValue(&red.getReductor(), 0));
+  IF_DEBUG { errs() << "Fixing strided reduction "; red.dump(); errs() << "\n"; }
+
   auto redShape = vectorizationInfo.getVectorShape(red.getReductor());
 
   if (redShape.isUniform()) return;
@@ -1471,30 +1537,60 @@ NatBuilder::materializeStridedReduction(Reduction & red) {
 
   // widen stride to full vectorWidth
   int vectorWidth = vectorizationInfo.getVectorWidth();
-  int vecStride = vectorWidth * redShape.getStride();
 
   // FIXME need to maintain old stride for users in this iteration
 
-  // extend stride
+// vectorize the reduction itself (loop internal uses)
+  auto & vecPhi = *cast<PHINode>(getScalarValue(&red.phi, 0));
+  auto & vecReductor = *cast<Instruction>(getScalarValue(&red.getReductor(), 0));
+
+  // create an adjusted reductor (full SIMD stride)
+  auto * clonedReductor = cast<Instruction>(vecReductor.clone());
+  int vecStride = vectorWidth * redShape.getStride();
   auto & vecConst = *ConstantInt::getSigned(scalarConst.getType(), vecStride);
-  vecReductor.replaceUsesOfWith(&scalarConst, &vecConst);
+  clonedReductor->replaceUsesOfWith(&scalarConst, &vecConst);
+  clonedReductor->insertAfter(&vecReductor);
 
   // remap phi operands
   int loopOpIdx = red.loopInputIndex;
   int initOpIdx = red.initInputIndex;
-  PHINode & vecPhi = cast<PHINode>(*getScalarValue(&red.phi, 0));
 
   // attach reduced inputs to phi
   vecPhi.addIncoming(&red.getInitValue(), red.phi.getIncomingBlock(initOpIdx));
   auto * vecLatch = cast<BasicBlock>(getVectorValue(red.phi.getIncomingBlock(loopOpIdx)));
+  vecPhi.addIncoming(clonedReductor, vecLatch);
 
-  vecPhi.addIncoming(&vecReductor, vecLatch);
+  repairOutsideUses(red.phi,
+      [&](Value& usedVal, BasicBlock& userBlock) ->Value& {
+        // otw, replace with reduced value
+        int64_t amount = (vectorWidth - 1) * redShape.getStride();
+        auto * insertPt = userBlock.getFirstNonPHI();
+        IRBuilder<> builder(&userBlock, insertPt->getIterator());
+
+        auto * liveOutView = builder.CreateAdd(&usedVal, ConstantInt::getSigned(usedVal.getType(), amount), ".red");
+        return *liveOutView;
+      }
+  );
+
+  repairOutsideUses(red.getReductor(),
+      [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
+        // otw, replace with reduced value
+        int64_t amount = vectorWidth * redShape.getStride();
+        auto * insertPt = userBlock.getFirstNonPHI();
+        IRBuilder<> builder(&userBlock, insertPt->getIterator());
+
+        auto * liveOutView = builder.CreateAdd(&usedVal, ConstantInt::getSigned(usedVal.getType(), amount), ".red");
+        return *liveOutView;
+      }
+  );
 }
 
 void
 NatBuilder::materializeVaryingReduction(Reduction & red) {
   const int vectorWidth = vectorizationInfo.getVectorWidth();
   auto * vecPhi = cast<PHINode>(getVectorValue(&red.phi));
+  auto redShape = vectorizationInfo.getVectorShape(red.getReductor());
+  assert(redShape.isVarying());
 
 // infer (mapped) initial value
   auto & scalInitVal = red.getInitValue();
@@ -1514,62 +1610,23 @@ NatBuilder::materializeVaryingReduction(Reduction & red) {
   auto & vecReductInst = *cast<Instruction>(getVectorValue(&reductInst));
 
 // reduce reduction phi for outside users
-  for (auto itUse = red.phi.use_begin(); itUse != red.phi.use_end(); ){
-    auto & use = *itUse++;
+  repairOutsideUses(red.getReductor(),
+      [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
+        // otw, replace with reduced value
+        auto * insertPt = userBlock.getFirstNonPHI();
+        IRBuilder<> builder(&userBlock, insertPt->getIterator());
+        auto & reducedVector = materializeVectorReduce(builder, phiInitVal, *vecPhi, vecReductInst);
+        return reducedVector;
+      }
+  );
 
-    int opIdx = use.getOperandNo();
-    auto & userInst = cast<Instruction>(*use.getUser());
-
-    if (vectorizationInfo.inRegion(userInst)) {
-      continue; // regular remapping
-    }
-
-    auto * userPhi = dyn_cast<PHINode>(&userInst);
-    assert((!userPhi || (userPhi->getNumIncomingValues() == 1)) && "expected an LCSSA phi");
-
-    // otw, replace with reduced value
-    IRBuilder<> builder(userInst.getParent(), userInst.getIterator());
-    auto & reducedVector = materializeVectorReduce(builder, phiInitVal, *vecPhi, reductInst);
-
-    if (userPhi) {
-      // LCSSA phi (purge)
-      userPhi->replaceAllUsesWith(&reducedVector);
-      userPhi->eraseFromParent();
-
-    } else {
-      // regular use
-      userInst.setOperand(opIdx, &reducedVector);
-    }
-  }
-
-// reduct result of reduction operation for outside users
-  for (auto itUse = reductInst.use_begin(); itUse != reductInst.use_end(); ){
-    auto & use = *itUse++;
-
-    int opIdx = use.getOperandNo();
-    auto & userInst = cast<Instruction>(*use.getUser());
-
-    if (vectorizationInfo.inRegion(userInst)) {
-      continue; // regular remapping
-    }
-
-    auto * userPhi = dyn_cast<PHINode>(&userInst);
-    assert((!userPhi || (userPhi->getNumIncomingValues() == 1)) && "expected an LCSSA phi");
-
-    // otw, replace with reduced value
-    IRBuilder<> builder(userInst.getParent(), userInst.getIterator());
-    auto & reducedVector = materializeVectorReduce(builder, phiInitVal, vecReductInst, reductInst);
-
-    if (userPhi) {
-      // LCSSA phi (purge)
-      userPhi->replaceAllUsesWith(&reducedVector);
-      userPhi->eraseFromParent();
-
-    } else {
-      // regular use
-      userInst.setOperand(opIdx, &reducedVector);
-    }
-  }
+  // TODO reduction in case of leaking varying phis
+  repairOutsideUses(*vecPhi,
+      [&](Value & usedVal, BasicBlock&) ->Value& {
+        errs() << "can not restore outside uses of reduction phis\n";
+        abort();
+      }
+  );
 }
 
 void NatBuilder::addValuesToPHINodes() {
@@ -1589,6 +1646,10 @@ void NatBuilder::addValuesToPHINodes() {
     auto *red = reda.getReductionInfo(*scalPhi);
 
     bool isVectorLoopHeader = region && &region->getRegionEntry() == scalPhi->getParent();
+    IF_DEBUG {
+      errs() << "loopHead: " << isVectorLoopHeader << ": shape " << shape.str() << "red: "; if (red) red->dump(); errs() << "\n";
+    }
+
     if (isVectorLoopHeader && shape.hasStridedShape() && red) {
       IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
       materializeStridedReduction(*red);

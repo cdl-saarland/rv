@@ -56,6 +56,9 @@ namespace native {
 
     rv::VectorShape getShape(const Value & val);
 
+    // repair outside uses of redChainInst using repairFunc
+    void repairOutsideUses(llvm::Instruction & scaChainInst, std::function<llvm::Value& (llvm::Value &,llvm::BasicBlock &)> repairFunc);
+
     // generate reduction code (after all other instructions have been vectorized)
     void materializeVaryingReduction(rv::Reduction & red);
 
