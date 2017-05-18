@@ -672,6 +672,8 @@ struct LoopTransformer {
   void
   SupplementVectorExit(ValueToValueMapTy & vecLoopPhis) {
     auto & scaExiting = *GetUniqueExiting(ScalarL);
+    auto & vecExiting = LookUp(vecValMap, scaExiting);
+
     auto & exitingBr = cast<BranchInst>(*scaExiting.getTerminator());
     int exitSuccIdx = exitingBr.getSuccessor(0) == loopExit ? 0 : 1;
 
@@ -699,7 +701,10 @@ struct LoopTransformer {
 
            // if we hit a reduction/induction value replace it with its vector version
            if (isa<PHINode>(inst) || reductors.count(&inst)) {
-             return &LookUp(vecValMap, inst);
+             auto * loopVal = &LookUp(vecValMap, inst);
+             auto * lcssaPhi = PHINode::Create(loopVal->getType(), 1, inst.getName().str() + ".lscca", &*vecToScalarExit->begin());
+             lcssaPhi->addIncoming(loopVal, &vecExiting);
+             return lcssaPhi;
            }
 
            // Otw, copy that operation
