@@ -1592,10 +1592,6 @@ NatBuilder::materializeVaryingReduction(Reduction & red) {
   auto redShape = vectorizationInfo.getVectorShape(red.getReductor());
   assert(redShape.isVarying());
 
-// infer (mapped) initial value
-  auto & scalInitVal = red.getInitValue();
-  auto & phiInitVal = scalInitVal; // FIXME only valid in input-out-of-region case
-
 // construct new (vectorized) initial value
   Value * vecNeutral = ConstantVector::getSplat(vectorWidth, &red.neutralElem);
 
@@ -1615,13 +1611,13 @@ NatBuilder::materializeVaryingReduction(Reduction & red) {
         // otw, replace with reduced value
         auto * insertPt = userBlock.getFirstNonPHI();
         IRBuilder<> builder(&userBlock, insertPt->getIterator());
-        auto & reducedVector = materializeVectorReduce(builder, phiInitVal, *vecPhi, vecReductInst);
+        auto & reducedVector = materializeVectorReduce(builder, red.getInitValue(), vecReductInst, reductInst);
         return reducedVector;
       }
   );
 
   // TODO reduction in case of leaking varying phis
-  repairOutsideUses(*vecPhi,
+  repairOutsideUses(red.phi,
       [&](Value & usedVal, BasicBlock&) ->Value& {
         errs() << "can not restore outside uses of reduction phis\n";
         abort();
