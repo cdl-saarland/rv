@@ -22,8 +22,6 @@
 #include "ShuffleBuilder.h"
 
 #define IF_DEBUG_NAT IF_DEBUG
-#undef IF_DEBUG
-#define IF_DEBUG if (true)
 
 using namespace native;
 using namespace llvm;
