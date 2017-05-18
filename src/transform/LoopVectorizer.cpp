@@ -24,6 +24,7 @@
 
 #include "rvConfig.h"
 
+#include "llvm/IR/Verifier.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Dominators.h"
@@ -232,10 +233,12 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   //DT.verifyDomTree();
   //LI.verify(DT);
 
-
   IF_DEBUG {
+    verifyFunction(*F, &errs());
     DT->verifyDomTree();
     PDT->print(errs());
+    LI->print(errs());
+    LI->verify(*DT);
   }
 
   // Domin Frontier Graph
