@@ -306,15 +306,22 @@ requestReplicate(Value & val) {
 
 
   TypeVec replTyVec = replicateType(*val.getType());
+  ValVec replVec;
+
+  auto * undef = dyn_cast<UndefValue>(&val);
+  if (undef) {
+    for (size_t i = 0; i < replTyVec.size(); ++i) {
+      replVec.push_back(UndefValue::get(replTyVec[i]));
+    }
+    replMap.addReplicate(val, replVec);
+    return replVec;
+  }
 
   auto * phi = dyn_cast<PHINode>(&val);
   auto * inst = dyn_cast<Instruction>(&val);
-  auto * undef = dyn_cast<UndefValue>(&val);
-
+  assert(inst && "non replicatable value");
   IRBuilder<> builder(inst->getParent(), inst->getIterator());
-
-  ValVec replVec;
-  std::string oldInstName = inst ? inst->getName().str() : "";
+  std::string oldInstName = inst->getName().str();
 
 // phi replication logic (attach inputs later)
   if (phi) {
@@ -343,12 +350,6 @@ requestReplicate(Value & val) {
 
     // phi node already registered
     return replVec;
-
-  } else if (undef) {
-    for (size_t i = 0; i < replTyVec.size(); ++i) {
-      replVec.push_back(UndefValue::get(replTyVec[i]));
-    }
-
 // generic instruction replication
   } else if (isa<StoreInst>(inst) || isa<LoadInst>(inst)) {
     auto * intTy = Type::getInt32Ty(builder.getContext());
