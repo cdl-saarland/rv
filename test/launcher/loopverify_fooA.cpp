@@ -12,17 +12,17 @@
 
 #include "launcherTools.h"
 
-extern "C" float foo(int n, float * A);
+extern "C" float foo(float * A);
 
 int main(int argc, char ** argv) {
   srand(42);
 
   const uint vectorWidth = 8;
 
-  const uint n = 8 * 100;
+  const uint n = 2048 * vectorWidth;
 
   float * A = allocateRandArray<float>(n);
-  foo(n, A);
+  foo(A);
   size_t hash = hashArray(A, n, 0);
   delete A;
 
