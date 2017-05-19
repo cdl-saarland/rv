@@ -309,6 +309,7 @@ requestReplicate(Value & val) {
 
   auto * phi = dyn_cast<PHINode>(&val);
   auto * inst = dyn_cast<Instruction>(&val);
+  auto * undef = dyn_cast<UndefValue>(&val);
 
   IRBuilder<> builder(inst->getParent(), inst->getIterator());
 
@@ -317,7 +318,6 @@ requestReplicate(Value & val) {
 
 // phi replication logic (attach inputs later)
   if (phi) {
-
     for (size_t i = 0; i < replTyVec.size(); ++i) {
       std::stringstream ss;
       ss << oldInstName << ".repl." << i;
@@ -341,6 +341,14 @@ requestReplicate(Value & val) {
       }
     }
 
+    // phi node already registered
+    return replVec;
+
+  } else if (undef) {
+    for (size_t i = 0; i < replTyVec.size(); ++i) {
+      replVec.push_back(UndefValue::get(replTyVec[i]));
+    }
+
 // generic instruction replication
   } else if (isa<StoreInst>(inst) || isa<LoadInst>(inst)) {
     auto * intTy = Type::getInt32Ty(builder.getContext());
@@ -362,8 +370,6 @@ requestReplicate(Value & val) {
       replVec.push_back(replInst);
     }
 
-    replMap.addReplicate(val, replVec);
-
   } else if (isa<SelectInst>(inst)) {
     auto * selectInst = cast<SelectInst>(inst);
     auto * selMask = selectInst->getOperand(0);
@@ -381,7 +387,6 @@ requestReplicate(Value & val) {
       replVec.push_back(replSelect);
       IF_DEBUG_SROV { errs() << "\t" << i << " : " << *replSelect << "\n"; }
     }
-    replMap.addReplicate(val, replVec);
 
   } else {
     assert(false && "un-replicatable operation");
@@ -390,6 +395,7 @@ requestReplicate(Value & val) {
 
 // register replcate
   assert(!replVec.empty());
+  replMap.addReplicate(val, replVec);
 
   return replVec;
 }
