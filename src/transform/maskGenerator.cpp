@@ -191,6 +191,11 @@ MaskGenerator::materializeMasks(Function& f)
         {
             // assert (!rv::hasMetadata(succBB, rv::RV_METADATA_MANDATORY) == !mvecInfo.isMandatory(succBB));
 
+            // divergence must be contained within the region and so there can only be trivial exit masks from the region
+            if (!mvecInfo.inRegion(*succBB)) {
+              continue;
+            }
+
             // In certain cases we will never need the exit mask.
             if (!hasNonUniformPhi(*succBB) &&
                 !isHeaderOfDivergentLoop(*succBB) &&

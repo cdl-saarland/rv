@@ -13,6 +13,7 @@
 #include <llvm/Support/raw_ostream.h>
 
 #include "rvConfig.h"
+#include "rv/vectorShape.h"
 
 #if 1
 #define IF_DEBUG_RED IF_DEBUG
@@ -20,9 +21,9 @@
 #define IF_DEBUG_RED if (false)
 #endif
 
-using namespace rv;
 using namespace llvm;
 
+namespace rv {
 
 // struct Reduction
 
@@ -30,6 +31,28 @@ using namespace llvm;
 void
 Reduction::dump() const {
   errs() << "Reduction { " << phi.getName() << " reductor " << reductorInst << " with neutral elem " << neutralElem << "}\n";
+}
+
+
+rv::VectorShape
+Reduction::getShape(int vectorWidth) {
+  auto & redInst = getReductor();
+
+  if (redInst.getOpcode() != Instruction::Add) {
+    errs() << redInst << "\n";
+    return VectorShape::varying();
+  }
+
+  auto *inConst = dyn_cast<ConstantInt>(&getReducibleValue());
+
+  if (!inConst) {
+    return VectorShape::varying();
+  }
+  errs() << *inConst << "\n";
+
+  auto constInc = inConst->getSExtValue();
+
+  return VectorShape::strided(constInc, constInc * vectorWidth);
 }
 
 
@@ -155,3 +178,42 @@ ReductionAnalysis::getReductionInfo(PHINode & phi) const {
   }
 }
 
+void
+ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) {
+  std::vector<std::pair<PHINode*, Reduction*>> cloneVec;
+
+  // check for cloned phis and register new reductions for them
+  for (auto itRed : reductMap) {
+    auto it = cloneMap.find(itRed.first);
+    if (it == cloneMap.end()) {
+      continue;
+    }
+
+    auto * clonedPhi = cast<PHINode>(cloneMap[itRed.first]);
+    auto & origRed = *itRed.second;
+    auto * clonedReductor = cast<Instruction>(cloneMap[&origRed.reductorInst]);
+
+    assert(clonedPhi && clonedReductor);
+
+    auto * clonedLoop = LI.getLoopFor(cast<BasicBlock>(cloneMap[origRed.redLoop.getHeader()]));
+
+    auto * clonedRed = new Reduction(
+        origRed.neutralElem,
+        *clonedReductor,
+        *clonedLoop,
+        *clonedPhi,
+        origRed.initInputIndex,
+        origRed.loopInputIndex
+      );
+
+    cloneVec.emplace_back(clonedPhi, clonedRed);
+  }
+
+  // modify map after traversal
+  for (auto it : cloneVec) {
+    reductMap[it.first] = it.second;
+  }
+}
+
+
+} // namespace rv

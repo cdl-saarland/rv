@@ -2,7 +2,7 @@ set(LLVM_NO_RTTI 1)
 
 set(RV_HEADER_FILES)
 if (MSVC_IDE OR XCODE)
-  file(GLOB_RECURSE Rv_HEADER_FILES "${RV_SOURCE_DIR}/include/rv/**/*.h")
+  file(GLOB_RECURSE RV_HEADER_FILES "${RV_SOURCE_DIR}/include/rv/**/*.h")
 endif ()
 
 if (RV_ENABLE_SLEEF) 
@@ -21,12 +21,12 @@ add_rv_library(RV
   native/Utils.cpp
   native/MemoryAccessGrouper.cpp
   native/NatBuilder.cpp
-  native/nativeBackendPass.cpp
   rvConfig.cpp
   transform/loopExitCanonicalizer.cpp
   transform/maskGenerator.cpp
   transform/LoopVectorizer.cpp
   transform/Linearizer.cpp
+  transform/remTransform.cpp
   transform/srovTransform.cpp
   transform/structOpt.cpp
   utils/maskGraphUtils.cpp
@@ -34,14 +34,15 @@ add_rv_library(RV
   VectorizationInfoProxyPass.cpp
   region/LoopRegion.cpp
   region/Region.cpp
-  vectorMapping.cpp
-  sleefLibrary.cpp
   PlatformInfo.cpp
   init.cpp
-  vectorizationInfo.cpp
   report.cpp
   rv.cpp
+  registerPasses.cpp
+  sleefLibrary.cpp
+  vectorMapping.cpp
   vectorShape.cpp
+  vectorizationInfo.cpp
   ${RV_HEADER_FILES}
   ${RV_GENBC_SOURCES}
   )
@@ -61,6 +62,7 @@ if (BUILD_SHARED_LIBS)
     LLVMipo
     LLVMMC
     LLVMIRReader
+    LLVMPasses
 # The libraries below are required for darwin: http://PR26392
     LLVMBitReader
     LLVMMCParser
