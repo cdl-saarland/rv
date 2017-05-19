@@ -6,7 +6,7 @@ if (MSVC_IDE OR XCODE)
 endif ()
 
 if (RV_ENABLE_SLEEF) 
-  add_definitions( "-DRV_ENABLE_BUITINS" )
+  add_definitions( "-DRV_ENABLE_BUILTINS" )
 endif()
 
 add_rv_library(RV
