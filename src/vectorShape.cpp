@@ -199,27 +199,19 @@ std::string VectorShape::str() const {
 }
 
 VectorShape truncateToTypeSize(const VectorShape &a, unsigned typeSize) {
-  if (!a.defined) return a;
+  if (!a.isDefined()) return a;
 
   // FIXME
     // observed in SimpleBarrier2D:
     // %41 = <someInst> : stride(32)
-    // %42 = trunc i64 i64 %41 to i32
-    return a;
+    // %42 = trunc i64 i64 %41 to i32 : uni
 
-#if 0
-    if (!a.isDefined()) return a;
+  // truncate to uniform rule
+  if (typeSize == 1 && a.hasStridedShape() && a.getStride() % 2 == 0) {
+    return VectorShape::uni();
+  }
 
-    size_t factor = 1 << typeSize;
-    if (a.isVarying()) {
-      return VectorShape::varying(a.getAlignmentFirst() % factor);
-    }
-
-    // adapt the stride (if necessary)
-    // this may create uniform values for large strides
-    int newAlignment = gcd<size_t>(a.getAlignmentFirst(), factor);
-    return VectorShape::strided(a.getStride() % factor, newAlignment);
-#endif
+  return a;
 }
 
 

@@ -6,7 +6,7 @@ foo(int * A, int n) {
   for (int i = 0; i < n; ++i) {
     int t = 0;
     for (int j = 0; j < n; j += 2) {
-      t -= A[(i + j) % n];
+      t -= A[(i + j)];
 
     }
     a += t;

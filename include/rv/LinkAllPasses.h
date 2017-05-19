@@ -16,6 +16,7 @@
 #define RV_LINKALLPASSES_H
 
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "rv/passes.h"
 
 #include <cstdlib>
 
@@ -25,10 +26,6 @@ class PassRegistry;
 
 void initializeLoopVectorizerPass(PassRegistry&);
 } // namespace llvm
-
-namespace rv {
-llvm::Pass *createLoopVectorizerPass();
-} // namespace rv
 
 namespace {
 struct RVForcePassLinking {

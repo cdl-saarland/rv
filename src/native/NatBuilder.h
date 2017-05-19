@@ -56,8 +56,15 @@ namespace native {
 
     rv::VectorShape getShape(const Value & val);
 
+    // repair outside uses of redChainInst using repairFunc
+    void repairOutsideUses(llvm::Instruction & scaChainInst, std::function<llvm::Value& (llvm::Value &,llvm::BasicBlock &)> repairFunc);
+
     // generate reduction code (after all other instructions have been vectorized)
-    void materializeReduction(rv::Reduction & red);
+    void materializeVaryingReduction(rv::Reduction & red);
+
+    // fixup the
+    void materializeStridedReduction(rv::Reduction & red);
+
     llvm::Value& materializeVectorReduce(llvm::IRBuilder<> & builder, llvm::Value & phiInitVal, llvm::Value & vecVal, llvm::Instruction & reduceOp);
 
   public:
@@ -65,7 +72,9 @@ namespace native {
                const llvm::DominatorTree &dominatorTree, llvm::MemoryDependenceResults &memDepRes,
                llvm::ScalarEvolution &SE, rv::ReductionAnalysis & _reda);
 
-    void vectorize();
+    // if embedRegion is set, replace the scalar source blocks/instructions with the vectorized version
+    // if vecInstMap is set, store the mapping from scalar source insts/blocks to vector versions
+    void vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap = nullptr);
 
     void mapVectorValue(const llvm::Value *const value, llvm::Value *vecValue);
     void mapScalarValue(const llvm::Value *const value, llvm::Value *mapValue, unsigned laneIdx = 0);
