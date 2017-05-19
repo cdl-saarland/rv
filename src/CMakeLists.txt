@@ -43,13 +43,9 @@ add_rv_library(RV
   vectorMapping.cpp
   vectorShape.cpp
   vectorizationInfo.cpp
+  ${RV_EXTRA_SOURCES}
   ${RV_HEADER_FILES}
-  ${RV_GENBC_SOURCES}
-  )
-
-# if (RV_ENABLE_SLEEF)
-#   target_link_libraries(RV ${RV_GENBC_SOURCES})
-# endif()
+)
 
 if (BUILD_SHARED_LIBS)
   target_link_libraries(RV
@@ -101,9 +97,4 @@ set_target_properties(LLVMRV
     LINKER_LANGUAGE CXX
     PREFIX "")
 endif ()
-
-if (TARGET intrinsics_gen)
-  # Check if we are building as part of an LLVM build
-  add_dependencies(RV intrinsics_gen)
-endif()
 

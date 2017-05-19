@@ -23,8 +23,9 @@ SET ( SLEEF_BC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.bc" )
 SET ( SLEEF_GENBC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.gen.cpp" )
 
 SET ( SLEEF_BC_LIBS ${SLEEF_BC_AVX2_SP} ${SLEEF_BC_AVX_SP} ${SLEEF_BC_SSE_SP} ${SLEEF_BC_AVX2_DP} ${SLEEF_BC_AVX_DP} ${SLEEF_BC_SSE_DP} )
-SET ( RV_GENBC_SOURCES ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP})
+SET ( RV_GENBC_SOURCES ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP} )
 
+# conditionally provide extra sources
 SET ( RV_LIB_SLEEF_OUT_DIR ${VECMATH_LIB_DIR} )
 
 SET ( RV_LIB_EXTRA_DIR "${RV_SOURCE_DIR}/vecmath/extra")
@@ -34,17 +35,16 @@ SET ( EXTRA_BC_AVX_DP  "${VECMATH_LIB_DIR}/avx_extra_dp.bc" )
 SET ( EXTRA_BC_SSE_DP  "${VECMATH_LIB_DIR}/sse_extra_dp.bc" )
 
 SET ( GENCPP_TOOL "${RV_SOURCE_DIR}/tools/gen_cpp.py" )
-OPTION(RV_ENABLE_SLEEF "Generate RV's builtin vector-math library" ON)
+
 IF (${RV_ENABLE_SLEEF})
   SET(LLVM_TOOL_CLANG ${RV_BINARY_DIR}/../../bin/clang)
   SET(LLVM_TOOL_LINK ${RV_BINARY_DIR}/../../bin/llvm-link)
-ENDIF()
+
+  SET ( RV_EXTRA_SOURCES ${RV_GENBC_SOURCES} PARENT_SCOPE )
 
 # build SLEEF & others bc libs
-IF (${RV_ENABLE_SLEEF})
   # add SLEEF bc generators as extra source
-  MESSAGE("-- SLEEF sources found: ${SLEEF_DIR}")
-  ADD_CUSTOM_TARGET ( libsleef_x64 DEPENDS ${RV_GENBC_SOURCES} )
+  MESSAGE("-- Building with SLEEF")
 
   SET( RVLIB_BUILD_OPTS -O3 )
   # Sleef single precision
@@ -103,6 +103,5 @@ IF (${RV_ENABLE_SLEEF})
   # generate static library
   ADD_LIBRARY(gensleef STATIC ${RV_GENBC_SOURCES})
 ELSE()
-  Message("-- Buildling without SLEEF.")
-ENDIF ()
-
+  MESSAGE("-- Building without SLEEF")
+ENDIF()

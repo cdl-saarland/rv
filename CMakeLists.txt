@@ -89,6 +89,10 @@ else ()
   set(LLVM_SOURCE_ROOT "${LLVM_MAIN_SRC_DIR}")
 endif ()
 
+# Options
+OPTION(RV_ENABLE_SLEEF "Generate RV's builtin vector-math library" ON)
+
+
 set(RV_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(RV_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(RV_INCLUDE_DIR ${RV_SOURCE_DIR}/include PARENT_SCOPE)
