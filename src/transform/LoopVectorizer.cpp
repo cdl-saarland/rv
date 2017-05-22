@@ -188,7 +188,6 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     return false;
   }
 
-  BasicBlock *ExitingBlock = L.getExitingBlock();
   Module &M = *F->getParent();
 
 // start vectorizing the prepared loop
