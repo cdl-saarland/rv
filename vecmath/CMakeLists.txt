@@ -40,8 +40,6 @@ IF (${RV_ENABLE_SLEEF})
   SET(LLVM_TOOL_CLANG ${RV_BINARY_DIR}/../../bin/clang)
   SET(LLVM_TOOL_LINK ${RV_BINARY_DIR}/../../bin/llvm-link)
 
-  SET ( RV_EXTRA_SOURCES ${RV_GENBC_SOURCES} PARENT_SCOPE )
-
 # build SLEEF & others bc libs
   # add SLEEF bc generators as extra source
   MESSAGE("-- Building with SLEEF")

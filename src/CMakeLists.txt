@@ -43,12 +43,15 @@ add_rv_library(RV
   vectorMapping.cpp
   vectorShape.cpp
   vectorizationInfo.cpp
-  ${RV_EXTRA_SOURCES}
   ${RV_HEADER_FILES}
 )
 
+if (TARGET gensleef)
+  target_link_libraries(RV PRIVATE gensleef)
+ENDIF()
+
 if (BUILD_SHARED_LIBS)
-  target_link_libraries(RV
+  target_link_libraries(RV PUBLIC
     LLVMSupport
     LLVMCore
     LLVMScalarOpts
@@ -90,7 +93,7 @@ else ()
     rv.cpp
   )
 
-target_link_libraries(LLVMRV RV)
+target_link_libraries(LLVMRV PRIVATE RV)
 
 set_target_properties(LLVMRV
     PROPERTIES
