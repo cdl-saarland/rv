@@ -33,10 +33,124 @@
 #include <map>
 #include <set>
 
-
 using namespace llvm;
 
 namespace rv {
+
+
+struct IterValue {
+  Value & val;
+  int timeOffset;
+
+  IterValue(Value & _val, int _timeOff)
+  : val(_val)
+  , timeOffset(_timeOff)
+  {}
+};
+
+class
+BranchCondition {
+  CmpInst & cmp;
+  int cmpReductIdx;
+  Reduction & red;
+  VectorShape redShape;
+
+public:
+
+  BranchCondition(llvm::CmpInst & _cmp, int _cmpReductIdx, Reduction & _red, int vectorWidth)
+  : cmp(_cmp)
+  , cmpReductIdx(_cmpReductIdx)
+  , red(_red)
+  , redShape(_red.getShape(vectorWidth))
+  {}
+
+  // return a branch condition object if this condition can be transformed
+  static BranchCondition *
+  analyze(llvm::CmpInst & cmp, int vectorWidth, ReductionAnalysis & reda, Loop & loop) {
+    int reductIdx = -1;
+    Reduction * red = nullptr;
+
+    for (size_t i = 0; i < cmp.getNumOperands(); ++i) {
+      auto * opVal = cmp.getOperand(i);
+      auto * inst = dyn_cast<Instruction>(opVal);
+
+      if (!inst) continue;
+
+      // loop invariant operand
+      if (!loop.contains(inst->getParent())) continue;
+
+      auto * valRed = reda.getReductionInfo(*inst);
+      if (!valRed) {
+        // loop carried operand is not part of a recognized reduction -> abort
+        return nullptr;
+      }
+
+      if (reductIdx > -1) {
+        return nullptr; // multiple loop carried values enter this cmp -> abort
+      }
+
+      reductIdx = i;
+      red = valRed;
+    }
+
+    if (!red) return nullptr;
+
+    return new BranchCondition(cmp, reductIdx, *red, vectorWidth);
+  }
+
+  /// re-synthesize this condition with builder @builder
+  // call embedFunc for all loop carred instructions
+  // the test will be true if it applies for all iterations from [phi to phi + iterOffset]
+  Value&
+  synthesize(int iterOffset, std::string suffix, IRBuilder<> & builder, std::set<Value*> * valueSet, std::function<IterValue (Instruction&)> embedFunc) {
+    auto * origReduct = cast<Instruction>(cmp.getOperand(cmpReductIdx));
+
+    // the returned value evaluates to the mapped requested value at iteration offset @embReduct.timeOffset
+    IterValue embReduct = embedFunc(*origReduct);
+
+    auto * clonedCmp = cast<CmpInst>(cmp.clone());
+
+    // remaining offset amount
+    int effectiveOffset = iterOffset - embReduct.timeOffset;
+
+    // short cut for same iteration tests
+    if (effectiveOffset == 0) {
+      clonedCmp->setOperand(cmpReductIdx, &embReduct.val);
+      builder.Insert(clonedCmp, cmp.getName().str() + suffix);
+      return *clonedCmp;
+    }
+
+  // iteration interval test
+    // lift the predicate form NE/EQ to LT/GT
+    auto cmpPred = clonedCmp->getPredicate();
+    if ((cmpPred == CmpInst::ICMP_EQ) || (cmpPred == CmpInst::ICMP_NE)) {
+      bool posStride = redShape.getStride() > 0;
+
+      CmpInst::Predicate adjustedPred;
+      if (red.getReductor().hasNoSignedWrap()) {
+        adjustedPred  = posStride ? CmpInst::ICMP_SLT : CmpInst::ICMP_SGT;
+      } else {
+        assert(red.getReductor().hasNoUnsignedWrap());
+        adjustedPred  = posStride ? CmpInst::ICMP_ULT : CmpInst::ICMP_UGT;
+      }
+
+      clonedCmp->setPredicate(adjustedPred);
+    }
+
+    // adjust iteration value for the tested iteration
+    auto & val = embReduct.val;
+    auto * adjusted = builder.CreateAdd(&val, ConstantInt::get(val.getType(), redShape.getStride() * effectiveOffset));
+    if (isa<Instruction>(adjusted)) if (valueSet) valueSet->insert(adjusted);
+    clonedCmp->setOperand(cmpReductIdx, adjusted);
+
+    // insert cmp
+    builder.Insert(clonedCmp, cmp.getName().str() + suffix);
+
+    if (valueSet) valueSet->insert(clonedCmp);
+
+    return *clonedCmp;
+  }
+};
 
 
 typedef std::map<PHINode*, PHINode*> PHIMap;
@@ -203,6 +317,9 @@ struct LoopTransformer {
   Loop & ScalarL;
   Loop & ClonedL;
 
+  // exit condition builder for the vectorized loop
+  BranchCondition & exitConditionBuilder;
+
   ValueToValueMapTy & vecValMap;
   ReductionAnalysis & reda;
   std::set<Value*> & uniOverrides;
@@ -262,13 +379,14 @@ struct LoopTransformer {
     return nullptr;
   }
 
-  LoopTransformer(Function & _F, DominatorTree & _DT, PostDominatorTree & _PDT, LoopInfo & _LI, ReductionAnalysis & _reda, std::set<Value*> & _uniOverrides, Loop & _ScalarL, Loop & _ClonedL, ValueToValueMapTy & _vecValMap, int _vectorWidth, int _tripAlign)
+  LoopTransformer(Function & _F, DominatorTree & _DT, PostDominatorTree & _PDT, LoopInfo & _LI, ReductionAnalysis & _reda, std::set<Value*> & _uniOverrides, BranchCondition & _exitBuilder, Loop & _ScalarL, Loop & _ClonedL, ValueToValueMapTy & _vecValMap, int _vectorWidth, int _tripAlign)
   : F(_F)
   , DT(_DT)
   , PDT(_PDT)
   , LI(_LI)
   , ScalarL(_ScalarL)
   , ClonedL(_ClonedL)
+  , exitConditionBuilder(_exitBuilder)
   , vecValMap(_vecValMap)
   , reda(_reda)
   , uniOverrides(_uniOverrides)
@@ -537,17 +655,15 @@ struct LoopTransformer {
     auto & vecHead = LookUp(vecValMap, *ScalarL.getHeader());
 
     // map vector phis to their shapes
-    std::map<Value*, rv::VectorShape> valShapes;
+    std::map<Value*, PHINode*> headerPhis;
     std::map<Value*, PHINode*> reductors;
     for (auto & Inst : *ScalarL.getHeader()) {
       auto * phi = dyn_cast<PHINode>(&Inst);
       if (!phi) break;
+      auto * red = reda.getReductionInfo(*phi);
       auto & vecPhi = LookUp(vecValMap, *phi);
-      auto * red = reda.getReductionInfo(vecPhi);
-      auto & vecReductor = red->getReductor();
-      auto redShape = red->getShape(vectorWidth);
-      valShapes[&vecPhi] = redShape;
-      reductors[&vecReductor] = &vecPhi;
+      headerPhis[phi] = &vecPhi;
+      reductors[&red->getReductor()] = &vecPhi;
     }
 
     // replicate the vector loop exit condition
@@ -559,53 +675,35 @@ struct LoopTransformer {
     // replicate the vector loop exit condition
     IRBuilder<> builder(&vecHead, vecHead.getTerminator()->getIterator());
 
-    // TODO create a llvm::Loop for the vector loop
-    std::map<const BasicBlock*, const BasicBlock*> vecLoopBlocks;
-    for (auto * BB : ScalarL.blocks()) {
-      vecLoopBlocks[&LookUp(vecValMap, *BB)] = BB;
-    }
-
-    ValueToValueMapTy replMap;
     auto & exitVal =
-      ReplicateExpression(".vecExit", *vecExitingBr.getCondition(), replMap,
-         [&](Instruction & inst, IRBuilder<>& builder) -> Value* {
+      exitConditionBuilder.synthesize(2 * vectorWidth, ".vecExit", builder, &uniOverrides,
+         [&](Instruction & inst) -> IterValue {
            assert (!isa<CallInst>(inst));
 
-           errs() << inst << "\n";
-
            // loop invariant value
-           if (!vecLoopBlocks.count(inst.getParent())) return &inst;
-
-           // anticipated icmp in the exit condition
-           if (isa<CmpInst>(inst)) return nullptr;
+           if (!ScalarL.contains(inst.getParent())) return IterValue(inst, 0);
 
            // did we hit the header phi
-           auto itHeaderPhi = valShapes.find(&inst);
+           auto itHeaderPhi = headerPhis.find(&inst);
 
            // determine the shape of the tested iteration variable
-           VectorShape shape;
            Value * headerPhi = nullptr;
-           if (itHeaderPhi != valShapes.end()) {
+           int offset = 0;
+           if (itHeaderPhi != headerPhis.end()) {
              // we are checking the header phi directly
-             headerPhi = &inst;
-             shape = itHeaderPhi->second;
+             headerPhi = itHeaderPhi->second;
+             offset = 0;
            } else {
              // we checking the reductor result on the header phi (next iteration value)
              assert(reductors.find(&inst) != reductors.end() && "not testing a reductor");
              auto * matchingHeaderPhi = reductors[&inst];
-             shape = valShapes[matchingHeaderPhi];
              headerPhi = matchingHeaderPhi;
+             offset = 1; // testing the reductor
            }
-           int64_t amount = shape.getStride() * (2 * vectorWidth) - 1;
 
-           // emulate the value of the tested iteration variable in iteration 2*vectorWidth-1 relative to the current value
-           auto * forwardAdd = cast<Instruction>(builder.CreateAdd(headerPhi, ConstantInt::getSigned(inst.getType(), amount)));
-           if (isa<Instruction>(forwardAdd)) uniOverrides.insert(forwardAdd);
-
-           return forwardAdd;
-          },
-      builder
-      );
+           return IterValue(*headerPhi, offset);
+          }
+    );
 
     // use forwarded exit condition
     vecExitingBr.setCondition(&exitVal);
@@ -632,58 +730,49 @@ struct LoopTransformer {
     }
 
     // replicate the scalar loop exit condition
-    auto & scaExiting = *GetUniqueExiting(ScalarL);
-    auto & scaExitingBr = cast<BranchInst>(*scaExiting.getTerminator());
-
     auto & vecGuardBr = *cast<BranchInst>(vecGuardBlock->getTerminator());
 
     // replicate the vector loop exit condition
     IRBuilder<> builder(vecGuardBlock, vecGuardBr.getIterator());
 
-    ValueToValueMapTy replMap;
+    // synthesize(int iterOffset, std::string suffix, IRBuilder<> & builder, std::function<Instruction& (Instruction&)> embedFunc) {
     auto & exitVal =
-      ReplicateExpression(".vecGuard", *scaExitingBr.getCondition(), replMap,
-         [&](Instruction & inst, IRBuilder<>& builder) -> Value* {
+      exitConditionBuilder.synthesize(vectorWidth, ".vecGuard", builder, nullptr,
+         [&](Instruction & inst) -> IterValue {
            assert (!isa<CallInst>(inst));
 
-           errs() << inst << "\n";
+           IF_DEBUG errs() << inst << "\n";
 
            // loop invariant value
-           if (!ScalarL.contains(inst.getParent())) return &inst;
-
-           // anticipated icmp in the exit condition
-           if (isa<CmpInst>(inst)) return nullptr;
+           if (!ScalarL.contains(inst.getParent())) return IterValue(inst, 0);
 
            // did we hit the header phi
            auto itHeaderPhi = valShapes.find(&inst);
 
            // determine the shape of the tested iteration variable
-           VectorShape shape;
            PHINode * headerPhi = nullptr;
+           int offset = 0;
            if (itHeaderPhi != valShapes.end()) {
              // we are checking the header phi directly
              headerPhi = cast<PHINode>(&inst);
-             shape = itHeaderPhi->second;
            } else {
              // we checking the reductor result on the header phi (next iteration value)
              assert(reductors.find(&inst) != reductors.end() && "not testing a reductor");
              auto * matchingHeaderPhi = reductors[&inst];
-             shape = valShapes[matchingHeaderPhi];
              headerPhi = matchingHeaderPhi;
+             // we are testing the reductor that evaluates to the next iteration value
+             offset = 1;
            }
 
+           // translate to vector loopt
+           auto & vecPhi = cast<PHINode>(LookUp(vecValMap, *headerPhi));
+
            // FIXME don't reconstruct the init value -> map this somewhere before the transformation
-           auto & vecPhi = LookUp(vecValMap, *headerPhi);
            int initIdx = vecPhi.getBasicBlockIndex(vecGuardBlock);
            auto * initVal = vecPhi.getIncomingValue(initIdx);
 
-           // check the exit condition for the last lane iteration
-           int64_t amount = shape.getStride() * (vectorWidth - 1);
-
-           // emulate the value of the tested iteration variable in iteration 2*vectorWidth-1 relative to the current value
-           return builder.CreateAdd(initVal, ConstantInt::getSigned(inst.getType(), amount));
-          },
-      builder
+           return IterValue(*initVal, offset);
+          }
       );
 
     // TODO negate condition as necessary
@@ -732,34 +821,6 @@ struct LoopTransformer {
 
            // Otw, copy that operation
            return nullptr;
-#if 0
-
-           if (isa<PHINode>(inst)) {
-
-              assert(inst->getParent() == scalarHead);
-           }
-
-           assert (!isa<CallInst>(inst));
-         // this refers to the last iteration (value in the last vector lane)
-           // emulate this value starting from the vector loop phi "vecPhi + stride*(vectorWidth - 1)"
-           auto itPhi = headerPhiMap.find(&inst);
-           if (itPhi != headerPhiMap.end()) {
-             auto & scaPhi = cast<PHINode>(inst);
-             auto & vecPhi = LookUp(vecValMap, scaPhi);
-
-             auto vecPhiShape = reda.getReductionInfo(scaPhi)->getShape(vectorWidth);
-             assert(vecPhiShape.hasStridedShape() && "can not rollback non-strided iteration variabels");
-             int scalarStride = vecPhiShape.getStride() / vectorWidth;
-
-             assert(scaPhi.getType()->isIntegerTy() && "rollback of non-ints not implemented!");
-             auto lastIterValue = builder.CreateAdd(&vecPhi,ConstantInt::getSigned(scaPhi.getType(), scalarStride * (vectorWidth - 1)));
-             return lastIterValue;
-           }
-
-         // this refers to the next iteration after the vector loop -> replace with the scalar loop init value
-           auto it = leafMap.find(&inst);
-           return it != leafMap.end() ? it->second : nullptr;
-#endif
           },
       builder
       );
@@ -856,24 +917,19 @@ struct LoopTransformer {
   }
 };
 
-bool
-RemainderTransform::canHandleExitCondition(llvm::Loop & L) {
+BranchCondition*
+RemainderTransform::analyzeExitCondition(llvm::Loop & L, int vectorWidth) {
   auto * loopExiting = L.getExitingBlock();
+
 
   // loop exit conditions constraints
   auto * exitingBr = dyn_cast<BranchInst>(loopExiting->getTerminator());
-  if (!exitingBr) return false;
+  if (!exitingBr) return nullptr;
 
   auto * exitingCmp = dyn_cast<CmpInst>(exitingBr->getCondition());
-  if (!exitingCmp) return false;
+  if (!exitingCmp) return nullptr;
 
-  auto cmpPred = exitingCmp->getPredicate();
-  if (cmpPred != CmpInst::ICMP_SLT && cmpPred !=CmpInst::ICMP_ULT) {
-    return false;
-  }
-
-  // all checks passed
-  return true;
+  return BranchCondition::analyze(*exitingCmp, vectorWidth, reda, L);
 }
 
 bool
@@ -895,10 +951,6 @@ RemainderTransform::canTransformLoop(llvm::Loop & L) {
     return false;
   }
 
-  if (!canHandleExitCondition(L)) {
-    Report() << "remTrans: can not handle loop exit condition\n";
-  }
-
   // only attempt loops with recognized reduction patterns
   for (auto & Inst : *L.getHeader()) {
     auto * phi = dyn_cast<PHINode>(&Inst);
@@ -917,7 +969,15 @@ RemainderTransform::canTransformLoop(llvm::Loop & L) {
 Loop*
 RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, int vectorWidth, int tripAlign) {
 // run capability checks
+  // CFG caps
   if (!canTransformLoop(L)) return nullptr;
+
+  // branch condition caps
+  auto * branchCond = analyzeExitCondition(L, vectorWidth);
+  if (!branchCond) {
+    Report() << "remTrans: can not handle loop exit condition\n";
+    return nullptr;
+  }
 
 // otw, clone the scalar loop
   LoopCloner loopCloner(F, DT, PDT, LI);
@@ -928,9 +988,11 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
   reda.updateForClones(LI, cloneMap);
 
 // embed the cloned loop
-  LoopTransformer loopTrans(F, DT, PDT, LI, reda, uniOverrides, L, clonedLoop, cloneMap, vectorWidth, tripAlign);
+  LoopTransformer loopTrans(F, DT, PDT, LI, reda, uniOverrides, *branchCond, L, clonedLoop, cloneMap, vectorWidth, tripAlign);
 
   F.dump();
+
+  delete branchCond;
 
   return &clonedLoop;
 }
