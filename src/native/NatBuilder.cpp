@@ -228,10 +228,12 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       // TODO: fix alloca mapping/vectorization
 //      if (canVectorize(inst))
 //        vectorizeAllocaInstruction(alloca);
-//      else
-        for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
-          copyInstruction(inst, lane);
-        }
+//      else {
+//        for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
+//          copyInstruction(inst, lane);
+//        }
+//    }
+      fallbackVectorize(inst);
     } else if (gep) {
 //      unsigned laneEnd = shouldVectorize(gep) ? vectorWidth() : 1;
 //      for (unsigned lane = 0; lane < laneEnd; ++lane) {
@@ -438,14 +440,15 @@ void NatBuilder::fallbackVectorize(Instruction *const inst) {
   // if !void: insert into result vector
   // repeat from line 3 for all lanes
   Type *type = inst->getType();
-  bool notVectorTy = type->isVoidTy() || !(type->isIntegerTy() || type->isFloatingPointTy());
+  bool isAlloca = isa<AllocaInst>(inst);
+  bool notVectorTy = type->isVoidTy() || !(type->isIntegerTy() || type->isFloatingPointTy() || type->isPointerTy());
   Value *resVec = notVectorTy ? nullptr : UndefValue::get(
       getVectorType(inst->getType(), vectorWidth()));
   for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
     Instruction *cpInst = inst->clone();
     mapOperandsInto(inst, cpInst, false, lane);
     builder.Insert(cpInst, inst->getName());
-    if (notVectorTy) mapScalarValue(inst, cpInst, lane);
+    if (notVectorTy || isAlloca) mapScalarValue(inst, cpInst, lane);
     if (resVec) resVec = builder.CreateInsertElement(resVec, cpInst, lane, "fallBackInsert");
   }
   if (resVec) mapVectorValue(inst, resVec);
