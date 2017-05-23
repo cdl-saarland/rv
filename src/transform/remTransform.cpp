@@ -803,35 +803,48 @@ struct LoopTransformer {
       reductors.insert(&reductor);
     }
 
-  // replicate the exit condition
-    // replace scalar reductors with their vector-loop versions
-    auto & exitVal =
-      ReplicateExpression(".v2s", *exitingBr.getCondition(), replMap,
-         [&](Instruction & inst, IRBuilder<>&) -> Value* {
-           // loop invariant value
-           if (!ScalarL.contains(inst.getParent())) return &inst;
-
-           // if we hit a reduction/induction value replace it with its vector version
-           if (isa<PHINode>(inst) || reductors.count(&inst)) {
-             auto * loopVal = &LookUp(vecValMap, inst);
-             auto * lcssaPhi = PHINode::Create(loopVal->getType(), 1, inst.getName().str() + ".lscca", &*vecToScalarExit->begin());
-             lcssaPhi->addIncoming(loopVal, &vecExiting);
-             return lcssaPhi;
-           }
-
-           // Otw, copy that operation
-           return nullptr;
-          },
-      builder
-      );
-
     auto & vecExitBr = *cast<BranchInst>(vecToScalarExit->getTerminator());
-    vecExitBr.setCondition(&exitVal);
 
-    // swap the exits to negate the condition
-    if (exitSuccIdx == 0) {
+    if (tripAlign % vectorWidth != 0) {
+      IF_DEBUG { errs() << "remTrans: need a scalar remainder loop.\n"; }
+    // replicate the exit condition
+      // replace scalar reductors with their vector-loop versions
+      auto & exitVal =
+        ReplicateExpression(".v2s", *exitingBr.getCondition(), replMap,
+           [&](Instruction & inst, IRBuilder<>&) -> Value* {
+             // loop invariant value
+             if (!ScalarL.contains(inst.getParent())) return &inst;
+
+             // if we hit a reduction/induction value replace it with its vector version
+             if (isa<PHINode>(inst) || reductors.count(&inst)) {
+               auto * loopVal = &LookUp(vecValMap, inst);
+               auto * lcssaPhi = PHINode::Create(loopVal->getType(), 1, inst.getName().str() + ".lscca", &*vecToScalarExit->begin());
+               lcssaPhi->addIncoming(loopVal, &vecExiting);
+               return lcssaPhi;
+             }
+
+             // Otw, copy that operation
+             return nullptr;
+            },
+        builder
+        );
+
+      vecExitBr.setCondition(&exitVal);
+
+      // swap the exits to negate the condition
+      if (exitSuccIdx == 0) {
+        vecExitBr.setSuccessor(0, loopExit);
+        vecExitBr.setSuccessor(1, scalarGuardBlock);
+      }
+
+      return;
+
+    } else {
+      // the scalar loop is never executed, unconditionally branch to the loop exit
+      vecExitBr.setCondition(ConstantInt::getTrue(vecExitBr.getContext()));
       vecExitBr.setSuccessor(0, loopExit);
       vecExitBr.setSuccessor(1, scalarGuardBlock);
+
     }
   }
 
@@ -990,7 +1003,7 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
 // embed the cloned loop
   LoopTransformer loopTrans(F, DT, PDT, LI, reda, uniOverrides, *branchCond, L, clonedLoop, cloneMap, vectorWidth, tripAlign);
 
-  F.dump();
+  IF_DEBUG F.dump();
 
   delete branchCond;
 
