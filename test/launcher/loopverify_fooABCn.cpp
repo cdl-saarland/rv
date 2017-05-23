@@ -1,3 +1,9 @@
+/*
+ * foo_launcher.cpp
+ *
+ *  Created on: Jul 22, 2015
+ *      Author: Simon Moll
+ */
 
 #include <stdio.h>
 #include <iostream>
@@ -6,20 +12,20 @@
 
 #include "launcherTools.h"
 
-extern "C" void foo(float * A, float * B, float * C, int n);
+extern "C" void foo(int *a, int *b, int *c, int n);
 
 int main(int argc, char ** argv) {
   srand(42);
 
   const uint vectorWidth = 8;
 
-  const uint n = 8 * 800;
+  const uint n = vectorWidth * 800;
 
-  float * A = allocateRandArray<float>(n);
-  float * B = allocateRandArray<float>(n);
-  float * C = allocateRandArray<float>(n);
+  int * A = allocateRandArray<int>(n);
+  int * B = allocateRandArray<int>(n);
+  int * C = allocateRandArray<int>(n);
 
-  foo(A, B, C, n);
+  foo(A, C, B, n);
 
   size_t hash = hashArray(A, n, 0);
   hash = hashArray(B, n, hash);
