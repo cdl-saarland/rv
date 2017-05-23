@@ -66,8 +66,12 @@ ReductionAnalysis::ReductionAnalysis(Function & _func, const LoopInfo & _loopInf
 {}
 
 ReductionAnalysis::~ReductionAnalysis() {
+  SmallPtrSet<Reduction*, 16> seen;
+
   for (auto itRed : reductMap) {
-    delete itRed.second;
+    if (seen.insert(itRed.second).second) {
+      delete itRed.second;
+    }
   }
 }
 
@@ -158,6 +162,7 @@ ReductionAnalysis::analyze(Loop & loop) {
     if (!red) continue;
 
     reductMap[phi] = red;
+    reductMap[&red->getReductor()] = red;
   }
 }
 
@@ -169,8 +174,8 @@ ReductionAnalysis::analyze() {
 }
 
 Reduction *
-ReductionAnalysis::getReductionInfo(PHINode & phi) const {
-  auto itReduct = reductMap.find(&phi);
+ReductionAnalysis::getReductionInfo(Instruction & inst) const {
+  auto itReduct = reductMap.find(&inst);
   if (itReduct == reductMap.end()) {
     return nullptr;
   } else {
@@ -180,7 +185,7 @@ ReductionAnalysis::getReductionInfo(PHINode & phi) const {
 
 void
 ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) {
-  std::vector<std::pair<PHINode*, Reduction*>> cloneVec;
+  std::vector<std::pair<Instruction*, Reduction*>> cloneVec;
 
   // check for cloned phis and register new reductions for them
   for (auto itRed : reductMap) {
@@ -189,7 +194,10 @@ ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) 
       continue;
     }
 
-    auto * clonedPhi = cast<PHINode>(cloneMap[itRed.first]);
+    // both reductors and phis are in this map -> only remap when we see the phi
+    auto * clonedPhi = dyn_cast<PHINode>(cloneMap[itRed.first]);
+    if (!clonedPhi) continue; // skip reductor mappings
+
     auto & origRed = *itRed.second;
     auto * clonedReductor = cast<Instruction>(cloneMap[&origRed.reductorInst]);
 
@@ -207,6 +215,7 @@ ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) 
       );
 
     cloneVec.emplace_back(clonedPhi, clonedRed);
+    cloneVec.emplace_back(clonedReductor, clonedRed);
   }
 
   // modify map after traversal

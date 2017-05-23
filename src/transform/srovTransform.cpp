@@ -103,11 +103,11 @@ repairPhis() {
 
   // fix up incoming values of PHI nodes
     // for every incoming edge
-    for (int i = 0; i < oldPhi->getNumIncomingValues(); ++i) {
+    for (size_t i = 0; i < oldPhi->getNumIncomingValues(); ++i) {
       auto * oldIncoming = oldPhi->getIncomingValue(i);
 
       // for every replicated slot
-      for (int j = 0; j < phiRepls.size(); ++j) {
+      for (size_t j = 0; j < phiRepls.size(); ++j) {
         auto & inRepl = *requestLaneReplicate(*oldIncoming, j);
         auto & replPhi = cast<PHINode>(*phiRepls[j]);
         replPhi.addIncoming(&inRepl, oldPhi->getIncomingBlock(i));
@@ -156,7 +156,7 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
   // check whether the instruction itself is replicatable
   if (constVal) return true;
   if (phiInst) {
-    for (int i = 0; i < phiInst->getNumIncomingValues(); ++i) {
+    for (size_t i = 0; i < phiInst->getNumIncomingValues(); ++i) {
       if (!canReplicate(*phiInst->getIncomingValue(i), checkedSet)) {
         return false;
       }

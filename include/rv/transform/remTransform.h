@@ -25,6 +25,7 @@ using ValueSet = std::set<llvm::Value*>;
 
 namespace rv {
 
+class BranchCondition;
 class ReductionAnalysis;
 class VectorizationInfo;
 
@@ -38,7 +39,8 @@ class RemainderTransform {
 
 // RemainderTransform capability checks
   // check if remTrans currently handles the loop exit condition
-  bool canHandleExitCondition(llvm::Loop & L);
+  BranchCondition* analyzeExitCondition(llvm::Loop & L, int vectorWidth);
+
   // if this returns true RemainderTransform must not fail during the transformation and has to return a vectorizable loop
   bool canTransformLoop(llvm::Loop & L);
 

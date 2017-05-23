@@ -72,7 +72,7 @@ public:
 
 
 class ReductionAnalysis {
-  std::map<llvm::PHINode*, Reduction*> reductMap;
+  std::map<llvm::Instruction*, Reduction*> reductMap;
 
   const llvm::LoopInfo & loopInfo;
 
@@ -89,7 +89,8 @@ public:
   // create reduction for the clones as well
   void updateForClones(llvm::LoopInfo & LI, llvm::ValueToValueMapTy & cloneMap);
 
-  Reduction * getReductionInfo(llvm::PHINode & phi) const;
+  // look up a reduction by its constituent
+  Reduction * getReductionInfo(llvm::Instruction & reductor) const;
 };
 
 
