@@ -99,7 +99,7 @@ IF (${RV_ENABLE_SLEEF})
   )
 
   # generate static library
-  ADD_LIBRARY(gensleef STATIC ${RV_GENBC_SOURCES})
+  add_rv_library(gensleef STATIC ${RV_GENBC_SOURCES})
 ELSE()
   MESSAGE("-- Building without SLEEF")
 ENDIF()
