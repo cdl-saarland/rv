@@ -36,6 +36,7 @@
 
 #include "rv/transform/structOpt.h"
 #include "rv/transform/srovTransform.h"
+#include "rv/transform/irPolisher.h"
 
 #include "native/NatBuilder.h"
 
@@ -197,6 +198,9 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
 // vectorize with native
   native::NatBuilder natBuilder(platInfo, vecInfo, domTree, MDR, SE, reda);
   natBuilder.vectorize(embedControl, vecInstMap);
+
+  IRPolisher polisher(vecInfo.getVectorFunction());
+  polisher.polish();
 
   IF_DEBUG verifyFunction(vecInfo.getVectorFunction());
 
