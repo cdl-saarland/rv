@@ -1,3 +1,19 @@
+//===- irPolisher.cpp - IR polish pass ----------------===//
+//
+//                     The Region Vectorizer
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
+// The IR polisher performs:
+// - early instruction selection (it replaces IR patterns with intrinsics)
+// - bool vector promotion to i32/i64
+// to work around code quality issues in LLVM 4.0.
+//
+//===----------------------------------------------------------------------===//
+
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
@@ -8,6 +24,8 @@
 
 #include "rv/transform/irPolisher.h"
 #include "report.h"
+
+#include "rvConfig.h"
 
 #include <unordered_set>
 #include <queue>
@@ -193,7 +211,7 @@ llvm::Value *IRPolisher::getConditionFromMask(IRBuilder<> &builder, llvm::Value*
 }
 
 void IRPolisher::polish() {
-  Report() << "Starting polishing phase\n";
+  IF_DEBUG { errs() << "Starting polishing phase\n"; }
   std::unordered_set<ExtInst, ExtInst::Hash, ExtInst::Cmp> queue;
 
   // Fill the queue with uses of the result of vector (f)cmps
@@ -220,7 +238,7 @@ void IRPolisher::polish() {
 
     // Process the users of the instruction
     if (isBooleanVector(inst->getType())) {
-      for (auto user : inst->users()) {  
+      for (auto user : inst->users()) {
         if (auto userInst = dyn_cast<Instruction>(user)) {
           queue.emplace(userInst, bitWidth);
         }
@@ -244,7 +262,9 @@ void IRPolisher::polish() {
     }
   }
 
-  Report() << "Polished " << masks.size() << " instruction(s)\n";
+  if (masks.size() > 0) {
+    Report() << "IRPolish: polished " << masks.size() << " instruction(s)\n";
+  }
 }
 
 }
