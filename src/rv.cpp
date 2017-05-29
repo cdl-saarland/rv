@@ -186,10 +186,6 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
     Report() << "SROV opt disabled (RV_DISABLE_SROV != 0)\n";
   }
 
-  // Scalar-Replication-Of-Varying-(Aggregates): split up structs of vectorizable elements to promote use of vector registers
-  SROVTransform srovTransform(vecInfo, platInfo);
-  srovTransform.run();
-
   ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
   reda.analyze();
 
@@ -199,8 +195,13 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
   native::NatBuilder natBuilder(platInfo, vecInfo, domTree, MDR, SE, reda);
   natBuilder.vectorize(embedControl, vecInstMap);
 
-  IRPolisher polisher(vecInfo.getVectorFunction());
-  polisher.polish();
+  // IR Polish phase: promote i1 vectors and perform early instruction (read: intrinsic) selection
+  if (!CheckFlag("RV_DISABLE_POLISH")) {
+    IRPolisher polisher(vecInfo.getVectorFunction());
+    polisher.polish();
+  } else {
+    Report() << "IR Polisher disabled (RV_DISABLE_POLISH != 0)\n";
+  }
 
   IF_DEBUG verifyFunction(vecInfo.getVectorFunction());
 
