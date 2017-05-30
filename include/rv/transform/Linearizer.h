@@ -30,7 +30,7 @@
 #include <llvm/IR/CFG.h>
 #include<llvm/ADT/PostOrderIterator.h>
 
-typedef llvm::ReversePostOrderTraversal<Function*> RPOT;
+typedef llvm::ReversePostOrderTraversal<llvm::Function*> RPOT;
 
 namespace llvm {
   class PHINode;
@@ -55,8 +55,8 @@ namespace rv {
   class Linearizer {
 
   // block index helper
-  void scheduleLoop(Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
-  void scheduleDomRegion(BasicBlock * domEntry, Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
+  void scheduleLoop(llvm::Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
+  void scheduleDomRegion(llvm::BasicBlock * domEntry, llvm::Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
 
   // statistics
       // number of schedule heads that had to be diverted

@@ -304,7 +304,7 @@ run() {
   if (numBosccBranches > 0) Report() << "boscc: inserted " << numBosccBranches << " BOSCC branches\n";
 
   // recover
-  postDomTree.DT->recalculate(vecInfo.getScalarFunction());
+  postDomTree.recalculate(vecInfo.getScalarFunction());
 
   domTree.verifyDomTree();
 

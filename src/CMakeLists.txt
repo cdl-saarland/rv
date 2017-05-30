@@ -37,15 +37,16 @@ add_rv_library(RV
   rv.cpp
   rvConfig.cpp
   sleefLibrary.cpp
+  transform/CNSPass.cpp
+  transform/Linearizer.cpp
+  transform/LoopVectorizer.cpp
+  transform/bosccTransform.cpp
   transform/cns/BlockGraph.cpp
   transform/cns/CNS.cpp
-  transform/CNSPass.cpp
   transform/cns/CNSScoring.cpp
   transform/cns/SplitTree.cpp
   transform/cns/llvmDomination.cpp
   transform/cns/llvmDuplication.cpp
-  transform/Linearizer.cpp
-  transform/LoopVectorizer.cpp
   transform/divLoopTrans.cpp
   transform/irPolisher.cpp
   transform/loopExitCanonicalizer.cpp

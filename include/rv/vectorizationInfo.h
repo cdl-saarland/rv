@@ -48,20 +48,11 @@ public:
     bool inRegion(const llvm::BasicBlock & block) const;
     llvm::BasicBlock & getEntry() const;
 
-    BasicBlock & getRegionEntry() { return getRegion() ? getRegion()->getRegionEntry() : *getScalarFunction().begin(); }
-    Region* getRegion() const
-    {
-        return region;
-    }
+    Region* getRegion() const { return region; }
 
-    const VectorMapping& getMapping() const {
-        return mapping;
-    }
+    const VectorMapping& getMapping() const { return mapping; }
 
-    uint getVectorWidth() const
-    {
-        return mapping.vectorWidth;
-    }
+    uint getVectorWidth() const { return mapping.vectorWidth; }
 
     VectorizationInfo(VectorMapping _mapping);
     VectorizationInfo(llvm::Function& parentFn, uint vectorWidth, Region& _region);

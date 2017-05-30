@@ -109,7 +109,7 @@ Linearizer::scheduleDomRegion(BasicBlock * domEntry, Loop * loop, std::string pa
 void
 Linearizer::scheduleLoop(Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd) {
   auto * loopHeader = loop->getHeader();
-  auto * headerDom = dt.getNode(loopHeader);
+  // auto * headerDom = dt.getNode(loopHeader);
 
   IF_DEBUG_INDEX errs() << padStr << "Sched Loop at " << loopHeader->getName() << "\n";
 
@@ -188,7 +188,7 @@ Linearizer::buildBlockIndex() {
 
   RPOT rpot(&func);
 
-  auto & entryBlock = vecInfo.getRegionEntry();
+  auto & entryBlock = vecInfo.getEntry();
 
   Loop * topLoop = li.getLoopFor(&entryBlock);
 
