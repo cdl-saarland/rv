@@ -250,7 +250,8 @@ llvm::Value *IRPolisher::getConditionFromMask(IRBuilder<> &builder, llvm::Value*
 
 void IRPolisher::polish() {
   IF_DEBUG { errs() << "Starting polishing phase\n"; }
-  std::unordered_set<ExtInst, ExtInst::Hash, ExtInst::Cmp> queue;
+  std::unordered_set<ExtInst, ExtInst::Hash, ExtInst::Cmp> visited;
+  std::queue<ExtInst> queue;
 
   // Fill the queue with uses of the result of vector (f)cmps
   for (auto it = inst_begin(F), end = inst_end(F); it != end; ++it) {
@@ -260,8 +261,12 @@ void IRPolisher::polish() {
   }
 
   while (!queue.empty()) {
-    auto extInst = *queue.begin();
-    queue.erase(queue.begin());
+    auto extInst = queue.front();
+    queue.pop();
+
+    // Prevent divergence
+    if (visited.count(extInst)) continue;
+    visited.emplace(extInst);
 
     // Extend the instruction to work on vector of integers instead of vectors of i1s
     auto inst = extInst.inst;
@@ -272,9 +277,7 @@ void IRPolisher::polish() {
     if (isBooleanVector(inst->getType())) {
       for (auto user : inst->users()) {
         if (auto userInst = dyn_cast<Instruction>(user)) {
-          // Do not add instructions that have already been processed
-          if (!masks.count(ExtInst(userInst, bitWidth)))
-            queue.emplace(userInst, bitWidth);
+          queue.emplace(userInst, bitWidth);
         }
       }
     } else {
