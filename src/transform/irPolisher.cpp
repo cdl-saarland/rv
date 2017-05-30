@@ -272,7 +272,9 @@ void IRPolisher::polish() {
     if (isBooleanVector(inst->getType())) {
       for (auto user : inst->users()) {
         if (auto userInst = dyn_cast<Instruction>(user)) {
-          queue.emplace(userInst, bitWidth);
+          // Do not add instructions that have already been processed
+          if (!masks.count(ExtInst(userInst, bitWidth)))
+            queue.emplace(userInst, bitWidth);
         }
       }
     } else {
