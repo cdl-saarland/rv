@@ -65,8 +65,8 @@ IF (${RV_ENABLE_SLEEF})
   ADD_CUSTOM_COMMAND (
     OUTPUT ${SLEEF_GENBC_SSE_SP}
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
-    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${SLEEF_BC_SSE_SP}.tmp
-    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRA_DIR}/extrasp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${EXTRA_BC_SSE_SP}
+    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse2 -msse4.1 -DENABLE_SSE2=ON -DENABLE_SSE41=ON -o ${SLEEF_BC_SSE_SP}.tmp
+    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRA_DIR}/extrasp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse2 -msse4.1 -DENABLE_SSE2=ON -DENABLE_SSE41=ON -o ${EXTRA_BC_SSE_SP}
     COMMAND ${LLVM_TOOL_LINK} ${EXTRA_BC_SSE_SP} ${SLEEF_BC_SSE_SP}.tmp -o ${SLEEF_BC_SSE_SP}
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_SP} \"sse_sp\" ${SLEEF_BC_SSE_SP}
     DEPENDS clang
@@ -91,8 +91,8 @@ IF (${RV_ENABLE_SLEEF})
   ADD_CUSTOM_COMMAND (
     OUTPUT ${SLEEF_GENBC_SSE_DP}
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
-    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${SLEEF_BC_SSE_DP}.tmp
-    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRA_DIR}/extradp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${EXTRA_BC_SSE_DP}
+    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse2 -msse4.1 -DENABLE_SSE2=ON -DENABLE_SSE41=ON -o ${SLEEF_BC_SSE_DP}.tmp
+    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRA_DIR}/extradp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse2 -msse4.1 -DENABLE_SSE2=ON -DENABLE_SSE41=ON -o ${EXTRA_BC_SSE_DP}
     COMMAND ${LLVM_TOOL_LINK} ${EXTRA_BC_SSE_DP} ${SLEEF_BC_SSE_DP}.tmp -o ${SLEEF_BC_SSE_DP}
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_DP} \"sse_dp\" ${SLEEF_BC_SSE_DP}
     DEPENDS clang
