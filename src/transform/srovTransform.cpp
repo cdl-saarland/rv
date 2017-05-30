@@ -389,6 +389,10 @@ requestReplicate(Value & val) {
       IF_DEBUG_SROV { errs() << "\t" << i << " : " << *replSelect << "\n"; }
     }
 
+  } else if (isa<InsertValueInst>(inst)) {
+    for (size_t i = 0; i < replTyVec.size(); ++i) {
+      replVec.push_back(requestLaneReplicate(*inst, i));
+    }
   } else {
     assert(false && "un-replicatable operation");
     abort();

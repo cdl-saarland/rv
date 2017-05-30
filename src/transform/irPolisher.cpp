@@ -34,9 +34,23 @@ using namespace llvm;
 
 namespace rv {
 
-bool IRPolisher::isBooleanVector(const Type* type) {
+bool IRPolisher::isBooleanVector(const Type *type) {
   auto vectorType = dyn_cast<VectorType>(type);
   return vectorType && vectorType->getElementType() == Type::getInt1Ty(vectorType->getContext());
+}
+
+bool IRPolisher::canReplaceInst(const llvm::Instruction *inst, unsigned& bitWidth) {
+  auto instTy = inst->getType();
+  if (!instTy->isVectorTy()) return false;
+  if (!isa<CmpInst>(inst)) return false;
+
+  auto vecLen = instTy->getVectorNumElements();
+  if (vecLen != 2 && vecLen != 4 && vecLen != 8) return false;
+
+  // Bitwidth the second operand (2nd compared value or one of the select branches)
+  bitWidth = inst->getOperand(1)->getType()->getScalarSizeInBits();
+  return vecLen * bitWidth == 128 ||
+         vecLen * bitWidth == 256;
 }
 
 Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, llvm::Value* left, llvm::Value* right) {
@@ -47,7 +61,7 @@ Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, 
   auto scalarTy = left->getType()->getScalarType();
 
   // Transform a floating point comparison to a cmpps instruction
-  if (cmpInst->isFPPredicate() && (vecLen == 4 || vecLen == 8)) {
+  if (cmpInst->isFPPredicate() && (vecLen == 2 || vecLen == 4 || vecLen == 8)) {
     Intrinsic::ID id = Intrinsic::not_intrinsic;
     if (scalarTy == builder.getFloatTy()) {
       if (vecLen == 4)      id = Intrinsic::x86_sse_cmp_ps;
@@ -89,7 +103,8 @@ Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, 
     : builder.CreateICmp(cmpInst->getPredicate(), left, right);
 }
 
-Value *IRPolisher::getMaskForInst(Instruction* inst, unsigned bitWidth) {
+Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
+  assert(bitWidth != 1);
   auto maskIt = masks.find(ExtInst(inst, bitWidth));
   if (maskIt != masks.end())
       return maskIt->second;
@@ -174,15 +189,38 @@ Value *IRPolisher::getMaskForInst(Instruction* inst, unsigned bitWidth) {
     newStore->setSynchScope(storeInst->getSynchScope());
 
     newInst = newStore;
+  } else if (auto phiNode = dyn_cast<PHINode>(inst)) {
+    auto vecLen = phiNode->getType()->getVectorNumElements();
+    auto vecTy = VectorType::get(builder.getIntNTy(bitWidth), vecLen);
+
+    auto newPhi = builder.CreatePHI(vecTy, phiNode->getNumIncomingValues());
+    // We need to insert the phi node in the map here,
+    // as calls to getMaskForValueOrInst may diverge otherwise
+    // Redundant values will just be overwritten (it's a map)
+    masks.emplace(ExtInst(inst, bitWidth), newPhi);
+    for (size_t i = 0; i < phiNode->getNumIncomingValues(); i++) {
+      newPhi->addIncoming(getMaskForValueOrInst(builder, phiNode->getIncomingValue(i), bitWidth),
+                          phiNode->getIncomingBlock(i));
+    }
+    newInst = newPhi;
+  } else if (auto callInst = dyn_cast<CallInst>(inst)) {
+    std::vector<Value*> newArgs;
+    for (auto& arg : callInst->arg_operands()) {
+      auto newArg = arg.get();
+      // If the argument is a boolean vector, we reconstruct it from the new mask
+      if (isBooleanVector(arg->getType()))
+        newArg = getConditionFromMask(builder, getMaskForValueOrInst(builder, newArg, bitWidth));
+      newArgs.emplace_back(newArg);
+    }
+    newInst = builder.CreateCall(callInst->getCalledFunction(), newArgs);
   }
 
   assert(newInst);
-
   masks.emplace(ExtInst(inst, bitWidth), newInst);
   return newInst;
 }
 
-llvm::Value *IRPolisher::getMaskForValue(IRBuilder<> &builder, llvm::Value* value, unsigned bitWidth) {
+llvm::Value *IRPolisher::getMaskForValue(IRBuilder<> &builder, llvm::Value *value, unsigned bitWidth) {
   auto scalarType = builder.getIntNTy(bitWidth);
   auto vectorLen = value->getType()->getVectorNumElements();
   if (scalarType == value->getType()->getScalarType()) return value;
@@ -193,7 +231,7 @@ llvm::Value *IRPolisher::getMaskForValue(IRBuilder<> &builder, llvm::Value* valu
     return builder.CreateTrunc(value, VectorType::get(scalarType, vectorLen));
 }
 
-llvm::Value *IRPolisher::getMaskForValueOrInst(IRBuilder<> &builder, llvm::Value* value, unsigned bitWidth) {
+llvm::Value *IRPolisher::getMaskForValueOrInst(IRBuilder<> &builder, llvm::Value *value, unsigned bitWidth) {
   if (auto inst = dyn_cast<Instruction>(value)) return getMaskForInst(inst, bitWidth);
   return getMaskForValue(builder, value, bitWidth);
 }
@@ -215,16 +253,10 @@ void IRPolisher::polish() {
   std::unordered_set<ExtInst, ExtInst::Hash, ExtInst::Cmp> queue;
 
   // Fill the queue with uses of the result of vector (f)cmps
-  for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
-    auto instTy = I->getType();
-    if (instTy->isVectorTy() && dyn_cast<CmpInst>(&*I)) {
-      for (auto user : I->users()) {
-        if (auto userInst = dyn_cast<Instruction>(user)) {
-          auto bitWidth = I->getOperand(0)->getType()->getScalarSizeInBits();
-          queue.emplace(userInst, bitWidth);
-        }
-      }
-    }
+  for (auto it = inst_begin(F), end = inst_end(F); it != end; ++it) {
+    unsigned bitWidth;
+    if (canReplaceInst(&*it, bitWidth))
+      queue.emplace(&*it, bitWidth);
   }
 
   while (!queue.empty()) {
@@ -249,17 +281,10 @@ void IRPolisher::polish() {
   }
 
   // Remove original versions of transformed instructions
-  std::queue<Instruction*> toRemove;
-  for (auto& mask : masks) toRemove.push(mask.first.inst);
-  while (!toRemove.empty()) {
-    auto inst = toRemove.front();
-    toRemove.pop();
-
-    if (inst->hasNUsesOrMore(1)) {
-      toRemove.push(inst);
-    } else {
-      inst->eraseFromParent();
-    }
+  for (auto& mask : masks) {
+    auto inst = mask.first.inst;
+    inst->replaceAllUsesWith(UndefValue::get(inst->getType()));
+    inst->eraseFromParent();
   }
 
   if (masks.size() > 0) {

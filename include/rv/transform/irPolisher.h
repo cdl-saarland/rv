@@ -45,7 +45,10 @@ class IRPolisher {
   std::unordered_map<ExtInst, llvm::Value*, ExtInst::Hash, ExtInst::Cmp> masks;
 
   bool isBooleanVector(const llvm::Type*);
+  bool canReplaceInst(const llvm::Instruction*, unsigned&);
+
   llvm::Value *replaceCmpInst(llvm::IRBuilder<>&, llvm::CmpInst*, llvm::Value*, llvm::Value*);
+
   llvm::Value *getMaskForInst(llvm::Instruction*, unsigned);
   llvm::Value *getMaskForValue(llvm::IRBuilder<>&, llvm::Value*, unsigned);
   llvm::Value *getMaskForValueOrInst(llvm::IRBuilder<>&, llvm::Value*, unsigned);
