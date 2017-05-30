@@ -312,6 +312,7 @@ requestReplicate(Value & val) {
     for (size_t i = 0; i < replTyVec.size(); ++i) {
       replVec.push_back(requestLaneReplicate(val, i));
     }
+    return replVec;
   }
 
 // Otw, try to replicate this instruction
