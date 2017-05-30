@@ -1334,22 +1334,34 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   }
 
   auto & term = *head.getTerminator();
+  auto & headRelay = getRelayUnchecked(getIndex(head));
 
   if (term.getNumSuccessors() == 0) {
     auto * retInst = dyn_cast<ReturnInst>(&term);
+    auto * unreachInst = dyn_cast<UnreachableInst>(&term);
+
     if (!exitRelay) {
        IF_DEBUG_LIN { errs() << "\t control sink.\n"; }
        return;
 
-    // we can only lazily fold void returns atm
-    } else if (retInst && retInst->getNumOperands() == 0) {
+    // lazily fold control sinks
+    } else if (
+        unreachInst ||
+        (retInst && retInst->getNumOperands() == 0)
+    ) {
       IF_DEBUG_LIN { errs() << "\t replacing control sink with branch because of pending relays.\n"; }
 
-      auto * lateBranch = BranchInst::Create(exitRelay->block, retInst);
-      vecInfo.setVectorShape(*lateBranch, vecInfo.getVectorShape(*retInst));
-      retInst->eraseFromParent();
-      vecInfo.dropVectorShape(*retInst);
 
+      // replace the control sink with a branch to the exitRelay->block
+      auto * lateBranch = BranchInst::Create(exitRelay->block, &term);
+      vecInfo.setVectorShape(*lateBranch, vecInfo.getVectorShape(term));
+      vecInfo.dropVectorShape(term);
+      term.eraseFromParent();
+
+      // make sure all reaching prefixes are forwarded to reach exitRelay as well
+      mergeInReaching(*exitRelay, headRelay);
+
+      // this is a delayed return (since other prefixes still have unserved relays)
       ++numDelayedReturns;
 
       return;
@@ -1363,7 +1375,6 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
 
   auto * branch = dyn_cast<BranchInst>(&term);
 
-  auto & headRelay = getRelayUnchecked(getIndex(head));
 
 // Unconditional branch case
   if (!branch->isConditional()) {
