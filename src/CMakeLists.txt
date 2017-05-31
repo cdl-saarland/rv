@@ -9,6 +9,10 @@ if (RV_ENABLE_SLEEF)
   add_definitions( "-DRV_ENABLE_BUILTINS" )
 endif()
 
+if (RV_DEBUG) 
+  add_definitions( "-DRV_DEBUG" )
+endif()
+
 add_rv_library(RV
   analysis/MandatoryAnalysis.cpp
   analysis/BranchDependenceAnalysis.cpp

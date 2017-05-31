@@ -51,21 +51,11 @@
 // debug flags
 //----------------------------------------------------------------------------//
 
-//if NDEBUG is defined, always ignore debug information
-#ifdef NDEBUG
-#   undef _DEBUG
-#endif
-
-// global debug flag
-#ifdef _DEBUG
-extern bool rvVerbose;
-#endif
-
 // debug macros
 // do while and ((void)0) are used to enforce semicolon
 // DEBUG_RV_VISIBLE allows arbitrary code that does not have its own scope
 // NOTE: a boolean 'mVerbose' has to be in scope in order to use this ;)
-#ifdef _DEBUG
+#ifdef RV_DEBUG
 #   define DEBUG_RV_NO_VERBOSE(x) do { x } while (0)
 #   define DEBUG_RV(x) if (true) { x }
 #   define DEBUG_RV_VISIBLE(x) x ((void)0)
@@ -81,7 +71,7 @@ extern bool rvVerbose;
 
 // VectorizationAnalysis should remain independent of RVInfo, so the verbose flag is
 // stored separately
-#ifdef _DEBUG
+#ifdef RV_DEBUG
 #   define DEBUG_VA_NO_VERBOSE(x) do { x } while (0)
 // #   define DEBUG_VA(x) if (true) { x } // be quiet
 #   define DEBUG_VA(x) ((void)0)

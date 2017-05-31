@@ -40,12 +40,6 @@
 #include "report.h"
 #include <map>
 
-#ifdef IF_DEBUG
-#undef IF_DEBUG
-#endif
-
-#define IF_DEBUG if (true)
-
 using namespace rv;
 using namespace llvm;
 
