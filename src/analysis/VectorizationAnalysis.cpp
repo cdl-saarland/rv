@@ -112,6 +112,11 @@ VectorizationAnalysis::analyze(Function& F) {
   init(F);
   compute(F);
   fixUndefinedShapes(F);
+
+  IF_DEBUG_VA {
+    errs() << "VecInfo after VA:\n";
+    mVecinfo.dump();
+  }
 }
 
 bool VectorizationAnalysis::isInRegion(const BasicBlock& BB) {

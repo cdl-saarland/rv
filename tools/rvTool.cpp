@@ -194,18 +194,15 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     // vectorizationAnalysis
     vectorizer.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
 
-    // mask analysis
-    auto maskAnalysis = vectorizer.analyzeMasks(vecInfo, loopInfo);
-    assert(maskAnalysis);
-    maskAnalysis->print(errs(), &mod);
-
-    // mask generator
-    bool genMaskOk = vectorizer.generateMasks(vecInfo, *maskAnalysis, loopInfo);
-    if (!genMaskOk) fail("mask generation failed.");
+    // control conversion
+    vectorizer.linearize(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
+    // if (!maskEx) fail("mask generation failed.");
+#if 0
 
     // control conversion
-    bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, domTree);
+    bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskEx, loopInfo, domTree);
     if (!linearizeOk) fail("linearization failed.");
+#endif
 
     const DominatorTree domTreeNew(*vecInfo.getMapping()
                                            .scalarFn); // Control conversion does not preserve the domTree so we have to rebuild it for now
@@ -225,29 +222,43 @@ vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
 
     // build Analysis
     DominatorTree domTree(parentFn);
-    PostDominatorTree postDomTree;
-    postDomTree.recalculate(parentFn);
-    LoopInfo loopInfo(domTree);
-
-    // Dominance Frontier Graph
-    DFG dfg(domTree);
-    dfg.create(parentFn);
-
-    // Control Dependence Graph
-    CDG cdg(postDomTree);
-    cdg.create(parentFn);
 
     // normalize loop exits
-    LoopExitCanonicalizer canonicalizer(loopInfo);
-    canonicalizer.canonicalize(parentFn);
+    {
+      LoopInfo loopInfo(domTree);
+      LoopExitCanonicalizer canonicalizer(loopInfo);
+      canonicalizer.canonicalize(parentFn);
+      domTree.recalculate(parentFn);
+    }
+
+    // compute actual analysis structures
+    LoopInfo loopInfo(domTree);
 
     if (loopInfo.begin() == loopInfo.end())
     {
         return;
     }
 
-    auto* firstLoop = *loopInfo.begin();
+    // Dominance Frontier Graph
+    DFG dfg(domTree);
+    dfg.create(parentFn);
 
+    // post dom
+    PostDominatorTree postDomTree;
+
+    // Control Dependence Graph
+    postDomTree.recalculate(parentFn);
+    CDG cdg(postDomTree);
+    cdg.create(parentFn);
+
+
+    // dump normalized function
+    {
+      errs() << "-- normalized functions --\n";
+      parentFn.print(errs());
+    }
+
+    auto* firstLoop = *loopInfo.begin();
     vectorizeLoop(parentFn, *firstLoop, vectorWidth, loopInfo, dfg, cdg, domTree, postDomTree);
 
     // mark region
@@ -307,8 +318,14 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
 
     // build Analysis
     DominatorTree domTree(*scalarCopy);
-    PostDominatorTree postDomTree;
-    postDomTree.recalculate(*scalarCopy);
+    // normalize loop exits
+    {
+      LoopInfo loopInfo(domTree);
+      LoopExitCanonicalizer canonicalizer(loopInfo);
+      canonicalizer.canonicalize(*scalarCopy);
+      domTree.recalculate(*scalarCopy);
+    }
+
     LoopInfo loopInfo(domTree);
 
     ScalarEvolutionAnalysis seAnalysis;
@@ -321,28 +338,33 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     DFG dfg(domTree);
     dfg.create(*scalarCopy);
 
+    // post dom
+    PostDominatorTree postDomTree;
+    postDomTree.recalculate(*scalarCopy);
+
     // Control Dependence Graph
     CDG cdg(postDomTree);
     cdg.create(*scalarCopy);
 
-    // normalize loop exits
-    LoopExitCanonicalizer canonicalizer(loopInfo);
-    canonicalizer.canonicalize(*scalarCopy);
+
+    // dump normalized function
+    {
+      errs() << "-- normalized functions --\n";
+      scalarCopy->print(errs());
+    }
 
     // vectorizationAnalysis
     vectorizer.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
 
-    // mask analysis
-    auto maskAnalysis = vectorizer.analyzeMasks(vecInfo, loopInfo);
-    assert(maskAnalysis);
-
     // mask generator
-    bool genMaskOk = vectorizer.generateMasks(vecInfo, *maskAnalysis, loopInfo);
-    if (!genMaskOk) fail("mask generation failed.");
+    vectorizer.linearize(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
+    // if (!maskEx) fail("mask generation failed.");
 
+#if 0
     // control conversion
-    bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskAnalysis, loopInfo, domTree);
+    bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskEx, loopInfo, domTree);
     if (!linearizeOk) fail("linearization failed.");
+#endif
 
     // Control conversion does not preserve the domTree so we have to rebuild it for now
     const DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn);
@@ -533,7 +555,6 @@ int main(int argc, char** argv)
             }
         }
         assert(vectorFn);
-        mod->dump();
 
         rv::VectorMapping vectorizerJob(scalarFn, vectorFn, vectorWidth, -1, resShape, argShapes);
 

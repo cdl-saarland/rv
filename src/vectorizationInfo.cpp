@@ -153,9 +153,15 @@ VectorizationInfo::hasKnownShape(const llvm::Value& val) const {
 VectorShape
 VectorizationInfo::getVectorShape(const llvm::Value& val) const
 {
+ // return default shape for constants
+    auto * constVal = dyn_cast<Constant>(&val);
+    if (constVal) {
+      return VectorShape::fromConstant(constVal);
+    }
+
     auto it = shapes.find(&val);
 
-  // explicit shape annotations take precedence
+  // for all other objects return a explicit shape first
     if (it != shapes.end()) {
       return it->second;
     }
@@ -166,6 +172,7 @@ VectorizationInfo::getVectorShape(const llvm::Value& val) const
       return VectorShape::uni(); // TODO getAlignment(*inst));
     }
 
+    // return VectorShape::undef();
     assert (it != shapes.end());
     return it->second;
 }
@@ -305,6 +312,13 @@ VectorizationInfo::isMetadataMask(const Instruction* inst) const
 
 LLVMContext &
 VectorizationInfo::getContext() const { return mapping.scalarFn->getContext(); }
+
+BasicBlock&
+VectorizationInfo::getEntry() const {
+   if (region) return region->getRegionEntry();
+   else return *mapping.scalarFn->begin();
+ }
+
 
 } /* namespace rv */
 

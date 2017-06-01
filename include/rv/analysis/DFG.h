@@ -76,7 +76,7 @@ public:
         explicit Node(BasicBlock* const BB) : BB(BB) { }
 
     public:
-        const BasicBlock* getBB() const { return BB; }
+       BasicBlock* getBB() const { return BB; }
 
         nodes_t preds() const { return preds_; }
         nodes_t succs() const { return succs_; }

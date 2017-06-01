@@ -249,21 +249,18 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   IF_DEBUG F->dump();
   assert(L.getLoopPreheader());
 
-  // mask analysis
-  auto maskAnalysis = vectorizer->analyzeMasks(vecInfo, *LI);
-  assert(maskAnalysis);
-  IF_DEBUG { maskAnalysis->print(errs(), &M); }
+  // control conversion
+  vectorizer->linearize(vecInfo, cdg, dfg, *LI, *PDT, *DT);
+  //   if (!maskEx)
+  //     llvm_unreachable("mask generation failed.");
 
-  // mask generator
-  bool genMaskOk = vectorizer->generateMasks(vecInfo, *maskAnalysis, *LI);
-  if (!genMaskOk)
-    llvm_unreachable("mask generation failed.");
-
+#if 0
   // control conversion
   bool linearizeOk =
-      vectorizer->linearizeCFG(vecInfo, *maskAnalysis, *LI, *DT);
+      vectorizer->linearizeCFG(vecInfo, *maskEx, *LI, *DT);
   if (!linearizeOk)
     llvm_unreachable("linearization failed.");
+#endif
 
   const DominatorTree domTreeNew(
       *vecInfo.getMapping().scalarFn); // Control conversion does not preserve

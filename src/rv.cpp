@@ -21,10 +21,11 @@
 #include "rv/rv.h"
 #include "rv/analysis/DFG.h"
 #include "rv/analysis/VectorizationAnalysis.h"
-#include "rv/analysis/maskAnalysis.h"
+#include "rv/analysis/ABAAnalysis.h"
+
 #include "rv/transform/maskGenerator.h"
 #include "rv/transform/loopExitCanonicalizer.h"
-#include "rv/analysis/ABAAnalysis.h"
+#include "rv/transform/divLoopTrans.h"
 
 #include "rv/PlatformInfo.h"
 #include "rv/vectorizationInfo.h"
@@ -44,6 +45,8 @@
 
 #include "rvConfig.h"
 #include "report.h"
+
+#include "rv/transform/maskExpander.h"
 
 
 
@@ -110,6 +113,7 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
 
     MandatoryAnalysis man(vecInfo, loopInfo, cdg);
 
+
     ABAAnalysis abaAnalysis(platInfo,
                             vecInfo,
                             loopInfo,
@@ -118,44 +122,62 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
 
     auto & scalarFn = vecInfo.getScalarFunction();
     vea.analyze(scalarFn);
-  man.analyze(scalarFn);
+    man.analyze(scalarFn);
     abaAnalysis.analyze(scalarFn);
-
 }
 
-std::unique_ptr<MaskAnalysis>
-VectorizerInterface::analyzeMasks(VectorizationInfo& vecInfo, const LoopInfo& loopinfo)
-{
-    auto maskAnalysis = make_unique<MaskAnalysis>(vecInfo, loopinfo);
-    maskAnalysis->analyze(vecInfo.getScalarFunction());
-    return maskAnalysis;
-}
-
-bool
+#if 0
+std::unique_ptr<MaskExpander>
 VectorizerInterface::generateMasks(VectorizationInfo& vecInfo,
-                                   MaskAnalysis& maskAnalysis,
-                                   const LoopInfo& loopInfo)
+                             const CDG& cdg,
+                             const DFG& dfg,
+                             const LoopInfo& loopInfo,
+                             const PostDominatorTree& postDomTree,
+                             const DominatorTree& domTree)
 {
-    MaskGenerator maskgenerator(vecInfo, maskAnalysis, loopInfo);
-    return maskgenerator.generate(vecInfo.getScalarFunction());
+
+    auto maskEx = make_unique<MaskExpander>(vecInfo, domTree, cdg, postDomTree, loopInfo);
+    maskEx->expandRegionMasks();
+    return maskEx;
+    // auto maskAnalysis = make_unique<MaskAnalysis>(vecInfo, loopinfo);
+    // maskAnalysis->analyze(vecInfo.getScalarFunction());
+    // return maskAnalysis;
 }
+#endif
 
 bool
-VectorizerInterface::linearizeCFG(VectorizationInfo& vecInfo,
-                                  MaskAnalysis& maskAnalysis,
-                                  LoopInfo& loopInfo,
-                                  DominatorTree& domTree)
+VectorizerInterface::linearize(VectorizationInfo& vecInfo,
+                 CDG& cdg,
+                 DFG& dfg,
+                 LoopInfo& loopInfo,
+                 PostDominatorTree& postDomTree,
+                 DominatorTree& domTree)
 {
     // use a fresh domtree here
-    DominatorTree fixedDomTree(vecInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
+    // DominatorTree fixedDomTree(vecInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
     domTree.recalculate(vecInfo.getScalarFunction());
-    Linearizer linearizer(vecInfo, maskAnalysis, fixedDomTree, loopInfo);
+
+    // lazy mask generator
+    MaskExpander maskEx(vecInfo, domTree, postDomTree, loopInfo);
+
+    // convert divergent loops inside the region to uniform loops
+    DivLoopTrans divLoopTrans(platInfo, vecInfo, maskEx, domTree, loopInfo);
+    divLoopTrans.transformDivergentLoops();
+
+    postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    IF_DEBUG loopInfo.verify(domTree);
+
+    // expand all remaining masks in the region
+    maskEx.expandRegionMasks();
 
     IF_DEBUG {
       errs() << "--- VecInfo before Linearizer ---\n";
       vecInfo.dump();
     }
 
+    // partially linearize acyclic control in the region
+    Linearizer linearizer(vecInfo, maskEx, domTree, loopInfo);
     linearizer.run();
 
     IF_DEBUG {

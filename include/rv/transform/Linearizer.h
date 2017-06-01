@@ -18,10 +18,10 @@
 
 #include "rv/vectorizationInfo.h"
 #include "rv/region/Region.h"
-#include "rv/analysis/maskAnalysis.h"
 
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/ADT/DenseSet.h>
 
 #include <vector>
 #include <unordered_map>
@@ -38,6 +38,7 @@ namespace rv {
   typedef std::unordered_map<const llvm::BasicBlock*, int> BlockIndex;
   typedef std::pair<llvm::BasicBlock*, llvm::BasicBlock*> Edge;
   typedef llvm::DenseMap<Edge, llvm::WeakVH> EdgeMaskCache;
+  class MaskExpander;
 
   // internal helper class that tunnels values leaving on divergent loop exits through tracker PHI nodes
   class LiveValueTracker;
@@ -64,6 +65,8 @@ namespace rv {
       size_t numKillExits;
       // number of select instructions
       size_t numBlends;
+      // number of simplified blends (including pre-existing blends)
+      size_t numSimplifiedBlends;
 
   // relay logic
     // we need to defer these edges to we can schedule linearized blocks in between
@@ -296,7 +299,7 @@ namespace rv {
   // divergent loop transform
     // creates a single exiting edge at the latch
     // adds all old exit blocks as relay targets for the new single exit block
-    RelayNode & convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay);
+    // RelayNode & convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay);
 
     // removes all exiting control edges from @block out of @loop
     void dropLoopExit(BasicBlock & block, Loop & loop);
@@ -322,7 +325,7 @@ namespace rv {
     friend class LiveValueTracker;
 
     VectorizationInfo & vecInfo;
-    MaskAnalysis & maskAnalysis;
+    MaskExpander & maskEx;
     Region * region;
     llvm::DominatorTree & dt;
     llvm::LoopInfo & li;
@@ -377,15 +380,13 @@ namespace rv {
     // we run SSA repair with these definitions and replace all uses of the repairPhi with the new value
     void resolveRepairPhis();
 
-  // mask reduction helper
-    Instruction & createReduction(Value & pred, const std::string & name, BasicBlock & atEnd);
-    Function * requestReductionFunc(llvm::Module & mod, const std::string & name);
-
-
   // re-establish SSA form by inserting phis + undef
     void fixSSA();
+
+  // simplify blend code
+    size_t simplifyBlends();
   public:
-    Linearizer(VectorizationInfo & _vecInfo, MaskAnalysis & _maskAnalysis, llvm::DominatorTree & _dt, llvm::LoopInfo & _li)
+    Linearizer(VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _dt, llvm::LoopInfo & _li)
     : numDivertedHeads(0)
     , numDelayedReturns(0)
     , numFoldedBranches(0)
@@ -394,9 +395,10 @@ namespace rv {
     , numDivergentLoops(0)
     , numKillExits(0)
     , numBlends(0)
+    , numSimplifiedBlends(0)
 
     , vecInfo(_vecInfo)
-    , maskAnalysis(_maskAnalysis)
+    , maskEx(_maskEx)
     , region(vecInfo.getRegion())
     , dt(_dt)
     , li(_li)

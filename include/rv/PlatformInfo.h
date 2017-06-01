@@ -57,6 +57,8 @@ namespace rv {
                         const bool      mayHaveSideEffects);
 
     const DataLayout & getDataLayout() const { return mod.getDataLayout(); }
+
+    llvm::Function * requestMaskReductionFunc(const std::string & name);
   private:
     VectorMapping * inferMapping(llvm::Function & scalarFnc, llvm::Function & simdFnc, int maskPos);
 

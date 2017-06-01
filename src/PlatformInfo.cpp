@@ -210,5 +210,19 @@ PlatformInfo::inferMapping(llvm::Function & scalarFnc, llvm::Function & simdFnc,
 }
 
 
+Function *
+PlatformInfo::requestMaskReductionFunc(const std::string & name) {
+  auto * redFunc = mod.getFunction(name);
+  if (redFunc) return redFunc;
+  auto & context = mod.getContext();
+  auto * boolTy = Type::getInt1Ty(context);
+  auto * funcTy = FunctionType::get(boolTy, boolTy, false);
+  redFunc = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, &mod);
+  redFunc->setDoesNotAccessMemory();
+  redFunc->setDoesNotThrow();
+  redFunc->setConvergent();
+  redFunc->setDoesNotRecurse();
+  return redFunc; // TODO add SIMD mapping
+}
 
 }

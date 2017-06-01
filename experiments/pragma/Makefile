@@ -14,4 +14,9 @@ build/test_multi.ll: test_multi.cpp
 	mkdir -p build
 	RV_REPORT=1 LV_DISABLE=1 $(CXX) $^ -o $@
 
+SRC=/home/simon/source/shared/benchmarks/speccpu2006/benchspec/CPU2006/464.h264ref/src/mv-search.c 
+INC=/home/simon/source/shared/benchmarks/speccpu2006/benchspec/CPU2006/464.h264ref/src/
+build/mv-search.ll: $(SRC)
+	mkdir -p build
+	RV_REPORT=1 LV_DISABLE=1 $(CXX) $^ -I${INC} -o $@
 

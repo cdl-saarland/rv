@@ -12,6 +12,7 @@
 
 #include "rv/region/Region.h"
 #include "rv/vectorizationInfo.h"
+#include "rv/transform/maskExpander.h"
 
 #include <llvm/IR/Instructions.h>
 #include <llvm/Analysis/LoopInfo.h>
@@ -22,6 +23,7 @@
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/ADT/PostOrderIterator.h>
 
+#include "llvm/Transforms/Utils/SSAUpdater.h"
 #include <cassert>
 #include <climits>
 #include <set>
@@ -345,334 +347,11 @@ Linearizer::needsFolding(TerminatorInst & termInst) {
   return false;
 }
 
-Function *
-Linearizer::requestReductionFunc(llvm::Module & mod, const std::string & name) {
-  auto * redFunc = mod.getFunction(name);
-  if (redFunc) return redFunc;
-  auto & context = mod.getContext();
-  auto * boolTy = Type::getInt1Ty(context);
-  auto * funcTy = FunctionType::get(boolTy, boolTy, false);
-  redFunc = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, &mod);
-  redFunc->setDoesNotAccessMemory();
-  redFunc->setDoesNotThrow();
-  redFunc->setConvergent();
-  redFunc->setDoesNotRecurse();
-  return redFunc; // TODO add SIMD mapping
-}
-
-Instruction &
-Linearizer::createReduction(Value & pred, const std::string & name, BasicBlock & atEnd) {
-  auto * redFunc = requestReductionFunc(*atEnd.getParent()->getParent(), name);
-  auto * call = CallInst::Create(redFunc, &pred, "reduce", &atEnd);
-  vecInfo.setVectorShape(*call, VectorShape::uni());
-  return *call;
-}
-
-void
-Linearizer::dropLoopExit(BasicBlock & block, Loop & loop) {
-  auto & term = *block.getTerminator();
-  assert(loop.contains(&block) && "can not drop loop exit edge from block that is not in loop");
-  assert(term.getNumSuccessors() > 1 && "these must be an edge to drop here");
-
-// find a successor within this loop
-  BasicBlock * uniqueLoopSucc = nullptr;
-  for (uint i = 0; i < term.getNumSuccessors(); ++i) {
-    auto * succ = term.getSuccessor(i);
-    if (!uniqueLoopSucc && loop.contains(succ)) {
-      uniqueLoopSucc = succ;
-      break;
-    }
-  }
-
-  assert(uniqueLoopSucc && "could not find successor within loop");
-// send all loop exiting edges to that successor inside the loop
-  // replace this node with a single successor node
-  auto * loopBranch = BranchInst::Create(uniqueLoopSucc, &term);
-  term.eraseFromParent();
-  vecInfo.dropVectorShape(term);
-  vecInfo.setVectorShape(*loopBranch, VectorShape::uni());
-}
-
 static void
 InsertAtFront(BasicBlock & block, Instruction & inst) {
   block.getInstList().insert(block.begin(), &inst);
 }
 
-class LiveValueTracker {
-  Linearizer & lin;
-  VectorizationInfo & vecInfo;
-  MaskAnalysis & ma;
-  LoopInfo & li;
-  Loop & loop;
-  BasicBlock & preHeader;
-
-  // maps loop live-out values to their tracking PHI nodes
-  // the phi node @second keeps track of the computed value of @first when each thread left the loop
-  DenseMap<Instruction*, PHINode*> liveOutPhis;
-
-  // return the incoming index of the exitblock
-  int getLoopBlockIndex(PHINode & lcPhi) {
-    for (uint i = 0; i < lcPhi.getNumIncomingValues(); ++i) {
-      if (loop.contains(lcPhi.getIncomingBlock(i))) return i;
-    }
-    return -1;
-  }
-
-  // return the successor index that leaves the loop
-  int getLoopExitIndex(Instruction & inst) {
-    auto & branch = cast<BranchInst>(inst);
-    if (loop.contains(branch.getSuccessor(0))) return 1;
-    else if (loop.contains(branch.getSuccessor(1))) return 0;
-    else abort();
-  }
-
-  static int GetPreHeaderTrackerIndex() { return 0; }
-  static int GetLatchTrackerIndex() { return 1; }
-public:
-  LiveValueTracker(Linearizer & _lin, Loop & _loop, BasicBlock & _preHeader)
-  : lin(_lin), vecInfo(lin.vecInfo), ma(lin.maskAnalysis), li(lin.li), loop(_loop), preHeader(_preHeader)
-  {}
-
-  // inserts a tracker PHI into the loop headers surrounding @defInst
-  // returns the tracker update valid at the latch block
-  PHINode &
-  requestTracker(Instruction & inst, BasicBlock & exiting, Instruction & defInst) {
-    auto it = liveOutPhis.find(&inst);
-    if (it != liveOutPhis.end()) {
-      auto & phi = *it->second;
-      return phi;
-    }
-
-  // create a PHI chain from @defInst up to this loop
-    Loop * defLoop = li.getLoopFor(&exiting);
-    auto * trackedLoop = defLoop;
-    PHINode * nestedTracker = nullptr;
-
-    PHINode * innerTrackerPhi = nullptr;
-
-    auto * undef = UndefValue::get(defInst.getType());
-
-  // create a tracker PHI for loop crossing the exit edge
-    while (
-        trackedLoop &&
-        trackedLoop->getLoopDepth() >= loop.getLoopDepth()
-    ) {
-      auto * trackedLoopHeader = trackedLoop->getHeader();
-      auto * trackedPreHeader = trackedLoop == &loop ? &preHeader : trackedLoop->getLoopPreheader();
-
-    // create a tracker phi in every surrounding loop of @defInst
-      auto * phi = PHINode::Create(defInst.getType(), 2, "track_" + defInst.getName(), &*trackedLoopHeader->getFirstInsertionPt());
-      vecInfo.setVectorShape(*phi, VectorShape::varying());
-
-      // remember inner-most tracker Phi
-      if (!innerTrackerPhi) innerTrackerPhi = phi;
-
-    // preheader input: tracker state of outer phi
-      // attach tracker input to nested tracker PHI
-      if (nestedTracker) {
-        nestedTracker->setIncomingValue(GetPreHeaderTrackerIndex(), phi);
-      }
-
-    // preheader input (undef)
-      phi->addIncoming(undef, trackedPreHeader);
-
-    // latch input: self-loop or tracker state from (inner) nestedPhi
-      if (nestedTracker) {
-         phi->addIncoming(nestedTracker, trackedLoop->getLoopLatch()); // take the nested value on the latch
-      } else {
-         phi->addIncoming(phi, trackedLoop->getLoopLatch()); // create a self loop
-      }
-      IF_DEBUG_LIN { errs() << "\t* trackerPHI (w/o liveIn update): " << *phi << "\n"; }
-
-    // next outer loop
-      nestedTracker = phi;
-      trackedLoop = trackedLoop->getParentLoop();
-    }
-
-    IF_DEBUG_LIN { errs() << "\t- outer-most tracker " << *nestedTracker << "\n"; }
-    IF_DEBUG_LIN { errs() << "\t- inner-most tracker " << *innerTrackerPhi << "\n"; }
-
-  // attach trackerPHI inputs
-    liveOutPhis[&inst] = innerTrackerPhi;
-    return *innerTrackerPhi;
-  }
-
-  static uint
-  GetExitIndex(BasicBlock & exiting, Loop & loop) {
-    auto & term = *exiting.getTerminator();
-    for (uint i = 0; i < term.getNumSuccessors(); ++i) {
-      if (!loop.contains(term.getSuccessor(i))) {
-        return i;
-      }
-    }
-    abort();
-  }
-
-  // return the mask predicate of the loop exit
-  Value&
-  getLoopExitMask(BasicBlock & exiting, Loop & loop) {
-    int exitIndex = GetExitIndex(exiting, loop);
-
-    auto & context = exiting.getContext();
-    Value * blockMask = ma.getEntryMask(exiting);
-
-    IRBuilder<> builder(exiting.getTerminator());
-
-    auto & branch = *cast<BranchInst>(exiting.getTerminator());
-
-    Value * exitCondition = branch.getCondition();
-    auto exitShape = lin.vecInfo.getVectorShape(*exitCondition);
-    if (exitIndex != 0) {
-      exitCondition = builder.CreateXor(branch.getCondition(), ConstantInt::get(Type::getInt1Ty(context), -1));
-      vecInfo.setVectorShape(*exitCondition, exitShape);
-    }
-
-    auto * exitingMask = builder.CreateAnd(exitCondition, blockMask);
-    vecInfo.setVectorShape(*exitingMask, exitShape);
-    return *exitingMask;
-  }
-
-  // updates @tracker in block @src with @val, if the exit predicate is true
-  // this inserts a select instruction in the latch that blends in @val into @tracker if the exit is taken
-  // FIXME this will only work if the exit predicate and the live-out instruction dominate the latchBlock
-  void
-  addTrackerUpdate(PHINode & tracker, BasicBlock & exiting, BasicBlock & exit, Instruction & val) {
-  // sanitize: the exit edge leaves from inside the current @loop to a block outside of the loop
-    assert(loop.contains(&exiting));
-    assert(!loop.contains(&exit));
-
-  // last tracker state
-    auto * lastTrackerState = tracker.getIncomingValue(GetLatchTrackerIndex());
-
-  // get exit predicate
-    auto & exitMask = getLoopExitMask(exiting, loop); // should do the trick if this atually was the edge predicate..
-    // auto & exitMask = *lin.getLoopExitMask(exiting, exit);
-
-    IF_DEBUG_LIN { errs() << "\t-- loop exit mask " << exitMask << "\n"; }
-  // materialize the update
-    IRBuilder<> builder(&exiting, exiting.getTerminator()->getIterator()); // exit mask needs to be defined in @exiting
-    int lastDefIndex = lin.getIndex(exiting);
-    auto * updateInst = cast<Instruction>(builder.CreateSelect(&exitMask, &val, lastTrackerState, "update_" + val.getName()));
-    ++lin.numBlends;
-    vecInfo.setVectorShape(*updateInst, VectorShape::varying());
-
-  // promote the partial def to all surrounding loops
-    Value * currentLiveInDef = &tracker;
-    Instruction * currentPartialDef = updateInst;
-    Loop * currentLoop = li.getLoopFor(tracker.getParent());
-
-    IF_DEBUG_LIN { errs() << "\ttracker promotion " << *updateInst << " for exit " << exiting.getName() << " to " << exit.getName() << "\n"; }
-    while (isa<PHINode>(currentLiveInDef)) {
-      auto & currPhi = *cast<PHINode>(currentLiveInDef);
-      IF_DEBUG_LIN { errs() << "\t- partial def: " << currentPartialDef->getName() << " to latch of tracker PHI " << currPhi.getName() << "\n"; }
-
-      assert(currentLoop == li.getLoopFor(currPhi.getParent()) && "curr header PHI and curr loop out of sync");
-      int currLatchIndex = lin.getIndex(*currentLoop->getLoopLatch());
-
-      Instruction * promotedUpdate = nullptr;
-
-      // we need to promote the live out tracker to its user outside of thsi loop
-      // However we have two definitions for this value: the tracker PHI and its update operation
-      // Hence, we need to repair SSA form on the way down to the user
-      auto * currLoopHeader = currPhi.getParent();
-      auto * innerLatchBlock = &lin.getBlock(lastDefIndex);
-
-      if (currLoopHeader != innerLatchBlock) {
-        // we need a dominating definition for the latch of THIS loop
-        auto & repairPhi = lin.createRepairPhi(val, *currentLoop->getLoopLatch());
-
-        // if the latch of the NESTED loop was executed we should see the tracker update in THIS loop
-        repairPhi.addIncoming(currentPartialDef, &lin.getBlock(lastDefIndex)); // we add this first to signal that this is the prefered definition
-        // if the latch of the NESTED loop was not executed, we should see the same old tracker state
-        repairPhi.addIncoming(&currPhi, currPhi.getParent()); // add this last to signal that this is the fallback definition
-
-        promotedUpdate = &repairPhi;
-      } else {
-        promotedUpdate = currentPartialDef;
-      }
-
-      IF_DEBUG_LIN { errs() << "\tsetting update of PHI " << currPhi << " to promoted def " << promotedUpdate << "\n"; }
-      currPhi.setIncomingValue(GetLatchTrackerIndex(), promotedUpdate);
-
-    // advance to next surrounding loop
-      currentLiveInDef = currPhi.getIncomingValue(GetPreHeaderTrackerIndex());
-      currentPartialDef = promotedUpdate;
-      currentLoop = currentLoop->getParentLoop();
-      lastDefIndex = currLatchIndex; // skip over to the eventual unique loop exit
-    }
-  }
-
-  // the last update to @tracker
-  Value &
-  getLastTrackerState(PHINode & tracker) {
-  // windup to outer most tracker PHI
-    auto * lastPhi = &tracker;
-    Value * nextPreHeaderInput = lastPhi;
-    while (isa<PHINode>(nextPreHeaderInput)) {
-      lastPhi = cast<PHINode>(nextPreHeaderInput);
-      nextPreHeaderInput = lastPhi->getIncomingValue(GetPreHeaderTrackerIndex());
-
-    }
-  // latch input (outer most update) of outer most tracker PHI
-    return *lastPhi->getIncomingValue(GetLatchTrackerIndex());
-  }
-
-  // get the last tracker state for this live out value (which must be a loop carried instruction)
-  Value & getTrackerStateForLiveOut(Instruction & liveOutInst) {
-    auto it = liveOutPhis.find(&liveOutInst);
-    assert(it != liveOutPhis.end() && "not a tracked value!");
-    auto &tracker = *it->second;
-    return getLastTrackerState(tracker);
-  }
-
-  BasicBlock & getExitingBlock(BasicBlock & exitBlock) {
-    for (auto * pred : predecessors(&exitBlock)) {
-      if (loop.contains(pred)) return *pred;
-    }
-    abort();
-  }
-
-  // adds all live out values on loop-exits to @exitBlock
-  // FIXME this currently assumes that all out-of-loop uses pass through LCSSA Phis. However, uses by all out-of-loop instructions are set to use the tracker value instead.
-  void
-  trackLiveOuts(BasicBlock & exitBlock) {
-    auto & exitingBlock = getExitingBlock(exitBlock);
-
-  // if this branch always finishes the loop off
-    if (vecInfo.isKillExit(exitBlock)) {
-      // this exit kills the loop so we do not need to track any values for it
-      lin.numKillExits++;
-      IF_DEBUG_LIN errs() << "kill exit " << exitBlock.getName() << " skipping..\n";
-      return;
-    }
-
-    assert(!loop.contains(&exitBlock));
-    auto itBegin = exitBlock.begin(), itEnd = exitBlock.end();
-    for (auto it = itBegin; isa<PHINode>(*it) && it != itEnd; ++it) {
-      auto & lcPhi = cast<PHINode>(*it);
-      if (lin.isRepairPhi(lcPhi)) continue; // not a PHI node of the original program
-      assert(lcPhi.getNumIncomingValues() == 1 && "neither a late repair PHI nor a LCSSA PHI");
-
-    // do not track non-live carried values
-      int loopIncomingId = getLoopBlockIndex(lcPhi);
-      assert(loopIncomingId >= 0 && "not an LCSSA node");
-      assert(&exitingBlock == lcPhi.getIncomingBlock(loopIncomingId));
-
-      auto * inInst = dyn_cast<Instruction>(lcPhi.getIncomingValue(loopIncomingId));
-      if (!inInst || !loop.contains(inInst->getParent())) continue; // live out value not loop carried
-
-    // fold the data flow through from exiting->exit through all crossing loops
-      auto & tracker = requestTracker(lcPhi, exitingBlock, *inInst);
-      // update the tracker with @inInst whenever the exit edge is taken
-      addTrackerUpdate(tracker, exitingBlock, exitBlock, *inInst);
-
-  // replace outside uses with tracker
-      // if this exit branch kills the loop
-      auto & liveOut = getTrackerStateForLiveOut(lcPhi);
-      lcPhi.setIncomingValue(loopIncomingId, &liveOut);
-    }
-  }
-};
 
 static
 BasicBlock &
@@ -683,144 +362,6 @@ GetExitingBlock(Loop & loop, BasicBlock & exitBlock) {
   abort();
 }
 
-Linearizer::RelayNode &
-Linearizer::convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay) {
-  // TODO rename convertToLatchExitLoop
-
-// look-aheader for the prehader (TODO this is a hack)
-  auto & relay = *getRelay(getIndex(*loop.getHeader()));
-  auto & preHeader = **pred_begin(relay.block);
-
-// replaces live-out values by explicit tracker PHIs and updates
-  LiveValueTracker liveOutTracker(*this, loop, preHeader);
-
-// query the live mask on the latch
-  auto & latch = *loop.getLoopLatch();
-  auto latchIndex = getIndex(latch);
-  assert(latchIndex >= 0);
-  auto & header = *loop.getHeader();
-  assert(getIndex(header) >= 0);
-
-// create a relay for the single exit block that this loop will have after the conversion
-  // while at it create tracker PHIS and updates to them for all live-out values
-  SmallVector<BasicBlock*, 3> loopExitBlocks;
-  loop.getExitBlocks(loopExitBlocks);
-
-  auto * loopExitRelay = exitRelay;
-  for (auto * exitBlock : loopExitBlocks) {
-    auto exitId = getIndex(*exitBlock);
-    // all exit blocks must be visited after the loop
-
-    loopExitRelay = &addTargetToRelay(loopExitRelay, exitId);
-    // track all values that live across this exit edge
-
-    auto & exitingBlock = GetExitingBlock(loop, *exitBlock);
-    auto * innerMostExitLoop = li.getLoopFor(&exitingBlock);
-
-    IF_DEBUG_LIN errs() << "\tProcessing loop exit from " << exitingBlock.getName() << " to " << exitBlock->getName() << " of loop with header " << innerMostExitLoop->getHeader()->getName() << "\n";
-    // only consider exits of the current loop level
-    liveOutTracker.trackLiveOuts(*exitBlock);
-  }
-
-// forward loop header reaching to loop exits
-  mergeInReaching(*loopExitRelay, relay);
-
-// move LCSSA nodes to exitBlockRelay
-  for (auto * block : loopExitBlocks) {
-
-    // skip over the exit we are keeping
-    if (block == loopExitRelay->block) {
-      continue; // already migrated LCSSA phi to loop exit relay
-    }
-
-    // check if we need to repair any LCSSA phi nodes
-    // FIXME we should really do this on the final dom tree AFTER the loop body was normalized
-    for (auto it = block->begin(); isa<PHINode>(it) && it != block->end(); ) {
-      auto * lcPhi = &cast<PHINode>(*it);
-      if (!lcPhi) break;
-      if (isRepairPhi(*lcPhi)) {
-        ++it; // skip this one
-        continue;
-      }
-
-      // for all exiting edges
-      for (uint i = 0; i < lcPhi->getNumIncomingValues(); ++i) {
-        assert (loop.contains(lcPhi->getIncomingBlock(i)) && "not an LCSSA Phi node");
-
-        auto * inst = dyn_cast<Instruction>(lcPhi->getIncomingValue(i));
-        if (!inst) {
-          continue; // no repair necessary as the incoming value is globally available in the function
-        }
-
-        BasicBlock * defBlock = inst->getParent();
-
-        // branch will start from the latch
-        lcPhi->setIncomingBlock(i, &latch);
-
-        // def dominates exit block and will continue to do so after loop transform
-        if (dt.dominates(defBlock, block)) {
-          continue;
-        }
-
-        // def does not dominate latch
-        // create a dominating def by inserting PHI nodes with incoming undefs
-        int defIndex = getIndex(*defBlock);
-        assert(getIndex(header) <= defIndex && defIndex <= latchIndex && "non-dominating def not in loop");
-
-        auto & dominatingDef = promoteDefinition(*inst, *UndefValue::get(inst->getType()), defIndex, latchIndex);
-
-        // replace incoming value with new dominating def
-        lcPhi->setIncomingValue(i, &dominatingDef);
-      }
-
-      // migrate this PHI node to the loopExitRelay
-      IF_DEBUG_LIN { errs() << "\t\tMigrating " << lcPhi->getName() << " from " << lcPhi->getParent()->getName() << " to " << loopExitRelay->block->getName() << "\n"; }
-
-    // we eliminate LCSSA Phis instead of fixing their predecessor blocks
-#if 1
-      it++; // skip over this one
-      lcPhi->replaceAllUsesWith(lcPhi->getIncomingValue(0));
-      lcPhi->eraseFromParent();
-#else
-      lcPhi->removeFromParent();
-      InsertAtFront(*loopExitRelay->block, *lcPhi);
-#endif
-    }
-  }
-
-// drop all loop exiting blocks
-  SmallVector<BasicBlock*, 3> loopExitingBlocks;
-  loop.getExitingBlocks(loopExitingBlocks);
-
-  for (auto * exitingBlock : loopExitingBlocks) {
-    // exits from inner loops will be handled by recursive invocations of processLoop
-    // if (li.getLoopFor(exitingBlock) != &loop) continue;
-
-    dropLoopExit(*exitingBlock, loop);
-  }
-
-// query exit mask (before dropping the latch which destroys the terminator)
-  // Value* liveCond = maskAnalysis.getExitMask(latch, header); // maskAnalysis is invalid!
-  Value* liveCond = latchMasks[&loop]; // FIXME currently using cached values
-
-// drop old latch
-  auto * latchTerm = latch.getTerminator();
-  assert(latchTerm);
-  assert(latchTerm->getNumSuccessors() == 1);
-  vecInfo.dropVectorShape(*latchTerm);
-  latchTerm->eraseFromParent();
-
-// create a new if-all-threads-have-left exit branch cond == rv_any(<loop live mask>)
-  auto * anyThreadLiveCond = &createReduction(*liveCond, "rv_any", latch);
-  IF_DEBUG_LIN { errs() << "- trip condition " << *anyThreadLiveCond << "\n"; }
-  BranchInst* branch = BranchInst::Create(&header, loopExitRelay->block, anyThreadLiveCond, &latch);
-
-// mark loop and its latch exit as non-divergent
-  vecInfo.setVectorShape(*branch, VectorShape::uni());
-  vecInfo.setLoopDivergence(loop, false);
-
-  return *loopExitRelay;
-}
 
 bool
 Linearizer::needsFolding(PHINode & phi) {
@@ -906,11 +447,10 @@ public:
   }
 };
 
-
 /// \brief create a super input value for this phi node
 Value *
 Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
-  auto * falseMask = ConstantInt::getFalse(phi.getContext());
+  Constant * falseMask = ConstantInt::getFalse(phi.getContext());
 
   auto & blocks = superInput.inBlocks;
 
@@ -921,7 +461,11 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
   if (blocks.size() <= 1) return defaultValue; // FIXME we still need a dominating definition
 
 // we will need blending: create a block for that to take place
-  if (!superInput.blendBlock) superInput.blendBlock = BasicBlock::Create(phi.getContext(), "super", phi.getParent()->getParent(), phi.getParent());
+  if (!superInput.blendBlock) {
+    auto & joinBlock = *phi.getParent();
+    auto superBlockName = joinBlock.getName() + ".s";
+    superInput.blendBlock = BasicBlock::Create(phi.getContext(), superBlockName, phi.getParent()->getParent(), phi.getParent());
+  }
 
   // make sure the default definition is dominating
   // FIXME also do this for the single predecessor case if inVal does not dominate it
@@ -929,7 +473,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
   if (isa<Instruction>(defaultValue)) {
     auto & defFuture = createRepairPhi(*defaultValue, *superInput.blendBlock);
     defFuture.addIncoming(defaultValue, blocks[0]);
-    defFuture.addIncoming(UndefValue::get(defaultValue->getType()), superInput.blendBlock);
+    defFuture.addIncoming(defaultValue->getType() == falseMask->getType() ? falseMask : UndefValue::get(defaultValue->getType()), superInput.blendBlock);
     blendedVal = &defFuture;
   }
 
@@ -959,7 +503,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     if (isa<Instruction>(inVal)) {
       auto & inValFuture = createRepairPhi(*inVal, *superInput.blendBlock);
       inValFuture.addIncoming(inVal, inBlock);
-      inValFuture.addIncoming(UndefValue::get(inVal->getType()), superInput.blendBlock);
+      inValFuture.addIncoming(inVal->getType() == falseMask->getType() ? falseMask : UndefValue::get(inVal->getType()), superInput.blendBlock);
       inVal = &inValFuture;
     }
 
@@ -968,7 +512,9 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     if (isa<UndefValue>(blendedVal)) { blendedVal = inVal; continue; }
 
     ++numBlends; // statistics
-    blendedVal = builder.CreateSelect(edgeMask, inVal, blendedVal);
+
+    std::string name = inVal->getName().str() + ".b";
+    blendedVal = builder.CreateSelect(edgeMask, inVal, blendedVal, name);
     vecInfo.setVectorShape(*blendedVal, phiShape);
   }
 
@@ -977,9 +523,6 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
 void
 Linearizer::foldPhis(BasicBlock & block) {
-// FIXME first shot implementation (highly optimizeable)
-
-
 // find first non repair PHI
   BasicBlock::iterator itPhi = block.begin();
   for (
@@ -1009,7 +552,6 @@ Linearizer::foldPhis(BasicBlock & block) {
   IF_DEBUG_LIN { errs() << "\t- folding PHIs in " << block.getName() << "\n"; }
 
 // identify all incoming values that stay immediate predecessors of this block
-
 
 
 
@@ -1072,6 +614,8 @@ Linearizer::foldPhis(BasicBlock & block) {
     IRBuilder<> builder(&block, block.getFirstInsertionPt());
 
 
+  // materialize blended inputs
+    auto phiShape = vecInfo.getVectorShape(*phi);
     auto & flatPhi = *PHINode::Create(phi->getType(), 6, phi->getName(), phi);
     SmallPtrSet<const BasicBlock*, 4>  seenPreds;
     for (auto * predBlock : predecessors(&block)) {
@@ -1089,15 +633,17 @@ Linearizer::foldPhis(BasicBlock & block) {
       flatPhi.addIncoming(superInVal, selectBlock);
     }
 
+  // simplify this input
     Value * replacement = nullptr;
     if (flatPhi.getNumIncomingValues() == 1) {
       replacement = flatPhi.getIncomingValue(0);
       flatPhi.eraseFromParent();
     } else {
-      vecInfo.setVectorShape(flatPhi, VectorShape::varying()); // TODO infer from operands
+      vecInfo.setVectorShape(flatPhi, phiShape); // TODO infer from operands
       replacement = &flatPhi;
     }
 
+  // remove the old phi node
     phi->replaceAllUsesWith(replacement);
     phi->eraseFromParent();
   }
@@ -1135,6 +681,10 @@ Linearizer::processLoop(int headId, Loop * loop) {
 
   // assert(headRelay && "could not find relay for loop header");
 
+#if 1
+  assert(!vecInfo.isDivergentLoop(loop) && "divLoopTrans should have normalized this loop by now");
+#else
+  // FIXME superseeded by divLoopTrans / maskExpander
   if (vecInfo.isDivergentLoop(loop)) {
     ++numDivergentLoops;
 
@@ -1146,14 +696,22 @@ Linearizer::processLoop(int headId, Loop * loop) {
     // convert loop into a non-divergent form
     convertToSingleExitLoop(*loop, exitRelay);
 
-  } else {
+  } else
+#endif
+
+  {
     ++numUniformLoops;
     if (headRelay) {
       // forward header reaching blocks to loop exits
       SmallVector<BasicBlock*, 4> exitBlocks;
       loop->getExitBlocks(exitBlocks);
       for (auto * exitBlock : exitBlocks) {
-        mergeInReaching(getRelayUnchecked(getIndex(*exitBlock)), *headRelay);
+        IF_DEBUG_LIN { errs() << "- merging head reaching&chain into exit " << exitBlock->getName();  dumpRelayChain(headRelay->id); errs() << "\n"; }
+        int exitId = getIndex(*exitBlock);
+        auto & exitRelay = createRelay(exitId, headRelay->next);
+        mergeInReaching(exitRelay, *headRelay);
+        // if (headRelay->next) addTargetToRelay(&exitRelay, headRelay->next->id); // FIXME
+        IF_DEBUG_LIN { errs() << "\tafter merge: " << exitBlock->getName();  dumpRelayChain(getIndex(*exitBlock)); errs() << "\n"; }
       }
     }
   }
@@ -1238,6 +796,7 @@ Linearizer::emitBlock(int targetId) {
 
 // domtree update: least common dominator of all incoming branches
   IF_DEBUG_DTFIX { errs() << "DT before dom change:";dt.print(errs()); }
+  assert(nextCommonDom);
   targetDom->setIDom(nextCommonDom);
   IF_DEBUG_DTFIX { errs() << "DT after dom change:";dt.print(errs()); }
 
@@ -1532,8 +1091,8 @@ Linearizer::run() {
            errs() << "div-loop header: " << block.getName();
 
            auto & latch = *loop->getLoopLatch();
-           auto * latchMask = maskAnalysis.getExitMask(latch, block);
-           errs() << "\t latch mask " << *latchMask << "\n";
+           auto & latchMask = *maskEx.getEdgeMask(latch, block);
+           errs() << "\t latch mask " << latchMask << "\n";
 
         }
       }
@@ -1557,6 +1116,9 @@ Linearizer::run() {
 // repair SSA (def/use chains that were broken by chain merging)
   fixSSA();
 
+// simplify trivial blends
+  numSimplifiedBlends += simplifyBlends();
+
 // verify control integrity
   IF_DEBUG_LIN verify();
 
@@ -1568,7 +1130,8 @@ Linearizer::run() {
     Report() << "\t"
              << numFoldedBranches << " folded branches,\n\t"
              << numPreservedBranches << " preserved branches,\n\t"
-             << numBlends << " blends.\n";
+             << numBlends << " folded phis,\n\t"
+             << numSimplifiedBlends << " blends simplified.\n";
   }
   if (numDivertedHeads > 0) {
     Report() << "\t" << numDivertedHeads << " diverted relays.\n";
@@ -1594,7 +1157,7 @@ Linearizer::linearizeControl() {
 
 PHINode &
 Linearizer::createRepairPhi(Value & val, IRBuilder<> & builder) {
-  PHINode * repairPhi = builder.CreatePHI(val.getType(), 2, "repairPhi_" + val.getName());
+  PHINode * repairPhi = builder.CreatePHI(val.getType(), 2, val.getName() + ".R");
 
   VectorShape resShape = VectorShape::uni();
   if (vecInfo.hasKnownShape(val)) {
@@ -1673,21 +1236,22 @@ Linearizer::cacheMasks(){
 
   // cache loop related masks
     if (loop && loop->getHeader() == &block) {
-      if (!vecInfo.isDivergentLoop(loop)) continue;
+      if (vecInfo.isDivergentLoop(loop)) {
 
-    // cache latch masks
-      auto & latch = *loop->getLoopLatch();
-      latchMasks[loop] = maskAnalysis.getExitMask(latch, block);
+      // cache latch masks
+        auto & latch = *loop->getLoopLatch();
+        latchMasks[loop] = maskEx.getEdgeMask(latch, block);
 
-      SmallVector<BasicBlock*, 6> exitBlocks;
-      loop->getExitBlocks(exitBlocks);
+        SmallVector<BasicBlock*, 6> exitBlocks;
+        loop->getExitBlocks(exitBlocks);
 
-    // cache loop exit masks
-      for (auto * exitBlock : exitBlocks) {
-        auto & exiting = GetExitingBlock(*loop, *exitBlock);
+      // cache loop exit masks
+        for (auto * exitBlock : exitBlocks) {
+          auto & exiting = GetExitingBlock(*loop, *exitBlock);
 
-        auto * actualLoopExitMask = maskAnalysis.getActualLoopExitMask(exiting);
-        setLoopExitMask(exiting, *exitBlock, actualLoopExitMask);
+          auto * actualLoopExitMask = maskEx.getBlockMask(*exitBlock); // maskAnalysis.getActualLoopExitMask(exiting);
+          setLoopExitMask(exiting, *exitBlock, actualLoopExitMask);
+        }
       }
     }
 
@@ -1695,7 +1259,7 @@ Linearizer::cacheMasks(){
    auto & term = *block.getTerminator();
    for (size_t i = 0; i < term.getNumSuccessors(); ++i) {
      auto * succBlock = term.getSuccessor(i);
-     auto * edgeMask = maskAnalysis.getExitMask(block, *succBlock);
+     auto * edgeMask = maskEx.getEdgeMask(term, i); // .getExitMask(block, *succBlock);
      if (edgeMask) setEdgeMask(block, *succBlock, edgeMask);
    }
   }
@@ -1765,15 +1329,18 @@ Linearizer::fixSSA() {
           auto * inInst = dyn_cast<Instruction>(inVal);
           if (!inInst) continue;
 
-          auto & defBlock = *inInst->getParent();
+          auto inShape = vecInfo.getVectorShape(*inInst);
 
+          auto & defBlock = *inInst->getParent();
           if (dt.dominates(&defBlock, inBlock)) continue;
 
-          assert(hasIndex(defBlock));
-
-          int defIndex = getLeastIndex(defBlock);
-
-          auto & fixedDef = promoteDefinition(*inInst, *UndefValue::get(inInst->getType()), defIndex, *inBlock);
+          // ssa repair
+          SmallVector<PHINode*, 8> phiVec;
+          SSAUpdater ssaUpdater(&phiVec);
+          ssaUpdater.Initialize(inInst->getType(), "_prom");
+          ssaUpdater.AddAvailableValue(&defBlock, inInst);
+          auto & fixedDef = *ssaUpdater.GetValueAtEndOfBlock(inBlock);
+          for (auto * phi : phiVec) vecInfo.setVectorShape(*phi, inShape);
 
           phi->setIncomingValue(inIdx, &fixedDef);
 
@@ -1791,16 +1358,23 @@ Linearizer::fixSSA() {
       // check if this chain was broken
         if (dt.dominates(&defParent, &block)) continue;
 
-        int defBlockIdx = getLeastIndex(defParent);
-
       // do we have a cached definition available?
         Value * fixedDef = nullptr;
         auto itCachedDef = promotionCache.find(opInst);
         if (itCachedDef != promotionCache.end()) {
           fixedDef = itCachedDef->second;
         } else {
+          auto opShape = vecInfo.getVectorShape(*opInst);
+
+          // ssa repair
+          SmallVector<PHINode*, 8> phiVec;
+          SSAUpdater ssaUpdater(&phiVec);
+          ssaUpdater.Initialize(opInst->getType(), "_prom");
+          ssaUpdater.AddAvailableValue(opInst->getParent(), opInst);
+          auto & promotedDef = *ssaUpdater.GetValueAtEndOfBlock(&block);
+          for (auto * phi : phiVec) vecInfo.setVectorShape(*phi, opShape);
+
           // if not, promote the definition down to this use
-          auto & promotedDef = promoteDefinition(*opInst, *UndefValue::get(opInst->getType()), defBlockIdx, block);
           promotionCache[opInst] = &promotedDef;
           fixedDef = &promotedDef;
         }
@@ -1827,5 +1401,102 @@ Linearizer::fixSSA() {
   }
 }
 
+// select simplifcation logic
+using ValVec = SmallVector<Value*, 4>;
+
+static bool
+IsConstBool(Value & V, bool isTrue) {
+  if (!isa<ConstantInt>(V)) return false;
+  auto & constInt = cast<ConstantInt>(V);
+  return isTrue ? constInt.getSExtValue() != 0 : constInt.getSExtValue() == 0;
+}
+
+static Value*
+SimplifyBoolSelect(IRBuilder<> & builder, Value & cond, Value & trueVal, Value & falseVal, StringRef selName, ValVec & replacements) {
+#if 1
+#warning "DEBUG HACK: bool select folding disabled!"
+  return nullptr;
+#endif
+
+  if (&cond == &trueVal || IsConstBool(trueVal, true)) {
+    // "C ? C : B"  or  "C ? True : B"  ->  C || B
+    return builder.CreateOr(&cond, &falseVal, selName);
+  }
+
+  if (IsConstBool(falseVal, true)) {
+    // "C ? A : True" ->  !C || A
+    auto * notCond = builder.CreateNot(&cond, cond.getName().str() + ".not");
+    replacements.push_back(notCond);
+    return builder.CreateOr(notCond, &trueVal, selName);
+  }
+
+  if (&cond == &falseVal || IsConstBool(falseVal, false)) {
+    //  "C ? A : C"  or  "C ? A : false" --> C && A
+    return builder.CreateAnd(&cond, &trueVal, selName);
+  }
+
+  if (IsConstBool(trueVal, false)) {
+    // "C ? false : B" --> !C && B
+    auto * notCond = builder.CreateNot(&cond, cond.getName().str() + ".not");
+    replacements.push_back(notCond);
+    return builder.CreateAnd(notCond, &falseVal, selName);
+  }
+
+  // keep
+  return nullptr;
+}
+
+static Value*
+SimplifySelect(SelectInst & select, ValVec & replacements) {
+  auto & cond = *select.getCondition();
+  auto & trueVal = *select.getTrueValue();
+  auto & falseVal = *select.getFalseValue();
+
+  // generic rules
+  if (&trueVal == &falseVal) {
+    return &trueVal;
+  }
+
+  // boolean simplification rules
+  if (cond.getType() == trueVal.getType()) {
+    IRBuilder<> builder(select.getParent(), select.getIterator());
+    return SimplifyBoolSelect(builder, cond, trueVal, falseVal, select.getName(), replacements);
+  }
+
+  // keep
+  return nullptr;
+}
+
+size_t
+Linearizer::simplifyBlends() {
+  size_t numSimplified = 0;
+  for (auto & block : func) {
+    if (!inRegion(block)) continue;
+    for (auto it = block.begin(); it != block.end();) {
+      ValVec replacements;
+      auto * select = dyn_cast<SelectInst>(it++);
+      if (!select) continue;
+
+      auto * simplified = SimplifySelect(*select, replacements);
+
+      if (simplified) {
+        IF_DEBUG_LIN { errs() << "Replacing " << *select << " with " << *simplified << "\n"; }
+        numSimplified++;
+
+        auto selectShape = vecInfo.getVectorShape(*select);
+        replacements.push_back(simplified);
+        for (auto * val : replacements) {
+          if (isa<Instruction>(val)) vecInfo.setVectorShape(*val, selectShape);
+        }
+
+        select->replaceAllUsesWith(simplified);
+        select->eraseFromParent();
+        continue;
+      }
+    }
+  }
+
+  return numSimplified;
+}
 
 } // namespace rv

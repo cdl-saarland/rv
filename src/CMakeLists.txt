@@ -14,37 +14,37 @@ if (RV_DEBUG)
 endif()
 
 add_rv_library(RV
-  analysis/MandatoryAnalysis.cpp
-  analysis/BranchDependenceAnalysis.cpp
-  analysis/maskAnalysis.cpp
-  analysis/reductionAnalysis.cpp
-  analysis/DFG.cpp
+  PlatformInfo.cpp
+  VectorizationInfoProxyPass.cpp
   analysis/ABAAnalysis.cpp
+  analysis/BranchDependenceAnalysis.cpp
+  analysis/DFG.cpp
+  analysis/MandatoryAnalysis.cpp
   analysis/VectorizationAnalysis.cpp
-  native/ShuffleBuilder.cpp
-  native/Utils.cpp
+  analysis/reductionAnalysis.cpp
+  init.cpp
   native/MemoryAccessGrouper.cpp
   native/NatBuilder.cpp
+  native/ShuffleBuilder.cpp
+  native/Utils.cpp
+  region/LoopRegion.cpp
+  region/Region.cpp
+  registerPasses.cpp
+  report.cpp
+  rv.cpp
   rvConfig.cpp
-  transform/loopExitCanonicalizer.cpp
-  transform/maskGenerator.cpp
-  transform/LoopVectorizer.cpp
+  sleefLibrary.cpp
   transform/Linearizer.cpp
-  transform/remTransform.cpp
+  transform/LoopVectorizer.cpp
+  transform/divLoopTrans.cpp
   transform/irPolisher.cpp
+  transform/loopExitCanonicalizer.cpp
+  transform/maskExpander.cpp
+  transform/remTransform.cpp
   transform/srovTransform.cpp
   transform/structOpt.cpp
   utils/maskGraphUtils.cpp
   utils/rvTools.cpp
-  VectorizationInfoProxyPass.cpp
-  region/LoopRegion.cpp
-  region/Region.cpp
-  PlatformInfo.cpp
-  init.cpp
-  report.cpp
-  rv.cpp
-  registerPasses.cpp
-  sleefLibrary.cpp
   vectorMapping.cpp
   vectorShape.cpp
   vectorizationInfo.cpp
