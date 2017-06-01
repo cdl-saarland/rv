@@ -85,7 +85,7 @@ namespace rv {
   };
 #endif
 
-  static Module const *sleefModules[3 * 2];
+  static std::unique_ptr<const Module> sleefModules[3 * 2];
 
   bool addSleefMappings(const bool useSSE,
                         const bool useAVX,
@@ -432,7 +432,7 @@ namespace rv {
     else return nullptr;
 
     auto modIndex = sleefModuleIndex(isa, doublePrecision);
-    auto& mod = sleefModules[modIndex];
+    auto mod = sleefModules[modIndex].get();
     if (!mod) mod = createModuleFromBuffer(reinterpret_cast<const char*>(sleefModuleBuffers[modIndex]), sleefModuleBufferLens[modIndex], context);
     Function *vecFunc = mod->getFunction(sleefName);
     assert(vecFunc);
