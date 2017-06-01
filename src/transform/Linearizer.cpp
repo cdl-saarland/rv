@@ -639,16 +639,12 @@ public:
     auto & exitingBlock = getExitingBlock(exitBlock);
 
   // if this branch always finishes the loop off
-#if 1
-    // bool finalExit = false;
-    if (!vecInfo.isMandatory(&exitBlock)) {
-      // finalExit = true;
+    if (vecInfo.isKillExit(exitBlock)) {
       // this exit kills the loop so we do not need to track any values for it
       lin.numKillExits++;
       IF_DEBUG_LIN errs() << "kill exit " << exitBlock.getName() << " skipping..\n";
       return;
     }
-#endif
 
     assert(!loop.contains(&exitBlock));
     auto itBegin = exitBlock.begin(), itEnd = exitBlock.end();
