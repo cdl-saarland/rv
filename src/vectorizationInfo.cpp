@@ -286,6 +286,11 @@ VectorizationInfo::isMandatory(const BasicBlock* BB) const
     return (bool) MandatoryBlocks.count(BB);
 }
 
+bool
+VectorizationInfo::isKillExit(const BasicBlock& BB) const {
+    return !isMandatory(&BB); // TODO figure this out directly in the VA and get rid of mandatory/optional
+}
+
 void
 VectorizationInfo::markMetadataMask(const Instruction* inst)
 {

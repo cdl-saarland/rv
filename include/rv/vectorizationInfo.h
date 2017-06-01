@@ -103,6 +103,9 @@ public:
     bool isMandatory(const BasicBlock* block) const;
     bool isMetadataMask(const Instruction* inst) const;
 
+    // whether this exit block terminates the loop
+    bool isKillExit(const BasicBlock & block) const;
+
     void markAlwaysByAll(const BasicBlock* block);
     void markAlwaysByAllOrNone(const BasicBlock* block);
     void markNotAlwaysByAll(const BasicBlock* block);
