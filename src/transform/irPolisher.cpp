@@ -193,8 +193,8 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     auto newCond = getConditionFromMask(builder, condMask);
 
     newInst = builder.CreateSelect(newCond,
-      isBooleanVector(s1->getType()) ? getMaskForValue(builder, s1, bitWidth) : s1,
-      isBooleanVector(s2->getType()) ? getMaskForValue(builder, s2, bitWidth) : s2);
+      isBooleanVector(s1->getType()) ? getMaskForValueOrInst(builder, s1, bitWidth) : s1,
+      isBooleanVector(s2->getType()) ? getMaskForValueOrInst(builder, s2, bitWidth) : s2);
   } else if (auto castInst = dyn_cast<CastInst>(inst)) {
     auto destTy = castInst->getDestTy();
     auto newOp = getMaskForValueOrInst(builder, inst->getOperand(0), bitWidth);
@@ -308,6 +308,14 @@ void IRPolisher::polish() {
   // Remove original versions of transformed instructions
   for (auto& extInst : visitedInsts) {
     auto inst = extInst.first.inst;
+#ifndef NDEBUG
+    // Check that all the users of this instruction have been processed before removing it
+    for (auto user : inst->users()) {
+      if (auto userInst = dyn_cast<Instruction>(user)) {
+        assert(visitedInsts.find(ExtInst(userInst, extInst.first.bitWidth)) != visitedInsts.end());
+      }
+    }
+#endif
     inst->replaceAllUsesWith(UndefValue::get(inst->getType()));
     inst->eraseFromParent();
   }
