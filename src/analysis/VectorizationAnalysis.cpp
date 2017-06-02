@@ -409,36 +409,45 @@ VectorShape VectorizationAnalysis::computePHIShape(const PHINode & phi) {
 
 void VectorizationAnalysis::compute(Function& F) {
   IF_DEBUG_VA { errs() << "\n\n-- VA::compute() log -- \n"; }
-  /* Worklist algorithm to compute the least fixed-point */
+
+
+  // Main fixed point loop
   while (!mWorklist.empty()) {
     const Instruction* I = mWorklist.front();
     mWorklist.pop();
 
     IF_DEBUG_VA { errs() << "# next: " << *I << "\n"; }
 
+    // compute the output shape
     VectorShape New;
-    // allow incomplete inputs for PHI nodes
     if (isa<PHINode>(I)) {
+      // allow incomplete inputs for PHI nodes
       New = computePHIShape(cast<PHINode>(*I));
     } else if (pushMissingOperands(I)) {
+      // If any operand is bottom put them in the work list.
       continue;
     } else {
+      // Otw, we can compute the instruction shape
       New = computeShapeForInst(I);
     }
 
+    // if no output shape could be computed, skip.
+    if (!New.isDefined()) continue;
+
+    // shape is non-bottom. Apply general refinement rules.
     if (I->getType()->isPointerTy()) {
       // adjust result type to match alignment
       uint minAlignment = getBaseAlignment(*I, layout);
       New.setAlignment(std::max<uint>(minAlignment, New.getAlignmentFirst()));
     } else if (I->getType()->isFloatingPointTy()) {
-      // Only allow strided results for floating point instructions if
-      // according fast math flags are set
+      // allow strided/aligned fp values only in fast math mode
       FastMathFlags flags = I->getFastMathFlags();
       if (!flags.unsafeAlgebra() && !New.isUniform()) {
         New = VectorShape::varying();
       }
     }
 
+    // if shape changed put users on worklist
     update(I, New);
   }
 }
