@@ -3,6 +3,7 @@
 
 #include <unordered_map>
 #include <functional>
+#include <queue>
 
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Function.h"
@@ -42,10 +43,13 @@ class IRPolisher {
     };
   };
 
-  std::unordered_map<ExtInst, llvm::Value*, ExtInst::Hash, ExtInst::Cmp> masks;
+  std::unordered_map<ExtInst, llvm::Value*, ExtInst::Hash, ExtInst::Cmp> visitedInsts;
+  std::queue<ExtInst> queue;
+
+  void enqueueInst(llvm::Instruction*, unsigned);
 
   bool isBooleanVector(const llvm::Type*);
-  bool canReplaceInst(const llvm::Instruction*, unsigned&);
+  bool canReplaceInst(llvm::Instruction*, unsigned&);
 
   llvm::Value *replaceCmpInst(llvm::IRBuilder<>&, llvm::CmpInst*, llvm::Value*, llvm::Value*);
 

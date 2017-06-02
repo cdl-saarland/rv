@@ -17,6 +17,8 @@
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
+#include "llvm/Analysis/ValueTracking.h"
+
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IRBuilder.h"
@@ -27,30 +29,48 @@
 
 #include "rvConfig.h"
 
-#include <unordered_set>
-#include <queue>
-
 using namespace llvm;
 
 namespace rv {
+
+void IRPolisher::enqueueInst(llvm::Instruction* inst, unsigned bitWidth) {
+  ExtInst extInst(inst, bitWidth);
+  if (visitedInsts.find(extInst) == visitedInsts.end())
+    queue.emplace(extInst);
+}
 
 bool IRPolisher::isBooleanVector(const Type *type) {
   auto vectorType = dyn_cast<VectorType>(type);
   return vectorType && vectorType->getElementType() == Type::getInt1Ty(vectorType->getContext());
 }
 
-bool IRPolisher::canReplaceInst(const llvm::Instruction *inst, unsigned& bitWidth) {
+bool IRPolisher::canReplaceInst(llvm::Instruction *inst, unsigned& bitWidth) {
   auto instTy = inst->getType();
   if (!instTy->isVectorTy()) return false;
   if (!isa<CmpInst>(inst)) return false;
 
+  // Only support for SSE/AVX with 32 or 64-bit floats
   auto vecLen = instTy->getVectorNumElements();
   if (vecLen != 2 && vecLen != 4 && vecLen != 8) return false;
 
   // Bitwidth the second operand (2nd compared value or one of the select branches)
   bitWidth = inst->getOperand(1)->getType()->getScalarSizeInBits();
-  return vecLen * bitWidth == 128 ||
-         vecLen * bitWidth == 256;
+  if (vecLen * bitWidth != 128 &&
+      vecLen * bitWidth != 256)
+    return false;
+
+  // Try to not to modify min/max patterns
+  for (auto user : inst->users()) {
+    if (auto selectInst = dyn_cast<SelectInst>(user)) {
+      Value *left, *right;
+      Instruction::CastOps castOp;
+      auto selectPattern = matchSelectPattern(selectInst, left, right, &castOp);
+      if (SelectPatternResult::isMinOrMax(selectPattern.Flavor))
+        return false;
+    }
+  }
+
+  return true;
 }
 
 Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, llvm::Value* left, llvm::Value* right) {
@@ -72,27 +92,29 @@ Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, 
     }
 
     int cmpOp = -1;
+    bool invert = false;
     switch (cmpInst->getPredicate()) {
       case CmpInst::FCMP_OEQ: cmpOp =  0; break;
-      case CmpInst::FCMP_OGT: cmpOp = 30; break;
-      case CmpInst::FCMP_OGE: cmpOp = 29; break;
-      case CmpInst::FCMP_OLT: cmpOp = 17; break;
-      case CmpInst::FCMP_OLE: cmpOp = 18; break;
-      case CmpInst::FCMP_ONE: cmpOp = 12; break;
+      case CmpInst::FCMP_OGT: cmpOp =  1; invert = true; break;
+      case CmpInst::FCMP_OGE: cmpOp =  2; invert = true; break;
+      case CmpInst::FCMP_OLT: cmpOp =  1; break;
+      case CmpInst::FCMP_OLE: cmpOp =  2; break;
+      case CmpInst::FCMP_ONE: cmpOp =  4; break;
       case CmpInst::FCMP_ORD: cmpOp =  7; break;
       case CmpInst::FCMP_UNO: cmpOp =  3; break;
-      case CmpInst::FCMP_UEQ: cmpOp =  8; break;
+
+      case CmpInst::FCMP_UEQ: cmpOp = 24; break;
       case CmpInst::FCMP_UGT: cmpOp = 22; break;
       case CmpInst::FCMP_UGE: cmpOp = 21; break;
       case CmpInst::FCMP_ULT: cmpOp = 25; break;
       case CmpInst::FCMP_ULE: cmpOp = 26; break;
-      case CmpInst::FCMP_UNE: cmpOp =  4; break;
+      case CmpInst::FCMP_UNE: cmpOp = 20; break;
       default: assert(false);
     }
 
     if (id != Intrinsic::not_intrinsic && cmpOp >= 0) {
       auto func = Intrinsic::getDeclaration(cmpInst->getModule(), id);
-      auto cmpCall = builder.CreateCall(func, { left, right, builder.getInt8(cmpOp) });
+      auto cmpCall = builder.CreateCall(func, { invert ? right : left, invert ? left : right, builder.getInt8(cmpOp) });
       auto vecTy = VectorType::get(builder.getIntNTy(scalarTy->getPrimitiveSizeInBits()), vecLen);
       return builder.CreateBitCast(cmpCall, vecTy);
     }
@@ -105,9 +127,9 @@ Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, 
 
 Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
   assert(bitWidth != 1);
-  auto maskIt = masks.find(ExtInst(inst, bitWidth));
-  if (maskIt != masks.end())
-      return maskIt->second;
+  auto instIt = visitedInsts.find(ExtInst(inst, bitWidth));
+  if (instIt != visitedInsts.end())
+      return instIt->second;
 
   // Insert instructions after the current one
   IRBuilder<> builder(inst);
@@ -197,7 +219,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     // We need to insert the phi node in the map here,
     // as calls to getMaskForValueOrInst may diverge otherwise
     // Redundant values will just be overwritten (it's a map)
-    masks.emplace(ExtInst(inst, bitWidth), newPhi);
+    visitedInsts.emplace(ExtInst(inst, bitWidth), newPhi);
     for (size_t i = 0; i < phiNode->getNumIncomingValues(); i++) {
       newPhi->addIncoming(getMaskForValueOrInst(builder, phiNode->getIncomingValue(i), bitWidth),
                           phiNode->getIncomingBlock(i));
@@ -216,7 +238,19 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
   }
 
   assert(newInst);
-  masks.emplace(ExtInst(inst, bitWidth), newInst);
+  visitedInsts.emplace(ExtInst(inst, bitWidth), newInst);
+
+  // Process the users of the instruction
+  if (isBooleanVector(inst->getType())) {
+    for (auto user : inst->users()) {
+      if (auto userInst = dyn_cast<Instruction>(user)) {
+        enqueueInst(userInst, bitWidth);
+      }
+    }
+  } else {
+    inst->replaceAllUsesWith(newInst);
+  }
+
   return newInst;
 }
 
@@ -250,50 +284,36 @@ llvm::Value *IRPolisher::getConditionFromMask(IRBuilder<> &builder, llvm::Value*
 
 void IRPolisher::polish() {
   IF_DEBUG { errs() << "Starting polishing phase\n"; }
-  std::unordered_set<ExtInst, ExtInst::Hash, ExtInst::Cmp> visited;
-  std::queue<ExtInst> queue;
+
+  visitedInsts.clear();
+  queue = std::move(std::queue<ExtInst>());
 
   // Fill the queue with uses of the result of vector (f)cmps
   for (auto it = inst_begin(F), end = inst_end(F); it != end; ++it) {
     unsigned bitWidth;
     if (canReplaceInst(&*it, bitWidth))
-      queue.emplace(&*it, bitWidth);
+      enqueueInst(&*it, bitWidth);
   }
 
   while (!queue.empty()) {
     auto extInst = queue.front();
     queue.pop();
 
-    // Prevent divergence
-    if (visited.count(extInst)) continue;
-    visited.emplace(extInst);
-
     // Extend the instruction to work on vector of integers instead of vectors of i1s
     auto inst = extInst.inst;
     auto bitWidth = extInst.bitWidth;
-    auto newInst = getMaskForInst(inst, bitWidth);
-
-    // Process the users of the instruction
-    if (isBooleanVector(inst->getType())) {
-      for (auto user : inst->users()) {
-        if (auto userInst = dyn_cast<Instruction>(user)) {
-          queue.emplace(userInst, bitWidth);
-        }
-      }
-    } else {
-      inst->replaceAllUsesWith(newInst);
-    }
+    getMaskForInst(inst, bitWidth);
   }
 
   // Remove original versions of transformed instructions
-  for (auto& mask : masks) {
-    auto inst = mask.first.inst;
+  for (auto& extInst : visitedInsts) {
+    auto inst = extInst.first.inst;
     inst->replaceAllUsesWith(UndefValue::get(inst->getType()));
     inst->eraseFromParent();
   }
 
-  if (masks.size() > 0) {
-    Report() << "IRPolish: polished " << masks.size() << " instruction(s)\n";
+  if (visitedInsts.size() > 0) {
+    Report() << "IRPolish: polished " << visitedInsts.size() << " instruction(s)\n";
   }
 }
 
