@@ -1130,6 +1130,8 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
       auto * ptrElemTy = scalarPtrTy->getPointerElementType();
       int scalarBytes = static_cast<int>(layout.getTypeStoreSize(ptrElemTy));
 
+      // vecValue is a single pointer and has to be broadcasted to a vector of pointers first
+      vecValue = builder.CreateVectorSplat(vectorWidth(), vecValue);
       Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, shape.getStride() / scalarBytes);
       vecValue = builder.CreateGEP(vecValue, contVec, "widen_ptr");
 
