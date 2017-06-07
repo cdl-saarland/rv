@@ -235,6 +235,8 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
       newArgs.emplace_back(newArg);
     }
     newInst = builder.CreateCall(callInst->getCalledFunction(), newArgs);
+    if (isBooleanVector(newInst->getType()))
+      newInst = getMaskForValue(builder, newInst, bitWidth);
   }
 
   assert(newInst);
