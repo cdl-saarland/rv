@@ -314,15 +314,15 @@ namespace rv {
         {"llvm.log10.f32", "xlog10f_sse", 4},
         {"llvm.fabs.f32", "xfabsf_sse", 4},
         {"llvm.copysign.f32", "xcopysignf_sse", 4},
-        {"llvm.fmin.f32", "xfminf_sse", 4},
-        {"llvm.fmax.f32", "xfmaxf_sse", 4},
+        {"llvm.minnum.f32", "xfminf_sse", 4},
+        {"llvm.maxnum.f32", "xfmaxf_sse", 4},
         {"llvm.sqrt.f64", "xsqrt_sse", 2},
         {"llvm.exp2.f64", "xexp2_sse", 2},
         {"llvm.log10.f64", "xlog10_sse", 2},
         {"llvm.fabs.f64", "xfabs_sse", 2},
         {"llvm.copysign.f64", "xcopysign_sse", 2},
-        {"llvm.fmin.f64", "xfmin_sse", 2},
-        {"llvm.fmax.f64", "xfmax_sse", 2},
+        {"llvm.minnum.f64", "xfmin_sse", 2},
+        {"llvm.maxnum.f64", "xfmax_sse", 2},
       };
       platformInfo.addVectorizableFunctions(VecFuncs);
 
