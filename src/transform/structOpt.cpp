@@ -122,7 +122,8 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
     } else if (phi) {
       IF_DEBUG_SO { errs() << "\t- transform phi " << *phi << "\n"; }
       postProcessPhis.insert(phi);
-      auto * vecPhiTy = cast<PHINode>(transformMap[phi])->getIncomingValue(0)->getType();
+      auto * orgPhiTy = phi->getIncomingValue(0)->getType();
+      auto * vecPhiTy = PointerType::get(vectorizeType(*orgPhiTy->getPointerElementType()), orgPhiTy->getPointerAddressSpace());
       auto * vecPhi = PHINode::Create(vecPhiTy, phi->getNumIncomingValues(), phi->getName(), phi);
       IF_DEBUG_SO { errs() << "\t\t result: " << *vecPhi << "\n"; }
 
