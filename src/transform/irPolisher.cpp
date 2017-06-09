@@ -73,12 +73,44 @@ bool IRPolisher::canReplaceInst(llvm::Instruction *inst, unsigned& bitWidth) {
   return true;
 }
 
-Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, llvm::Value* left, llvm::Value* right) {
-  auto cmpTy = cmpInst->getType();
-  assert(isBooleanVector(cmpTy));
+Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, unsigned bitWidth) {
+  auto left  = cmpInst->getOperand(0);
+  auto right = cmpInst->getOperand(1);
 
-  auto vecLen = cmpTy->getVectorNumElements();
-  auto scalarTy = left->getType()->getScalarType();
+  // Optimizations:
+  // cmp eq <n x i1> %x, false => not %x
+  // cmp ne <n x i1> %x, true  => not %x
+  // cmp eq <n x i1> %x, true  => %x
+  // cmp ne <n x i1> %x, false => %x
+  auto boolCmp = isBooleanVector(left->getType());
+  auto pred = cmpInst->getPredicate();
+  if (boolCmp && (pred == CmpInst::ICMP_EQ || pred == CmpInst::ICMP_NE)) {
+    if (auto leftCst = dyn_cast<Constant>(left)) {
+      if ((leftCst->isAllOnesValue() && pred == CmpInst::ICMP_EQ) ||
+          (leftCst->isZeroValue()    && pred == CmpInst::ICMP_NE)) {
+        return getMaskForValueOrInst(builder, right, bitWidth);
+      } else if ((leftCst->isAllOnesValue() && pred == CmpInst::ICMP_NE) ||
+                 (leftCst->isZeroValue()    && pred == CmpInst::ICMP_EQ)) {
+        return builder.CreateNot(getMaskForValueOrInst(builder, right, bitWidth));
+      }
+    } else if (auto rightCst = dyn_cast<Constant>(right)) {
+      if ((rightCst->isAllOnesValue() && pred == CmpInst::ICMP_EQ) ||
+          (rightCst->isZeroValue()    && pred == CmpInst::ICMP_NE)) {
+        return getMaskForValueOrInst(builder, left, bitWidth);
+      } else if ((rightCst->isAllOnesValue() && pred == CmpInst::ICMP_EQ) ||
+                 (rightCst->isZeroValue()    && pred == CmpInst::ICMP_NE)) {
+        return builder.CreateNot(getMaskForValueOrInst(builder, left, bitWidth));
+      }
+    }
+  }
+
+  auto newLeft  = boolCmp ? getMaskForValueOrInst(builder, left,  bitWidth) : left;
+  auto newRight = boolCmp ? getMaskForValueOrInst(builder, right, bitWidth) : right;
+
+  auto newLeftTy = newLeft->getType();
+  auto vecLen    = newLeftTy->getVectorNumElements();
+  auto scalarTy  = newLeftTy->getScalarType();
+  assert(vecLen > 0);
 
   // Transform a floating point comparison to a cmpps instruction
   if (cmpInst->isFPPredicate() && (vecLen == 2 || vecLen == 4 || vecLen == 8)) {
@@ -93,7 +125,7 @@ Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, 
 
     int cmpOp = -1;
     bool invert = false;
-    switch (cmpInst->getPredicate()) {
+    switch (pred) {
       case CmpInst::FCMP_OEQ: cmpOp =  0; break;
       case CmpInst::FCMP_OGT: cmpOp =  1; invert = true; break;
       case CmpInst::FCMP_OGE: cmpOp =  2; invert = true; break;
@@ -114,15 +146,90 @@ Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, 
 
     if (id != Intrinsic::not_intrinsic && cmpOp >= 0) {
       auto func = Intrinsic::getDeclaration(cmpInst->getModule(), id);
-      auto cmpCall = builder.CreateCall(func, { invert ? right : left, invert ? left : right, builder.getInt8(cmpOp) });
+      auto cmpCall = builder.CreateCall(func, { invert ? newRight : newLeft, invert ? newLeft : newRight, builder.getInt8(cmpOp) });
       auto vecTy = VectorType::get(builder.getIntNTy(scalarTy->getPrimitiveSizeInBits()), vecLen);
       return builder.CreateBitCast(cmpCall, vecTy);
     }
   }
 
   return cmpInst->isFPPredicate()
-    ? builder.CreateFCmp(cmpInst->getPredicate(), left, right)
-    : builder.CreateICmp(cmpInst->getPredicate(), left, right);
+    ? builder.CreateFCmp(cmpInst->getPredicate(), newLeft, newRight)
+    : builder.CreateICmp(cmpInst->getPredicate(), newLeft, newRight);
+}
+
+Value *IRPolisher::replaceSelectInst(IRBuilder<> &builder, llvm::SelectInst *selectInst, unsigned bitWidth) {
+  // If the select is part of a min/max pattern, do not replace it
+  {
+    Value *left, *right;
+    Instruction::CastOps castOp;
+    auto selectPattern = matchSelectPattern(selectInst, left, right, &castOp);
+    if (SelectPatternResult::isMinOrMax(selectPattern.Flavor))
+      return builder.Insert(selectInst->clone());
+  }
+
+  auto cond = selectInst->getOperand(0);
+  auto s1   = selectInst->getOperand(1);
+  auto s2   = selectInst->getOperand(2);
+
+  // Optimization: if the select is using a NOT,
+  // then invert operands and use original (non-NOT) value.
+  bool invertOps = false;
+  if (BinaryOperator::isNot(cond)) {
+    invertOps = true;
+    cond = BinaryOperator::getNotArgument(cond);
+  }
+  if (invertOps) std::swap(s1, s2);
+
+  // Optimizations:
+  // select %x true false  -> cond
+  // select %x false true  -> not cond
+  auto boolSelect = isBooleanVector(s1->getType());
+  if (boolSelect) {
+    auto s1Cst = dyn_cast<Constant>(s1);
+    auto s2Cst = dyn_cast<Constant>(s2);
+    if (s1Cst && s2Cst) {
+      if (s1Cst->isAllOnesValue() && s2Cst->isZeroValue())
+        return getMaskForValueOrInst(builder, cond, bitWidth);
+      if (s1Cst->isZeroValue() && s2Cst->isAllOnesValue())
+        return builder.CreateNot(getMaskForValueOrInst(builder, cond, bitWidth));
+    }
+  }
+
+  // Get a mask from the condition (could come from ANDs)
+  auto condMask = getMaskForValueOrInst(builder, cond, bitWidth);
+  auto newS1 = boolSelect ? getMaskForValueOrInst(builder, s1, bitWidth) : s1;
+  auto newS2 = boolSelect ? getMaskForValueOrInst(builder, s2, bitWidth) : s2;
+
+  // Replace with blendvps/pd when possible, otherwise fall back to a LLVM select
+  auto opBitWidth = newS1->getType()->getScalarSizeInBits();
+  auto vecLen = cond->getType()->getVectorNumElements();
+  if ((opBitWidth == bitWidth) &&
+      (vecLen == 2 || vecLen == 4 || vecLen == 8) &&
+      (vecLen * bitWidth == 256 || vecLen * bitWidth == 128)) {
+    Intrinsic::ID id = Intrinsic::not_intrinsic;
+    if (vecLen == 2) {
+      /* if (bitWidth == 64) */ id = Intrinsic::x86_sse41_blendvpd;
+    } else if (vecLen == 4) {
+      if (bitWidth == 32) id = Intrinsic::x86_sse41_blendvps;
+      if (bitWidth == 64) id = Intrinsic::x86_avx_blendv_pd_256;
+    } else if (vecLen == 8) {
+      /* if (bitWidth == 32) */ id = Intrinsic::x86_avx_blendv_ps_256;
+    }
+
+    if (id != Intrinsic::not_intrinsic) {
+      auto func = Intrinsic::getDeclaration(selectInst->getModule(), id);
+      auto blendArgTy = func->getReturnType();
+      auto blendCall = builder.CreateCall(func, {
+        builder.CreateBitCast(newS2, blendArgTy),
+        builder.CreateBitCast(newS1, blendArgTy),
+        builder.CreateBitCast(condMask, blendArgTy)
+      });
+      return builder.CreateBitCast(blendCall, newS1->getType());
+    }
+  }
+
+  auto newCond = getConditionFromMask(builder, condMask);
+  return builder.CreateSelect(newCond, newS1, newS2);
 }
 
 Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
@@ -137,14 +244,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
 
   Value* newInst = nullptr;
   if (auto cmpInst = dyn_cast<CmpInst>(inst)) {
-    auto left  = cmpInst->getOperand(0);
-    auto right = cmpInst->getOperand(1);
-
-    auto newLeft  = isBooleanVector(left ->getType()) ? getMaskForValueOrInst(builder, left,  bitWidth) : left;
-    auto newRight = isBooleanVector(right->getType()) ? getMaskForValueOrInst(builder, right, bitWidth) : right;
-
-    auto newCmp = replaceCmpInst(builder, cmpInst, newLeft, newRight);
-
+    auto newCmp = replaceCmpInst(builder, cmpInst, bitWidth);
     newInst = getMaskForValue(builder, newCmp, bitWidth);
   } else if (auto binOp = dyn_cast<BinaryOperator>(inst)) {
     // Find a mask for each of the operands
@@ -184,17 +284,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
       getMaskForValueOrInst(builder, v2, bitWidth),
       mask);
   } else if (auto select = dyn_cast<SelectInst>(inst)) {
-    auto cond = select->getCondition();
-    auto s1 = select->getTrueValue();
-    auto s2 = select->getFalseValue();
-
-    // Get a mask from the condition (could come from ands)
-    auto condMask = getMaskForValueOrInst(builder, cond, bitWidth);
-    auto newCond = getConditionFromMask(builder, condMask);
-
-    newInst = builder.CreateSelect(newCond,
-      isBooleanVector(s1->getType()) ? getMaskForValueOrInst(builder, s1, bitWidth) : s1,
-      isBooleanVector(s2->getType()) ? getMaskForValueOrInst(builder, s2, bitWidth) : s2);
+    newInst = replaceSelectInst(builder, select, bitWidth);
   } else if (auto castInst = dyn_cast<CastInst>(inst)) {
     auto destTy = castInst->getDestTy();
     auto newOp = getMaskForValueOrInst(builder, inst->getOperand(0), bitWidth);
@@ -280,8 +370,8 @@ llvm::Value *IRPolisher::getConditionFromMask(IRBuilder<> &builder, llvm::Value*
     if (srcTy->isVectorTy() && srcTy->getScalarType() == boolTy)
       return cast->getOperand(0);
   }
-  // Truncate the mask to get a vector of i1s back
-  return builder.CreateTrunc(value, VectorType::get(boolTy, value->getType()->getVectorNumElements()));
+  // The mask is compared to a zero value to get a vector of i1s (better than truncation for codegen)
+  return builder.CreateICmpNE(value, Constant::getNullValue(value->getType()));
 }
 
 void IRPolisher::polish() {

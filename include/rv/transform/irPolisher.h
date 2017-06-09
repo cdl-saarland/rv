@@ -51,7 +51,8 @@ class IRPolisher {
   bool isBooleanVector(const llvm::Type*);
   bool canReplaceInst(llvm::Instruction*, unsigned&);
 
-  llvm::Value *replaceCmpInst(llvm::IRBuilder<>&, llvm::CmpInst*, llvm::Value*, llvm::Value*);
+  llvm::Value *replaceCmpInst(llvm::IRBuilder<>&, llvm::CmpInst*, unsigned);
+  llvm::Value *replaceSelectInst(llvm::IRBuilder<>&, llvm::SelectInst*, unsigned);
 
   llvm::Value *getMaskForInst(llvm::Instruction*, unsigned);
   llvm::Value *getMaskForValue(llvm::IRBuilder<>&, llvm::Value*, unsigned);
