@@ -404,8 +404,7 @@ StructOpt::run() {
     auto itBegin = bb.begin(), itEnd = bb.end();
     for (auto it = itBegin; it != itEnd; ) {
       auto * allocaInst = dyn_cast<AllocaInst>(it++);
-      if (!allocaInst) continue;
-      queue.emplace_back(allocaInst);
+      if (allocaInst) queue.push_back(allocaInst);
     }
   }
 
