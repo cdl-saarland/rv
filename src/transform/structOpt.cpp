@@ -399,16 +399,19 @@ StructOpt::run() {
   numTransformed = 0;
   numPromoted = 0;
 
-  bool change = false;
+  std::vector<AllocaInst*> queue;
   for (auto & bb : vecInfo.getScalarFunction()) {
     auto itBegin = bb.begin(), itEnd = bb.end();
     for (auto it = itBegin; it != itEnd; ) {
       auto * allocaInst = dyn_cast<AllocaInst>(it++);
       if (!allocaInst) continue;
-
-      bool changedAlloca = optimizeAlloca(*allocaInst);
-      change |= changedAlloca;
+      queue.emplace_back(allocaInst);
     }
+  }
+
+  bool change = false;
+  for (auto allocaInst : queue) {
+    change |= optimizeAlloca(*allocaInst);
   }
 
   if (numTransformed > 0) {
