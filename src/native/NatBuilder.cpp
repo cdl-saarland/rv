@@ -506,7 +506,8 @@ NatBuilder::vectorizeExtractCall(CallInst *rvCall) {
 
 // non-uniform arg
   auto * vecVal = requestVectorValue(vecArg);
-  int laneId = cast<ConstantInt>(rvCall->getArgOperand(1))->getZExtValue();
+  assert(getShape(*rvCall->getArgOperand(1)).isUniform());
+  auto * laneId = requestScalarValue(rvCall->getArgOperand(1));
 
   auto * laneVal = builder.CreateExtractElement(vecVal, laneId, "rv_ext");
   mapScalarValue(rvCall, laneVal);
