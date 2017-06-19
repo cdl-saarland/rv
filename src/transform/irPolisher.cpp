@@ -208,12 +208,13 @@ Value *IRPolisher::replaceSelectInst(IRBuilder<> &builder, llvm::SelectInst *sel
       (vecLen * bitWidth == 256 || vecLen * bitWidth == 128)) {
     Intrinsic::ID id = Intrinsic::not_intrinsic;
     if (vecLen == 2) {
-      /* if (bitWidth == 64) */ id = Intrinsic::x86_sse41_blendvpd;
+      if (bitWidth == 64) id = Intrinsic::x86_sse41_blendvpd;
     } else if (vecLen == 4) {
       if (bitWidth == 32) id = Intrinsic::x86_sse41_blendvps;
       if (bitWidth == 64) id = Intrinsic::x86_avx_blendv_pd_256;
     } else if (vecLen == 8) {
-      /* if (bitWidth == 32) */ id = Intrinsic::x86_avx_blendv_ps_256;
+      if (bitWidth == 16) id = Intrinsic::x86_sse41_pblendvb; // this assumes that the 16-bit masks are either 0 or 0xFFFF
+      if (bitWidth == 32) id = Intrinsic::x86_avx_blendv_ps_256;
     }
 
     if (id != Intrinsic::not_intrinsic) {
