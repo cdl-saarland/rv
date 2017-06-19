@@ -48,6 +48,9 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
     return;
   }
 
+  // TODO schedule loop exit splitter
+  PM.add(createLoopSimplifyPass());
+  PM.add(createLCSSAPass());
   PM.add(rv::createLoopVectorizerPass());
   PM.add(createAggressiveDCEPass());
 }
