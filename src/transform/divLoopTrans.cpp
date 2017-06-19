@@ -15,6 +15,7 @@
 #include "rv/transform/maskExpander.h"
 
 #include "rvConfig.h"
+#include "report.h"
 
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/Dominators.h"
@@ -660,6 +661,7 @@ DivLoopTrans::convertToLatchExitLoop(Loop & loop, LiveValueTracker & liveOutTrac
     if (vecInfo.isKillExit(exitBlock)) {
       // do not track LCSSA phis
       trackPreservedLiveOuts(exitBlock);
+      ++numKillExits;
     } else {
       // create live value trackers & updaters for all live outs on this exit
       // kill exits transfer all control outside of the loop and so they do not need any trackers themselves
@@ -1009,6 +1011,8 @@ DivLoopTrans::DivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInf
 , domTree(_domTree)
 , loopInfo(_loopInfo)
 , boolTy(Type::getInt1Ty(vecInfo.getContext()))
+, numDivergentLoops(0)
+, numKillExits(0)
 {}
 
 
@@ -1023,6 +1027,7 @@ DivLoopTrans::transformDivergentLoopControl(Loop & loop, LiveValueTracker & live
   // transform control for this divergent loop
   bool hasDivergentLoops = false;
   if (vecInfo.isDivergentLoop(&loop)) {
+    ++numDivergentLoops;
     hasDivergentLoops |= true;
     convertToLatchExitLoop(loop, liveOutTracker);
   }
@@ -1083,6 +1088,10 @@ DivLoopTrans::transformDivergentLoops() {
     verifyFunction(vecInfo.getScalarFunction(), &errs());
     // assert(!errorFound);
     errs() << "-- EOF divLoopTrans --\n";
+  }
+
+  if (numDivergentLoops > 0) {
+    Report() << "divLoopTrans: transformed " << numDivergentLoops << " loops with " << numKillExits << " kill exits.\n";
   }
 }
 

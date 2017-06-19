@@ -147,6 +147,10 @@ public:
 
   // makes all divergent loops in the region uniform
   void transformDivergentLoops();
+
+  // stats
+  size_t numDivergentLoops;
+  size_t numKillExits;
 };
 
 }
