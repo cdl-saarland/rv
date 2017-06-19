@@ -1413,7 +1413,7 @@ IsConstBool(Value & V, bool isTrue) {
 
 static Value*
 SimplifyBoolSelect(IRBuilder<> & builder, Value & cond, Value & trueVal, Value & falseVal, StringRef selName, ValVec & replacements) {
-#if 1
+#if 0
 #warning "DEBUG HACK: bool select folding disabled!"
   return nullptr;
 #endif
