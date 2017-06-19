@@ -180,21 +180,15 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   auto itBegin = pred_begin(&BB);
   auto itEnd = pred_end(&BB);
 
-// TODO only use SESE masks if the DT/PDT are sound
-#if 0
   // check if we post-dominate our idom (optimization)
   auto * domNode = domTree.getNode(&BB);
   auto &idomBlock = *domNode->getIDom()->getBlock();
 
-  // check if we are the end of a SESE region
+// try to re-use the SESE entry mask
   if (vecInfo.inRegion(idomBlock) && postDomTree.dominates(&BB, &idomBlock)) {
-    // request the idom mask to see if we can simplify it
     auto & idomMask = requestBlockMask(idomBlock);
 
-    // TODO factor out into heuristic function
-    if (std::any_of(itBegin, itEnd, [&idomBlock](BasicBlock * pred){ return pred == &idomBlock; }) || // only reuse idom if it's a direct predecessor
-        isa<Constant>(idomMask) // re-use trivial masks
-    ) {
+    {
       IF_DEBUG_ME { errs() << " -> SESE entry mask re-use profitable.\n"; }
 
       // request all incoming edges
@@ -211,7 +205,6 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
       return idomMask;
     }
   }
-#endif
 
   // single join phi for uniform masks
   int numPreds = std::distance(itBegin, itEnd);
