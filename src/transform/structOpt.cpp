@@ -42,6 +42,75 @@ StructOpt::StructOpt(VectorizationInfo & _vecInfo, const DataLayout & _layout)
 , numPromoted(0)
 {}
 
+Value *
+StructOpt::transformLoadStore(IRBuilder<> & builder,
+                              bool replaceInst,
+                              Instruction* inst,
+                              Value * vecPtrVal, Value * storeVal) {
+  auto * load = dyn_cast<LoadInst>(inst);
+  auto * store = dyn_cast<StoreInst>(inst);
+  Type * ptrElemTy = vecPtrVal->getType()->getPointerElementType();
+
+  if (ptrElemTy->isStructTy()) {
+    // emit multiple loads/stores
+    // loads must re-insert the smaller vector loads in the structure
+    Value * structVal = nullptr;
+    if (load) {
+      structVal = UndefValue::get(ptrElemTy);
+      vecInfo.setVectorShape(*structVal, vecInfo.getVectorShape(*load));
+    }
+
+    for (size_t i = 0; i < ptrElemTy->getStructNumElements(); ++i) {
+      auto * vecGEP = builder.CreateGEP(vecPtrVal, { builder.getInt32(0), builder.getInt32(i) });
+      auto * structElem = storeVal ? builder.CreateExtractValue(storeVal, i) : nullptr;
+
+      vecInfo.setVectorShape(*structElem, vecInfo.getVectorShape(*storeVal));
+      vecInfo.setVectorShape(*vecGEP, vecInfo.getVectorShape(*vecPtrVal));
+
+      auto * vecElem = transformLoadStore(builder, false, inst, vecGEP, structElem);
+      if (structVal) {
+        structVal = builder.CreateInsertValue(structVal, vecElem, i);
+        vecInfo.setVectorShape(*structVal, vecInfo.getVectorShape(*load));
+      }
+    }
+
+    if (replaceInst) {
+      if (load) load->replaceAllUsesWith(structVal);
+      else      vecInfo.dropVectorShape(*store);
+    }
+    return structVal;
+  }
+
+  // cast *<8 x float> to * float
+  auto * vecElemTy = cast<VectorType>(ptrElemTy);
+  auto * plainElemTy = vecElemTy->getElementType();
+
+  auto * castElemTy = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
+
+  const uint alignment = layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
+  vecInfo.setVectorShape(*castElemTy, VectorShape::cont(alignment));
+
+  if (load)  {
+    auto * vecLoad = builder.CreateLoad(castElemTy, load->getName());
+    vecInfo.setVectorShape(*vecLoad, vecInfo.getVectorShape(*load));
+    vecLoad->setAlignment(alignment);
+
+    if (replaceInst) load->replaceAllUsesWith(vecLoad);
+
+    IF_DEBUG_SO { errs() << "\t\t result: " << *vecLoad << "\n"; }
+    return vecLoad;
+  } else {
+    auto * vecStore = builder.CreateStore(storeVal, castElemTy, store->isVolatile());
+    vecStore->setAlignment(alignment);
+    vecInfo.setVectorShape(*vecStore, vecInfo.getVectorShape(*store));
+
+    if (replaceInst) vecInfo.dropVectorShape(*store);
+
+    IF_DEBUG_SO { errs() << "\t\t result: " << *vecStore << "\n"; }
+    return nullptr;
+  }
+}
+
 void
 StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & transformMap) {
   SmallSet<Value*, 16> seen;
@@ -69,37 +138,12 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       IRBuilder<> builder(inst->getParent(), inst->getIterator());
 
       auto * ptrVal = load ? load->getPointerOperand() : store->getPointerOperand();
+      auto * storeVal = store ? store->getValueOperand() : nullptr;
 
       assert (transformMap.count(ptrVal));
       Value * vecPtrVal = transformMap[ptrVal];
 
-      // cast *<8 x float> to * float
-      auto * vecElemTy = cast<VectorType>(vecPtrVal->getType()->getPointerElementType());
-      auto * plainElemTy = vecElemTy->getElementType();
-
-      auto * castElemTy = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
-
-      const uint alignment = layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
-      vecInfo.setVectorShape(*castElemTy, VectorShape::cont(alignment));
-
-
-      if (load)  {
-        auto * vecLoad = builder.CreateLoad(castElemTy, load->getName());
-        vecInfo.setVectorShape(*vecLoad, vecInfo.getVectorShape(*load));
-        vecLoad->setAlignment(alignment);
-
-        load->replaceAllUsesWith(vecLoad);
-
-        IF_DEBUG_SO { errs() << "\t\t result: " << *vecLoad << "\n"; }
-
-      } else {
-        auto * vecStore = builder.CreateStore(store->getValueOperand(), castElemTy, store->isVolatile());
-        vecStore->setAlignment(alignment);
-        vecInfo.setVectorShape(*vecStore, vecInfo.getVectorShape(*store));
-        vecInfo.dropVectorShape(*store);
-
-        IF_DEBUG_SO { errs() << "\t\t result: " << *vecStore << "\n"; }
-      }
+      transformLoadStore(builder, true, inst, vecPtrVal, storeVal);
 
       continue; // don't step across load/store
 
@@ -169,6 +213,12 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
 }
 
 static bool VectorizableType(Type & type) {
+  if (type.isStructTy()) {
+    for (size_t i = 0; i < type.getStructNumElements(); ++i) {
+      if (!VectorizableType(*type.getStructElementType(i))) return false;
+    }
+    return true;
+  }
   return type.isIntegerTy() || type.isFloatingPointTy();
 }
 
