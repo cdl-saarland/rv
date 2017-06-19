@@ -459,27 +459,7 @@ DivLoopTrans::fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker) {
   vecInfo.dropVectorShape(liveUpdatePhi);
   liveUpdatePhi.eraseFromParent();
 
-#if 0
-  // fix live value udpate edges (not value tracked)
-  for (auto * inBlock : predecessors(loopTracker.pureLatch)) {
-    int blockIdx = liveUpdatePhi.getBasicBlockIndex(inBlock);
-    if (blockIdx >= 0) continue;
-
-    auto & edgeMask = maskEx.requestEdgeMask(*inBlock, *loopTracker.pureLatch);
-    errs() << "LIVE UPDATE: " << inBlock->getName() << " to " << loopTracker.pureLatch->getName() << " :: " << edgeMask << "\n";
-    liveUpdatePhi.addIncoming(&edgeMask, inBlock);
-  }
-  // TODO really a good idea to have the linearizer handle this??
-  // LoopTracker::ValueUpdate liveValueUpd{&loopTracker.loopMaskPhi, loopTracker.maskUpdatePhi};
-  // implementPhiUpdate(liveValueUpd);
-  // loopTracker.maskUpdatePhi = nullptr; // already lowered
-#endif
-
-
 // materialize exit masks (LCSSA)
-#if 1
-  SmallPtrSet<PHINode*, 4> exitMaskPhis;
-  // TODO unify live value and exit mask tracking
   // repair exit mask uses
   IF_DEBUG_DLT { errs() << "Patching exit mask phis in " << divExitBlock->getName() << "\n"; }
   for (auto & itExitMaskUpd : loopTracker.latchExitUpdates) {
@@ -502,17 +482,15 @@ DivLoopTrans::fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker) {
       // if this exit branch kills the loop
       userPhi->setIncomingValue(0, &liveOutUpdater);
       userPhi->setIncomingBlock(0, liveOutUpdater.getParent()); // FIXME predecessor only finalized during exit construction
-      exitMaskPhis.insert(userPhi);
 
-      addKillPhi(*userPhi); // TODO debug hack to not visit exit masks twice.. // this overrides "exitMaskPhis"
+      addKillPhi(*userPhi); // TODO
 
       IF_DEBUG_DLT { errs() << "\t (fixed) exitPhi: " << *userPhi << "\n"; }
     }
   }
-#endif
 
 
-// fix LCSSA phi incoming blocks
+// fix live outs in exit blocks
    // repair live out uses
    IF_DEBUG_DLT { errs() << "Patching live out values in " << divExitBlock->getName() << "\n"; }
    for (auto & inst : *divExitBlock) {
@@ -531,15 +509,9 @@ DivLoopTrans::fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker) {
 
      auto & liveOutInst = cast<Instruction>(liveOut);
 
-     if (exitMaskPhis.count(lcPhi)) {
-       // FIXME unify with exit mask loop
-       IF_DEBUG_DLT errs() << "\tlive exit mask. skip.\n";
-       continue;
-     }
-
      // TODO check if this is a live out to a kill exiconst t
      if (isKillPhi(*lcPhi)) {
-       IF_DEBUG_DLT errs() << "\tkill exit liveout. skip.\n";
+       IF_DEBUG_DLT errs() << "\tkill exit liveout OR exit mask. skip.\n";
        continue;
      }
 
@@ -675,13 +647,6 @@ DivLoopTrans::convertToLatchExitLoop(Loop & loop, LiveValueTracker & liveOutTrac
     }
   }
 
-#if 0
-  IF_DEBUG_DLT {
-    errs() << "\n- Region with mask trackers -\n";
-    vecInfo.dump();
-  }
-#endif
-
 // create a dedicated, uniform exit branch
    auto & latchBlock = requestPureLatch(loopTracker);
    assert(latchBlock.getTerminator()->getNumSuccessors() == 1);
@@ -706,13 +671,6 @@ DivLoopTrans::convertToLatchExitLoop(Loop & loop, LiveValueTracker & liveOutTrac
      vecInfo.setVectorShape(anyBr, VectorShape::uni());
      vecInfo.setVectorShape(*continueCond, VectorShape::uni());
    }
-
-#if 0
-   IF_DEBUG_DLT {
-     errs() << "\n- Region with fixed exits -\n";
-     vecInfo.dump();
-   }
-#endif
 
 // sort exits for cascading order
    // since all divergent exits have to be visited before any kill exits first emit all divergent exits then all kill exits
@@ -760,12 +718,6 @@ DivLoopTrans::convertToLatchExitLoop(Loop & loop, LiveValueTracker & liveOutTrac
      }
      vecInfo.setVectorShape(*exitMaskPhi, VectorShape::varying());
 
-     // kill exit mask not handled by generic tracker propagation
-#if 0
-     errs() << "PROTECT EXIT MASK: " << *exitMaskPhi << "\n";
-     addKillPhi(*exitMaskPhi);
-#endif
-
      // last exit update in the outermost left loop
      Loop & leftLoop = *loopInfo.getLoopFor(&exitingBlock);
      LoopTracker & leftLoopTracker = getLoopTracker(leftLoop);
@@ -805,10 +757,9 @@ DivLoopTrans::convertToLatchExitLoop(Loop & loop, LiveValueTracker & liveOutTrac
        auto * liveOutInst = dyn_cast<Instruction>(liveOut);
 
        // try to unify LCSSA Phis
-#if 1
+#if 0
 #warning "LCSSA unification disabled"
 #else
-       // FIXME is this broken
        if (liveOutInst) {
          auto itKnown = knownLiveOuts.find(liveOutInst);
          if (itKnown != knownLiveOuts.end()) {

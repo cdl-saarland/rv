@@ -107,12 +107,6 @@ class DivLoopTrans {
   void addKillPhi(PHINode & killExitLCSSAPhi) { killPhis.insert(&killExitLCSSAPhi); }
   bool isKillPhi(PHINode & lcssaPhi) const { return killPhis.count(&lcssaPhi); }
 
-#if 0
-  PHISet loopExitMasks;
-  void addLoopExitMask(PHINode & loopExitPhi) { loopExitMasks.insert(&loopExitPhi); }
-  bool isLoopExitMask(PHINode & loopExitPhi) const { return loopExitMasks.count(&lcssaPhi); }
-#endif
-
 // Control phase
   // return true, if any loops were transformed
   bool transformDivergentLoopControl(llvm::Loop & loop, LiveValueTracker & liveOutTracker);
