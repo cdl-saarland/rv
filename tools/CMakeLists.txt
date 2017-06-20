@@ -27,6 +27,9 @@ target_link_libraries(${RVTOOL_NAME}
   LLVMTarget
   LLVMVectorize
 )
+
+install (TARGETS ${RVTOOL_NAME} DESTINATION bin)
+
 link_directories(
   ${LLVM_LIBRARY_DIR}
 )

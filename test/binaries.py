@@ -62,7 +62,7 @@ optClangLine="clang -march=native -O3 -c -emit-llvm -S  " # -fno-slp-vectorize"
 clangLine="clang++ -std=c++14 -march=native -m64 -O2 -fno-vectorize" # -fno-slp-vectorize"
 cClangLine="clang -march=native -m64 -O2 -fno-vectorize -fno-slp-vectorize"
 
-rvToolLine="./../bin/rvTool"
+rvToolLine="rvTool"
 
 def rvClang(clangArgs):
    return shellCmd(clangLine + " -Xclang -load -Xclang " + libRV + " -O3 " + clangArgs)
