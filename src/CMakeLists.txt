@@ -24,6 +24,7 @@ add_rv_library(RV
   analysis/MandatoryAnalysis.cpp
   analysis/VectorizationAnalysis.cpp
   analysis/reductionAnalysis.cpp
+  analysis/DivPathDecider.cpp
   config.cpp
   init.cpp
   native/MemoryAccessGrouper.cpp
