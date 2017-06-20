@@ -209,6 +209,8 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         vectorizeExtractCall(call);
       else if (call->getCalledFunction()->getName() == "rv_ballot")
         vectorizeBallotCall(call);
+      else if (call->getCalledFunction()->getName() == "rv_align")
+        vectorizeAlignCall(call);
       else
         if (vectorizeInterleavedAccess) lazyInstructions.push_back(inst);
         else {
@@ -543,6 +545,22 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
   auto movMaskDecl = Intrinsic::getDeclaration(mod, id);
   auto * mask = builder.CreateCall(movMaskDecl, simdVal, "rv_ballot");
   mapScalarValue(rvCall, mask);
+}
+
+void
+NatBuilder::vectorizeAlignCall(CallInst *rvCall) {
+  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_align(ptr, alignment)");
+
+  Value *vecArg = rvCall->getArgOperand(0);
+
+// uniform arg
+  if (getShape(*vecArg).isUniform()) {
+    mapScalarValue(rvCall, requestScalarValue(vecArg));
+    return;
+  }
+
+// non-uniform arg
+  mapVectorValue(rvCall, requestVectorValue(vecArg));
 }
 
 static bool HasSideEffects(CallInst &call) {

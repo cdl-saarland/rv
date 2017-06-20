@@ -92,6 +92,16 @@ VectorizerInterface::addIntrinsics() {
             {VectorShape::varying(), VectorShape::varying()}
             );
           platInfo.addSIMDMapping(mapping);
+        } else if (func.getName() == "rv_align") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::undef(),
+            {VectorShape::undef(), VectorShape::uni()}
+            );
+          platInfo.addSIMDMapping(mapping);
         }
     }
 }
@@ -245,21 +255,22 @@ static void lowerIntrinsicCall(CallInst* call) {
   auto * callee = call->getCalledFunction();
   if (callee->getName() == "rv_any" ||
       callee->getName() == "rv_all" ||
-      callee->getName() == "rv_extract") {
+      callee->getName() == "rv_extract" ||
+      callee->getName() == "rv_align") {
     lowerIntrinsicCall(call, [] (const CallInst* call) {
       return call->getOperand(0);
     });
   } else if (callee->getName() == "rv_ballot") {
     lowerIntrinsicCall(call, [] (CallInst* call) {
-        IRBuilder<> builder(call);
-        return builder.CreateZExt(call->getOperand(0), builder.getInt32Ty());
-      });
+      IRBuilder<> builder(call);
+      return builder.CreateZExt(call->getOperand(0), builder.getInt32Ty());
+    });
   }
 }
 
 void
 lowerIntrinsics(Module & mod) {
-  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_ballot"};
+  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_ballot", "rv_align"};
   for (int i = 0, n = sizeof(names) / sizeof(names[0]); i < n; i++) {
     auto func = mod.getFunction(names[i]);
     if (!func) continue;

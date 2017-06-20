@@ -575,6 +575,13 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
       const Function* callee = cast<CallInst>(I)->getCalledFunction();
       assert (!callee->getReturnType()->isVoidTy());
 
+      // If the function is rv_align, use the alignment information
+      if (callee->getName() == "rv_align") {
+        auto shape = getShape(I->getOperand(0));
+        shape.setAlignment(cast<ConstantInt>(I->getOperand(1))->getZExtValue());
+        return shape;
+      }
+
       // Find the shape that is mapped to this function
       // No mapping -> assume most unprecise, varying
       auto found = mFuncinfo.find(callee);
