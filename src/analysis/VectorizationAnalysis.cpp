@@ -839,19 +839,13 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
       Type* srcType = castI->getSrcTy();
       Type* destType = castI->getDestTy();
 
-      // Cases like bitcasting floats to i32 to make the mantissa
-      // available cannot retain stridedness
-      if (!srcType->isPointerTy() || !destType->isPointerTy())
-        return VectorShape::join(VectorShape::uni(aligned), castOpShape);
+      // no floating point value involved: keep shape since int<->ptr are compatible
+      if (!srcType->isFloatingPointTy() && !destType->isFloatingPointTy()) {
+        return castOpShape;
+      }
 
-      // Reassociate stride with new underlying type
-      PointerType* srcPtr = cast<PointerType>(srcType);
-      PointerType* destPtr = cast<PointerType>(destType);
-
-      int srcElementSize = static_cast<int>(GetReferencedObjectSize(layout, srcPtr));
-      int destElementSize = static_cast<int>(GetReferencedObjectSize(layout, destPtr));
-
-      return VectorShape::strided(srcElementSize * castOpStride / destElementSize, 1);
+      // BC from fp<->int/ptr is incomatible -> default to varying shape
+      return VectorShape::varying();
     }
 
     default:
