@@ -246,42 +246,6 @@ VectorizationInfo::isDivergentLoopTopLevel(const llvm::Loop* loop) const
 
 
 void
-VectorizationInfo::markAlwaysByAll(const llvm::BasicBlock* BB)
-{
-    ABABlocks.insert(BB);
-}
-
-void
-VectorizationInfo::markAlwaysByAllOrNone(const llvm::BasicBlock* BB)
-{
-    ABAONBlocks.insert(BB);
-}
-
-void
-VectorizationInfo::markNotAlwaysByAll(const llvm::BasicBlock* BB)
-{
-    NotABABlocks.insert(BB);
-}
-
-bool
-VectorizationInfo::isAlwaysByAll(const llvm::BasicBlock* BB) const
-{
-    return (bool) ABABlocks.count(BB);
-}
-
-bool
-VectorizationInfo::isAlwaysByAllOrNone(const llvm::BasicBlock* BB) const
-{
-    return (bool) ABAONBlocks.count(BB);
-}
-
-bool
-VectorizationInfo::isNotAlwaysByAll(const llvm::BasicBlock* BB) const
-{
-    return (bool) NotABABlocks.count(BB);
-}
-
-void
 VectorizationInfo::markMandatory(const BasicBlock* BB)
 {
     MandatoryBlocks.insert(BB);
@@ -296,18 +260,6 @@ VectorizationInfo::isMandatory(const BasicBlock* BB) const
 bool
 VectorizationInfo::isKillExit(const BasicBlock& BB) const {
     return !isMandatory(&BB); // TODO figure this out directly in the VA and get rid of mandatory/optional
-}
-
-void
-VectorizationInfo::markMetadataMask(const Instruction* inst)
-{
-    MetadataMaskInsts.insert(inst);
-}
-
-bool
-VectorizationInfo::isMetadataMask(const Instruction* inst) const
-{
-    return (bool) MetadataMaskInsts.count(inst);
 }
 
 LLVMContext &

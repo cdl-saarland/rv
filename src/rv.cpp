@@ -21,7 +21,6 @@
 #include "rv/rv.h"
 #include "rv/analysis/DFG.h"
 #include "rv/analysis/VectorizationAnalysis.h"
-#include "rv/analysis/ABAAnalysis.h"
 
 #include "rv/transform/maskGenerator.h"
 #include "rv/transform/loopExitCanonicalizer.h"
@@ -114,46 +113,21 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
                              const PostDominatorTree& postDomTree,
                              const DominatorTree& domTree)
 {
+    auto & scalarFn = vecInfo.getScalarFunction();
+
+    // determines value and control shapes
     VectorizationAnalysis vea(platInfo,
                                   vecInfo,
                                   cdg,
                                   dfg,
                                   loopInfo,
                                   domTree, postDomTree);
-
-    MandatoryAnalysis man(vecInfo, loopInfo, cdg);
-
-
-    ABAAnalysis abaAnalysis(platInfo,
-                            vecInfo,
-                            loopInfo,
-                            postDomTree,
-                            domTree);
-
-    auto & scalarFn = vecInfo.getScalarFunction();
     vea.analyze(scalarFn);
+
+    // TODO deprecate MandatoryAnalysis (still used to determine kill exits atm)
+    MandatoryAnalysis man(vecInfo, loopInfo, cdg);
     man.analyze(scalarFn);
-    abaAnalysis.analyze(scalarFn);
 }
-
-#if 0
-std::unique_ptr<MaskExpander>
-VectorizerInterface::generateMasks(VectorizationInfo& vecInfo,
-                             const CDG& cdg,
-                             const DFG& dfg,
-                             const LoopInfo& loopInfo,
-                             const PostDominatorTree& postDomTree,
-                             const DominatorTree& domTree)
-{
-
-    auto maskEx = make_unique<MaskExpander>(vecInfo, domTree, cdg, postDomTree, loopInfo);
-    maskEx->expandRegionMasks();
-    return maskEx;
-    // auto maskAnalysis = make_unique<MaskAnalysis>(vecInfo, loopinfo);
-    // maskAnalysis->analyze(vecInfo.getScalarFunction());
-    // return maskAnalysis;
-}
-#endif
 
 bool
 VectorizerInterface::linearize(VectorizationInfo& vecInfo,

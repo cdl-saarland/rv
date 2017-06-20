@@ -41,14 +41,9 @@ class VectorizationInfo
 
     std::set<const Loop*> mDivergentLoops;
 
-    std::set<const BasicBlock*> ABABlocks;
-    std::set<const BasicBlock*> ABAONBlocks;
-    std::set<const BasicBlock*> NotABABlocks;
-
     std::set<const BasicBlock*> MandatoryBlocks;
 
     Region* region;
-    std::set<const Instruction*> MetadataMaskInsts;
 
 public:
     bool inRegion(const llvm::Instruction & inst) const;
@@ -96,20 +91,13 @@ public:
     void setDivergentLoop(const Loop* loop);
     void setLoopDivergence(const Loop & loop, bool toUniform);
 
-    bool isAlwaysByAll(const BasicBlock* block) const;
-    bool isAlwaysByAllOrNone(const BasicBlock* block) const;
-    bool isNotAlwaysByAll(const BasicBlock* block) const;
     bool isMandatory(const BasicBlock* block) const;
     bool isMetadataMask(const Instruction* inst) const;
 
     // whether this exit block terminates the loop
     bool isKillExit(const BasicBlock & block) const;
 
-    void markAlwaysByAll(const BasicBlock* block);
-    void markAlwaysByAllOrNone(const BasicBlock* block);
-    void markNotAlwaysByAll(const BasicBlock* block);
     void markMandatory(const BasicBlock* block);
-    void markMetadataMask(const Instruction* inst);
 
     LLVMContext & getContext() const;
     Function & getScalarFunction() { return *mapping.scalarFn; }

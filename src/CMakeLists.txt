@@ -16,7 +16,6 @@ endif()
 add_rv_library(RV
   PlatformInfo.cpp
   VectorizationInfoProxyPass.cpp
-  analysis/ABAAnalysis.cpp
   analysis/BranchDependenceAnalysis.cpp
   analysis/DFG.cpp
   analysis/MandatoryAnalysis.cpp
