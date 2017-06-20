@@ -21,9 +21,7 @@ RV is an LLVM tool and integrates into the LLVM build system.
 Clone this repository into llvm/tools/rv where llvm is your LLVM source directory. RV will build along with LLVM.
 
 -- Testing libRV --
-After building rv with LLVM copy bin/rvTool from the LLVM build directory to rv/bin/rvTool in the rv source directory.
-To run the entire test suite enter the folder test/ and run ./test_rv.py.
-More details on testing can be found in test/README
+Install LLVM+RV, go to rv/test/ and run ./test_rv.py.
 
 -- Getting started with the API --
 Users of RV should include its main header file include/rv/rv.h and supporting headers in include/rv.
