@@ -553,14 +553,10 @@ NatBuilder::vectorizeAlignCall(CallInst *rvCall) {
 
   Value *vecArg = rvCall->getArgOperand(0);
 
-// uniform arg
-  if (getShape(*vecArg).isUniform()) {
+  if (getShape(*vecArg).isVarying())
+    mapVectorValue(rvCall, requestVectorValue(vecArg));
+  else
     mapScalarValue(rvCall, requestScalarValue(vecArg));
-    return;
-  }
-
-// non-uniform arg
-  mapVectorValue(rvCall, requestVectorValue(vecArg));
 }
 
 static bool HasSideEffects(CallInst &call) {
@@ -715,7 +711,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   assert(accessedType == cast<PointerType>(accessedPtr->getType())->getElementType() && "accessed type and pointed object type differ!");
   assert(vectorizationInfo.hasKnownShape(*accessedPtr) && "no shape for accessed pointer!");
   VectorShape addrShape = getShape(*accessedPtr);
-  VectorShape instrShape = load ? getShape(*load) : getShape(*store);
 
   // address: uniform -> scalar op. contiguous -> scalar from vector-width address. varying -> scatter/gather
   Value *vecPtr = nullptr;
@@ -744,11 +739,11 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     Value *mappedPtr = requestScalarValue(accessedPtr);
     PointerType *vecPtrType = PointerType::getUnqual(vecType);
     vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
-    alignment = instrShape.getAlignmentFirst();
+    alignment = addrShape.getAlignmentFirst();
 
   } else if (addrShape.isUniform()) {
     vecPtr = requestScalarValue(accessedPtr);
-    alignment = instrShape.getAlignmentFirst();
+    alignment = addrShape.getAlignmentFirst();
 
   } else if (addrShape.isStrided()) {
     // group memory instructions based on their dependencies
@@ -824,7 +819,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     }
 
 
-    alignment = instrShape.getAlignmentGeneral();
+    alignment = addrShape.getAlignmentGeneral();
   }
 
   if (addrShape.isVarying() || (!byteContiguous && addrShape.isStrided() && !isInterleaved)) {
@@ -838,7 +833,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       }
       mapVectorValue(accessedPtr, vecPtr);
     }
-    alignment = instrShape.getAlignmentGeneral();
+    alignment = addrShape.getAlignmentGeneral();
   }
 
   // take greatest available alignment
