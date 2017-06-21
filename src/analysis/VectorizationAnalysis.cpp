@@ -505,6 +505,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
         case CmpInst::Predicate::ICMP_SLE:
         case CmpInst::Predicate::ICMP_ULE:
           diffShape = -diffShape; // Negate and handle like LESS/GREATER_EQUAL
+          __attribute__((fallthrough));
         case CmpInst::Predicate::ICMP_SLT:
         case CmpInst::Predicate::ICMP_ULT:
         case CmpInst::Predicate::ICMP_SGE:
@@ -518,8 +519,8 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
           if (stride >= 0 && alignment >= stride * vectorWidth)
             return VectorShape::uni();
 
-          break;
         }
+      break;
 
         case CmpInst::Predicate::ICMP_EQ:
         case CmpInst::Predicate::ICMP_NE:
@@ -527,8 +528,8 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
           if (diffShape.getStride() == 0)
             return VectorShape::uni();
 
-          break;
         }
+      break;
 
         default:
           break;
@@ -758,15 +759,6 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
       break;
   }
   return GenericTransfer(shape1, shape2);
-}
-
-static unsigned GetReferencedObjectSize(const DataLayout& layout, Type* ptrType) {
-  auto* elemTy = ptrType->getPointerElementType();
-  auto* arrTy = dyn_cast<ArrayType>(elemTy);
-  if (arrTy && arrTy->getArrayNumElements() == 0) {
-    elemTy = arrTy->getElementType();
-  }
-  return static_cast<unsigned>(layout.getTypeStoreSize(elemTy));
 }
 
 VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI) {
