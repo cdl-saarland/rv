@@ -25,6 +25,7 @@
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Scalar.h"
 
+#include "rv/transform/loopExitCanonicalizer.h"
 
 using namespace llvm;
 
@@ -48,9 +49,9 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
     return;
   }
 
-  // TODO schedule loop exit splitter
   PM.add(createLoopSimplifyPass());
   PM.add(createLCSSAPass());
+  PM.add(createLoopExitCanonicalizerPass());
   PM.add(rv::createLoopVectorizerPass());
   PM.add(createAggressiveDCEPass());
 }
