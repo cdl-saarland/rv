@@ -326,9 +326,10 @@ Linearizer::verifyBlockIndex() {
 
 bool
 Linearizer::needsFolding(TerminatorInst & termInst) {
-  assert(!isa<SwitchInst>(termInst) && "switches unsupported at the moment");
-
   if (isa<ReturnInst>(termInst) || isa<UnreachableInst>(termInst)) return false;
+
+// uniform terminators don't need folding
+  if (vecInfo.getVectorShape(termInst).isUniform()) return false;
 
 // Only conditional branches are subject to divergence
   auto & branch = cast<BranchInst>(termInst);
@@ -736,12 +737,12 @@ Linearizer::emitBlock(int targetId) {
     Use & use = *(itUse++);
 
     int i = use.getOperandNo();
-    auto & branch = *cast<BranchInst>(use.getUser());
-    IF_DEBUG_LIN { errs() << "\t\tlinking " << branch << " opIdx " << i << "\n"; }
+    auto & term = *cast<TerminatorInst>(use.getUser());
+    IF_DEBUG_LIN { errs() << "\t\tlinking " << term << " opIdx " << i << "\n"; }
 
     // forward branches from relay to target
-    branch.setOperand(i, &target);
-    IF_DEBUG_LIN { errs() << "\t\t-> linked " << branch << " opIdx " << i << "\n"; }
+    term.setOperand(i, &target);
+    IF_DEBUG_LIN { errs() << "\t\t-> linked " << term << " opIdx " << i << "\n"; }
   }
 
 // search for a new idom
@@ -881,8 +882,35 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
     return;
   }
 
-  auto * branch = dyn_cast<BranchInst>(&term);
+// generic handler for unifor terminators without side-effects
+  bool mustFoldBranch = needsFolding(term);
+  if (!mustFoldBranch) {
+    IF_DEBUG_LIN { errs() << "\t uniform terminator."; }
+    for (size_t i = 0; i < term.getNumSuccessors(); ++i) {
+      auto & destBlock = *term.getSuccessor(i);
+      int targetId = getIndex(destBlock);
 
+      // add must-have targets
+      auto & relay = addTargetToRelay(exitRelay, targetId);
+
+      // promote reachability down to successors
+      mergeInReaching(relay, headRelay);
+
+      // if the branch target feeds a phi and the edge is relayed -> track reachability
+      if (containsOriginalPhis(destBlock)) {
+         relay.addReachingBlock(head);
+      }
+
+      // redirect branch to relay
+      term.setSuccessor(i, relay.block);
+    }
+
+    return;
+  }
+
+
+  assert(isa<BranchInst>(term) && "folding only implemented for branches!");
+  auto * branch = dyn_cast<BranchInst>(&term);
 
 // Unconditional branch case
   if (!branch->isConditional()) {
@@ -912,7 +940,6 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
 
 // whether this branch must be eliminated from the CFG
   assert(branch && "can only fold conditional BranchInsts (for now)");
-  bool mustFoldBranch = needsFolding(*branch);
 
 // order successors by global topologic order
   uint firstSuccIdx = 0;
