@@ -148,7 +148,10 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 
     postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
     domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+#if 0
+    // FIXME we must not verify LI because rv-LoopVec deliberatly breaks it
     IF_DEBUG loopInfo.verify(domTree);
+#endif
 
     // expand all remaining masks in the region
     maskEx.expandRegionMasks();
