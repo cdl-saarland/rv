@@ -281,7 +281,10 @@ bool LoopVectorizer::vectorizeLoopOrSubLoops(Loop &L) {
     return true;
 
   bool Changed = false;
-  for (Loop* SubL : L)
+
+  std::vector<Loop*> loops;
+  for (Loop *SubL : L) loops.push_back(SubL);
+  for (Loop* SubL : loops)
     Changed |= vectorizeLoopOrSubLoops(*SubL);
 
   return Changed;
@@ -317,8 +320,9 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   reda->analyze();
 
 
-  for (Loop *L : *LI)
-    Changed |= vectorizeLoopOrSubLoops(*L);
+  std::vector<Loop*> loops;
+  for (Loop *L : *LI) loops.push_back(L);
+  for (auto * L : loops) Changed |= vectorizeLoopOrSubLoops(*L);
 
 
   IF_DEBUG { errs() << " -- module after RV --\n"; F.getParent()->dump(); }
