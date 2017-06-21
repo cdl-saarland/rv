@@ -210,7 +210,7 @@ void VectorizationAnalysis::init(Function& F) {
       } else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
         // Initialize WL with 0 parameter calls
         // Only makes sense if a value is returned
-        if (call->getCalledFunction()->getReturnType()->isVoidTy()) continue;
+        if (call->getFunctionType()->getReturnType()->isVoidTy()) continue;
         if (call->getNumArgOperands() != 0) continue;
 
         mWorklist.push(&I);
@@ -327,7 +327,7 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
 
     // Ignore calls without return value
     if (const CallInst* callI = dyn_cast<CallInst>(inst)) {
-      if (callI->getCalledFunction()->getReturnType()->isVoidTy()) {
+      if (callI->getFunctionType()->getReturnType()->isVoidTy()) {
         continue;
       }
     }
@@ -573,8 +573,12 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
 
     case Instruction::Call:
     {
-      const Function* callee = cast<CallInst>(I)->getCalledFunction();
+      const auto* calledValue = cast<CallInst>(I)->getCalledValue();
+      const Function * callee = dyn_cast<Function>(calledValue);
+      if (!callee) return VectorShape::varying(); // calling a non-function
+
       assert (!callee->getReturnType()->isVoidTy());
+
 
       // If the function is rv_align, use the alignment information
       if (callee->getName() == "rv_align") {

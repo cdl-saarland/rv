@@ -202,15 +202,16 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       else vectorizeMemoryInstruction(inst);
     else if (call) {
       // calls need special treatment
-      if (call->getCalledFunction()->getName() == "rv_any")
+      auto * callee = dyn_cast<Function>(call->getCalledValue());
+      if (callee && callee->getName() == "rv_any")
         vectorizeReductionCall(call, false);
-      else if (call->getCalledFunction()->getName() == "rv_all")
+      else if (callee && callee->getName() == "rv_all")
         vectorizeReductionCall(call, true);
-      else if (call->getCalledFunction()->getName() == "rv_extract")
+      else if (callee && callee->getName() == "rv_extract")
         vectorizeExtractCall(call);
-      else if (call->getCalledFunction()->getName() == "rv_ballot")
+      else if (callee && callee->getName() == "rv_ballot")
         vectorizeBallotCall(call);
-      else if (call->getCalledFunction()->getName() == "rv_align")
+      else if (callee && callee->getName() == "rv_align")
         vectorizeAlignCall(call);
       else
         if (vectorizeInterleavedAccess) lazyInstructions.push_back(inst);
@@ -565,11 +566,12 @@ static bool HasSideEffects(CallInst &call) {
 }
 
 void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
-  Function *callee = scalCall->getCalledFunction();
-  StringRef calleeName = callee->getName();
+  Value * callee = scalCall->getCalledValue();
+  Function * calledFunction = dyn_cast<Function>(callee);
 
   // is func is vectorizable (standard mapping exists for given vector width), create new call to vector func
-  if (platformInfo.isFunctionVectorizable(calleeName, vectorWidth())) {
+  if (calledFunction && platformInfo.isFunctionVectorizable(calledFunction->getName(), vectorWidth())) {
+    StringRef calleeName = calledFunction->getName();
 
     CallInst *call = cast<CallInst>(scalCall->clone());
     bool doublePrecision = false;
@@ -678,7 +680,7 @@ void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx)
   // 1) get scalar callee
   // 2) construct arguments
   // 3) create call instruction
-  Function *callee = scalCall->getCalledFunction();
+  auto *callee = scalCall->getCalledValue();
 
   std::vector<Value *> args;
   for (unsigned i = 0; i < scalCall->getNumArgOperands(); ++i) {

@@ -989,6 +989,12 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
   auto * branchCond = analyzeExitCondition(L, vectorWidth);
   if (!branchCond) {
     Report() << "remTrans: can not handle loop exit condition\n";
+    L.print(outs());
+    for (auto * BB : L.blocks()) {
+        outs() << "\n";
+        outs() << *BB;
+      }
+
     return nullptr;
   }
 
