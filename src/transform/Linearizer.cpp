@@ -220,24 +220,19 @@ Linearizer::promoteDefToBlock(BasicBlock & block, SmallVector<Value*, 16> & defs
 
 Value &
 Linearizer::promoteDefinitionExt(SmallVector<Value*, 16> & defs, Value & inst, Value & defaultDef, int defBlockId, int destBlockId) {
-
   assert(defBlockId <= destBlockId);
-
   if (defBlockId == destBlockId) return inst;
-
-  const size_t span = destBlockId - defBlockId;
 
   IF_DEBUG_LIN { errs() << "\t* promoting value " << inst << " from def block " << defBlockId << " to " << destBlockId << "\n"; }
 
+  const size_t span = destBlockId - defBlockId;
   assert(defs.size() > span);
-
-  defs[0] = &inst;
 
   auto instShape = vecInfo.getVectorShape(inst);
 
+  defs[0] = &inst;
   for (size_t i = 1; i < span + 1; ++i) {
     int blockId = defBlockId + i;
-
     auto & block = getBlock(blockId);
 
     defs[i] = &promoteDefToBlock(block, defs, defaultDef, defBlockId, blockId, instShape);
@@ -256,9 +251,7 @@ Linearizer::promoteDefinition(Value & inst, Value & defaultDef, int defBlockId, 
   if (defBlockId == destBlockId) return inst;
 
   const int span = destBlockId - defBlockId;
-
   SmallVector<Value*, 16> defs(span + 1, nullptr);
-
   return promoteDefinitionExt(defs, inst, defaultDef, defBlockId, destBlockId);
 }
 
@@ -350,16 +343,6 @@ Linearizer::needsFolding(TerminatorInst & termInst) {
 static void
 InsertAtFront(BasicBlock & block, Instruction & inst) {
   block.getInstList().insert(block.begin(), &inst);
-}
-
-
-static
-BasicBlock &
-GetExitingBlock(Loop & loop, BasicBlock & exitBlock) {
-  for (auto * pred : predecessors(&exitBlock)) {
-    if (loop.contains(pred)) return *pred;
-  }
-  abort();
 }
 
 
@@ -552,10 +535,7 @@ Linearizer::foldPhis(BasicBlock & block) {
   IF_DEBUG_LIN { errs() << "\t- folding PHIs in " << block.getName() << "\n"; }
 
 // identify all incoming values that stay immediate predecessors of this block
-
-
-
-// after folding multiple immediate predecessors may carry phi inputs in superposition (the former select blocks all re-route through the remaining predecessors)
+  // after folding multiple immediate predecessors may carry phi inputs in superposition (the former select blocks all re-route through the remaining predecessors)
 
   // merges new predecessors to all incoming definitions that are in super position
   std::map<BasicBlock*, SuperInput> selectBlockMap;
@@ -580,13 +560,7 @@ Linearizer::foldPhis(BasicBlock & block) {
     for (size_t i = 0; i < phi.getNumIncomingValues(); ++i) {
       auto * inBlock = phi.getIncomingBlock(i);
 
-      // this incoming block remains an immediate predecessor so its value can only be live in on that block
-      // if (preservedInputBlocks.count(inBlock) && preservedInputBlocks[inBlock] != i) {
-      //   continue;
-      // }
-
       // otw, this value needs blending on any dominated input
-
       if (predBlock == inBlock || predReachingBlocks.count(inBlock)) {
         IF_DEBUG_LIN { errs() <<  "\t      - reaching in block " << inBlock->getName() << "\n";  }
         superposedInBlocks.push_back(inBlock);
@@ -679,25 +653,7 @@ Linearizer::processLoop(int headId, Loop * loop) {
   // inherited relays from the pre-header edge: all targets except loop header
   RelayNode * headRelay = getRelay(headId);
 
-  // assert(headRelay && "could not find relay for loop header");
-
-#if 1
   assert(!vecInfo.isDivergentLoop(loop) && "divLoopTrans should have normalized this loop by now");
-#else
-  // FIXME superseeded by divLoopTrans / maskExpander
-  if (vecInfo.isDivergentLoop(loop)) {
-    ++numDivergentLoops;
-
-    RelayNode * exitRelay = nullptr;
-    if (headRelay) {
-      exitRelay = headRelay -> next;
-    }
-
-    // convert loop into a non-divergent form
-    convertToSingleExitLoop(*loop, exitRelay);
-
-  } else
-#endif
 
   {
     ++numUniformLoops;
@@ -718,9 +674,6 @@ Linearizer::processLoop(int headId, Loop * loop) {
 
   // emit all blocks within the loop (except the latch)
   int latchNodeId = processRange(loopHeadIndex, latchIndex, loop);
-
-  // FIXME repair SSA in the loop here, AFTER loop conversion
-  // repairLiveOutSSA({(val, defStart)}, destId)
 
   // now emit the latch (without descending into its successors)
   emitBlock(latchIndex);
@@ -1231,29 +1184,6 @@ void
 Linearizer::cacheMasks(){
   for (int i = 0; i < getNumBlocks(); ++i) {
     auto & block = getBlock(i);
-    auto * loop = li.getLoopFor(&block);
-
-
-  // cache loop related masks
-    if (loop && loop->getHeader() == &block) {
-      if (vecInfo.isDivergentLoop(loop)) {
-
-      // cache latch masks
-        auto & latch = *loop->getLoopLatch();
-        latchMasks[loop] = maskEx.getEdgeMask(latch, block);
-
-        SmallVector<BasicBlock*, 6> exitBlocks;
-        loop->getExitBlocks(exitBlocks);
-
-      // cache loop exit masks
-        for (auto * exitBlock : exitBlocks) {
-          auto & exiting = GetExitingBlock(*loop, *exitBlock);
-
-          auto * actualLoopExitMask = maskEx.getBlockMask(*exitBlock); // maskAnalysis.getActualLoopExitMask(exiting);
-          setLoopExitMask(exiting, *exitBlock, actualLoopExitMask);
-        }
-      }
-    }
 
 // cache branch masks
    auto & term = *block.getTerminator();
@@ -1413,11 +1343,6 @@ IsConstBool(Value & V, bool isTrue) {
 
 static Value*
 SimplifyBoolSelect(IRBuilder<> & builder, Value & cond, Value & trueVal, Value & falseVal, StringRef selName, ValVec & replacements) {
-#if 0
-#warning "DEBUG HACK: bool select folding disabled!"
-  return nullptr;
-#endif
-
   if (&cond == &trueVal || IsConstBool(trueVal, true)) {
     // "C ? C : B"  or  "C ? True : B"  ->  C || B
     return builder.CreateOr(&cond, &falseVal, selName);

@@ -263,8 +263,6 @@ namespace rv {
     // we invalidate mask analysis's and track edge masks on our own
     void cacheMasks();
 
-    DenseMap<llvm::Loop*, llvm::Value*> latchMasks; // masks from the latch to the header (could be merged with edgeMasks)
-    //
     // whether @block contains a phi node that existed in the original program
     bool containsOriginalPhis(llvm::BasicBlock & block);
 
@@ -272,12 +270,8 @@ namespace rv {
     bool needsFolding(llvm::PHINode & phi);
     void foldPhis(llvm::BasicBlock & block);
 
-  // loop exit masks (A is a loop-exiting block and this returns the condition that this exit is taken at this iteration)
-    EdgeMaskCache loopExitMasks;
-    llvm::Value * getLoopExitMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) { return loopExitMasks[Edge(&start, &dest)]; }
-    void setLoopExitMask(llvm::BasicBlock & start, llvm::BasicBlock & dest, llvm::Value * val) { loopExitMasks[Edge(&start, &dest)] = val; }
-
-  // edge masks (if A is a loop-exiting block this is the aggregate of all instances that have left the loop through this exit)
+  // edge masks
+    // these are cached before the transformation so we can query them eventhough the CFG changes
     EdgeMaskCache edgeMasks; // if true for an edge A->B control proceeds from block A to block B both being executed
     llvm::Value * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) {
       Edge edge(&start, &dest);
@@ -295,14 +289,6 @@ namespace rv {
       assert(val->getType() == Type::getInt1Ty(val->getContext()) && "expected i1 mask type");
       edgeMasks[Edge(&start, &dest)] = val;
     }
-
-  // divergent loop transform
-    // creates a single exiting edge at the latch
-    // adds all old exit blocks as relay targets for the new single exit block
-    // RelayNode & convertToSingleExitLoop(Loop & loop, RelayNode * exitRelay);
-
-    // removes all exiting control edges from @block out of @loop
-    void dropLoopExit(BasicBlock & block, Loop & loop);
 
   // SSA repair
     // \brief make @inst defined in @destBlock by adding PHI nodes with incoming undef edges
