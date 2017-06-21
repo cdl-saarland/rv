@@ -182,8 +182,6 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     return false;
   }
 
-  Module &M = *F->getParent();
-
 // start vectorizing the prepared loop
   IF_DEBUG { errs() << "rv: Vectorizing loop " << L.getName() << "\n"; }
 

@@ -522,7 +522,7 @@ void
 MaskExpander::setEdgeMask(BasicBlock & BB, int succIdx, Value & mask) {
   auto it = edgeMasks.find(&BB);
   if (it != edgeMasks.end()) {
-    if (it->second.size() <= succIdx) {
+    if (it->second.size() <= (size_t) succIdx) {
       it->second.resize(succIdx + 1);
     }
   } else {
@@ -536,7 +536,7 @@ void
 MaskExpander::setBranchMask(BasicBlock & BB, int succIdx, Value & mask) {
   auto it = edgeMasks.find(&BB);
   if (it != edgeMasks.end()) {
-    if (it->second.size() <= succIdx) {
+    if (it->second.size() <= (size_t) succIdx) {
       it->second.resize(succIdx + 1);
     }
   } else {
