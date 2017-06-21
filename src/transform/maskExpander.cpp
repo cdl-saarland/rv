@@ -68,19 +68,64 @@ MaskExpander::getPredecessorEdges(const TerminatorInst & termInst, const  BasicB
 
 Value &
 MaskExpander::requestBranchMask(TerminatorInst & term, int succIdx, IRBuilder<> & builder) {
-  assert(isa<BranchInst>(term) && "TODO implement switches");
-  auto & branch = cast<BranchInst>(term);
-  auto * condVal = branch.isConditional() ? branch.getCondition() : trueConst;
-  if (succIdx == 0) {
-    return *condVal;
+  auto & sourceBlock = *term.getParent();
+  IF_DEBUG_ME { errs() << "# requestBranchMask( " << sourceBlock.getName() << ", " << succIdx << ")\n"; }
+  auto * cached = getBranchMask(term, succIdx);
+  if (cached) return *cached;
+
+  if (isa<BranchInst>(term)) {
+    assert(isa<BranchInst>(term) && "TODO implement switches");
+    auto & branch = cast<BranchInst>(term);
+    auto * condVal = branch.isConditional() ? branch.getCondition() : trueConst;
+    if (succIdx == 0) {
+      return *condVal;
+    }
+
+    assert(succIdx == 1);
+
+    auto * negCond = builder.CreateNot(condVal, "neg." + condVal->getName());
+    if (!isa<Constant>(*negCond)) vecInfo.setVectorShape(*negCond, vecInfo.getVectorShape(*condVal));
+    setBranchMask(sourceBlock, succIdx, *negCond);
+    return *negCond;
+
+  } else if (isa<SwitchInst>(term)) {
+    auto & switchTerm = cast<SwitchInst>(term);
+    auto & switchVal = *switchTerm.getCondition();
+    auto valShape = vecInfo.getVectorShape(switchVal);
+    auto & defaultDest = *switchTerm.getDefaultDest();
+
+    auto itCase = SwitchInst::CaseIt::fromSuccessorIndex(&switchTerm, succIdx);
+    auto & caseBlock = *switchTerm.getSuccessor(succIdx);
+
+    // default case mask = !(case1 || case2 || .. )
+    if (&caseBlock == &defaultDest) {
+      assert(succIdx == 0);
+      Value * joinedMask = nullptr;
+      for (size_t i = 1; i < switchTerm.getNumSuccessors(); ++i) {
+        auto & caseCmp = requestBranchMask(switchTerm, i, builder);
+        if (!joinedMask) joinedMask = &caseCmp;
+        else {
+          joinedMask = builder.CreateOr(joinedMask, &caseCmp, "orcase_" + std::to_string(i));
+          vecInfo.setVectorShape(*joinedMask, valShape);
+        }
+      }
+
+      auto & defaultMask = *builder.CreateNot(joinedMask);
+      vecInfo.setVectorShape(defaultMask, valShape);
+      setBranchMask(sourceBlock, succIdx, defaultMask);
+      return defaultMask;
+
+    // case test, mask = (switchVal == caseVal)
+    } else {
+      auto & caseVal = *itCase.getCaseValue();
+      auto & caseCmp = *builder.CreateICmp(ICmpInst::ICMP_EQ, &caseVal, &switchVal, "caseeq_" + std::to_string(caseVal.getSExtValue()));
+      vecInfo.setVectorShape(caseCmp, valShape);
+      setBranchMask(sourceBlock, succIdx, caseCmp);
+      return caseCmp;
+    }
   }
-
-  assert(succIdx == 1);
-
-  auto * negCond = builder.CreateNot(condVal, "neg." + condVal->getName());
-  if (!isa<Constant>(*negCond)) vecInfo.setVectorShape(*negCond, vecInfo.getVectorShape(*condVal));
-  setBranchMask(*term.getParent(), succIdx, *negCond);
-  return *negCond;
+  assert(false && "unsupported terminator!");
+  abort();
 }
 
 Value &
