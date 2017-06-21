@@ -505,7 +505,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
         case CmpInst::Predicate::ICMP_SLE:
         case CmpInst::Predicate::ICMP_ULE:
           diffShape = -diffShape; // Negate and handle like LESS/GREATER_EQUAL
-          __attribute__((fallthrough));
+          // fallthrough
         case CmpInst::Predicate::ICMP_SLT:
         case CmpInst::Predicate::ICMP_ULT:
         case CmpInst::Predicate::ICMP_SGE:

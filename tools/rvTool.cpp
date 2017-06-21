@@ -41,7 +41,6 @@
 #include "rv/rv.h"
 #include "rv/vectorMapping.h"
 #include "rv/sleefLibrary.h"
-#include "rv/analysis/maskAnalysis.h"
 #include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"

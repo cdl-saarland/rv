@@ -15,7 +15,6 @@
 
 #include "rv/rv.h"
 #include "rv/vectorMapping.h"
-#include "rv/analysis/maskAnalysis.h"
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
 #include "rv/sleefLibrary.h"

@@ -22,14 +22,12 @@
 #include "rv/analysis/DFG.h"
 #include "rv/analysis/VectorizationAnalysis.h"
 
-#include "rv/transform/maskGenerator.h"
 #include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/transform/divLoopTrans.h"
 
 #include "rv/PlatformInfo.h"
 #include "rv/vectorizationInfo.h"
 #include "rv/analysis/DFG.h"
-#include "rv/analysis/maskAnalysis.h"
 #include "rv/analysis/reductionAnalysis.h"
 
 #include "rv/transform/Linearizer.h"
