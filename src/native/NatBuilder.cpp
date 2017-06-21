@@ -17,6 +17,7 @@
 
 
 #include "rv/analysis/reductionAnalysis.h"
+#include "rv/region/Region.h"
 
 #include "rvConfig.h"
 #include "ShuffleBuilder.h"

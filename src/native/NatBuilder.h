@@ -14,7 +14,6 @@
 
 #include <vector>
 
-#include <rv/analysis/maskAnalysis.h>
 #include <rv/vectorizationInfo.h>
 #include <rv/PlatformInfo.h>
 
@@ -22,6 +21,7 @@
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/Transforms/Utils/ValueMapper.h>
 
 namespace rv {
   class Region;
@@ -68,7 +68,7 @@ namespace native {
     llvm::Value& materializeVectorReduce(llvm::IRBuilder<> & builder, llvm::Value & phiInitVal, llvm::Value & vecVal, llvm::Instruction & reduceOp);
 
   public:
-    NatBuilder(rv::PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
+    NatBuilder(rv::PlatformInfo &platformInfo, rv::VectorizationInfo &vectorizationInfo,
                const llvm::DominatorTree &dominatorTree, llvm::MemoryDependenceResults &memDepRes,
                llvm::ScalarEvolution &SE, rv::ReductionAnalysis & _reda);
 

@@ -42,7 +42,6 @@ add_rv_library(RV
   transform/remTransform.cpp
   transform/srovTransform.cpp
   transform/structOpt.cpp
-  utils/maskGraphUtils.cpp
   utils/rvTools.cpp
   vectorMapping.cpp
   vectorShape.cpp
