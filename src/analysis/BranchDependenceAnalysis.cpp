@@ -99,7 +99,8 @@ GetDomRegion(DomTreeNodeBase<BasicBlock> & domNode, ConstBlockSet & domRegion) {
 BranchDependenceAnalysis::BranchDependenceAnalysis(llvm::Function & F, const CDG & _cdg, const DFG & _dfg, const LoopInfo & _loopInfo)
 : pdClosureMap()
 , domClosureMap()
-, effectedBlocks()
+, effectedBlocks_old()
+, effectedBlocks_new()
 , cdg(_cdg)
 , dfg(_dfg)
 , loopInfo(_loopInfo)
@@ -266,14 +267,14 @@ BranchDependenceAnalysis::BranchDependenceAnalysis(llvm::Function & F, const CDG
       if (!branch && !isa<SwitchInst>(term)) continue; // otw, must be a switch
 
       IF_DEBUG_BDA { errs() << branchBlock->getName() << " inf -> " << phiBlock->getName() << "\n"; }
-      effectedBlocks[term].insert(phiBlock);
+      effectedBlocks_old[term].insert(phiBlock);
     }
   }
 
 // final result dump
   IF_DEBUG_BDA {
     errs() << "-- Mapping of br blocks to phi blocks --\n";
-    for (auto it : effectedBlocks) {
+    for (auto it : effectedBlocks_old) {
       auto * brBlock = it.first->getParent();
       auto phiBlocks = it.second;
       errs() << brBlock->getName() << " : "; DumpSet(phiBlocks); errs() <<"\n";
@@ -339,6 +340,46 @@ BranchDependenceAnalysis::computeDomClosure(const BasicBlock & b, ConstBlockSet 
       computeDomClosure(*dfBlock, closure);
     }
   }
+}
+
+const ConstBlockSet&
+BranchDependenceAnalysis::getEffectedBlocks(const llvm::TerminatorInst& term) const {
+  auto& oldblocks = getEffectedBlocks_old(term);
+  auto& newblocks = getEffectedBlocks_new(term);
+
+  //for (auto* BB : newblocks) {
+  //  assert(oldblocks.count(BB) != 0);
+  //}
+
+  return newblocks;
+}
+
+const ConstBlockSet&
+BranchDependenceAnalysis::getEffectedBlocks_new(const llvm::TerminatorInst & term) const {
+  auto it = effectedBlocks_new.find(&term);
+  if (it != effectedBlocks_new.end()) return it->second;
+
+  for (const llvm::BasicBlock& BB : *term.getParent()->getParent()) {
+    if (DPD.divergentPaths(term.getParent(), &BB)) {
+      effectedBlocks_new[&term].insert(&BB);
+    }
+  }
+
+  Loop* l = loopInfo.getLoopFor(term.getParent());
+  if (l) {
+    llvm::SmallVector<BasicBlock*, 4> exits;
+    l->getExitBlocks(exits);
+
+    for (const BasicBlock* exit : exits) {
+      if (DPD.isNotKillExit(term.getParent(), exit, l)) {
+        effectedBlocks_new[&term].insert(exit);
+      }
+    }
+  }
+
+  it = effectedBlocks_new.find(&term);
+  if (it == effectedBlocks_new.end()) return emptySet;
+  return it->second;
 }
 
 

@@ -66,7 +66,9 @@ VectorizationInfo::dumpBlockInfo(const BasicBlock & block) const {
   llvm::raw_ostream & out = llvm::errs();
   const Value * predicate = getPredicate(block);
 
-  out << "Block " << block.getName() << ", predicate ";
+  out << "Block ";
+  block.printAsOperand(out, false);
+  out << ", predicate ";
   if (predicate) out << *predicate; else out << "null";
   out << "\n";
 

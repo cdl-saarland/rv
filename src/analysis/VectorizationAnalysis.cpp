@@ -25,7 +25,7 @@
 #include "utils/mathUtils.h"
 
 #if 1
-#define IF_DEBUG_VA IF_DEBUG
+#define IF_DEBUG_VA if (true)
 #else
 #define IF_DEBUG_VA if (false)
 #endif
@@ -221,11 +221,21 @@ void VectorizationAnalysis::init(const Function& F) {
         if (call->getNumArgOperands() != 0) continue;
 
         mWorklist.push(&I);
-        IF_DEBUG_VA errs() << "Inserted call in initialization: " << I.getName() << "\n";
+
+        IF_DEBUG_VA {
+          errs() << "Inserted call in initialization: ";
+          I.printAsOperand(errs(), false);
+          errs() << "\n";
+        };
       } else if (isa<PHINode>(I) && any_of(I.operands(), isa<Constant, Use>)) {
         // Phis that depend on constants are added to the WL
         mWorklist.push(&I);
-        IF_DEBUG_VA errs() << "Inserted PHI in initialization: " << I.getName() << "\n";
+
+        IF_DEBUG_VA {
+          errs() << "Inserted PHI in initialization: ";
+          I.printAsOperand(errs(), false);
+          errs() << "\n";
+        };
       }
     }
   }
@@ -245,7 +255,12 @@ bool VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
     return false;// nothing changed
   }
 
-  IF_DEBUG_VA errs() << "Marking " << New << ": " << *V << "\n";
+  IF_DEBUG_VA {
+    errs() << "Marking " << New << ": ";
+    V->print(errs(), false);
+    errs() << "\n";
+  };
+
   mVecinfo.setVectorShape(*V, New);
 
   // Add dependent elements to worklist
@@ -261,65 +276,40 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
 
   // Find out which regions diverge because of this non-uniform branch
   // The branch is regarded as varying, even if its condition is only strided
-
-  const BasicBlock* endsVarying = branch->getParent();
-  const Loop* endsVaryingLoop = mLoopInfo.getLoopFor(endsVarying);
-
   for (const auto* BB : BDA.getEffectedBlocks(*branch)) {
-    if (!mVecinfo.inRegion(*BB)) {
+    if (!mVecinfo.inRegion(*BB) || getShape(BB).isVarying()) {
       continue;
     } // filter out irrelevant nodes (FIXME filter out directly in BDA)
 
-    // Doesn't matter if already affected previously
-    if (getShape(BB).isVarying()) continue;
-
-    IF_DEBUG_VA errs() << "Branch <" << *branch << "> affects " << BB->getName() << ".\n";
-
-    // Loop headers are not marked divergent, but can be loop divergent
-    if (mLoopInfo.isLoopHeader(BB)) {
-      const Loop* BBLoop = mLoopInfo.getLoopFor(BB);
-
-      // Already divergent
-      if (mVecinfo.isDivergentLoop(BBLoop)) continue;
-
-      // Loop divergence is caused by varying loop exits
-      if (!BBLoop->isLoopExiting(endsVarying)) continue;
-
-      mVecinfo.setDivergentLoop(BBLoop);
-      updateLCSSAPhisVarying(BBLoop);
-
-      IF_DEBUG_VA {
-        errs() << "\nThe loop with header: " << BB->getName() << " is divergent, "
-               << "because of the non-uniform branch in: " << endsVarying->getName() << "\n";
-      }
-
-      continue;
-    }
-
-    // If the dependence exits the loop, we need to blackbox the loop
-    // If any loop exit is varying, the block is divergent since the loop might
-    // leak information before every thread is done
-    if (endsVaryingLoop && !endsVaryingLoop->contains(BB)) {
-      // If all exits are uniform, we regard as uniform
-      if (allExitsUniform(endsVaryingLoop)) continue;
-    }
-
     mVecinfo.setVectorShape(*BB, VectorShape::varying());
 
+    // Loop exit handling
+    if (const BasicBlock* exiting = BB->getUniquePredecessor()) {
+      if (const Loop* l = mLoopInfo.getLoopFor(exiting)) {
+        if (!mVecinfo.isDivergentLoop(l)) {
+          mVecinfo.setDivergentLoop(l);
+        }
+      }
+    }
+
     IF_DEBUG_VA {
-      errs() << "\n"
-             << "The block:\n"
-             << "    " << BB->getName() << "\n"
-             << "is divergent because of the non-uniform branch in:\n"
-             << "    " << endsVarying->getName() << "\n\n";
+      errs() << "\nThe block:\n    ";
+      BB->printAsOperand(errs(), false);
+      errs() << "\nis divergent because of the non-uniform branch in:\n    ";
+      branch->getParent()->printAsOperand(errs(), false);
+      errs() << "\n\n";
     }
 
     // add phis to worklist
     for (auto & inst : *BB) {
       if (!isa<PHINode>(inst)) break;
-
       mWorklist.push(&inst);
-      IF_DEBUG_VA errs() << "Inserted PHI: " << inst.getName() << "\n";
+
+      IF_DEBUG_VA {
+        errs() << "Inserted PHI: ";
+        inst.printAsOperand(errs(), false);
+        errs() << "\n";
+      };
     }
   }
 }
@@ -409,14 +399,9 @@ bool VectorizationAnalysis::pushMissingOperands(const Instruction* I) {
 }
 
 VectorShape VectorizationAnalysis::computePHIShape(const PHINode & phi) {
-   // check if this PHINode actually joins different values
-   const Value* first = phi.getIncomingValue(0);
-   bool mixingPhi = std::any_of(phi.op_begin() + 1, phi.op_end(),
-                                [&](const Value* op) { return op != first; });
-
-   // the PHI node is not actually varying iff all input operands are the same
+   // The PHI node is not actually varying iff all input operands are the same
    // If the block is divergent the phi is varying
-   if (mixingPhi && getShape(phi.getParent()).isVarying()) {
+   if (getShape(phi.getParent()).isVarying()) {
      // TODO infer greatest common alignment
      return VectorShape::varying();
    } else {

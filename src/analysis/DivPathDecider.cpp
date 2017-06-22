@@ -97,6 +97,10 @@ const DivPathDecider::Node* DivPathDecider::findPath(const Node* source,
 
 bool DivPathDecider::isNotKillExit(const BasicBlock* From, const BasicBlock* Exit, const Loop* loop)
 {
+  if (From == loop->getLoopLatch()) {
+    return Exit->getUniquePredecessor() == From;
+  }
+
   const Node* source = getOutNode(From);
   NodeList sinks = { getOutNode(Exit), getOutNode(loop->getLoopLatch()) };
   return divergentPaths(source, sinks, 2, loop);
@@ -136,7 +140,8 @@ bool DivPathDecider::divergentPaths(const Node* source,
     // Dump.
     llvm::errs() << "Path " << i << " is:\n";
     for (const BasicBlock* BB : forwardpath) {
-      llvm::errs() << " -> " << BB->getName();
+      llvm::errs() << " -> ";
+      BB->printAsOperand(llvm::errs(), false);
     }
     llvm::errs() << "\n";
   }
