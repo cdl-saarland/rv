@@ -4,11 +4,14 @@
 
 #include <llvm/IR/CFG.h>
 #include "rv/analysis/DivPathDecider.h"
+#include "../rvConfig.h"
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <stack>
 #include <unordered_map>
 #include <numeric>
+
+#define IF_DEBUG_DPD if (false)
 
 using llvm::BasicBlock;
 using llvm::Function;
@@ -132,18 +135,20 @@ bool DivPathDecider::divergentPaths(const Node* source,
     injectFlow(source, sink, parent, flow);
   }
 
-  // Extract the paths from the flow
-  for (unsigned i = 0; i < n; ++i) {
-    std::vector<const BasicBlock*> forwardpath;
-    extractPath(source, sinks, flow, forwardpath);
+  IF_DEBUG_DPD {
+    // Extract the paths from the flow
+    for (unsigned i = 0; i < n; ++i) {
+      std::vector<const BasicBlock*> forwardpath;
+      extractPath(source, sinks, flow, forwardpath);
 
-    // Dump.
-    llvm::errs() << "Path " << i << " is:\n";
-    for (const BasicBlock* BB : forwardpath) {
-      llvm::errs() << " -> ";
-      BB->printAsOperand(llvm::errs(), false);
+      // Dump.
+      llvm::errs() << "Path " << i << " is:\n";
+      for (const BasicBlock* BB : forwardpath) {
+        llvm::errs() << " -> ";
+        BB->printAsOperand(llvm::errs(), false);
+      }
+      llvm::errs() << "\n";
     }
-    llvm::errs() << "\n";
   }
 
   return true;
