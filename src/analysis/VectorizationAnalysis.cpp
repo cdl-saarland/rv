@@ -285,11 +285,14 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
 
     // Loop exit handling
     if (const BasicBlock* exiting = BB->getUniquePredecessor()) {
-      if (const Loop* l = mLoopInfo.getLoopFor(exiting)) {
-        if (!mVecinfo.isDivergentLoop(l)) {
-          mVecinfo.setDivergentLoop(l);
-        }
+      const Loop* l = mLoopInfo.getLoopFor(exiting);
+      assert(l);
+
+      if (!mVecinfo.isDivergentLoop(l)) {
+        mVecinfo.setDivergentLoop(l);
       }
+
+      mVecinfo.setNotKillExit(BB);
     }
 
     IF_DEBUG_VA {
@@ -347,34 +350,6 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
 
     mWorklist.push(cast<Instruction>(op));
   }
-}
-
-void VectorizationAnalysis::updateLCSSAPhisVarying(const Loop* divLoop) {
-  SmallVector<BasicBlock*, 3> exitBlocks;
-  divLoop->getExitBlocks(exitBlocks);
-
-  for (auto* exitBlock : exitBlocks) {
-    if (!mVecinfo.inRegion(*exitBlock)) continue;
-
-    for (auto& inst : *exitBlock) {
-      if (!isa<PHINode>(inst)) break;
-      if (overrides.count(&inst) == 0) {
-        update(&inst, VectorShape::varying());
-      }
-    }
-  }
-}
-
-bool VectorizationAnalysis::allExitsUniform(const Loop* loop) {
-  SmallVector<BasicBlock*, 4> exitingBlocks;
-  loop->getExitingBlocks(exitingBlocks);
-
-  for (const BasicBlock* exitingBB : exitingBlocks) {
-    const TerminatorInst* terminator = exitingBB->getTerminator();
-    if (!getShape(terminator).isUniform()) return false;
-  }
-
-  return true;
 }
 
 VectorShape VectorizationAnalysis::joinOperands(const Instruction& I) {

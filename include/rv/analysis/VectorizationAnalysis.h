@@ -127,16 +127,10 @@ private:
   bool updateShape(const llvm::Value* const V, VectorShape AT);
   void analyzeDivergence(const llvm::BranchInst* const branch);
 
-  // Calls update on every user of this PHI that is not in its loop
-  void updateLCSSAPhisVarying(const llvm::Loop* divLoop);
-
   // Adds all dependent values of V to the worklist:
   // - Any user of this value in the region (minus void-returning calls)
   // - Any alloca used by this value if it is not of uniform shape
   void addDependentValuesToWL(const llvm::Value* V);
-
-  // Return true iff all of loop's exit terminators have a uniform shape
-  bool allExitsUniform(const llvm::Loop* loop);
 
   VectorShape joinOperands(const llvm::Instruction& I);
 

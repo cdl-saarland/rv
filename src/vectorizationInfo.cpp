@@ -261,7 +261,13 @@ VectorizationInfo::isMandatory(const BasicBlock* BB) const
 
 bool
 VectorizationInfo::isKillExit(const BasicBlock& BB) const {
-    return !isMandatory(&BB); // TODO figure this out directly in the VA and get rid of mandatory/optional
+    return NonKillExits.count(&BB) == 0;
+}
+
+void
+VectorizationInfo::setNotKillExit(const BasicBlock* block) {
+    assert(block);
+    NonKillExits.insert(block);
 }
 
 LLVMContext &

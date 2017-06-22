@@ -40,6 +40,7 @@ class VectorizationInfo
     std::set<const llvm::Loop*> mDivergentLoops;
 
     std::set<const llvm::BasicBlock*> MandatoryBlocks;
+    std::set<const llvm::BasicBlock*> NonKillExits;
 
     Region* region;
 
@@ -94,6 +95,7 @@ public:
 
     // whether this exit block terminates the loop
     bool isKillExit(const llvm::BasicBlock & block) const;
+    void setNotKillExit(const llvm::BasicBlock* block);
 
     void markMandatory(const llvm::BasicBlock* block);
 

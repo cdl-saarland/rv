@@ -60,7 +60,7 @@ const DivPathDecider::Node* DivPathDecider::findPath(const Node* source,
       // Successors
       for (auto* succ : llvm::successors(runner)) {
         const Node* next = getInNode(succ);
-        if (!TheLoop || TheLoop->contains(succ)) {
+        if (!TheLoop || TheLoop->contains(runner)) {
           if (visited.count(next) == 0 && !flow.count({node, next})) {
             stack.push(next);
             parent[next] = node;
@@ -85,7 +85,7 @@ const DivPathDecider::Node* DivPathDecider::findPath(const Node* source,
       // Predecessors
       for (auto* pred : llvm::predecessors(runner)) {
         const Node* next = getOutNode(pred);
-        if (!TheLoop || TheLoop->contains(pred)) {
+        if (!TheLoop || TheLoop->contains(runner)) {
           if (visited.count(next) == 0 && flow.count({next, node})) {
             stack.push(next);
             parent[next] = node;
