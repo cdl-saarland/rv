@@ -20,6 +20,7 @@ llvm::Type *getVectorType(llvm::Type *type, unsigned width);
 
 llvm::Value *createContiguousVector(unsigned width, Type *type, int start, int stride);
 
+llvm::Value *getConstantVector(unsigned width, Type *type, unsigned value);
 llvm::Value *getConstantVectorPadded(unsigned width, Type *type, std::vector<unsigned> &values);
 
 llvm::Value *getPointerOperand(llvm::Instruction *instr);

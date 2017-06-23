@@ -54,7 +54,7 @@ namespace native {
     bool useScatterGatherIntrinsics;
     bool vectorizeInterleavedAccess;
 
-    rv::VectorShape getShape(const Value & val);
+    rv::VectorShape getVectorShape(const Value &val);
 
     // repair outside uses of redChainInst using repairFunc
     void repairOutsideUses(llvm::Instruction & scaChainInst, std::function<llvm::Value& (llvm::Value &,llvm::BasicBlock &)> repairFunc);
@@ -120,6 +120,14 @@ namespace native {
     llvm::Value *requestVectorValue(llvm::Value *const value);
     llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
                                     bool skipMappingWhenDone = false);
+    llvm::GetElementPtrInst *buildGEP(llvm::GetElementPtrInst *const gep, bool buildScalar, int x);
+    llvm::GetElementPtrInst *requestVectorGEP(llvm::GetElementPtrInst *const gep);
+    llvm::GetElementPtrInst *requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneIdx);
+    llvm::GetElementPtrInst *requestInterleavedGEP(llvm::GetElementPtrInst *const gep, unsigned interleavedIdx);
+    llvm::BitCastInst *requestVectorBitCast(llvm::BitCastInst *const bc);
+    llvm::BitCastInst *requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx);
+    llvm::BitCastInst *requestInterleavedBitCast(llvm::BitCastInst *const bc, unsigned interleavedIdx);
+    llvm::Value *requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx);
     llvm::Value *requestCascadeLoad(llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
     llvm::Value *requestCascadeStore(llvm::Value *vecVal, llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
     llvm::Function *createCascadeMemory(llvm::VectorType *pointerVectorType, unsigned alignment,
@@ -128,8 +136,6 @@ namespace native {
     void mapCascadeFunction(unsigned bitWidth, llvm::Function *function, bool store);
     llvm::Function *getCascadeFunction(unsigned bitWidth, bool store);
 
-    BasicBlockVector &getAllBasicBlocksFor(llvm::BasicBlock *basicBlock);
-
     llvm::Value *createPTest(llvm::Value *vector, bool isRv_all);
     llvm::Value *maskInactiveLanes(llvm::Value *const value, const BasicBlock* const block, bool invert);
 
@@ -137,6 +143,17 @@ namespace native {
 
     bool canVectorize(llvm::Instruction *inst);
     bool shouldVectorize(llvm::Instruction *inst);
+    bool isInterleaved(llvm::Instruction *inst, llvm::Value *accessedPtr, int byteSize, std::vector<Value *> &srcs);
+
+    llvm::Value *createUniformMaskedMemory(llvm::Instruction *inst, llvm::Type *accessedType, unsigned int alignment,
+                                           llvm::Value *addr, llvm::Value *mask, llvm::Value *values);
+    llvm::Value *createVaryingMemory(llvm::Type *vecType, unsigned int alignment, llvm::Value *addr, llvm::Value *mask,
+                                     llvm::Value *values);
+    void createInterleavedMemory(llvm::Type *vecType, unsigned alignment, std::vector<Value *> *addr, llvm::Value *mask,
+                                     std::vector<Value *> *values, std::vector<Value *> *srcs);
+
+    llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, unsigned alignment, llvm::Value *mask);
+    llvm::Value *createContiguousLoad(llvm::Value *ptr, unsigned alignment, llvm::Value *mask, llvm::Value *passThru);
 
   };
 }

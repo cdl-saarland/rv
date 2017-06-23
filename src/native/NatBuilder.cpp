@@ -28,8 +28,7 @@ using namespace native;
 using namespace llvm;
 using namespace rv;
 
-VectorShape
-NatBuilder::getShape(const Value & val) {
+VectorShape NatBuilder::getVectorShape(const Value &val) {
   if (vectorizationInfo.hasKnownShape(val)) return vectorizationInfo.getVectorShape(val);
   else return VectorShape::uni();
 }
@@ -294,7 +293,7 @@ void NatBuilder::vectorizeAllocaInstruction(AllocaInst *const alloca) {
 
 void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
   assert(vectorizationInfo.hasKnownShape(*scalPhi) && "no VectorShape for PHINode available!");
-  VectorShape shape = getShape(*scalPhi);
+  VectorShape shape = getVectorShape(*scalPhi);
   Type *scalType = scalPhi->getType();
   Type *type = !shape.isVarying() || scalType->isVectorTy() || scalType->isStructTy() ?
                scalType : getVectorType(scalPhi->getType(), vectorWidth());
@@ -330,7 +329,7 @@ GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const 
   if (buildVectorGEP && baseGEP)
     scalPtr = baseGEP->getPointerOperand();
 
-  VectorShape opShape = getShape(*scalPtr);
+  VectorShape opShape = getVectorShape(*scalPtr);
   Value *ptr;
   if (opShape.isUniform() || !buildVectorGEP)
     ptr = requestScalarValue(scalPtr);
@@ -353,14 +352,14 @@ GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const 
   if (buildVectorGEP && baseGEP) {
     for (unsigned i = 0; i < gep->getNumIndices() - 1; ++i) {
       Value *operand = baseGEP->getOperand(i + 1);
-      opShape = getShape(*operand);
+      opShape = getVectorShape(*operand);
       idxList[i] = opShape.isUniform() ? requestScalarValue(operand) : requestVectorValue(operand);
     }
     offset = baseGEP->getNumIndices() - 1;
     Value *lastOp = baseGEP->getOperand(baseGEP->getNumIndices());
     Value *firstOp = gep->getOperand(1);
-    VectorShape shape1 = getShape(*lastOp);
-    VectorShape shape2 = getShape(*firstOp);
+    VectorShape shape1 = getVectorShape(*lastOp);
+    VectorShape shape2 = getVectorShape(*firstOp);
     if (shape1.isUniform() && shape2.isUniform()) {
       lastOp = requestScalarValue(lastOp);
       firstOp = requestScalarValue(firstOp);
@@ -384,7 +383,7 @@ GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const 
 
   for (unsigned i = start; i < gep->getNumIndices(); ++i) {
     Value *operand = gep->getOperand(i + 1);
-    opShape = getShape(*operand);
+    opShape = getVectorShape(*operand);
     Value *index = buildVectorGEP && !opShape.isUniform() ? requestVectorValue(operand) : requestScalarValue(operand);
     idxList[i + offset] = index;
 
@@ -418,10 +417,10 @@ void NatBuilder::copyInstruction(Instruction *const inst, unsigned laneIdx) {
   Instruction *cpInst = inst->clone();
   BranchInst *branch = dyn_cast<BranchInst>(cpInst);
   if (branch && vectorizationInfo.hasKnownShape(*inst))
-    assert(getShape(*inst).isUniform() && "branch not uniform");
+    assert(getVectorShape(*inst).isUniform() && "branch not uniform");
   if (branch && branch->isConditional()) {
     Value *cond = branch->getCondition();
-    VectorShape shape = getShape(*cond);
+    VectorShape shape = getVectorShape(*cond);
     cond = shape.isUniform() ? requestScalarValue(cond) : createPTest(requestVectorValue(cond), false);
     branch->setCondition(cond);
 
@@ -481,7 +480,7 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
   assert(rvCall->getNumArgOperands() == 1 && "expected only 1 argument for rv_any");
 
   Value *predicate = rvCall->getArgOperand(0);
-  const VectorShape &shape = getShape(*predicate);
+  const VectorShape &shape = getVectorShape(*predicate);
   assert((shape.isVarying() || shape.isUniform()) && "predicate can't be contigious or strided");
 
   Value *reduction;
@@ -502,7 +501,7 @@ NatBuilder::vectorizeExtractCall(CallInst *rvCall) {
   Value *vecArg = rvCall->getArgOperand(0);
 
 // uniform arg
-  if (getShape(*vecArg).isUniform()) {
+  if (getVectorShape(*vecArg).isUniform()) {
     auto * uniVal = requestScalarValue(vecArg);
     mapScalarValue(rvCall, uniVal);
     return;
@@ -510,7 +509,7 @@ NatBuilder::vectorizeExtractCall(CallInst *rvCall) {
 
 // non-uniform arg
   auto * vecVal = requestVectorValue(vecArg);
-  assert(getShape(*rvCall->getArgOperand(1)).isUniform());
+  assert(getVectorShape(*rvCall->getArgOperand(1)).isUniform());
   auto * laneId = requestScalarValue(rvCall->getArgOperand(1));
 
   auto * laneVal = builder.CreateExtractElement(vecVal, laneId, "rv_ext");
@@ -524,7 +523,7 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
   Value *condArg = rvCall->getArgOperand(0);
 
 // uniform arg
-  if (getShape(*condArg).isUniform()) {
+  if (getVectorShape(*condArg).isUniform()) {
     auto * uniVal = requestScalarValue(condArg);
     uniVal = builder.CreateZExt(uniVal, i32Ty, "rv_ballot");
     mapScalarValue(rvCall, uniVal);
@@ -555,7 +554,7 @@ NatBuilder::vectorizeAlignCall(CallInst *rvCall) {
 
   Value *vecArg = rvCall->getArgOperand(0);
 
-  if (getShape(*vecArg).isVarying())
+  if (getVectorShape(*vecArg).isVarying())
     mapVectorValue(rvCall, requestVectorValue(vecArg));
   else
     mapScalarValue(rvCall, requestScalarValue(vecArg));
@@ -711,349 +710,244 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     accessedPtr = store->getPointerOperand();
   }
 
-  assert(accessedType == cast<PointerType>(accessedPtr->getType())->getElementType() && "accessed type and pointed object type differ!");
+  assert(accessedType == cast<PointerType>(accessedPtr->getType())->getElementType() &&
+         "accessed type and pointed object type differ!");
   assert(vectorizationInfo.hasKnownShape(*accessedPtr) && "no shape for accessed pointer!");
-  VectorShape addrShape = getShape(*accessedPtr);
+  VectorShape addrShape = getVectorShape(*accessedPtr);
+  VectorShape instrShape = getVectorShape(*inst);
+  Type *vecType = getVectorType(accessedType, vectorWidth());
 
-  // address: uniform -> scalar op. contiguous -> scalar from vector-width address. varying -> scatter/gather
-  Value *vecPtr = nullptr;
-
-  // check if predicate is non-trivial and set needsMask flag accordingly
+  Value *mask = nullptr;
   Value *predicate = vectorizationInfo.getPredicate(*inst->getParent());
   assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
   bool needsMask = !isa<Constant>(predicate);
 
-  Type *vecType = addrShape.isUniform() ? accessedType : getVectorType(accessedType, vectorWidth());
+  if (needsMask)
+    mask = requestVectorValue(predicate);
+  else
+    mask = getConstantVector(vectorWidth(), i1Ty, 1);
 
-  // alignments and contiguous check
-  unsigned origAlignment = load ? load->getAlignment() : store->getAlignment();
-  unsigned alignment = 0;
-  bool byteContiguous = addrShape.isStrided(static_cast<int>(layout.getTypeStoreSize(accessedType)));
+  // generate the address for the memory instruction now
+  // uniform: uniform GEP
+  // contiguous: contiguous GEP
+  // interleaved: multiple contiguous GEPs
+  // varying: varying vector GEP
 
-  // used for memory-interleaving
-  bool isInterleaved = false;
-  MemoryGroup memGroup;
-  std::map<const SCEV *, Instruction *> scevInstrMap;
-  std::vector<Value *> sourceAddrs;
-  std::vector<Value *> sources;
+  std::vector<Value *> addr;
+  std::vector<Value *> srcs;
+  unsigned alignment;
+  bool interleaved = false;
+  int byteSize = static_cast<int>(layout.getTypeStoreSize(accessedType));
 
-  if (addrShape.isContiguous() || byteContiguous) {
+  if (addrShape.isUniform()) {
+    addr.push_back(requestScalarValue(accessedPtr));
+    alignment = instrShape.getAlignmentFirst();
+
+  } else if (addrShape.isContiguous() || addrShape.isStrided(byteSize)) {
     // cast pointer to vector-width pointer
-    Value *mappedPtr = requestScalarValue(accessedPtr);
+    Value *ptr = requestScalarValue(accessedPtr);
     PointerType *vecPtrType = PointerType::getUnqual(vecType);
-    vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
-    alignment = addrShape.getAlignmentFirst();
+    addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
+    alignment = instrShape.getAlignmentFirst();
 
-  } else if (addrShape.isUniform()) {
-    vecPtr = requestScalarValue(accessedPtr);
-    alignment = addrShape.getAlignmentFirst();
-
-  } else if (addrShape.isStrided()) {
-    // group memory instructions based on their dependencies
-    InstructionGrouper instructionGrouper;
-    instructionGrouper.add(inst, memDepRes);
-    for (Instruction *instr : lazyInstructions) {
-      instructionGrouper.add(instr, memDepRes);
+  } else if (addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) {
+    for (unsigned i = 0; i < srcs.size(); ++i) {
+      Value *srcPtr = getPointerOperand(cast<Instruction>(srcs[i]));
+      Value *ptr = requestInterleavedAddress(srcPtr, i);
+      addr.push_back(ptr);
     }
-    InstructionGroup instrGroup = instructionGrouper.getInstructionGroup(inst);
-    if (instrGroup.size() > 1) {
-      // group our group based on memory layout next
-      MemoryAccessGrouper memoryGrouper(SE, static_cast<unsigned>(layout.getTypeStoreSize(accessedType)));
-      std::map<Value *, const SCEV *> addrSCEVMap;
-      for (Instruction *instr : instrGroup) {
-        Value *addrVal = getPointerOperand(instr);
-        assert(addrVal && "grouped instruction was not a memory instruction!!");
-        // only group strided accesses
-        VectorShape shape = getShape(*addrVal);
-        bool groupByteContiguous = addrShape.isStrided(static_cast<int>(layout.getTypeStoreSize(cast<PointerType>(accessedPtr->getType())->getElementType())));
-        if (!shape.isStrided() || groupByteContiguous)
-          continue;
-        const SCEV *scev = memoryGrouper.add(addrVal);
-        addrSCEVMap[addrVal] = scev;
-        scevInstrMap[scev] = instr;
-      }
+    alignment = instrShape.getAlignmentFirst();
+    interleaved = true;
 
-      // check if there is an interleaved memory group for our base address
-      memGroup = memoryGrouper.getMemoryGroup(addrSCEVMap[accessedPtr]);
-      int stride = addrShape.getStride() / (accessedType->getScalarSizeInBits() / 8);
-      bool hasGaps = false;
-      for (unsigned i = 0; i < memGroup.size(); ++i) {
-        if (!memGroup[i]) {
-          hasGaps = true;
-          break;
-        }
-      }
-
-      // we have found a memory group if it has no gaps and the size is bigger than 1
-      isInterleaved = !hasGaps && memGroup.size() > 1 && static_cast<int>(memGroup.size()) == stride;
-
-      // TODO: support interleaved for structs
-      if (isStructAccess(accessedPtr))
-        isInterleaved = false;
-    }
-
-    if (isInterleaved) {
-      // build as many contiguous GEPs as there are members of the group and shuffle them
-      unsigned offset = 0;
-      unsigned maskIdx = 0;
-      for (auto SCEV : memGroup) {
-        Instruction *sourceMem = scevInstrMap[SCEV];
-        sources.push_back(sourceMem);
-        assert(sourceMem && "no source instruction available for this SCEV");
-        if (!offset)
-          accessedPtr = getPointerOperand(sourceMem);
-        Value *mappedPtr;
-
-        // generate scalar gep on the fly (because we need offsets)
-        if (isa<GetElementPtrInst>(accessedPtr))
-          mappedPtr = vectorizeGEPInstruction(cast<GetElementPtrInst>(accessedPtr), false, offset, true);
-        else {
-          mappedPtr = requestScalarValue(accessedPtr);
-          if (offset > 0)
-            mappedPtr = builder.CreateGEP(mappedPtr, ConstantInt::get(i32Ty, offset, true));
-        }
-        PointerType *vecPtrType = PointerType::getUnqual(vecType);
-        vecPtr = builder.CreatePointerCast(mappedPtr, vecPtrType, "vec_cast");
-        sourceAddrs.push_back(vecPtr);
-
-        offset += vectorWidth();
-        ++maskIdx;
-      }
-    }
-
-
-    alignment = addrShape.getAlignmentGeneral();
+  } else {
+    addr.push_back(requestVectorValue(accessedPtr));
+    alignment = instrShape.getAlignmentGeneral();
   }
 
-  if (addrShape.isVarying() || (!byteContiguous && addrShape.isStrided() && !isInterleaved)) {
-    // varying or non-interleaved strided. gather the addresses for the lanes
-    vecPtr = isa<Argument>(accessedPtr) ? getScalarValue(accessedPtr) : getVectorValue(accessedPtr);
-    if (!vecPtr) {
-      vecPtr = UndefValue::get(getVectorType(accessedPtr->getType(), vectorWidth()));
-      for (unsigned i = 0; i < vectorWidth(); ++i) {
-        Value *lanePtr = requestScalarValue(accessedPtr, i);
-        vecPtr = builder.CreateInsertElement(vecPtr, lanePtr, ConstantInt::get(i32Ty, i));
-      }
-      mapVectorValue(accessedPtr, vecPtr);
-    }
-    alignment = addrShape.getAlignmentGeneral();
-  }
+  unsigned origAlignment = load ? load->getAlignment() : store->getAlignment();
+  alignment = std::max<unsigned>(alignment, origAlignment);
 
-  // take greatest available alignment
-  alignment = std::max<uint>(origAlignment, alignment);
-
-  Value *mask = nullptr;
   Value *vecMem = nullptr;
   if (load) {
-    if (isInterleaved) {
-      ShuffleBuilder maskShuffler(vectorWidth());
-      if (needsMask) {
-        mask = requestVectorValue(predicate);
-        for (unsigned i = 0; needsMask && i < memGroup.size(); ++i) {
-          maskShuffler.add(mask);
-        }
-      }
+    if (needsMask && addrShape.isUniform()) {
+      assert(addr.size() == 1 && "multiple addresses for single access!");
+      mask = createPTest(mask, false);
+      vecMem = createUniformMaskedMemory(load, accessedType, alignment, addr[0], mask, nullptr);
 
-      assert(sourceAddrs.size() == sources.size() && "too few or too many sources!");
+    } else if ((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !needsMask) {
+      assert(addr.size() == 1 && "multiple addresses for single access!");
+      vecMem = createContiguousLoad(addr[0], alignment, needsMask ? mask : nullptr, UndefValue::get(vecType));
 
-      std::vector<Value *> loads;
-      for (unsigned i = 0; i < sources.size(); ++i) {
-        Value *sourceLoad = sources[i];
-
-        // need to recompute alignment
-        alignment = getShape(*sourceLoad).getAlignmentFirst();
-        origAlignment = cast<LoadInst>(sourceLoad)->getAlignment();
-        alignment = std::max<uint>(origAlignment, alignment);
-
-        vecPtr = sourceAddrs[i];
-        if (needsMask) {
-          mask = maskShuffler.shuffleToInterleaved(builder, memGroup.size(), i);
-          loads.push_back(builder.CreateMaskedLoad(vecPtr, alignment, mask, nullptr, "interleaved_load"));
-        } else {
-          Value *interLoad = builder.CreateLoad(vecPtr, "interleaved_load");
-          cast<LoadInst>(interLoad)->setAlignment(alignment);
-          loads.push_back(interLoad);
-        }
-      }
-
-      assert(loads.size() == sources.size() && "not enough interleaved loads");
-
-      // create as many shuffles as there are loads
-      ShuffleBuilder shuffleBuilder(loads, vectorWidth());
-      unsigned stride = static_cast<unsigned>(loads.size());
-      for (unsigned i = 0; i < sources.size(); ++i) {
-        // start = 0, stride = sources.size
-        Value *shuffle = shuffleBuilder.shuffleFromInterleaved(builder, stride, i);
-        mapVectorValue(sources[i], shuffle);
-      }
-
-      // early return because everything is done
-      return;
-
-    } else if (addrShape.isUniform() && needsMask) {
-      // create two new basic blocks
-      mask = createPTest(requestVectorValue(predicate), false);
-      BasicBlock *loadBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "load_block",
-                                                 &vectorizationInfo.getVectorFunction());
-      BasicBlock *continueBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "cont_block",
-                                                     &vectorizationInfo.getVectorFunction());
-      BasicBlock *origBlock = load->getParent();
-
-      // conditionally branch to both
-      builder.CreateCondBr(mask, loadBlock, continueBlock);
-      builder.SetInsertPoint(loadBlock);
-
-      vecMem = builder.CreateLoad(vecPtr, "scal_mask_load");
-      cast<LoadInst>(vecMem)->setAlignment(alignment);
-
-      builder.CreateBr(continueBlock);
-      builder.SetInsertPoint(continueBlock);
-
-      BasicBlock *vecOrigBlock = cast<BasicBlock>(getVectorValue(origBlock, true));
-      PHINode *phi = builder.CreatePHI(accessedType, 2, "scal_mask_load_phi");
-      phi->addIncoming(vecMem, loadBlock);
-      phi->addIncoming(UndefValue::get(accessedType), vecOrigBlock);
-
-      vecMem = phi;
-      mapVectorValue(origBlock, loadBlock);
-      mapVectorValue(origBlock, continueBlock);
-
-    } else if ((addrShape.isUniform() || addrShape.isContiguous() || byteContiguous) && !needsMask) {
-      std::string name = addrShape.isUniform() ? "scal_load" : "vec_load";
-      vecMem = builder.CreateLoad(vecPtr, name);
-      cast<LoadInst>(vecMem)->setAlignment(alignment);
+    } else if (interleaved) {
+      assert(addr.size() > 1 && "only one address for multiple accesses!");
+      createInterleavedMemory(vecType, alignment, &addr, needsMask ? mask : nullptr, nullptr, &srcs);
 
     } else {
-
-      if (needsMask) mask = requestVectorValue(predicate);
-      else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
-
-      if (addrShape.isVarying() || (addrShape.isStrided() && !byteContiguous)) {
-        if (useScatterGatherIntrinsics) {
-          std::vector<Value *> args;
-          args.push_back(vecPtr);
-          args.push_back(ConstantInt::get(i32Ty, alignment));
-          args.push_back(mask);
-          args.push_back(UndefValue::get(vecType));
-          Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
-          Function *gatherIntr = Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, vecType);
-          assert(gatherIntr && "masked gather not found!");
-          vecMem = builder.CreateCall(gatherIntr, args, "gather");
-        } else
-          vecMem = requestCascadeLoad(vecPtr, alignment, mask);
-
-      } else
-        vecMem = builder.CreateMaskedLoad(vecPtr, alignment, mask, 0, "masked_vec_load");
+      assert(addr.size() == 1 && "multiple addresses for single access!");
+      vecMem = createVaryingMemory(vecType, alignment, addr[0], mask, nullptr);
     }
+
+
   } else {
-
     Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
-                                                   : requestVectorValue(storedValue);
+                                                             : requestVectorValue(storedValue);
 
-    if (isInterleaved) {
-      ShuffleBuilder maskShuffler(vectorWidth());
-      if (needsMask) {
-        mask = requestVectorValue(predicate);
-        for (unsigned i = 0; needsMask && i < memGroup.size(); ++i) {
-          maskShuffler.add(mask);
-        }
-      }
+    if (needsMask && addrShape.isUniform()) {
+      assert(addr.size() == 1 && "multiple addresses for single access!");
+      mask = createPTest(mask, false);
+      vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr[0], mask, mappedStoredVal);
 
-      assert(sourceAddrs.size() == sources.size() && "too few or too many sources!");
+    } else if ((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !needsMask) {
+      assert(addr.size() == 1 && "multiple addresses for single access!");
+      vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment, needsMask ? mask : nullptr);
 
-      // shuffle the source values
-      ShuffleBuilder shuffleBuilder(vectorWidth());
-      unsigned stride = static_cast<unsigned>(sources.size());
-      for (unsigned i = 0; i < sources.size(); ++i) {
-        Value *sourceStore = sources[i];
-        storedValue = cast<StoreInst>(sourceStore)->getValueOperand();
-        mappedStoredVal = requestVectorValue(storedValue);
-        shuffleBuilder.add(mappedStoredVal);
-      }
-
-      std::vector<Value *> valShuffles;
-      for (unsigned i = 0; i < sources.size(); ++i) {
-        // start = 0, stride = sources.size
-        valShuffles.push_back(shuffleBuilder.shuffleToInterleaved(builder, stride, i));
-      }
-
-      for (unsigned i = 0; i < sources.size(); ++i) {
-        Value *sourceStore = sources[i];
-
-        // need to recompute alignment
-        alignment = getShape(*sourceStore).getAlignmentFirst();
-        origAlignment = cast<StoreInst>(sourceStore)->getAlignment();
-        alignment = std::max<uint>(origAlignment, alignment);
-
-        vecPtr = sourceAddrs[i];
-        mappedStoredVal = valShuffles[i];
-        if (needsMask) {
-          mask = maskShuffler.shuffleToInterleaved(builder, stride, i);
-          vecMem = builder.CreateMaskedStore(mappedStoredVal, vecPtr, alignment, mask);
-        } else {
-          vecMem = builder.CreateStore(mappedStoredVal, vecPtr);
-          cast<StoreInst>(vecMem)->setAlignment(alignment);
-        }
-
-        mapVectorValue(sourceStore, vecMem);
-      }
-
-      // early return because everything is done
-      return;
-
-    } else if (addrShape.isUniform() && needsMask) {
-      // create two new basic blocks
-      mask = createPTest(requestVectorValue(predicate), false);
-      BasicBlock *storeBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "store_block",
-                                                  &vectorizationInfo.getVectorFunction());
-      BasicBlock *continueBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "cont_block",
-                                                     &vectorizationInfo.getVectorFunction());
-      BasicBlock *origBlock = store->getParent();
-
-      // conditionally branch to both
-      builder.CreateCondBr(mask, storeBlock, continueBlock);
-      builder.SetInsertPoint(storeBlock);
-
-      vecMem = builder.CreateStore(mappedStoredVal, vecPtr);
-      cast<StoreInst>(vecMem)->setAlignment(alignment);
-
-      builder.CreateBr(continueBlock);
-      builder.SetInsertPoint(continueBlock);
-
-      mapVectorValue(origBlock, storeBlock);
-      mapVectorValue(origBlock, continueBlock);
-
-    } else if ((addrShape.isUniform() || addrShape.isContiguous() || byteContiguous) && !needsMask) {
-      vecMem = builder.CreateStore(mappedStoredVal, vecPtr);
-      cast<StoreInst>(vecMem)->setAlignment(alignment);
+    } else if (interleaved) {
+      assert(addr.size() > 1 && "only one address for multiple accesses!");
+      std::vector<Value *> vals; // TODO
+      createInterleavedMemory(vecType, alignment, &addr, needsMask ? mask : nullptr, &vals, &srcs);
 
     } else {
-      if (needsMask) mask = requestVectorValue(predicate);
-      else mask = builder.CreateVectorSplat(vectorWidth(), ConstantInt::get(i1Ty, 1), "true_mask");
-
-      if (addrShape.isVarying() || (addrShape.isStrided() && !byteContiguous)) {
-        if (useScatterGatherIntrinsics) {
-          std::vector<Value *> args;
-          args.push_back(mappedStoredVal);
-          args.push_back(vecPtr);
-          args.push_back(ConstantInt::get(i32Ty, alignment));
-          args.push_back(mask);
-          Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
-          Function *scatterIntr = Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, vecType);
-          assert(scatterIntr && "masked scatter not found!");
-          vecMem = builder.CreateCall(scatterIntr, args);
-        } else
-          vecMem = requestCascadeStore(mappedStoredVal, vecPtr, alignment, mask);
-
-      } else
-        vecMem = builder.CreateMaskedStore(mappedStoredVal, vecPtr, alignment, mask);
+      assert(addr.size() == 1 && "multiple addresses for single access!");
+      vecMem = createVaryingMemory(vecType, alignment, addr[0], mask, mappedStoredVal);
     }
   }
 
-  if (addrShape.isUniform())
-    mapScalarValue(inst, vecMem);
-  else
-    mapVectorValue(inst, vecMem);
+
+  // interleaved case creates mapping
+  if (!interleaved) {
+    if (addrShape.isUniform())
+      mapScalarValue(inst, vecMem);
+    else
+      mapVectorValue(inst, vecMem);
+  }
+
+  return;
+}
+
+Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedType, unsigned int alignment,
+                                             Value *addr, Value *mask, Value *values) {
+
+  assert((values && isa<StoreInst>(inst)) || (!values && isa<LoadInst>(inst)));
+
+  // create two new basic blocks
+  BasicBlock *memBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "mem_block",
+                                            &vectorizationInfo.getVectorFunction());
+  BasicBlock *continueBlock = BasicBlock::Create(vectorizationInfo.getVectorFunction().getContext(), "cont_block",
+                                                 &vectorizationInfo.getVectorFunction());
+  BasicBlock *origBlock = inst->getParent();
+
+  // conditionally branch to both
+  builder.CreateCondBr(mask, memBlock, continueBlock);
+  builder.SetInsertPoint(memBlock);
+
+  Instruction *vecMem;
+  if (values) {
+    vecMem = builder.CreateStore(values, addr);
+    cast<StoreInst>(vecMem)->setAlignment(alignment);
+  } else {
+    vecMem = builder.CreateLoad(addr, "scal_mask_mem");
+    cast<LoadInst>(vecMem)->setAlignment(alignment);
+  }
+
+  builder.CreateBr(continueBlock);
+  builder.SetInsertPoint(continueBlock);
+
+  BasicBlock *vecOrigBlock = cast<BasicBlock>(getVectorValue(origBlock, true));
+  PHINode *phi = values ? nullptr : builder.CreatePHI(accessedType, 2, "scal_mask_mem_phi");
+
+  if (phi) {
+    phi->addIncoming(vecMem, memBlock);
+    phi->addIncoming(UndefValue::get(accessedType), vecOrigBlock);
+    vecMem = phi;
+  }
+
+  mapVectorValue(origBlock, memBlock);
+  mapVectorValue(origBlock, continueBlock);
+  return vecMem;
+}
+
+Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Value *addr, Value *mask,
+                                       Value *values) {
+  bool scatter(values != nullptr);
+
+  if (useScatterGatherIntrinsics) {
+    std::vector<Value *> args;
+    if (scatter) args.push_back(values);
+    args.push_back(addr);
+    args.push_back(ConstantInt::get(i32Ty, alignment));
+    args.push_back(mask);
+    if (!scatter) args.push_back(UndefValue::get(vecType));
+    Module *mod = vectorizationInfo.getMapping().vectorFn->getParent();
+    Function *intr = scatter ? Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, vecType)
+                             : Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, vecType);
+    assert(intr && "scatter/gather not found!");
+    return builder.CreateCall(intr, args);
+
+  } else
+    return requestCascadeStore(values, addr, alignment, mask);
+}
+
+void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std::vector<Value *> *addr, Value *mask,
+                                         std::vector<Value *> *values, std::vector<Value *> *srcs) {
+  unsigned stride = (unsigned) addr->size();
+  bool needsMask = mask != nullptr;
+  bool load = values == nullptr;
+
+  // tranpose mask and values if needed
+  ShuffleBuilder maskTransposer(vectorWidth());
+  if (needsMask)
+    for (unsigned i = 0; i < stride; ++i) {
+      maskTransposer.add(mask);
+    }
+
+  // build interleaved loads/stores
+  Value *vecMem;
+  ShuffleBuilder transposer(vectorWidth());
+  if (!load)
+    transposer.add(*values);
+
+  for (unsigned i = 0; i < stride; ++i) {
+    Value *ptr = (*addr)[i];
+    mask = needsMask ? maskTransposer.shuffleToInterleaved(builder, stride, i) : nullptr;
+
+    if (load) {
+      vecMem = createContiguousLoad(ptr, alignment, mask, UndefValue::get(vecType));
+      transposer.add(vecMem);
+    } else {
+      Value *val = transposer.shuffleToInterleaved(builder, stride, i);
+      vecMem = createContiguousStore(val, ptr, alignment, mask);
+      mapVectorValue((*srcs)[i], vecMem);
+    }
+  }
+  if (load) {
+    // de-interleave and map
+    for (unsigned i = 0; i < stride; ++i) {
+      vecMem = transposer.shuffleFromInterleaved(builder, stride, i);
+      mapVectorValue((*srcs)[i], vecMem);
+    }
+  }
+}
+
+Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, unsigned alignment, Value *mask) {
+  if (mask) {
+    return builder.CreateMaskedStore(val, ptr, alignment, mask);
+
+  } else {
+    StoreInst *store = builder.CreateStore(val, ptr);
+    store->setAlignment(alignment);
+    return store;
+  }
+}
+
+Value *NatBuilder::createContiguousLoad(Value *ptr, unsigned alignment, Value *mask, Value *passThru) {
+  if (mask) {
+    return builder.CreateMaskedLoad(ptr, alignment, mask, passThru, "cont_load");
+
+  } else {
+    LoadInst *load = builder.CreateLoad(ptr, "cont_load");
+    load->setAlignment(alignment);
+    return load;
+  }
 }
 
 void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
@@ -1118,7 +1012,7 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
   if (!vecValue) {
     vecValue = getScalarValue(value);
     // check shape for value. if there is one and it is contiguous, cast to vector and add <0,1,2,...,n-1>
-    VectorShape shape = getShape(*value);
+    VectorShape shape = getVectorShape(*value);
 
     Instruction *vecInst = dyn_cast<Instruction>(vecValue);
     auto oldIP = builder.GetInsertPoint();
@@ -1186,7 +1080,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   Value *reqVal = nullptr;
 
   if (vectorizationInfo.hasKnownShape(*value)) {
-    VectorShape shape = getShape(*value);
+    VectorShape shape = getVectorShape(*value);
     Type *type = value->getType();
     mappedVal = getScalarValue(value);
     if (mappedVal && (shape.isContiguous() || shape.isStrided()) &&
@@ -1422,19 +1316,19 @@ Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigne
   return func;
 }
 
-void NatBuilder::mapCascadeFunction(unsigned bitWidth, llvm::Function *function, bool store) {
+void NatBuilder::mapCascadeFunction(unsigned bitWidth, Function *function, bool store) {
   if (store) cascadeStoreMap[bitWidth] = function;
   else cascadeLoadMap[bitWidth] = function;
 }
 
-llvm::Function *NatBuilder::getCascadeFunction(unsigned bitWidth, bool store) {
+Function *NatBuilder::getCascadeFunction(unsigned bitWidth, bool store) {
   auto mapIt = store ? cascadeStoreMap.find(bitWidth) : cascadeLoadMap.find(bitWidth);
   auto mapEt = store ? cascadeStoreMap.end() : cascadeLoadMap.end();
   if (mapIt != mapEt) return mapIt->second;
   return nullptr;
 }
 
-llvm::Value *NatBuilder::createPTest(llvm::Value *vector, bool isRv_all) {
+Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
   assert(vector->getType()->isVectorTy() && "given value is no vector type!");
   assert(cast<VectorType>(vector->getType())->getElementType()->isIntegerTy(1) &&
          "vector elements must have i1 type!");
@@ -1455,7 +1349,7 @@ llvm::Value *NatBuilder::createPTest(llvm::Value *vector, bool isRv_all) {
   return ptest;
 }
 
-llvm::Value *NatBuilder::maskInactiveLanes(llvm::Value *const value, const BasicBlock* const block, bool invert) {
+Value *NatBuilder::maskInactiveLanes(Value *const value, const BasicBlock* const block, bool invert) {
     auto pred = requestVectorValue(vectorizationInfo.getPredicate(*block));
     if (invert) {
         return builder.CreateOr(value, builder.CreateNot(pred));
@@ -1690,7 +1584,7 @@ void NatBuilder::addValuesToPHINodes() {
 
   for (PHINode *scalPhi : phiVector) {
     assert(vectorizationInfo.hasKnownShape(*scalPhi) && "no VectorShape for PHINode available!");
-    VectorShape shape = getShape(*scalPhi);
+    VectorShape shape = getVectorShape(*scalPhi);
     Type *scalType = scalPhi->getType();
 
     // replicate phi <vector_width> times if type is not vectorizable
@@ -1785,7 +1679,7 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
   if (scalarIt != scalarValueMap.end()) {
     VectorShape shape;
     if (vectorizationInfo.hasKnownShape(*value)) {
-      shape = getShape(*value);
+      shape = getVectorShape(*value);
       if (shape.isUniform()) laneIdx = 0;
     }
 
@@ -1793,12 +1687,6 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
     if (laneValues.size() > laneIdx) return laneValues[laneIdx];
     else return nullptr;
   } else return nullptr;
-}
-
-BasicBlockVector &NatBuilder::getAllBasicBlocksFor(llvm::BasicBlock *basicBlock) {
-  auto blockIt = basicBlockMap.find(basicBlock);
-  assert(blockIt != basicBlockMap.end() && "blocks must already exist for basicBlock!");
-  return blockIt->second;
 }
 
 unsigned NatBuilder::vectorWidth() {
@@ -1848,7 +1736,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
   // 4) at least one of these conditions holds for at least one operand
   // Note: branch instructions are never vectorized
 
-  VectorShape shape = getShape(*inst);
+  VectorShape shape = getVectorShape(*inst);
 
   if (isa<BranchInst>(inst)) {
     assert(shape.isUniform() && "non-uniform branch!");
@@ -1864,7 +1752,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
     Function &func = vectorizationInfo.getVectorFunction();
     if (func.getReturnType()->isVectorTy()) {
       IF_DEBUG {
-        const VectorShape &retShape = getShape(*inst);
+        const VectorShape &retShape = getVectorShape(*inst);
         if (retShape.isUniform()) {
           errs() << "Warning: Uniform return in Function with Vector Type!\n";
           inst->dump();
@@ -1879,7 +1767,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
 
   for (unsigned i = 0; i < inst->getNumOperands(); ++i) {
     Value *op = inst->getOperand(i);
-    VectorShape opShape = getShape(*op);
+    VectorShape opShape = getVectorShape(*op);
 
     if (opShape.isVarying())
       return true;
@@ -1889,4 +1777,55 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
   }
 
   return false;
+}
+
+bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSize, std::vector<Value *> &srcs) {
+  // TODO: support interleaved for structs
+  if (isStructAccess(accessedPtr))
+    return false;
+    
+  // group memory instructions based on their dependencies
+  InstructionGrouper instructionGrouper;
+  instructionGrouper.add(inst, memDepRes);
+  for (Instruction *instr : lazyInstructions) {
+    instructionGrouper.add(instr, memDepRes);
+  }
+  
+  InstructionGroup instrGroup = instructionGrouper.getInstructionGroup(inst);
+  if (instrGroup.size() <= 1)
+    return false;
+
+  const VectorShape &addrShape = getVectorShape(*accessedPtr);
+  
+  // group our group based on memory layout next
+  MemoryAccessGrouper memoryGrouper(SE, static_cast<unsigned>(byteSize));
+  std::map<Value *, const SCEV *> addrSCEVMap;
+  std::map<const SCEV *, Value *> scevInstrMap;
+  for (Instruction *instr : instrGroup) {
+    Value *addrVal = getPointerOperand(instr);
+    assert(addrVal && "grouped instruction was not a memory instruction!!");
+    // only group strided accesses
+    VectorShape shape = getVectorShape(*addrVal);
+    bool groupByteContiguous = shape.isStrided(static_cast<int>(layout.getTypeStoreSize(cast<PointerType>(addrVal->getType())->getElementType())));
+    if (!shape.isStrided() || groupByteContiguous)
+      continue;
+    const SCEV *scev = memoryGrouper.add(addrVal);
+    addrSCEVMap[addrVal] = scev;
+    scevInstrMap[scev] = instr;
+  }
+
+  // check if there is an interleaved memory group for our base address
+  const MemoryGroup &memGroup = memoryGrouper.getMemoryGroup(addrSCEVMap[accessedPtr]);
+  int stride = addrShape.getStride() / byteSize;
+  bool hasGaps = false;
+  for (unsigned i = 0; i < memGroup.size(); ++i) {
+    if (!memGroup[i]) {
+      hasGaps = true;
+      break;
+    }
+    srcs.push_back(scevInstrMap[memGroup[i]]);
+  }
+
+  // we have found a memory group if it has no gaps and the size is bigger than 1
+  return !hasGaps && memGroup.size() > 1 && static_cast<int>(memGroup.size()) == stride;
 }

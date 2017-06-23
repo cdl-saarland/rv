@@ -22,10 +22,11 @@ namespace native {
 
   public:
     ShuffleBuilder(unsigned vectorWidth) : vectorWidth(vectorWidth), inputVectors() {}
-    ShuffleBuilder(std::vector<llvm::Value *> sources, unsigned vectorWidth) : vectorWidth(vectorWidth),
+    ShuffleBuilder(std::vector<llvm::Value *> &sources, unsigned vectorWidth) : vectorWidth(vectorWidth),
                                                                                inputVectors(sources) {}
 
     void add(llvm::Value *vector);
+    void add(std::vector<llvm::Value *> &sources) { inputVectors = sources; }
     llvm::Value *shuffleFromInterleaved(llvm::IRBuilder<> &builder, unsigned stride, unsigned start);
     llvm::Value *shuffleToInterleaved(llvm::IRBuilder<> &builder, unsigned stride, unsigned start);
   };
