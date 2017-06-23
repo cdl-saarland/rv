@@ -93,8 +93,6 @@ namespace native {
     void vectorizeExtractCall(CallInst *rvCall);
     void vectorizeBallotCall(CallInst *rvCall);
     void vectorizeAlignCall(CallInst *rvCall);
-    GetElementPtrInst *vectorizeGEPInstruction(GetElementPtrInst *const gep, bool buildVectorGEP, unsigned interleavedIndex = 0,
-                                                bool skipMapping = false);
 
     void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
     void copyCallInstruction(llvm::CallInst *const scalCall, unsigned laneIdx = 0);
@@ -106,6 +104,7 @@ namespace native {
     void mapOperandsInto(llvm::Instruction *const scalInst, llvm::Instruction *inst, bool vectorizedInst,
                          unsigned laneIdx = 0);
 
+    llvm::SmallPtrSet<llvm::Instruction *, 16> keepScalar;
     llvm::DenseMap<unsigned, llvm::Function *> cascadeLoadMap;
     llvm::DenseMap<unsigned, llvm::Function *> cascadeStoreMap;
     llvm::DenseMap<const llvm::Value *, llvm::Value *> vectorValueMap;
@@ -113,21 +112,21 @@ namespace native {
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
     std::map<const llvm::Type *, MemoryAccessGrouper> grouperMap;
     std::vector<llvm::PHINode *> phiVector;
-//    std::vector<llvm::Instruction *> willNotVectorize;
     std::deque<llvm::Instruction *> lazyInstructions;
 
     void requestLazyInstructions(llvm::Instruction *const upToInstruction);
     llvm::Value *requestVectorValue(llvm::Value *const value);
     llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
                                     bool skipMappingWhenDone = false);
-    llvm::GetElementPtrInst *buildGEP(llvm::GetElementPtrInst *const gep, bool buildScalar, int x);
+    llvm::GetElementPtrInst *buildGEP(llvm::GetElementPtrInst *const gep, bool buildScalar, unsigned laneIdx);
     llvm::GetElementPtrInst *requestVectorGEP(llvm::GetElementPtrInst *const gep);
     llvm::GetElementPtrInst *requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneIdx);
-    llvm::GetElementPtrInst *requestInterleavedGEP(llvm::GetElementPtrInst *const gep, unsigned interleavedIdx);
     llvm::BitCastInst *requestVectorBitCast(llvm::BitCastInst *const bc);
     llvm::BitCastInst *requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx);
-    llvm::BitCastInst *requestInterleavedBitCast(llvm::BitCastInst *const bc, unsigned interleavedIdx);
+    
+    llvm::GetElementPtrInst *requestInterleavedGEP(llvm::GetElementPtrInst *const gep, unsigned interleavedIdx);
     llvm::Value *requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx);
+    
     llvm::Value *requestCascadeLoad(llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
     llvm::Value *requestCascadeStore(llvm::Value *vecVal, llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
     llvm::Function *createCascadeMemory(llvm::VectorType *pointerVectorType, unsigned alignment,
@@ -145,15 +144,17 @@ namespace native {
     bool shouldVectorize(llvm::Instruction *inst);
     bool isInterleaved(llvm::Instruction *inst, llvm::Value *accessedPtr, int byteSize, std::vector<Value *> &srcs);
 
-    llvm::Value *createUniformMaskedMemory(llvm::Instruction *inst, llvm::Type *accessedType, unsigned int alignment,
+    llvm::Value *createUniformMaskedMemory(llvm::Instruction *inst, llvm::Type *accessedType, unsigned alignment,
                                            llvm::Value *addr, llvm::Value *mask, llvm::Value *values);
-    llvm::Value *createVaryingMemory(llvm::Type *vecType, unsigned int alignment, llvm::Value *addr, llvm::Value *mask,
+    llvm::Value *createVaryingMemory(llvm::Type *vecType, unsigned alignment, llvm::Value *addr, llvm::Value *mask,
                                      llvm::Value *values);
     void createInterleavedMemory(llvm::Type *vecType, unsigned alignment, std::vector<Value *> *addr, llvm::Value *mask,
                                      std::vector<Value *> *values, std::vector<Value *> *srcs);
 
     llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, unsigned alignment, llvm::Value *mask);
     llvm::Value *createContiguousLoad(llvm::Value *ptr, unsigned alignment, llvm::Value *mask, llvm::Value *passThru);
+
+    void visitMemInstructions();
 
   };
 }

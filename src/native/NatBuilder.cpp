@@ -11,6 +11,7 @@
 
 #include <llvm/ADT/PostOrderIterator.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/InstIterator.h>
 
 #include "NatBuilder.h"
 #include "Utils.h"
@@ -49,6 +50,7 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     region(vectorizationInfo.getRegion()),
     useScatterGatherIntrinsics(true),
     vectorizeInterleavedAccess(false),
+    keepScalar(),
     cascadeLoadMap(),
     cascadeStoreMap(),
     vectorValueMap(),
@@ -56,7 +58,6 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     basicBlockMap(),
     grouperMap(),
     phiVector(),
-//    willNotVectorize(),
     lazyInstructions() {}
 
 void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
@@ -193,6 +194,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     StoreInst *store = dyn_cast<StoreInst>(inst);
     CallInst *call = dyn_cast<CallInst>(inst);
     GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(inst);
+    BitCastInst *bc = dyn_cast<BitCastInst>(inst);
     AllocaInst *alloca = dyn_cast<AllocaInst>(inst);
 
     // loads and stores need special treatment (masking, shuffling, etc) (build them lazily)
@@ -237,12 +239,8 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
 //        }
 //    }
       fallbackVectorize(inst);
-    } else if (gep) {
-//      unsigned laneEnd = shouldVectorize(gep) ? vectorWidth() : 1;
-//      for (unsigned lane = 0; lane < laneEnd; ++lane) {
-//        vectorizeGEPInstruction(gep, lane, laneEnd == vectorWidth());
-//      }
-      vectorizeGEPInstruction(gep, shouldVectorize(gep));
+    } else if (gep || bc) {
+      continue; // skipped
     } else if (canVectorize(inst) && shouldVectorize(inst))
       vectorize(inst);
     else if (!canVectorize(inst) && shouldVectorize(inst))
@@ -310,104 +308,6 @@ void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
       mapScalarValue(scalPhi, phi, lane);
   }
   phiVector.push_back(scalPhi);
-}
-
-GetElementPtrInst *NatBuilder::vectorizeGEPInstruction(GetElementPtrInst *const gep, bool buildVectorGEP,
-                                                        unsigned interleavedIndex,
-                                                        bool skipMapping) {
-  assert(gep->getNumOperands() - 1 == gep->getNumIndices() && "LLVM Code for GEP changed!");
-  Value *scalPtr = gep->getPointerOperand();
-
-  if (isa<Instruction>(scalPtr))
-    assert(vectorizationInfo.hasKnownShape(*scalPtr) && "no shape for instruction!!");
-
-  // we need to build an expanded GEP if we are building a vector GEP and the base pointer is also a GEP
-  // expanded GEP means: base pointer of used GEP, indices of used GEP, then indices of current GEP
-
-  // ptr expansion
-  GetElementPtrInst *baseGEP = nullptr; // don't do gep cascading dyn_cast<GetElementPtrInst>(scalPtr);
-  if (buildVectorGEP && baseGEP)
-    scalPtr = baseGEP->getPointerOperand();
-
-  VectorShape opShape = getVectorShape(*scalPtr);
-  Value *ptr;
-  if (opShape.isUniform() || !buildVectorGEP)
-    ptr = requestScalarValue(scalPtr);
-  else if (isa<AllocaInst>(scalPtr)) {
-    ptr = UndefValue::get(getVectorType(scalPtr->getType(), vectorWidth()));
-    for (unsigned i = 0; i < vectorWidth(); ++i) {
-      Value *insert = requestScalarValue(scalPtr, i);
-      ptr = builder.CreateInsertElement(ptr, insert, i);
-    }
-  } else
-    ptr = requestVectorValue(scalPtr);
-
-
-  // index expansion
-  unsigned offset = 0;
-  unsigned start = 0;
-  unsigned numIndices = (buildVectorGEP && baseGEP) ? (gep->getNumIndices() + baseGEP->getNumIndices() - 1)
-                                                  : gep->getNumIndices();
-  Value **idxList = new Value *[numIndices];
-  if (buildVectorGEP && baseGEP) {
-    for (unsigned i = 0; i < gep->getNumIndices() - 1; ++i) {
-      Value *operand = baseGEP->getOperand(i + 1);
-      opShape = getVectorShape(*operand);
-      idxList[i] = opShape.isUniform() ? requestScalarValue(operand) : requestVectorValue(operand);
-    }
-    offset = baseGEP->getNumIndices() - 1;
-    Value *lastOp = baseGEP->getOperand(baseGEP->getNumIndices());
-    Value *firstOp = gep->getOperand(1);
-    VectorShape shape1 = getVectorShape(*lastOp);
-    VectorShape shape2 = getVectorShape(*firstOp);
-    if (shape1.isUniform() && shape2.isUniform()) {
-      lastOp = requestScalarValue(lastOp);
-      firstOp = requestScalarValue(firstOp);
-    } else {
-      lastOp = requestVectorValue(lastOp);
-      firstOp = requestVectorValue(firstOp);
-    }
-
-    Type *lastType = lastOp->getType();
-    Type *firstType = firstOp->getType();
-    if (lastType != firstType) {
-      unsigned lastSize = lastType->getScalarSizeInBits(), firstSize = firstType->getScalarSizeInBits();
-      if (lastSize > firstSize)
-        firstOp = builder.CreateSExt(firstOp, lastType);
-      else
-        lastOp = builder.CreateSExt(lastOp, firstType);
-    }
-    idxList[offset] = builder.CreateAdd(lastOp, firstOp);
-    start = 1;
-  }
-
-  for (unsigned i = start; i < gep->getNumIndices(); ++i) {
-    Value *operand = gep->getOperand(i + 1);
-    opShape = getVectorShape(*operand);
-    Value *index = buildVectorGEP && !opShape.isUniform() ? requestVectorValue(operand) : requestScalarValue(operand);
-    idxList[i + offset] = index;
-
-    if (interleavedIndex > 0 && !opShape.isUniform()) {
-      assert(!buildVectorGEP && "interleavedIndex > 0 outside of interleaved!");
-      Type *lastIndexType = index->getType();
-      Constant *offsetConst = ConstantInt::get(lastIndexType, interleavedIndex, true);
-      idxList[i + offset] = builder.CreateAdd(index, offsetConst);
-    }
-  }
-  GetElementPtrInst *vgep = cast<GetElementPtrInst>(
-      builder.CreateGEP(ptr, ArrayRef<Value *>(idxList, numIndices), gep->getName()));
-  vgep->setIsInBounds(gep->isInBounds());
-
-  // might skip mapping
-  if (!skipMapping) {
-    if (buildVectorGEP)
-      mapVectorValue(gep, vgep);
-    else
-      mapScalarValue(gep, vgep);
-  }
-  delete [] idxList;
-
-  return vgep;
 }
 
 /* expects that builder has valid insertion point set */
@@ -774,7 +674,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       mask = createPTest(mask, false);
       vecMem = createUniformMaskedMemory(load, accessedType, alignment, addr[0], mask, nullptr);
 
-    } else if ((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !needsMask) {
+    } else if ((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       vecMem = createContiguousLoad(addr[0], alignment, needsMask ? mask : nullptr, UndefValue::get(vecType));
 
@@ -797,7 +697,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       mask = createPTest(mask, false);
       vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr[0], mask, mappedStoredVal);
 
-    } else if ((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !needsMask) {
+    } else if ((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment, needsMask ? mask : nullptr);
 
@@ -884,7 +784,7 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
     return builder.CreateCall(intr, args);
 
   } else
-    return requestCascadeStore(values, addr, alignment, mask);
+    return scatter ? requestCascadeStore(values, addr, alignment, mask) : requestCascadeLoad(addr, alignment, mask);
 }
 
 void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std::vector<Value *> *addr, Value *mask,
@@ -1002,6 +902,13 @@ void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
 }
 
 Value *NatBuilder::requestVectorValue(Value *const value) {
+  if (isa<GetElementPtrInst>(value))
+    return requestVectorGEP(cast<GetElementPtrInst>(value));
+
+  if (isa<BitCastInst>(value)) {
+    return requestVectorBitCast(cast<BitCastInst>(value));
+  }
+
   if (isa<Instruction>(value)) {
     Instruction *lazyMemInstr = cast<Instruction>(value);
     if (std::find(lazyInstructions.begin(), lazyInstructions.end(), lazyMemInstr) != lazyInstructions.end())
@@ -1067,6 +974,12 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
 }
 
 Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool skipMappingWhenDone) {
+  if (isa<GetElementPtrInst>(value))
+    return requestScalarGEP(cast<GetElementPtrInst>(value), laneIdx);
+
+  if (isa<BitCastInst>(value))
+    return requestScalarBitCast(cast<BitCastInst>(value), laneIdx);
+
   if (isa<Instruction>(value)) {
     Instruction *lazyMemInstr = cast<Instruction>(value);
     if (std::find(lazyInstructions.begin(), lazyInstructions.end(), lazyMemInstr) != lazyInstructions.end())
@@ -1096,14 +1009,19 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
 
   // if value has a vector mapping -> extract from vector. if not -> clone scalar op
   if (!reqVal) {
-    mappedVal = getVectorValue(value);
-    // to avoid dominance problems assume: if we only have a vectorized value and need a scalar one -> do not map!
+    // to avoid dominance problems assume: if we only have a vectorized value and need a scalar one -> do not map
     skipMappingWhenDone = true;
+    mappedVal = getVectorValue(value);
     Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
     auto oldIP = builder.GetInsertPoint();
     auto oldIB = builder.GetInsertBlock();
     if (mappedInst) {
-      if (mappedInst->getParent()->getTerminator())
+      Instruction *nextNode = mappedInst->getNextNode();
+      while (nextNode && isa<PHINode>(nextNode))
+        nextNode = nextNode->getNextNode();
+      if (nextNode) {
+        builder.SetInsertPoint(nextNode);
+      } else if (mappedInst->getParent()->getTerminator())
         builder.SetInsertPoint(mappedInst->getParent()->getTerminator());
       else
         builder.SetInsertPoint(mappedInst->getParent());
@@ -1122,8 +1040,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     else {
       // extract from GEPs are not allowed. in that case recreate the scalar instruction and get that new value
       if (isa<GetElementPtrInst>(mappedVal) && isa<GetElementPtrInst>(value)) {
-        reqVal = vectorizeGEPInstruction(cast<GetElementPtrInst>(value), false, laneIdx, true);
-        mapScalarValue(value, reqVal, laneIdx);
+        reqVal = builder.CreateGEP(mappedVal, ConstantInt::get(i32Ty, laneIdx));
       } else {
         assert(!isa<GetElementPtrInst>(mappedVal) && "Extract from GEPs are not allowed!!");
         reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
@@ -1142,6 +1059,102 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   // only map if normal request. fresh requests will not get mapped
   if (!skipMappingWhenDone) mapScalarValue(value, reqVal, laneIdx);
   return reqVal;
+}
+
+GetElementPtrInst *
+NatBuilder::buildGEP(GetElementPtrInst *const gep, bool buildScalar, unsigned laneIdx) {
+  assert(gep->getNumOperands() - 1 == gep->getNumIndices() && "llvm implementation for GEP changed!");
+
+  // first, we need a vectorized base vecValue (or scalar if all_uniform). then, we have to calculate the indices
+  // we need vector values if something is not all_uniform. we need to extract an dimension if !buildAllDimensions
+  Value *basePtr = gep->getPointerOperand();
+  VectorShape basePtrShape = getVectorShape(*basePtr);
+
+  Value *vecBasePtr;
+  if (buildScalar || basePtrShape.isUniform())
+    vecBasePtr = requestScalarValue(basePtr, laneIdx);
+  else
+    vecBasePtr = requestVectorValue(basePtr);
+
+  std::vector<Value *> idxList;
+  idxList.reserve(gep->getNumIndices());
+  for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
+    Value *idx = gep->getOperand(i + 1);
+    VectorShape idxShape = getVectorShape(*idx);
+
+    Value *vecIdx;
+    if (buildScalar || (idxShape.isUniform() && !basePtrShape.isUniform()))
+      vecIdx = requestScalarValue(idx, laneIdx);
+    else {
+      vecIdx = requestVectorValue(idx);
+    }
+
+    idxList.push_back(vecIdx);
+  }
+
+  GetElementPtrInst *vecGEP = cast<GetElementPtrInst>(builder.CreateGEP(vecBasePtr, idxList, gep->getName()));
+  vecGEP->setIsInBounds(gep->isInBounds());
+
+  return vecGEP;
+}
+
+GetElementPtrInst *NatBuilder::requestVectorGEP(GetElementPtrInst *const gep) {
+  return buildGEP(gep, false, 0);
+}
+
+GetElementPtrInst *NatBuilder::requestScalarGEP(GetElementPtrInst *const gep, unsigned laneIdx) {
+  return buildGEP(gep, true, laneIdx);
+}
+
+BitCastInst *NatBuilder::requestVectorBitCast(BitCastInst *const bc) {
+  assert(bc->getNumOperands() == 1 && "code for bitcasts changed!");
+  Value *op = bc->getOperand(0);
+  Value *vecOp = requestVectorValue(op);
+  Type *vecType = getVectorType(bc->getType(), vectorWidth());
+  return cast<BitCastInst>(builder.CreateBitCast(vecOp, vecType, bc->getName()));
+}
+
+BitCastInst *NatBuilder::requestScalarBitCast(BitCastInst *const bc, unsigned laneIdx) {
+  assert(bc->getNumOperands() == 1 && "code for bitcasts changed!");
+  Value *op = bc->getOperand(0);
+  Value *scalOp = requestScalarValue(op, laneIdx);
+  return cast<BitCastInst>(builder.CreateBitCast(scalOp, bc->getType(), bc->getName()));
+}
+
+GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const gep, unsigned interleavedIdx) {
+  assert(gep->getNumOperands() - 1 == gep->getNumIndices() && "llvm implementation for GEP changed!");
+
+  // first, we need a vectorized base vecValue (or scalar if all_uniform). then, we have to calculate the indices
+  // we need vector values if something is not all_uniform. we need to extract an dimension if !buildAllDimensions
+  Value *scalBasePtr = gep->getPointerOperand();
+  Value *basePtr = requestScalarValue(scalBasePtr);
+
+  std::vector<Value *> idxList;
+  idxList.reserve(gep->getNumIndices());
+  for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
+    Value *idx = gep->getOperand(i + 1);
+    Value *interIdx = requestScalarValue(idx);
+
+    if (interleavedIdx > 0 && i == gep->getNumIndices() - 1)
+      interIdx = builder.CreateAdd(interIdx, ConstantInt::get(i32Ty, vectorWidth() * interleavedIdx));
+
+    idxList.push_back(interIdx);
+  }
+
+  GetElementPtrInst *interGEP = cast<GetElementPtrInst>(builder.CreateGEP(basePtr, idxList, "inter_gep"));
+  interGEP->setIsInBounds(gep->isInBounds());
+
+  return interGEP;
+}
+
+Value *NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx) {
+  if (isa<GetElementPtrInst>(addr))
+    return requestInterleavedGEP(cast<GetElementPtrInst>(addr), interleavedIdx);
+
+  else {
+    Value *ptr = requestScalarValue(addr);
+    return builder.CreateGEP(ptr, ConstantInt::get(i32Ty, vectorWidth() * interleavedIdx), "inter_gep");
+  }
 }
 
 Value *NatBuilder::requestCascadeLoad(Value *vecPtr, unsigned alignment, Value *mask) {
@@ -1696,6 +1709,9 @@ unsigned NatBuilder::vectorWidth() {
 bool NatBuilder::canVectorize(Instruction *const inst) {
   // whitelisting approach. for direct vectorization we support:
   // binary operations (normal & bitwise), memory access operations, conversion operations and other operations
+  // force fallback for instructions in keepScalar
+  if (keepScalar.count(inst))
+    return false;
 
   // memory instruction that has no aggregate type anywhere
   if (isa<LoadInst>(inst) || isa<StoreInst>(inst)) {
@@ -1828,4 +1844,97 @@ bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSi
 
   // we have found a memory group if it has no gaps and the size is bigger than 1
   return !hasGaps && memGroup.size() > 1 && static_cast<int>(memGroup.size()) == stride;
+}
+
+void NatBuilder::visitMemInstructions() {
+  // iterate over all instructions of all basic blocks (order does not matter)
+  // if we encounter a memory instruction, check if we would scalarize or optimize it
+  // if yes, add the address instruction to a queue
+  // then, work the queue until empty: check if the operands are binary integer instructions
+  // if we can keep this instruction scalar, add their users and their operands to the queue
+  // instructions that will be kept scalar, are added to a vector
+  std::deque<Instruction *> workQueue;
+  Function *scalarFn = vectorizationInfo.getMapping().scalarFn;
+  for (inst_iterator I = inst_begin(scalarFn), E = inst_end(scalarFn); I != E; ++I) {
+    Instruction *inst = &*I;
+    LoadInst *load = dyn_cast<LoadInst>(inst);
+    StoreInst *store = dyn_cast<StoreInst>(inst);
+
+    if (!(load || store)) continue;
+
+    Value *addr = load ? load->getPointerOperand() : store->getPointerOperand();
+    VectorShape addrShape = getVectorShape(*addr);
+    Type *accessedType = load ? load->getType() : store->getValueOperand()->getType();
+    int byteSize = static_cast<int>(layout.getTypeStoreSize(accessedType));
+
+    // keep scalar if uniform or contiguous
+    if (isa<Instruction>(addr) && (addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) {
+      workQueue.push_back(cast<Instruction>(addr));
+//      keepScalar.insert(cast<Instruction>(addr));
+    }
+  }
+
+  SmallPtrSet<Instruction *, 16> visited;
+  while (!workQueue.empty()) {
+    Instruction *inst = workQueue.front();
+    workQueue.pop_front();
+    visited.insert(inst);
+
+    GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(inst);
+    BitCastInst *bc = dyn_cast<BitCastInst>(inst);
+    BinaryOperator *binOp = dyn_cast<BinaryOperator>(inst);
+    Type *type = inst->getType();
+
+    assert((gep || bc || binOp) && "unsupported instruction in queue");
+
+    // we only care about index calculation, which are exclusively integer type
+    if (binOp && !type->isIntegerTy()) continue;
+
+    // we will not vectorize it if we do not have to anyway. so nothing to do
+    if (binOp && !shouldVectorize(inst)) continue;
+
+    // if all users of this instruction are part of the keepScalar set, we keep this one scalar as well
+    bool notScalar = false;
+    for (auto user : inst->users()) {
+      Instruction *uInst = dyn_cast<Instruction>(user);
+      LoadInst *load = dyn_cast<LoadInst>(user);
+      StoreInst *store = dyn_cast<StoreInst>(user);
+
+      if (!uInst) continue; // nothing to do if it is a constant
+
+      if ((bc || gep) && (load || store)) {
+        VectorShape addrShape = getVectorShape(*inst);
+        Type *accessedType = load ? load->getType() : store->getValueOperand()->getType();
+        int byteSize = static_cast<int>(layout.getTypeStoreSize(accessedType));
+
+        if (!(addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) {
+          notScalar = true;
+          break;
+        }
+        continue;
+      }
+
+      if (!keepScalar.count(uInst)) {
+        notScalar = true;
+        break;
+      }
+    }
+
+    // cannot keep this scalar -> nothing to do
+    if (notScalar) continue;
+
+    // can keep this scalar! add to set and add operands to queue if they are GEP, BC or binOp
+    keepScalar.insert(inst);
+
+    // add all operands to the queue
+    for (unsigned i = 0, iE = gep ? gep->getNumIndices() : inst->getNumOperands(); i < iE; ++i) {
+      Value *op = gep ? inst->getOperand(i + 1) : inst->getOperand(i);
+      GetElementPtrInst *opGEP = dyn_cast<GetElementPtrInst>(op);
+      BitCastInst *opBC = dyn_cast<BitCastInst>(op);
+      BinaryOperator *opBinOp = dyn_cast<BinaryOperator>(op);
+
+      if ((opGEP || opBC || opBinOp) && !visited.count(cast<Instruction>(op)))
+        workQueue.push_back(cast<Instruction>(op));
+    }
+  }
 }
