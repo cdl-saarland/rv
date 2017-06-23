@@ -196,11 +196,9 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
   ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
   reda.analyze();
 
-  bool embedControl = !vecInstMap;
-
 // vectorize with native
   native::NatBuilder natBuilder(platInfo, vecInfo, domTree, MDR, SE, reda);
-  natBuilder.vectorize(embedControl, vecInstMap);
+  natBuilder.vectorize(true, vecInstMap);
 
   // IR Polish phase: promote i1 vectors and perform early instruction (read: intrinsic) selection
   if (!CheckFlag("RV_DISABLE_POLISH")) {
