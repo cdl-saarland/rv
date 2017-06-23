@@ -24,3 +24,9 @@ bin/**
 clang_complete
 
 amd/*
+
+mkrename
+renameavx2.h
+renameavx.h
+renamesse2.h
+sleef.h
