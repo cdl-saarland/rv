@@ -119,6 +119,7 @@ def requestLauncher(launchCode, prefix):
     return launcherLL
 
 def runWFVTest(testBC, launchCode, profileMode):
+    shellCmd(clangLine + " " + testBC + " -c -S -o " + testBC + ".s")
     try:
       caseName = plainName(testBC)
       if profileMode:

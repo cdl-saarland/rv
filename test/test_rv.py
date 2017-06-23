@@ -51,7 +51,7 @@ def profileTest(profileMode, numSamples, func):
 
 
 def wholeFunctionVectorize(srcFile, argMappings):
-  baseName = path.basename(srcFile)
+  baseName = path.basename(srcFile).split(".")[0]
   destFile = "build/" + baseName + ".wfv.ll"
   logPrefix =  "logs/"  + baseName + ".wfv"
   scalarName = "foo"
@@ -59,7 +59,7 @@ def wholeFunctionVectorize(srcFile, argMappings):
   return destFile if ret == 0 else None
 
 def outerLoopVectorize(srcFile, loopDesc):
-  baseName = path.basename(srcFile)
+  baseName = path.basename(srcFile).split(".")[0]
   destFile = "build/" + baseName + ".loopvec.ll"
   logPrefix =  "logs/"  + baseName + ".loopvec"
   scalarName = "foo"
