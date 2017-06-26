@@ -148,7 +148,7 @@ namespace native {
                                            llvm::Value *addr, llvm::Value *mask, llvm::Value *values);
     llvm::Value *createVaryingMemory(llvm::Type *vecType, unsigned alignment, llvm::Value *addr, llvm::Value *mask,
                                      llvm::Value *values);
-    void createInterleavedMemory(llvm::Type *vecType, unsigned alignment, std::vector<Value *> *addr, llvm::Value *mask,
+    void createInterleavedMemory(llvm::Type *vecType, unsigned alignment, std::vector<Value *> *addr, std::vector<llvm::Value *> *mask,
                                      std::vector<Value *> *values, std::vector<Value *> *srcs);
 
     llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, unsigned alignment, llvm::Value *mask);

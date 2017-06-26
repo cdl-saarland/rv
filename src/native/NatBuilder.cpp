@@ -635,11 +635,13 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
   std::vector<Value *> addr;
   std::vector<Value *> srcs;
+  std::vector<Value *> masks;
   unsigned alignment;
   bool interleaved = false;
   int byteSize = static_cast<int>(layout.getTypeStoreSize(accessedType));
 
   if (addrShape.isUniform()) {
+    // scalar access
     addr.push_back(requestScalarValue(accessedPtr));
     alignment = instrShape.getAlignmentFirst();
 
@@ -651,13 +653,31 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     alignment = instrShape.getAlignmentFirst();
 
   } else if (addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) {
+    // interleaved access. ptrs: base, base+vector, base+2vector, ...
     Value *srcPtr = getPointerOperand(cast<Instruction>(srcs[0]));
     for (unsigned i = 0; i < srcs.size(); ++i) {
       Value *ptr = requestInterleavedAddress(srcPtr, i, vecType);
       addr.push_back(ptr);
+      if (needsMask)
+        masks.push_back(mask);
     }
     alignment = instrShape.getAlignmentFirst();
     interleaved = true;
+
+  } else if (addrShape.isStrided() && !isStructAccess(accessedPtr)) {
+    // pseudo-interleaved: same as above
+    unsigned stride = (unsigned) addrShape.getStride() / byteSize;
+    srcs.push_back(inst);
+    Value *srcPtr = getPointerOperand(inst);
+    for (unsigned i = 0; i < stride; ++i) {
+      Value *ptr = requestInterleavedAddress(srcPtr, i, vecType);
+      addr.push_back(ptr);
+      if (i == 0)
+        masks.push_back(mask);
+      else
+        masks.push_back(getConstantVector(vectorWidth(), i1Ty, 0));
+    }
+    alignment = instrShape.getAlignmentFirst();
 
   } else {
     addr.push_back(requestVectorValue(accessedPtr));
@@ -680,7 +700,12 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
     } else if (interleaved) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
-      createInterleavedMemory(vecType, alignment, &addr, needsMask ? mask : nullptr, nullptr, &srcs);
+      createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs);
+
+    } else if (addrShape.isStrided() && !isStructAccess(accessedPtr)) {
+      assert(addr.size() > 1 && "only one address for multiple accesses!");
+      createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs);
+      interleaved = true;
 
     } else {
       assert(addr.size() == 1 && "multiple addresses for single access!");
@@ -710,8 +735,19 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Value *val = requestVectorValue(srcVal);
         vals.push_back(val);
       }
-      createInterleavedMemory(vecType, alignment, &addr, needsMask ? mask : nullptr, &vals, &srcs);
+      createInterleavedMemory(vecType, alignment, &addr, &masks, &vals, &srcs);
 
+    } else if (addrShape.isStrided() && !isStructAccess(accessedPtr)) {
+      assert(addr.size() > 1 && "only one address for multiple accesses!");
+      std::vector<Value *> vals;
+      vals.reserve(addr.size());
+      vals.push_back(mappedStoredVal);
+      for (unsigned i = 1; i < addr.size(); ++i) {
+        vals.push_back(UndefValue::get(vecType));
+      }
+      createInterleavedMemory(vecType, alignment, &addr, &masks, &vals, &srcs);
+      interleaved = true;
+      
     } else {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       vecMem = createVaryingMemory(vecType, alignment, addr[0], mask, mappedStoredVal);
@@ -793,18 +829,16 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
     return scatter ? requestCascadeStore(values, addr, alignment, mask) : requestCascadeLoad(addr, alignment, mask);
 }
 
-void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std::vector<Value *> *addr, Value *mask,
+void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std::vector<Value *> *addr, std::vector<Value *> *masks,
                                          std::vector<Value *> *values, std::vector<Value *> *srcs) {
   unsigned stride = (unsigned) addr->size();
-  bool needsMask = mask != nullptr;
+  bool needsMask = masks->size() > 0;
   bool load = values == nullptr;
 
   // tranpose mask and values if needed
   ShuffleBuilder maskTransposer(vectorWidth());
   if (needsMask)
-    for (unsigned i = 0; i < stride; ++i) {
-      maskTransposer.add(mask);
-    }
+    maskTransposer.add(*masks);
 
   // build interleaved loads/stores
   Value *vecMem;
@@ -814,7 +848,7 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
 
   for (unsigned i = 0; i < stride; ++i) {
     Value *ptr = (*addr)[i];
-    mask = needsMask ? maskTransposer.shuffleToInterleaved(builder, stride, i) : nullptr;
+    Value *mask = needsMask ? maskTransposer.shuffleToInterleaved(builder, stride, i) : nullptr;
 
     if (load) {
       vecMem = createContiguousLoad(ptr, alignment, mask, UndefValue::get(vecType));
@@ -822,12 +856,13 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
     } else {
       Value *val = transposer.shuffleToInterleaved(builder, stride, i);
       vecMem = createContiguousStore(val, ptr, alignment, mask);
-      mapVectorValue((*srcs)[i], vecMem);
+      if (i < srcs->size())
+        mapVectorValue((*srcs)[i], vecMem);
     }
   }
   if (load) {
     // de-interleave and map
-    for (unsigned i = 0; i < stride; ++i) {
+    for (unsigned i = 0; i < srcs->size(); ++i) {
       vecMem = transposer.shuffleFromInterleaved(builder, stride, i);
       mapVectorValue((*srcs)[i], vecMem);
     }
@@ -1140,8 +1175,9 @@ GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const ge
   for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
     Value *idx = gep->getOperand(i + 1);
     Value *interIdx = requestScalarValue(idx);
+    VectorShape idxShape = getVectorShape(*idx);
 
-    if (interleavedIdx > 0 && i == gep->getNumIndices() - 1)
+    if (interleavedIdx > 0 && !idxShape.isUniform())
       interIdx = builder.CreateAdd(interIdx, ConstantInt::get(interIdx->getType(), vectorWidth() * interleavedIdx));
 
     idxList.push_back(interIdx);
