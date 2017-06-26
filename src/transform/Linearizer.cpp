@@ -905,6 +905,7 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
       term.setSuccessor(i, relay.block);
     }
 
+    ++numPreservedBranches;
     return;
   }
 
