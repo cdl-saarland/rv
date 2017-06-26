@@ -59,7 +59,7 @@ public:
                  const llvm::CDG& cdg,
                  const llvm::DFG& dfg,
                  const llvm::LoopInfo& loopInfo,
-                 const llvm::PostDominatorTree& postDomTree,
+                 llvm::PostDominatorTree& postDomTree,
                  const llvm::DominatorTree& domTree);
 
     //

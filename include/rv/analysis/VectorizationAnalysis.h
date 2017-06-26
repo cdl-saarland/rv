@@ -85,7 +85,7 @@ public:
                         const llvm::DFG& dfg,
                         const llvm::LoopInfo& LoopInfo,
                         const llvm::DominatorTree & domTree,
-                        const llvm::PostDominatorTree & postDomTree);
+                        llvm::PostDominatorTree & postDomTree);
 
   VectorizationAnalysis(const VectorizationAnalysis&) = delete;
   VectorizationAnalysis& operator=(VectorizationAnalysis) = delete;

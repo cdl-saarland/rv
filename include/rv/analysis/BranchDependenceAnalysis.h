@@ -22,6 +22,7 @@ namespace llvm {
   class BasicBlock;
   class TerminatorInst;
   class DominatorTree;
+  struct DominatorTree;
   struct PostDominatorTree;
 }
 
@@ -65,6 +66,7 @@ class BranchDependenceAnalysis {
   mutable llvm::DenseMap<const llvm::TerminatorInst*, ConstBlockSet> effectedBlocks_new;
   const llvm::CDG & cdg;
   const llvm::DFG & dfg;
+  llvm::PostDominatorTree& postdomtree;
   const llvm::LoopInfo & loopInfo;
 
   void computePostDomClosure(const llvm::BasicBlock & x, ConstBlockSet & closure);
@@ -74,6 +76,7 @@ public:
   BranchDependenceAnalysis(llvm::Function & F,
                            const llvm::CDG & cdg,
                            const llvm::DFG & dfg,
+                           llvm::PostDominatorTree& postDomTree,
                            const llvm::LoopInfo & loopInfo);
 
   /// \brief returns the set of blocks whose PHI nodes become divergent if @branch is divergent

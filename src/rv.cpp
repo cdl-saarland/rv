@@ -188,7 +188,7 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
                              const CDG& cdg,
                              const DFG& dfg,
                              const LoopInfo& loopInfo,
-                             const PostDominatorTree& postDomTree,
+                             PostDominatorTree& postDomTree,
                              const DominatorTree& domTree)
 {
     auto & scalarFn = vecInfo.getScalarFunction();

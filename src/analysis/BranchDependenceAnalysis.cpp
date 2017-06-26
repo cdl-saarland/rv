@@ -15,7 +15,7 @@
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/BasicBlock.h>
-#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/Analysis/PostDominators.h>
 
 #include "rvConfig.h"
 
@@ -96,13 +96,18 @@ GetDomRegion(DomTreeNodeBase<BasicBlock> & domNode, ConstBlockSet & domRegion) {
   }
 }
 
-BranchDependenceAnalysis::BranchDependenceAnalysis(llvm::Function & F, const CDG & _cdg, const DFG & _dfg, const LoopInfo & _loopInfo)
+BranchDependenceAnalysis::BranchDependenceAnalysis(Function & F,
+                                                   const CDG & _cdg,
+                                                   const DFG & _dfg,
+                                                   PostDominatorTree& postDomTree,
+                                                   const LoopInfo & _loopInfo)
 : pdClosureMap()
 , domClosureMap()
 , effectedBlocks_old()
 , effectedBlocks_new()
 , cdg(_cdg)
 , dfg(_dfg)
+, postdomtree(postDomTree)
 , loopInfo(_loopInfo)
 {
 
@@ -344,14 +349,7 @@ BranchDependenceAnalysis::computeDomClosure(const BasicBlock & b, ConstBlockSet 
 
 const ConstBlockSet&
 BranchDependenceAnalysis::getEffectedBlocks(const llvm::TerminatorInst& term) const {
-  auto& oldblocks = getEffectedBlocks_old(term);
-  auto& newblocks = getEffectedBlocks_new(term);
-
-  //for (auto* BB : newblocks) {
-  //  assert(oldblocks.count(BB) != 0);
-  //}
-
-  return newblocks;
+  return getEffectedBlocks_new(term);
 }
 
 const ConstBlockSet&
@@ -359,19 +357,28 @@ BranchDependenceAnalysis::getEffectedBlocks_new(const llvm::TerminatorInst & ter
   auto it = effectedBlocks_new.find(&term);
   if (it != effectedBlocks_new.end()) return it->second;
 
-  for (const llvm::BasicBlock& BB : *term.getParent()->getParent()) {
-    if (DPD.divergentPaths(term.getParent(), &BB)) {
+  const BasicBlock* parent = term.getParent();
+  const auto* postdominatornode = postdomtree.getNode(const_cast<BasicBlock*>(parent))->getIDom();
+  const auto* postdominator = postdominatornode ? postdominatornode->getBlock() : nullptr;
+
+  // Find divergent blocks by node-disjoint paths
+  for (const BasicBlock& BB : *parent->getParent()) {
+    if (postdominator && !postdomtree.dominates(postdominator, &BB)) {
+      continue;
+    }
+
+    if (DPD.divergentPaths(parent, &BB)) {
       effectedBlocks_new[&term].insert(&BB);
     }
   }
 
-  Loop* l = loopInfo.getLoopFor(term.getParent());
-  if (l) {
+  // Find divergent loop exits
+  if (const Loop* l = loopInfo.getLoopFor(parent)) {
     llvm::SmallVector<BasicBlock*, 4> exits;
     l->getExitBlocks(exits);
 
     for (const BasicBlock* exit : exits) {
-      if (DPD.inducesDivergentExit(term.getParent(), exit, l)) {
+      if (DPD.inducesDivergentExit(parent, exit, l)) {
         effectedBlocks_new[&term].insert(exit);
       }
     }
