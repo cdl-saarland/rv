@@ -49,7 +49,7 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
     region(vectorizationInfo.getRegion()),
     useScatterGatherIntrinsics(true),
-    vectorizeInterleavedAccess(false),
+    vectorizeInterleavedAccess(true),
     keepScalar(),
     cascadeLoadMap(),
     cascadeStoreMap(),
@@ -651,9 +651,9 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     alignment = instrShape.getAlignmentFirst();
 
   } else if (addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) {
+    Value *srcPtr = getPointerOperand(cast<Instruction>(srcs[0]));
     for (unsigned i = 0; i < srcs.size(); ++i) {
-      Value *srcPtr = getPointerOperand(cast<Instruction>(srcs[i]));
-      Value *ptr = requestInterleavedAddress(srcPtr, i);
+      Value *ptr = requestInterleavedAddress(srcPtr, i, vecType);
       addr.push_back(ptr);
     }
     alignment = instrShape.getAlignmentFirst();
@@ -703,7 +703,13 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
     } else if (interleaved) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
-      std::vector<Value *> vals; // TODO
+      std::vector<Value *> vals;
+      vals.reserve(addr.size());
+      for (unsigned i = 0; i < addr.size(); ++i) {
+        Value *srcVal = cast<StoreInst>(srcs[i])->getValueOperand();
+        Value *val = requestVectorValue(srcVal);
+        vals.push_back(val);
+      }
       createInterleavedMemory(vecType, alignment, &addr, needsMask ? mask : nullptr, &vals, &srcs);
 
     } else {
@@ -1136,7 +1142,7 @@ GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const ge
     Value *interIdx = requestScalarValue(idx);
 
     if (interleavedIdx > 0 && i == gep->getNumIndices() - 1)
-      interIdx = builder.CreateAdd(interIdx, ConstantInt::get(i32Ty, vectorWidth() * interleavedIdx));
+      interIdx = builder.CreateAdd(interIdx, ConstantInt::get(interIdx->getType(), vectorWidth() * interleavedIdx));
 
     idxList.push_back(interIdx);
   }
@@ -1147,14 +1153,18 @@ GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const ge
   return interGEP;
 }
 
-Value *NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx) {
+Value *NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, Type *const vecType) {
+  Value *interAddr;
   if (isa<GetElementPtrInst>(addr))
-    return requestInterleavedGEP(cast<GetElementPtrInst>(addr), interleavedIdx);
+    interAddr = requestInterleavedGEP(cast<GetElementPtrInst>(addr), interleavedIdx);
 
   else {
     Value *ptr = requestScalarValue(addr);
-    return builder.CreateGEP(ptr, ConstantInt::get(i32Ty, vectorWidth() * interleavedIdx), "inter_gep");
+    interAddr = builder.CreateGEP(ptr, ConstantInt::get(i32Ty, vectorWidth() * interleavedIdx), "inter_gep");
   }
+
+  PointerType *vecPtrType = PointerType::getUnqual(vecType);
+  return builder.CreatePointerCast(interAddr, vecPtrType, "inter_cast");
 }
 
 Value *NatBuilder::requestCascadeLoad(Value *vecPtr, unsigned alignment, Value *mask) {
