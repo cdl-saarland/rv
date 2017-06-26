@@ -140,6 +140,9 @@ private:
 
   // Cast undefined instruction shapes to uniform shapes
   void fixUndefinedShapes(const llvm::Function& F);
+
+  // Mark loops as divergent
+  void computeLoopDivergence();
 };
 
 llvm::FunctionPass* createVectorizationAnalysisPass(Config config=Config());

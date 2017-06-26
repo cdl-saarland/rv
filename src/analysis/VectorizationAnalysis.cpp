@@ -14,15 +14,9 @@
 
 #include "rvConfig.h"
 #include "utils/rvTools.h"
-
-#include <llvm/Analysis/PostDominators.h>
-#include <llvm/IR/Dominators.h>
-#include <llvm/Analysis/LoopInfo.h>
+#include "utils/mathUtils.h"
 
 #include <numeric>
-#include <algorithm>
-
-#include "utils/mathUtils.h"
 
 #if 1
 #define IF_DEBUG_VA IF_DEBUG
@@ -107,6 +101,7 @@ VectorizationAnalysis::analyze(const Function& F) {
   init(F);
   compute(F);
   fixUndefinedShapes(F);
+  computeLoopDivergence();
 
   // mark all non-loop exiting branches as divergent to trigger a full linearization
   if (config.foldAllBranches) {
@@ -284,19 +279,7 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
     mVecinfo.setVectorShape(*BB, VectorShape::varying());
 
     // Loop exit handling
-    if (const BasicBlock* exiting = BB->getUniquePredecessor()) {
-      const Loop* l = mLoopInfo.getLoopFor(exiting);
-      assert(l);
-
-      // mark all crossed loops as divergent (TODO do this after the analysis)
-      auto * BBLoop = mLoopInfo.getLoopFor(BB);
-      const Loop * crossedLoop = l;
-      do {
-        mVecinfo.setDivergentLoop(crossedLoop);
-        crossedLoop = crossedLoop->getParentLoop();
-      } while(crossedLoop != BBLoop);
-
-      // mark as an divergent loop exit
+    if (BB->getUniquePredecessor()) {
       mVecinfo.setNotKillExit(BB);
     }
 
@@ -871,6 +854,33 @@ VectorShape VectorizationAnalysis::getShape(const Value* const V) {
 FunctionPass* createVectorizationAnalysisPass(rv::Config config) {
   return new VAWrapperPass(config);
 }
+
+void VectorizationAnalysis::computeLoopDivergence() {
+  std::stack<const Loop*> loops;
+  for (const Loop* l : mLoopInfo) {
+    loops.push(l);
+  }
+
+  while (!loops.empty()) {
+    const Loop* l = loops.top();
+    loops.pop();
+
+    SmallVector<BasicBlock*, 4> exits;
+    l->getExitBlocks(exits);
+
+    for (const BasicBlock* exit : exits) {
+      if (mVecinfo.getVectorShape(*exit).isVarying()) {
+        mVecinfo.setDivergentLoop(l);
+        break;
+      }
+    }
+
+    for (const Loop* subLoop : l->getSubLoops()) {
+      loops.push(subLoop);
+    }
+  }
+}
+
 
 
 }

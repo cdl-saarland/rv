@@ -98,7 +98,9 @@ const DivPathDecider::Node* DivPathDecider::findPath(const Node* source,
   return nullptr;
 }
 
-bool DivPathDecider::isNotKillExit(const BasicBlock* From, const BasicBlock* Exit, const Loop* loop)
+bool DivPathDecider::inducesDivergentExit(const BasicBlock* From,
+                                          const BasicBlock* Exit,
+                                          const Loop* loop)
 {
   if (From == loop->getLoopLatch()) {
     return Exit->getUniquePredecessor() == From;

@@ -30,9 +30,9 @@ public:
   DivPathDecider() {}
   ~DivPathDecider();
 
-  bool isNotKillExit(const llvm::BasicBlock* From,
-                     const llvm::BasicBlock* Exit,
-                     const llvm::Loop* loop);
+  bool inducesDivergentExit(const llvm::BasicBlock* From,
+                            const llvm::BasicBlock* Exit,
+                            const llvm::Loop* loop);
 
   // Find n node-divergent paths from A to B, return true iff successful
   bool divergentPaths(const llvm::BasicBlock* From,

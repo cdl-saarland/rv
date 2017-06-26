@@ -371,7 +371,7 @@ BranchDependenceAnalysis::getEffectedBlocks_new(const llvm::TerminatorInst & ter
     l->getExitBlocks(exits);
 
     for (const BasicBlock* exit : exits) {
-      if (DPD.isNotKillExit(term.getParent(), exit, l)) {
+      if (DPD.inducesDivergentExit(term.getParent(), exit, l)) {
         effectedBlocks_new[&term].insert(exit);
       }
     }
