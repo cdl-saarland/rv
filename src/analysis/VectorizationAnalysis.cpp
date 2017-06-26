@@ -96,12 +96,9 @@ VectorizationAnalysis::VectorizationAnalysis(PlatformInfo& platInfo,
 
         : layout(platInfo.getDataLayout()),
           mVecinfo(VecInfo),
-          mCDG(cdg),
-          mDFG(dfg),
-          BDA(mVecinfo.getScalarFunction(), mCDG, mDFG, LoopInfo),
+          BDA(mVecinfo.getScalarFunction(), cdg, dfg, LoopInfo),
           mLoopInfo(LoopInfo),
-          mFuncinfo(platInfo.getFunctionMappings()),
-          mRegion(mVecinfo.getRegion())
+          mFuncinfo(platInfo.getFunctionMappings())
 { }
 
 void
@@ -119,17 +116,9 @@ VectorizationAnalysis::analyze(Function& F) {
   }
 }
 
-bool VectorizationAnalysis::isInRegion(const BasicBlock& BB) {
-  return !mRegion || mRegion->contains(&BB);
-}
-
-bool VectorizationAnalysis::isInRegion(const Instruction& inst) {
-  return isInRegion(*inst.getParent());
-}
-
 void VectorizationAnalysis::fixUndefinedShapes(Function& F) {
   for (const BasicBlock& BB : F) {
-    if (!isInRegion(BB)) continue;
+    if (!mVecinfo.inRegion(BB)) continue;
     for (const Instruction& I : BB) {
       if (!getShape(&I).isDefined())
         mVecinfo.setVectorShape(I, VectorShape::uni());
@@ -189,7 +178,7 @@ void VectorizationAnalysis::init(Function& F) {
   // Start iteration from arguments
   for (auto& arg : F.args()) {
     if (!mVecinfo.getVectorShape(arg).isDefined()) {
-      assert(mRegion && "will only default function args if in region mode");
+      assert(mVecinfo.getRegion() && "will only default function args if in region mode");
       // set argument shapes to uniform if not known better
       mVecinfo.setVectorShape(arg, VectorShape::uni());
     }
@@ -235,6 +224,7 @@ bool VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
   VectorShape New = VectorShape::join(Old, AT);
 
   if (Old == New) return false;// nothing changed
+  // FIXME Why prevent the update if the computation itself could be already prevented?
   if (overrides.count(V) && Old.isDefined()) return false;//prevented by override
 
   IF_DEBUG_VA errs() << "Marking " << New << ": " << *V << "\n";
@@ -258,7 +248,7 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
   const Loop* endsVaryingLoop = mLoopInfo.getLoopFor(endsVarying);
 
   for (const auto* BB : BDA.getEffectedBlocks(*branch)) {
-    if (!isInRegion(*BB)) {
+    if (!mVecinfo.inRegion(*BB)) {
       continue;
     } // filter out irrelevant nodes (FIXME filter out directly in BDA)
 
@@ -323,7 +313,7 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
     const Instruction* inst = cast<Instruction>(user);
 
     // We are only analyzing the region
-    if (!isInRegion(*inst)) continue;
+    if (!mVecinfo.inRegion(*inst)) continue;
 
     // Ignore calls without return value
     if (const CallInst* callI = dyn_cast<CallInst>(inst)) {
@@ -356,7 +346,7 @@ void VectorizationAnalysis::updateLCSSAPhisVarying(const Loop* divLoop) {
   divLoop->getExitBlocks(exitBlocks);
 
   for (auto* exitBlock : exitBlocks) {
-    if (!isInRegion(*exitBlock)) continue;
+    if (!mVecinfo.inRegion(*exitBlock)) continue;
 
     for (auto& inst : *exitBlock) {
       if (!isa<PHINode>(inst)) break;

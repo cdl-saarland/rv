@@ -54,6 +54,22 @@ public:
 };
 
 class VectorizationAnalysis {
+  /// In- and output
+  VectorizationInfo& mVecinfo;
+
+  /// Next instructions to handle
+  std::queue<const llvm::Instruction*> mWorklist;
+  /// Values that are marked final and may not be recomputed
+  std::set<const llvm::Value*> overrides;
+
+  // Shape computation:
+  const llvm::DataLayout& layout;
+  const VectorFuncMap& mFuncinfo;
+
+  // Divergence computation:
+  BranchDependenceAnalysis BDA;
+  const llvm::LoopInfo& mLoopInfo; // Preserves LoopInfo
+
 public:
   VectorizationAnalysis(PlatformInfo & platInfo,
                         VectorizationInfo& VecInfo,
@@ -69,22 +85,6 @@ public:
   void analyze(Function& F);
 
 private:
-  std::set<const Value*> overrides;
-  const DataLayout& layout;
-
-  VectorizationInfo& mVecinfo;  // This will be the output
-  const CDG& mCDG;      // Preserves CDG
-  const DFG& mDFG;      // Preserves DFG
-  BranchDependenceAnalysis BDA;
-  const LoopInfo& mLoopInfo; // Preserves LoopInfo
-  const VectorFuncMap& mFuncinfo;
-
-  Region* mRegion;
-
-  std::queue<const Instruction*> mWorklist;       // Next instructions to handle
-
-  // VectorShape analysis logic
-
   /// Get the shape for a value
   //  if loop carried, this is the shape observed within the loop that defines @V
   VectorShape getShape(const Value* const V);
@@ -98,10 +98,6 @@ private:
 
   // Run Fix-Point-Iteration after initialization
   void compute(Function& F);
-
-  // Returns true if this block is contained in the region we want to analyze
-  bool isInRegion(const BasicBlock& BB);
-  bool isInRegion(const Instruction& inst);
 
   // specialized transfer functions
   VectorShape computePHIShape(const PHINode& phi);
@@ -137,8 +133,6 @@ private:
   // Returns true iff all operands currently have a computed shape
   // This is essentially a negated check for bottom
   bool pushMissingOperands(const Instruction* I);
-
-  unsigned getAlignment(const Constant* c) const;
 
   // Cast undefined instruction shapes to uniform shapes
   void fixUndefinedShapes(Function& F);
