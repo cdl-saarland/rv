@@ -288,10 +288,15 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
       const Loop* l = mLoopInfo.getLoopFor(exiting);
       assert(l);
 
-      if (!mVecinfo.isDivergentLoop(l)) {
-        mVecinfo.setDivergentLoop(l);
-      }
+      // mark all crossed loops as divergent (TODO do this after the analysis)
+      auto * BBLoop = mLoopInfo.getLoopFor(BB);
+      const Loop * crossedLoop = l;
+      do {
+        mVecinfo.setDivergentLoop(crossedLoop);
+        crossedLoop = crossedLoop->getParentLoop();
+      } while(crossedLoop != BBLoop);
 
+      // mark as an divergent loop exit
       mVecinfo.setNotKillExit(BB);
     }
 
@@ -303,13 +308,13 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
       errs() << "\n\n";
     }
 
-    // add phis to worklist
+    // add LCSSA phis to worklist
     for (auto & inst : *BB) {
       if (!isa<PHINode>(inst)) break;
       mWorklist.push(&inst);
 
       IF_DEBUG_VA {
-        errs() << "Inserted PHI: ";
+        errs() << "Inserted LCSSA PHI: ";
         inst.printAsOperand(errs(), false);
         errs() << "\n";
       };
