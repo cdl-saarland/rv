@@ -25,7 +25,7 @@
 #include "utils/mathUtils.h"
 
 #if 1
-#define IF_DEBUG_VA if (true)
+#define IF_DEBUG_VA IF_DEBUG
 #else
 #define IF_DEBUG_VA if (false)
 #endif
