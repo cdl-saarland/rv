@@ -13,11 +13,32 @@
 using namespace native;
 using namespace llvm;
 
+void ShuffleBuilder::prepareCroppedVector(IRBuilder<> &builder) {
+  Value *croppedVector = inputVectors.back();
+  Type *croppedType = croppedVector->getType();
+  Value *undefVal = UndefValue::get(croppedType);
+  Value *shuffleVal = createContiguousVector(vectorWidth, builder.getInt32Ty(), 0, 1);
+
+  Value *prepareShuffle = builder.CreateShuffleVector(croppedVector, undefVal, shuffleVal, "prepare_shuffle");
+  inputVectors[inputVectors.size() - 1] = prepareShuffle;
+}
+
 void ShuffleBuilder::add(Value *vector) {
   inputVectors.push_back(vector);
+  if (vector->getType()->getVectorNumElements() == vectorWidth - 1)
+    cropped = true;
+}
+
+void ShuffleBuilder::add(std::vector<Value *> &sources) {
+  inputVectors = sources;
+  if (sources.back()->getType()->getVectorNumElements() == vectorWidth - 1)
+    cropped = true;
 }
 
 llvm::Value *ShuffleBuilder::shuffleFromInterleaved(llvm::IRBuilder<> &builder, unsigned stride, unsigned start) {
+  if (cropped)
+    prepareCroppedVector(builder);
+
   // expects that the values of each input vector ARE interleaved. creates an non-interleaved value
   // use a loop that builds shuffles until all input vectors have been used
   // shuffles are build like this: take the last shuffle and the next input vector and the shuffle mask
@@ -77,6 +98,9 @@ llvm::Value *ShuffleBuilder::shuffleFromInterleaved(llvm::IRBuilder<> &builder, 
 }
 
 llvm::Value *ShuffleBuilder::shuffleToInterleaved(llvm::IRBuilder<> &builder, unsigned stride, unsigned start) {
+  if (cropped)
+    prepareCroppedVector(builder);
+
   // expects that the values of each input vector are NOT interleaved. creates an interleaved value
   // use a loop that builds shuffles until all <vectorWidth> positions are set
   // shuffles are build like this: take the last shuffle and the next input vector and the shuffle mask
@@ -118,6 +142,11 @@ llvm::Value *ShuffleBuilder::shuffleToInterleaved(llvm::IRBuilder<> &builder, un
       ++i;
       index += stride;
     }
+
+    // if we create the right-most transposition for pseudo-shuffling, remove the very last index in the last iteration
+    // to get a vector size conform with the cropped size
+    if (start == inputVectors.size() - 1 && counter == inputVectors.size() - 1 && cropped)
+      shuffleMask.pop_back();
 
     // create shuffle
     Value *idxVector = ConstantVector::get(shuffleMask);

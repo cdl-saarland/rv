@@ -33,11 +33,15 @@ Value *createContiguousVector(unsigned width, Type *type, int start, int stride)
 }
 
 llvm::Value *getConstantVector(unsigned width, Type *type, unsigned value) {
+    Constant *constant = type->isFloatingPointTy() ? ConstantFP::get(type, value)
+                                                   : ConstantInt::get(type, value);
+  return getConstantVector(width, constant);
+}
+
+llvm::Value *getConstantVector(unsigned width, Constant *constant) {
   std::vector<Constant *> constants;
   constants.reserve(width);
   for (unsigned i = 0; i < width; ++i) {
-    Constant *constant = type->isFloatingPointTy() ? ConstantFP::get(type, value)
-                                                   : ConstantInt::get(type, value);
     constants.push_back(constant);
   }
   return ConstantVector::get(constants);

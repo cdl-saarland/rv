@@ -143,6 +143,7 @@ namespace native {
     bool canVectorize(llvm::Instruction *inst);
     bool shouldVectorize(llvm::Instruction *inst);
     bool isInterleaved(llvm::Instruction *inst, llvm::Value *accessedPtr, int byteSize, std::vector<Value *> &srcs);
+    bool isPseudointerleaved(rv::VectorShape addrShape, int byteSize);
 
     llvm::Value *createUniformMaskedMemory(llvm::Instruction *inst, llvm::Type *accessedType, unsigned alignment,
                                            llvm::Value *addr, llvm::Value *mask, llvm::Value *values);

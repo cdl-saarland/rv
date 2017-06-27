@@ -19,14 +19,17 @@ namespace native {
   class ShuffleBuilder {
     unsigned vectorWidth;
     std::vector<llvm::Value *> inputVectors;
+    bool cropped;
+    
+    void prepareCroppedVector(llvm::IRBuilder<> &builder);
 
   public:
-    ShuffleBuilder(unsigned vectorWidth) : vectorWidth(vectorWidth), inputVectors() {}
+    ShuffleBuilder(unsigned vectorWidth) : vectorWidth(vectorWidth), inputVectors(), cropped(false) {}
     ShuffleBuilder(std::vector<llvm::Value *> &sources, unsigned vectorWidth) : vectorWidth(vectorWidth),
-                                                                               inputVectors(sources) {}
+                                                                               inputVectors(sources), cropped(false) {}
 
     void add(llvm::Value *vector);
-    void add(std::vector<llvm::Value *> &sources) { inputVectors = sources; }
+    void add(std::vector<llvm::Value *> &sources);
     llvm::Value *shuffleFromInterleaved(llvm::IRBuilder<> &builder, unsigned stride, unsigned start);
     llvm::Value *shuffleToInterleaved(llvm::IRBuilder<> &builder, unsigned stride, unsigned start);
   };
