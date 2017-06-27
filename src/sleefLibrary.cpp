@@ -132,12 +132,14 @@ namespace rv {
           {"fmod", "xfmod_avx2", 4},
           {"modf", "xmodf_avx2", 4},
 
-          {"llvm.sqrt.f32", "xsqrtf_avx2", 8},
-          {"llvm.exp2.f32", "xexp2f_avx2", 8},
-          {"llvm.log10.f32", "xlog10f_avx2", 8},
-          {"llvm.sqrt.f64", "xsqrt_avx2", 4},
-          {"llvm.exp2.f64", "xexp2_avx2", 4},
-          {"llvm.log10.f64", "xlog10_avx2", 4}
+          {"llvm.fabs.f32", "xfabsf_avx2", 8},
+          {"llvm.copysign.f32", "xcopysignf_avx2", 8},
+          {"llvm.minnum.f32", "xfminf_avx2", 8},
+          {"llvm.maxnum.f32", "xfmaxf_avx2", 8},
+          {"llvm.fabs.f64", "xfabs_avx2", 4},
+          {"llvm.copysign.f64", "xcopysign_avx2", 4},
+          {"llvm.minnum.f64", "xfmin_avx2", 4},
+          {"llvm.maxnum.f64", "xfmax_avx2", 4}
       };
       platformInfo.addVectorizableFunctions(VecFuncs);
 
@@ -206,40 +208,21 @@ namespace rv {
             {"llvm.log.f32", "xlogf_avx2", 8},
             {"llvm.exp.f32", "xexpf_avx2", 8},
             {"llvm.pow.f32", "xpowf_avx2", 8},
+            {"llvm.sqrt.f32", "xsqrtf_u05_avx2", 8},
+            {"llvm.exp2.f32", "xexp2f_avx2", 8},
+            {"llvm.log10.f32", "xlog10f_avx2", 8},
             {"llvm.sin.f64", "xsin_avx2", 4},
             {"llvm.cos.f64", "xcos_avx2", 4},
             {"llvm.log.f64", "xlog_avx2", 4},
             {"llvm.exp.f64", "xexp_avx2", 4},
-            {"llvm.pow.f64", "xpow_avx2", 4}
+            {"llvm.pow.f64", "xpow_avx2", 4},
+            {"llvm.sqrt.f64", "xsqrt_u05_avx2", 4},
+            {"llvm.exp2.f64", "xexp2_avx2", 4},
+            {"llvm.log10.f64", "xlog10_avx2", 4}
         };
         platformInfo.addVectorizableFunctions(ImprecVecFuncs);
       }
     }
-
-#if 0
-    if (useAVX || useAVX2) {
-      const VecDesc VecFuncs[] = {
-        {"fabsf", "xfabsf_avx", 8},
-        {"copysignf", "xcopysignf_avx", 8},
-        {"fminf", "xfminf_avx", 8},
-        {"fmaxf", "xfmaxf_avx", 8},
-        {"fabs", "xfabs_avx", 4},
-        {"copysign", "xcopysign_avx", 4},
-        {"fmin", "xfmin_avx", 4},
-        {"fmax", "xfmax_avx", 4},
-
-        {"llvm.fabs.f32", "xfabsf_avx", 8},
-        {"llvm.copysign.f32", "xcopysignf_avx", 8},
-        {"llvm.minnum.f32", "xfminf_avx", 8},
-        {"llvm.maxnum.f32", "xfmaxf_avx", 8},
-        {"llvm.fabs.f64", "xfabs_avx", 4},
-        {"llvm.copysign.f64", "xcopysign_avx", 4},
-        {"llvm.minnum.f64", "xfmin_avx", 4},
-        {"llvm.maxnum.f64", "xfmax_avx", 4}
-      };
-      platformInfo.addVectorizableFunctions(VecFuncs);
-    }
-#endif
 
     if (useAVX) {
       const VecDesc VecFuncs[] = {
@@ -281,12 +264,14 @@ namespace rv {
           {"fmod", "xfmod_avx", 4},
           {"modf", "xmodf_avx", 4},
 
-          {"llvm.sqrt.f32", "xsqrtf_avx", 8},
-          {"llvm.exp2.f32", "xexp2f_avx", 8},
-          {"llvm.log10.f32", "xlog10f_avx", 8},
-          {"llvm.sqrt.f64", "xsqrt_avx", 4},
-          {"llvm.exp2.f64", "xexp2_avx", 4},
-          {"llvm.log10.f64", "xlog10_avx", 4}
+          {"llvm.fabs.f32", "xfabsf_avx", 8},
+          {"llvm.copysign.f32", "xcopysignf_avx", 8},
+          {"llvm.minnum.f32", "xfminf_avx", 8},
+          {"llvm.maxnum.f32", "xfmaxf_avx", 8},
+          {"llvm.fabs.f64", "xfabs_avx", 4},
+          {"llvm.copysign.f64", "xcopysign_avx", 4},
+          {"llvm.minnum.f64", "xfmin_avx", 4},
+          {"llvm.maxnum.f64", "xfmax_avx", 4}
       };
       platformInfo.addVectorizableFunctions(VecFuncs);
 
@@ -355,11 +340,17 @@ namespace rv {
             {"llvm.log.f32", "xlogf_avx", 8},
             {"llvm.exp.f32", "xexpf_avx", 8},
             {"llvm.pow.f32", "xpowf_avx", 8},
+            {"llvm.sqrt.f32", "xsqrtf_u05_avx", 8},
+            {"llvm.exp2.f32", "xexp2f_avx", 8},
+            {"llvm.log10.f32", "xlog10f_avx", 8},
             {"llvm.sin.f64", "xsin_avx", 4},
             {"llvm.cos.f64", "xcos_avx", 4},
             {"llvm.log.f64", "xlog_avx", 4},
             {"llvm.exp.f64", "xexp_avx", 4},
-            {"llvm.pow.f64", "xpow_avx", 4}
+            {"llvm.pow.f64", "xpow_avx", 4},
+            {"llvm.sqrt.f64", "xsqrt_u05_avx", 4},
+            {"llvm.exp2.f64", "xexp2_avx", 4},
+            {"llvm.log10.f64", "xlog10_avx", 4}
         };
         platformInfo.addVectorizableFunctions(ImprecVecFuncs);
       }
@@ -405,20 +396,14 @@ namespace rv {
           {"fmod", "xfmod_sse2", 2},
           {"modf", "xmodf_sse2", 2},
 
-          {"llvm.sqrt.f32", "xsqrtf_sse", 4},
-          {"llvm.exp2.f32", "xexp2f_sse", 4},
-          {"llvm.log10.f32", "xlog10f_sse", 4},
           {"llvm.fabs.f32", "xfabsf_sse", 4},
           {"llvm.copysign.f32", "xcopysignf_sse", 4},
           {"llvm.fmin.f32", "xfminf_sse", 4},
           {"llvm.fmax.f32", "xfmaxf_sse", 4},
-          {"llvm.sqrt.f64", "xsqrt_sse", 2},
-          {"llvm.exp2.f64", "xexp2_sse", 2},
-          {"llvm.log10.f64", "xlog10_sse", 2},
           {"llvm.fabs.f64", "xfabs_sse", 2},
           {"llvm.copysign.f64", "xcopysign_sse", 2},
           {"llvm.fmin.f64", "xfmin_sse", 2},
-          {"llvm.fmax.f64", "xfmax_sse", 2},
+          {"llvm.fmax.f64", "xfmax_sse", 2}
       };
       platformInfo.addVectorizableFunctions(VecFuncs);
 
@@ -487,11 +472,17 @@ namespace rv {
             {"llvm.log.f32", "xlogf_sse", 4},
             {"llvm.exp.f32", "xexpf_sse", 4},
             {"llvm.pow.f32", "xpowf_sse", 4},
+            {"llvm.sqrt.f32", "xsqrtf_u05_sse", 4},
+            {"llvm.exp2.f32", "xexp2f_sse", 4},
+            {"llvm.log10.f32", "xlog10f_sse", 4},
             {"llvm.sin.f64", "xsin_sse", 2},
             {"llvm.cos.f64", "xcos_sse", 2},
             {"llvm.log.f64", "xlog_sse", 2},
             {"llvm.exp.f64", "xexp_sse", 2},
-            {"llvm.pow.f64", "xpow_sse", 2}
+            {"llvm.pow.f64", "xpow_sse", 2},
+            {"llvm.sqrt.f64", "xsqrt_u05_sse", 2},
+            {"llvm.exp2.f64", "xexp2_sse", 2},
+            {"llvm.log10.f64", "xlog10_sse", 2}
         };
         platformInfo.addVectorizableFunctions(ImprecVecFuncs);
       }
