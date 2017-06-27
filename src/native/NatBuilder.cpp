@@ -1959,7 +1959,9 @@ void NatBuilder::visitMemInstructions() {
     BinaryOperator *binOp = dyn_cast<BinaryOperator>(inst);
     Type *type = inst->getType();
 
-    assert((gep || bc || binOp) && "unsupported instruction in queue");
+//    assert((gep || bc || binOp) && "unsupported instruction in queue");
+    if (!(gep || bc || binOp))
+      continue; // TODO: support other
 
     // we only care about index calculation, which are exclusively integer type
     if (binOp && !type->isIntegerTy()) continue;
