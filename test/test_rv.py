@@ -15,6 +15,8 @@
 from glob import glob
 from binaries import *
 from os import path
+import csv
+import time
 
 numSamples = 15
 
@@ -125,6 +127,7 @@ print("-- RV tester {}--".format("(profile mode) " if profileMode else ""))
 for pattern in patterns:
   tests = [testCase for testCase in glob(pattern)]
   tests.sort()
+  results = []
   for testCase in tests:
     baseName = path.basename(testCase)
 
@@ -147,10 +150,13 @@ for pattern in patterns:
       rvTime, defTime = result
       success = not (rvTime is None or defTime is None)
       print("{:5.3f}".format(defTime / rvTime) if success else "failed!")
+      results.append([baseName,"{:5.3f}".format(defTime / rvTime) if success else "0"])
 
     else:
       success = result
       print("passed" if success else "failed! <-")
 
-
-
+  if profileMode:
+    with open(time.strftime("%Y-%m-%d-%H:%M:%S") + ".csv", 'w') as f:
+      writer = csv.writer(f)
+      writer.writerows(results)
