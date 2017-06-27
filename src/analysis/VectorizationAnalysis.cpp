@@ -122,6 +122,24 @@ void VectorizationAnalysis::fixUndefinedShapes(Function& F) {
   }
 }
 
+void VectorizationAnalysis::collectOverrides(Function& F) {
+  // Collect overrides
+  for (auto& BB : F) {
+    for (auto& I : BB) {
+      if (mVecinfo.hasKnownShape(I)) {
+        overrides[&I] = mVecinfo.getVectorShape(I);
+        mVecinfo.dropVectorShape(I);
+      }
+    }
+  }
+
+  IF_DEBUG_VA {
+    for (auto& pair : overrides) {
+      errs() << "Override for: " << *pair.first << ", shape: " << pair.second << "\n";
+    }
+  };
+}
+
 void VectorizationAnalysis::adjustValueShapes(Function& F) {
   // Enforce shapes to be existing, if absent, set to VectorShape::undef()
   // If already there, also optimize alignment in case of pointer type
@@ -129,7 +147,9 @@ void VectorizationAnalysis::adjustValueShapes(Function& F) {
   // Arguments
   for (auto& arg : F.args()) {
     if (!mVecinfo.hasKnownShape(arg)) {
-      mVecinfo.setVectorShape(arg, VectorShape::undef());
+      assert(mVecinfo.getRegion() && "will only default function args if in region mode");
+      // set argument shapes to uniform if not known better
+      mVecinfo.setVectorShape(arg, VectorShape::uni());
     } else {
       // Adjust pointer argument alignment
       if (arg.getType()->isPointerTy()) {
@@ -154,51 +174,29 @@ void VectorizationAnalysis::adjustValueShapes(Function& F) {
 }
 
 void VectorizationAnalysis::init(Function& F) {
+  collectOverrides(F);
   adjustValueShapes(F);
 
-  // Collect overrides
-  for (auto& BB : F) {
-    for (auto& I : BB) {
-      VectorShape shape = mVecinfo.getVectorShape(I);
-      if (shape.isDefined()) {
-        overrides[&I] = shape;
-        mVecinfo.dropVectorShape(I);
-      }
-    }
-  }
-
-  IF_DEBUG_VA {
-    for (auto& pair : overrides) {
-      errs() << "Override for: " << *pair.first << ", shape: " << pair.second << "\n";
-    }
-  };
-
-  // Start iteration from arguments
+  // Propagation of vector shapes starts at values that do not depend on other values:
+  // - Arguments
+  // - Overridden values (as if they were arguments)
+  // - Allocas (which are uniform at the beginning)
+  // - PHIs with constants as incoming values
+  // - Calls without arguments
   for (auto& arg : F.args()) {
-    if (!mVecinfo.getVectorShape(arg).isDefined()) {
-      assert(mVecinfo.getRegion() && "will only default function args if in region mode");
-      // set argument shapes to uniform if not known better
-      mVecinfo.setVectorShape(arg, VectorShape::uni());
-    }
-
     addDependentValuesToWL(&arg);
   }
 
-  // Propagation of vectorshapes starts at:
-  // - Allocas
-  // - Constants
-  // - Calls (no connection to them if they have no parameters)
   for (const BasicBlock& BB : F) {
     mVecinfo.setVectorShape(BB, VectorShape::uni());
 
     for (const Instruction& I : BB) {
       if (overrides.count(&I) != 0) {
+        // Call update here to trigger divergence computation
         update(&I, overrides[&I]);
       } else if (isa<AllocaInst>(&I)) {
         update(&I, VectorShape::uni(mVecinfo.getMapping().vectorWidth));
       } else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
-        // Initialize WL with 0 parameter calls
-        // Only makes sense if a value is returned
         if (call->getFunctionType()->getReturnType()->isVoidTy()) continue;
         if (call->getNumArgOperands() != 0) continue;
 
@@ -849,16 +847,7 @@ VectorShape VectorizationAnalysis::getShape(const Value* const V) {
   if (const Constant* C = dyn_cast<Constant>(V))
     return VectorShape::fromConstant(C);
 
-  if (mVecinfo.hasKnownShape(*V))
-    return mVecinfo.getVectorShape(*V);
-
-#if 0
-  if (isa<GlobalValue>(V)) return VectorShape::uni(0);
-  if (isa<BasicBlock>(V)) return VectorShape::uni(0);
-
-  assert (isa<Constant>(V) && "Value is not available");
-#endif
-  return VectorShape::undef();
+  return mVecinfo.getVectorShape(*V);
 }
 
 FunctionPass* createVectorizationAnalysisPass() {

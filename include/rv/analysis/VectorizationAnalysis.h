@@ -93,6 +93,8 @@ private:
   // shapes set by the user)
   void init(llvm::Function& F);
 
+  void collectOverrides(llvm::Function& F);
+
   // adjust missing shapes to undef, optimize pointer shape alignments
   void adjustValueShapes(llvm::Function& F);
 
