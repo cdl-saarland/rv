@@ -62,12 +62,8 @@ void MemoryGroup::insert(const SCEV *scev, int offset) {
 
 MemoryAccessGrouper::MemoryAccessGrouper(ScalarEvolution &SE, unsigned laneByteSize) :
   SE(SE),
-  laneByteSize(laneByteSize),
-  laneFloatTy(laneByteSize == 4 ? Type::getFloatTy(SE.getContext())
-                                : Type::getDoubleTy(SE.getContext())),
-  laneIntTy(Type::getIntNTy(SE.getContext(), laneByteSize * 8)) {
-  assert((laneByteSize == 4 || laneByteSize == 8) && "unsupported lane size");
-}
+  laneByteSize(laneByteSize)
+{}
 
 const SCEV *MemoryAccessGrouper::add(Value *addrVal) {
   const SCEV *addrSCEV = SE.getSCEV(addrVal);
@@ -111,6 +107,7 @@ bool MemoryAccessGrouper::getConstantOffset(const SCEV *a, const SCEV *b, int &o
     return true;
   }
 
+#if 0
   const SCEVMulExpr *mulSCEV = dyn_cast<SCEVMulExpr>(diffSCEV);
   if (!mulSCEV)
     return false;
@@ -125,12 +122,9 @@ bool MemoryAccessGrouper::getConstantOffset(const SCEV *a, const SCEV *b, int &o
   if (!rightUnknown)
     return false;
 
-  bool hasComponentStride = rightUnknown->isSizeOf(laneFloatTy) || rightUnknown->isSizeOf(laneIntTy);
-  if (!hasComponentStride)
-    return false;
-
   offset = (int) leftConst->getValue()->getLimitedValue();
-  return true;
+#endif
+  return false;
 }
 
 MemoryGroup MemoryAccessGrouper::getMemoryGroup(const SCEV *scev) {

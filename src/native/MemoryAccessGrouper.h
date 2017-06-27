@@ -34,9 +34,6 @@ namespace native {
     unsigned laneByteSize;
     bool getConstantOffset(const llvm::SCEV *a, const llvm::SCEV *b, int &offset);
 
-    llvm::Type *laneFloatTy;
-    llvm::Type *laneIntTy;
-
   public:
     std::vector<MemoryGroup> memoryGroups;
 
