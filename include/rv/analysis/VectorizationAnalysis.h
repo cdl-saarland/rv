@@ -60,7 +60,7 @@ class VectorizationAnalysis {
   /// Next instructions to handle
   std::queue<const llvm::Instruction*> mWorklist;
   /// Values that are marked final and may not be recomputed
-  std::set<const llvm::Value*> overrides;
+  std::map<const llvm::Value*, VectorShape> overrides;
 
   // Shape computation:
   const llvm::DataLayout& layout;

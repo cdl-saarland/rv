@@ -156,20 +156,22 @@ void VectorizationAnalysis::adjustValueShapes(Function& F) {
 void VectorizationAnalysis::init(Function& F) {
   adjustValueShapes(F);
 
-  // bootstrap with user defined shapes
+  // Collect overrides
   for (auto& BB : F) {
     for (auto& I : BB) {
       VectorShape shape = mVecinfo.getVectorShape(I);
-
       if (shape.isDefined()) {
-        IF_DEBUG_VA errs() << "Override for: " << I << ", shape: " << shape << "\n";
-        overrides.insert(&I);
-        // Drop + update so this gets recognized as a change
-        mVecinfo.setVectorShape(I, VectorShape::undef());
-        update(&I, shape);
+        overrides[&I] = shape;
+        mVecinfo.dropVectorShape(I);
       }
     }
   }
+
+  IF_DEBUG_VA {
+    for (auto& pair : overrides) {
+      errs() << "Override for: " << *pair.first << ", shape: " << pair.second << "\n";
+    }
+  };
 
   // Start iteration from arguments
   for (auto& arg : F.args()) {
@@ -190,7 +192,9 @@ void VectorizationAnalysis::init(Function& F) {
     mVecinfo.setVectorShape(BB, VectorShape::uni());
 
     for (const Instruction& I : BB) {
-      if (isa<AllocaInst>(&I)) {
+      if (overrides.count(&I) != 0) {
+        update(&I, overrides[&I]);
+      } else if (isa<AllocaInst>(&I)) {
         update(&I, VectorShape::uni(mVecinfo.getMapping().vectorWidth));
       } else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
         // Initialize WL with 0 parameter calls
@@ -219,9 +223,9 @@ bool VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
   VectorShape Old = getShape(V);
   VectorShape New = VectorShape::join(Old, AT);
 
-  if (Old == New) return false;// nothing changed
-  // FIXME Why prevent the update if the computation itself could be already prevented?
-  if (overrides.count(V) && Old.isDefined()) return false;//prevented by override
+  if (Old == New) {
+    return false;// nothing changed
+  }
 
   IF_DEBUG_VA errs() << "Marking " << New << ": " << *V << "\n";
   mVecinfo.setVectorShape(*V, New);
@@ -319,7 +323,7 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
     }
 
     mWorklist.push(inst);
-    IF_DEBUG_VA errs() << "Inserted user of updated " << V->getName() << ":" << *user << "\n";
+    IF_DEBUG_VA errs() << "Inserted user of updated " << *V << ":" << *user << "\n";
   }
 
   const Instruction* I = dyn_cast<Instruction>(V);
@@ -346,7 +350,9 @@ void VectorizationAnalysis::updateLCSSAPhisVarying(const Loop* divLoop) {
 
     for (auto& inst : *exitBlock) {
       if (!isa<PHINode>(inst)) break;
-      update(&inst, VectorShape::varying());
+      if (overrides.count(&inst) == 0) {
+        update(&inst, VectorShape::varying());
+      }
     }
   }
 }
@@ -408,6 +414,10 @@ void VectorizationAnalysis::compute(Function& F) {
   while (!mWorklist.empty()) {
     const Instruction* I = mWorklist.front();
     mWorklist.pop();
+
+    if (overrides.count(I) != 0) {
+      continue;
+    }
 
     IF_DEBUG_VA { errs() << "# next: " << *I << "\n"; }
 
@@ -848,7 +858,7 @@ VectorShape VectorizationAnalysis::getShape(const Value* const V) {
 
   assert (isa<Constant>(V) && "Value is not available");
 #endif
-  return VectorShape::uni(0);
+  return VectorShape::undef();
 }
 
 FunctionPass* createVectorizationAnalysisPass() {
