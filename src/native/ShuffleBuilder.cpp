@@ -25,13 +25,13 @@ void ShuffleBuilder::prepareCroppedVector(IRBuilder<> &builder) {
 
 void ShuffleBuilder::add(Value *vector) {
   inputVectors.push_back(vector);
-  if (vector->getType()->getVectorNumElements() == vectorWidth - 1)
+  if (vector->getType()->getVectorNumElements() < vectorWidth)
     cropped = true;
 }
 
 void ShuffleBuilder::add(std::vector<Value *> &sources) {
   inputVectors = sources;
-  if (sources.back()->getType()->getVectorNumElements() == vectorWidth - 1)
+  if (sources.back()->getType()->getVectorNumElements() < vectorWidth)
     cropped = true;
 }
 
@@ -146,7 +146,9 @@ llvm::Value *ShuffleBuilder::shuffleToInterleaved(llvm::IRBuilder<> &builder, un
     // if we create the right-most transposition for pseudo-shuffling, remove the very last index in the last iteration
     // to get a vector size conform with the cropped size
     if (start == inputVectors.size() - 1 && counter == inputVectors.size() - 1 && cropped)
-      shuffleMask.pop_back();
+      for (unsigned k = 1; k < inputVectors.size(); ++k) {
+        shuffleMask.pop_back();
+      }
 
     // create shuffle
     Value *idxVector = ConstantVector::get(shuffleMask);

@@ -677,7 +677,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     Type *interType = vecType;
     for (unsigned i = 0; i < stride; ++i) {
       if (i == (stride - 1)) {
-        interType = getVectorType(accessedType, vectorWidth() - 1);
+        interType = getVectorType(accessedType, vectorWidth() - (stride-1));
       }
       Value *ptr = requestInterleavedAddress(srcPtr, i, interType);
       addr.push_back(ptr);
@@ -685,7 +685,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         if (i == 0)
           masks.push_back(mask);
         else {
-          unsigned width = i == (stride - 1) ? vectorWidth() - 1 : vectorWidth();
+          unsigned width = i == (stride - 1) ? vectorWidth() - (stride-1) : vectorWidth();
           masks.push_back(getConstantVector(width, i1Ty, 0));
         }
       }
@@ -759,7 +759,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       Type *interType = vecType;
       for (unsigned i = 1; i < addr.size(); ++i) {
         if (i == (addr.size() - 1))
-          interType = getVectorType(accessedType, vectorWidth() - 1);
+          interType = getVectorType(accessedType, (unsigned int) (vectorWidth() - (addr.size()-1)));
         vals.push_back(UndefValue::get(interType));
       }
       createInterleavedMemory(vecType, alignment, &addr, &masks, &vals, &srcs);
@@ -1913,8 +1913,11 @@ bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSi
 }
 
 bool NatBuilder::isPseudointerleaved(VectorShape addrShape, int byteSize) {
+  if (!vectorizeInterleavedAccess)
+    return false;
+
   int stride = addrShape.getStride() / byteSize;
-  return stride <= vectorWidth() / 2; // arbitrarily chosen
+  return stride <= (int) (vectorWidth() / 2); // arbitrarily chosen
 }
 
 void NatBuilder::visitMemInstructions() {
