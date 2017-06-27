@@ -86,6 +86,9 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
     }
   }
 
+  // visit all memory instructions and check if we can scalarize their index calculation
+  visitMemInstructions();
+
   // create all BasicBlocks first and map them
   for (auto &block : *func) {
     if (region && !region->contains(&block)) continue;
@@ -345,7 +348,8 @@ void NatBuilder::fallbackVectorize(Instruction *const inst) {
   Type *type = inst->getType();
   bool isAlloca = isa<AllocaInst>(inst);
   bool notVectorTy = type->isVoidTy() || !(type->isIntegerTy() || type->isFloatingPointTy() || type->isPointerTy());
-  Value *resVec = notVectorTy ? nullptr : UndefValue::get(
+  bool scalarize = keepScalar.count(inst) > 0;
+  Value *resVec = notVectorTy || scalarize ? nullptr : UndefValue::get(
       getVectorType(inst->getType(), vectorWidth()));
   for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
     Instruction *cpInst = inst->clone();
