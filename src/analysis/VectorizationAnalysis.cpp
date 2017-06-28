@@ -98,7 +98,7 @@ VectorizationAnalysis::VectorizationAnalysis(PlatformInfo& platInfo,
 { }
 
 void
-VectorizationAnalysis::analyze(Function& F) {
+VectorizationAnalysis::analyze(const Function& F) {
   assert (!F.isDeclaration());
   assert (mWorklist.empty());
 
@@ -112,7 +112,7 @@ VectorizationAnalysis::analyze(Function& F) {
   }
 }
 
-void VectorizationAnalysis::fixUndefinedShapes(Function& F) {
+void VectorizationAnalysis::fixUndefinedShapes(const Function& F) {
   for (const BasicBlock& BB : F) {
     if (!mVecinfo.inRegion(BB)) continue;
     for (const Instruction& I : BB) {
@@ -122,7 +122,7 @@ void VectorizationAnalysis::fixUndefinedShapes(Function& F) {
   }
 }
 
-void VectorizationAnalysis::collectOverrides(Function& F) {
+void VectorizationAnalysis::collectOverrides(const Function& F) {
   // Collect overrides
   for (auto& BB : F) {
     for (auto& I : BB) {
@@ -140,7 +140,7 @@ void VectorizationAnalysis::collectOverrides(Function& F) {
   };
 }
 
-void VectorizationAnalysis::adjustValueShapes(Function& F) {
+void VectorizationAnalysis::adjustValueShapes(const Function& F) {
   // Enforce shapes to be existing, if absent, set to VectorShape::undef()
   // If already there, also optimize alignment in case of pointer type
 
@@ -173,7 +173,7 @@ void VectorizationAnalysis::adjustValueShapes(Function& F) {
   }
 }
 
-void VectorizationAnalysis::init(Function& F) {
+void VectorizationAnalysis::init(const Function& F) {
   collectOverrides(F);
   adjustValueShapes(F);
 
@@ -404,7 +404,7 @@ VectorShape VectorizationAnalysis::computePHIShape(const PHINode & phi) {
    }
 }
 
-void VectorizationAnalysis::compute(Function& F) {
+void VectorizationAnalysis::compute(const Function& F) {
   IF_DEBUG_VA { errs() << "\n\n-- VA::compute() log -- \n"; }
 
 

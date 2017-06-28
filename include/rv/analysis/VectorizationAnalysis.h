@@ -82,7 +82,7 @@ public:
   VectorizationAnalysis(const VectorizationAnalysis&) = delete;
   VectorizationAnalysis& operator=(VectorizationAnalysis) = delete;
 
-  void analyze(llvm::Function& F);
+  void analyze(const llvm::Function& F);
 
 private:
   /// Get the shape for a value
@@ -91,15 +91,15 @@ private:
 
   // Initialize all statically known shapes (constants, arguments via argument mapping,
   // shapes set by the user)
-  void init(llvm::Function& F);
+  void init(const llvm::Function& F);
 
-  void collectOverrides(llvm::Function& F);
+  void collectOverrides(const llvm::Function& F);
 
   // adjust missing shapes to undef, optimize pointer shape alignments
-  void adjustValueShapes(llvm::Function& F);
+  void adjustValueShapes(const llvm::Function& F);
 
   // Run Fix-Point-Iteration after initialization
-  void compute(llvm::Function& F);
+  void compute(const llvm::Function& F);
 
   // specialized transfer functions
   VectorShape computePHIShape(const llvm::PHINode& phi);
@@ -137,7 +137,7 @@ private:
   bool pushMissingOperands(const llvm::Instruction* I);
 
   // Cast undefined instruction shapes to uniform shapes
-  void fixUndefinedShapes(llvm::Function& F);
+  void fixUndefinedShapes(const llvm::Function& F);
 };
 
 llvm::FunctionPass* createVectorizationAnalysisPass();
