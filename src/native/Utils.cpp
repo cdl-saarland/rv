@@ -101,14 +101,47 @@ bool isSupportedOperation(Instruction *const inst) {
           (inst->getOpcode() >= Instruction::OtherOpsBegin && inst->getOpcode() <= Instruction::OtherOpsEnd));
 }
 
-bool isStructAccess(llvm::Value *const address) {
+bool isHomogeneousStruct(StructType *const type) {
+  assert(type->getStructNumElements() > 0 && "emptry struct!");
+  Type *prevElTy = nullptr;
+  for (Type *elTy : type->elements()) {
+    if (!elTy->isStructTy() && !(elTy->isIntegerTy() || elTy->isFloatTy()))
+      return false;
+
+    else if (elTy->isStructTy() && !isHomogeneousStruct(cast<StructType>(elTy)))
+      return false;
+
+    if (prevElTy && prevElTy != elTy)
+      return false;
+
+    prevElTy = elTy;
+  }
+
+  return true;
+}
+
+StructType *isStructAccess(Value *const address) {
   assert(address->getType()->isPointerTy() && "not a pointer");
-  PointerType *ptrT = cast<PointerType>(address->getType());
-  if (ptrT->getElementType()->isStructTy())
-    return true;
-  else if (isa<GetElementPtrInst>(address)) {
-    GetElementPtrInst *gep = cast<GetElementPtrInst>(address);
-    return isStructAccess(gep->getPointerOperand());
-  } else
-    return false;
+
+  if (isa<BitCastInst>(address))
+    return isStructAccess(cast<BitCastInst>(address)->getOperand(0));
+
+  Type *type;
+  if (isa<GetElementPtrInst>(address))
+    type = cast<GetElementPtrInst>(address)->getSourceElementType();
+  else
+    type = address->getType();
+
+  return containsStruct(type);
+}
+
+StructType *containsStruct(Type *const type) {
+  if (type->isStructTy())
+    return cast<StructType>(type);
+
+  if (type->isPointerTy())
+    return containsStruct(cast<PointerType>(type)->getPointerElementType());
+
+  else
+    return nullptr;
 }

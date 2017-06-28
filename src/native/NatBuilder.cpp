@@ -669,7 +669,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     alignment = instrShape.getAlignmentFirst();
     interleaved = true;
 
-  } else if (addrShape.isStrided() && isPseudointerleaved(addrShape, byteSize) && !isStructAccess(accessedPtr)) {
+  } else if (addrShape.isStrided() && isPseudointerleaved(accessedPtr, byteSize)) {
     // pseudo-interleaved: same as above. we don't know the array limits, so we skip the last index of the last load
     unsigned stride = (unsigned) addrShape.getStride() / byteSize;
     srcs.push_back(inst);
@@ -681,7 +681,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       }
       Value *ptr = requestInterleavedAddress(srcPtr, i, interType);
       addr.push_back(ptr);
-      if (store) { // TODO: legal?
+      if (store) { // legal if inbounds
         if (i == 0)
           masks.push_back(mask);
         else {
@@ -1189,6 +1189,13 @@ GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const ge
   // we need vector values if something is not all_uniform. we need to extract an dimension if !buildAllDimensions
   Value *scalBasePtr = gep->getPointerOperand();
   Value *basePtr = requestScalarValue(scalBasePtr);
+  Type *st = isStructAccess(gep);
+
+  if (st) {
+    Type *accessedType = gep->getResultElementType();
+    Type *ptrType = PointerType::getUnqual(accessedType);
+    basePtr = builder.CreateBitCast(basePtr, ptrType, "struct_inter_cast");
+  }
 
   std::vector<Value *> idxList;
   idxList.reserve(gep->getNumIndices());
@@ -1198,9 +1205,12 @@ GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const ge
     VectorShape idxShape = getVectorShape(*idx);
 
     if (interleavedIdx > 0 && !idxShape.isUniform())
-      interIdx = builder.CreateAdd(interIdx, ConstantInt::get(interIdx->getType(), vectorWidth() * interleavedIdx));
+      interIdx = builder.CreateAdd(interIdx, ConstantInt::get(interIdx->getType(), vectorWidth() * interleavedIdx), "inter_idx");
 
     idxList.push_back(interIdx);
+
+    if (st && !idxShape.isUniform())
+      break;
   }
 
   GetElementPtrInst *interGEP = cast<GetElementPtrInst>(builder.CreateGEP(basePtr, idxList, "inter_gep"));
@@ -1429,12 +1439,12 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
 }
 
 Value *NatBuilder::maskInactiveLanes(Value *const value, const BasicBlock* const block, bool invert) {
-    auto pred = requestVectorValue(vectorizationInfo.getPredicate(*block));
-    if (invert) {
-        return builder.CreateOr(value, builder.CreateNot(pred));
-    } else {
-        return builder.CreateAnd(value, pred);
-    }
+  auto pred = requestVectorValue(vectorizationInfo.getPredicate(*block));
+  if (invert) {
+    return builder.CreateOr(value, builder.CreateNot(pred));
+  } else {
+    return builder.CreateAnd(value, pred);
+  }
 }
 
 Value&
@@ -1446,7 +1456,7 @@ NatBuilder::materializeVectorReduce(IRBuilder<> & builder, Value & initVal, Valu
   auto * accu = &vecVal;
 
   for (int range = vecWidth / 2; range >= 1; range /= 2) {
-  // create a permutation vector
+    // create a permutation vector
     std::vector<Constant*> shuffleVec;
     shuffleVec.reserve(vecWidth);
 
@@ -1459,11 +1469,11 @@ NatBuilder::materializeVectorReduce(IRBuilder<> & builder, Value & initVal, Valu
     // fill up with undef elements
     while (shuffleVec.size() < vecWidth) shuffleVec.push_back( UndefValue::get(intTy) );
 
-  // fold
+    // fold
     auto * mask = ConstantVector::get(shuffleVec);
     auto * folded = builder.CreateShuffleVector(accu, UndefValue::get(vecVal.getType()), mask, "fold");
 
-  // Create reduction
+    // Create reduction
     auto *reduce = reductOp.clone();
     reduce->mutateType(vecVal.getType());
     reduce->setOperand(0, accu);
@@ -1592,27 +1602,27 @@ NatBuilder::materializeStridedReduction(Reduction & red) {
   vecPhi.addIncoming(clonedReductor, vecLatch);
 
   repairOutsideUses(red.phi,
-      [&](Value& usedVal, BasicBlock& userBlock) ->Value& {
-        // otw, replace with reduced value
-        int64_t amount = (vectorWidth - 1) * redShape.getStride();
-        auto * insertPt = userBlock.getFirstNonPHI();
-        IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                    [&](Value& usedVal, BasicBlock& userBlock) ->Value& {
+                      // otw, replace with reduced value
+                      int64_t amount = (vectorWidth - 1) * redShape.getStride();
+                      auto * insertPt = userBlock.getFirstNonPHI();
+                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
 
-        auto * liveOutView = builder.CreateAdd(&usedVal, ConstantInt::getSigned(usedVal.getType(), amount), ".red");
-        return *liveOutView;
-      }
+                      auto * liveOutView = builder.CreateAdd(&usedVal, ConstantInt::getSigned(usedVal.getType(), amount), ".red");
+                      return *liveOutView;
+                    }
   );
 
   repairOutsideUses(red.getReductor(),
-      [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
-        // otw, replace with reduced value
-        int64_t amount = vectorWidth * redShape.getStride();
-        auto * insertPt = userBlock.getFirstNonPHI();
-        IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                    [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
+                      // otw, replace with reduced value
+                      int64_t amount = vectorWidth * redShape.getStride();
+                      auto * insertPt = userBlock.getFirstNonPHI();
+                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
 
-        auto * liveOutView = builder.CreateAdd(&usedVal, ConstantInt::getSigned(usedVal.getType(), amount), ".red");
-        return *liveOutView;
-      }
+                      auto * liveOutView = builder.CreateAdd(&usedVal, ConstantInt::getSigned(usedVal.getType(), amount), ".red");
+                      return *liveOutView;
+                    }
   );
 }
 
@@ -1638,21 +1648,21 @@ NatBuilder::materializeVaryingReduction(Reduction & red) {
 
 // reduce reduction phi for outside users
   repairOutsideUses(red.getReductor(),
-      [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
-        // otw, replace with reduced value
-        auto * insertPt = userBlock.getFirstNonPHI();
-        IRBuilder<> builder(&userBlock, insertPt->getIterator());
-        auto & reducedVector = materializeVectorReduce(builder, red.getInitValue(), vecReductInst, reductInst);
-        return reducedVector;
-      }
+                    [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
+                      // otw, replace with reduced value
+                      auto * insertPt = userBlock.getFirstNonPHI();
+                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                      auto & reducedVector = materializeVectorReduce(builder, red.getInitValue(), vecReductInst, reductInst);
+                      return reducedVector;
+                    }
   );
 
   // TODO reduction in case of leaking varying phis
   repairOutsideUses(red.phi,
-      [&](Value & usedVal, BasicBlock&) ->Value& {
-        errs() << "can not restore outside uses of reduction phis\n";
-        abort();
-      }
+                    [&](Value & usedVal, BasicBlock&) ->Value& {
+                      errs() << "can not restore outside uses of reduction phis\n";
+                      abort();
+                    }
   );
 }
 
@@ -1862,23 +1872,23 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
 }
 
 bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSize, std::vector<Value *> &srcs) {
-  // TODO: support interleaved for structs
-  if (isStructAccess(accessedPtr))
+  StructType *st;
+  if ((st = isStructAccess(accessedPtr)) && !isHomogeneousStruct(st))
     return false;
-    
+
   // group memory instructions based on their dependencies
   InstructionGrouper instructionGrouper;
   instructionGrouper.add(inst, memDepRes);
   for (Instruction *instr : lazyInstructions) {
     instructionGrouper.add(instr, memDepRes);
   }
-  
+
   InstructionGroup instrGroup = instructionGrouper.getInstructionGroup(inst);
   if (instrGroup.size() <= 1)
     return false;
 
   const VectorShape &addrShape = getVectorShape(*accessedPtr);
-  
+
   // group our group based on memory layout next
   MemoryAccessGrouper memoryGrouper(SE, static_cast<unsigned>(byteSize));
   std::map<Value *, const SCEV *> addrSCEVMap;
@@ -1912,10 +1922,15 @@ bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSi
   return !hasGaps && memGroup.size() > 1 && static_cast<int>(memGroup.size()) == stride;
 }
 
-bool NatBuilder::isPseudointerleaved(VectorShape addrShape, int byteSize) {
+bool NatBuilder::isPseudointerleaved(Value *addr, int byteSize) {
   if (!vectorizeInterleavedAccess)
     return false;
 
+  StructType *st;
+  if ((st = isStructAccess(addr)) && !isHomogeneousStruct(st))
+    return false;
+
+  VectorShape addrShape = getVectorShape(*addr);
   int stride = addrShape.getStride() / byteSize;
   return stride <= (int) (vectorWidth() / 2); // arbitrarily chosen
 }
@@ -1940,7 +1955,7 @@ void NatBuilder::visitMemInstructions() {
     int byteSize = static_cast<int>(layout.getTypeStoreSize(accessedType));
 
     // keep scalar if uniform or contiguous
-    if (addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize) || isPseudointerleaved(addrShape, byteSize)) {
+    if (addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize) || isPseudointerleaved(gep, byteSize)) {
       for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
         Value *idxOp = gep->getOperand(i + 1);
         if (isa<Instruction>(idxOp))
@@ -1975,7 +1990,7 @@ void NatBuilder::visitMemInstructions() {
         Type *accessedType = gep->getResultElementType();
         int byteSize = static_cast<int>(layout.getTypeStoreSize(accessedType));
 
-        if (!(addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize) || isPseudointerleaved(addrShape, byteSize))) {
+        if (!(addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize) || isPseudointerleaved(gep, byteSize))) {
           notScalar = true;
           break;
         }
