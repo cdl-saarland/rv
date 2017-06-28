@@ -45,29 +45,31 @@ StructOpt::StructOpt(VectorizationInfo & _vecInfo, const DataLayout & _layout)
 Value *
 StructOpt::transformLoadStore(IRBuilder<> & builder,
                               bool replaceInst,
-                              Instruction* inst,
-                              Value * vecPtrVal, Value * storeVal) {
+                              Instruction * inst,
+                              Type * scalarTy,
+                              Value * vecPtrVal,
+                              Value * storeVal) {
   auto * load = dyn_cast<LoadInst>(inst);
   auto * store = dyn_cast<StoreInst>(inst);
-  Type * ptrElemTy = vecPtrVal->getType()->getPointerElementType();
 
-  if (ptrElemTy->isStructTy()) {
+  if (scalarTy->isStructTy()) {
     // emit multiple loads/stores
     // loads must re-insert the smaller vector loads in the structure
     Value * structVal = nullptr;
     if (load) {
-      structVal = UndefValue::get(ptrElemTy);
+      structVal = UndefValue::get(scalarTy);
       vecInfo.setVectorShape(*structVal, vecInfo.getVectorShape(*load));
     }
 
-    for (size_t i = 0; i < ptrElemTy->getStructNumElements(); ++i) {
+    for (size_t i = 0; i < scalarTy->getStructNumElements(); ++i) {
       auto * vecGEP = builder.CreateGEP(vecPtrVal, { builder.getInt32(0), builder.getInt32(i) });
       auto * structElem = storeVal ? builder.CreateExtractValue(storeVal, i) : nullptr;
+      auto * elemTy = scalarTy->getStructElementType(i);
 
-      vecInfo.setVectorShape(*structElem, vecInfo.getVectorShape(*storeVal));
+      if (storeVal) vecInfo.setVectorShape(*structElem, vecInfo.getVectorShape(*storeVal));
       vecInfo.setVectorShape(*vecGEP, vecInfo.getVectorShape(*vecPtrVal));
 
-      auto * vecElem = transformLoadStore(builder, false, inst, vecGEP, structElem);
+      auto * vecElem = transformLoadStore(builder, false, inst, elemTy, vecGEP, structElem);
       if (structVal) {
         structVal = builder.CreateInsertValue(structVal, vecElem, i);
         vecInfo.setVectorShape(*structVal, vecInfo.getVectorShape(*load));
@@ -82,7 +84,7 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
   }
 
   // cast *<8 x float> to * float
-  auto * vecElemTy = cast<VectorType>(ptrElemTy);
+  auto * vecElemTy = cast<VectorType>(vecPtrVal->getType()->getPointerElementType());
   auto * plainElemTy = vecElemTy->getElementType();
 
   auto * castElemTy = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
@@ -143,7 +145,7 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       assert (transformMap.count(ptrVal));
       Value * vecPtrVal = transformMap[ptrVal];
 
-      transformLoadStore(builder, true, inst, vecPtrVal, storeVal);
+      transformLoadStore(builder, true, inst, ptrVal->getType()->getPointerElementType(), vecPtrVal, storeVal);
 
       continue; // don't step across load/store
 

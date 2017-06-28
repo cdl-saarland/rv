@@ -44,6 +44,7 @@ class StructOpt {
   llvm::Value* transformLoadStore(llvm::IRBuilder<> & builder,
                                   bool replaceInst,
                                   llvm::Instruction * inst,
+                                  llvm::Type * scalarTy,
                                   llvm::Value * vecPtrVal,
                                   llvm::Value * storeVal);
 
