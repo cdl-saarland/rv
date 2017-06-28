@@ -10,8 +10,16 @@ struct T {
 
 extern "C" float
 foo(int i, T * D) {
-  float x = D[i].a.x + D[i].a.y + D[i].a.z;
-  float y = D[i].b.x + D[i].b.y + D[i].b.z;
+  float ax = D[i].a.x;
+  float ay = D[i].a.y;
+  float az = D[i].a.z;
+
+  float bx = D[i].b.x;
+  float by = D[i].b.y;
+  float bz = D[i].b.z;
+
+  float x = ax + ay + az;
+  float y = bx + by + bz;
 
   return x*y;
 }
