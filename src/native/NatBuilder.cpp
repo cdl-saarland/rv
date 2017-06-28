@@ -50,6 +50,7 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     region(vectorizationInfo.getRegion()),
     useScatterGatherIntrinsics(true),
     vectorizeInterleavedAccess(true),
+    cropPseudoInterleaved(false),
     keepScalar(),
     cascadeLoadMap(),
     cascadeStoreMap(),
@@ -676,7 +677,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     Value *srcPtr = getPointerOperand(inst);
     Type *interType = vecType;
     for (unsigned i = 0; i < stride; ++i) {
-      if (i == (stride - 1)) {
+      if (cropPseudoInterleaved && i == (stride - 1)) {
         interType = getVectorType(accessedType, vectorWidth() - (stride-1));
       }
       Value *ptr = requestInterleavedAddress(srcPtr, i, interType);
@@ -685,10 +686,16 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         if (i == 0)
           masks.push_back(mask);
         else {
-          unsigned width = i == (stride - 1) ? vectorWidth() - (stride-1) : vectorWidth();
+          unsigned width = (i == (stride - 1)) && cropPseudoInterleaved ? vectorWidth() - (stride - 1) : vectorWidth();
           masks.push_back(getConstantVector(width, i1Ty, 0));
         }
       }
+    }
+
+    if (load && !cropPseudoInterleaved) {
+      unsigned width = vectorWidth() - (stride - 1);
+      std::vector<unsigned> trueMask(width, 1);
+      masks.push_back(getConstantVectorPadded(vectorWidth(), i1Ty, trueMask, true));
     }
 
     alignment = instrShape.getAlignmentFirst();
@@ -758,7 +765,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       vals.push_back(mappedStoredVal);
       Type *interType = vecType;
       for (unsigned i = 1; i < addr.size(); ++i) {
-        if (i == (addr.size() - 1))
+        if (i == (addr.size() - 1) && cropPseudoInterleaved)
           interType = getVectorType(accessedType, (unsigned int) (vectorWidth() - (addr.size()-1)));
         vals.push_back(UndefValue::get(interType));
       }
@@ -848,7 +855,7 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
 void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std::vector<Value *> *addr, std::vector<Value *> *masks,
                                          std::vector<Value *> *values, std::vector<Value *> *srcs) {
   unsigned stride = (unsigned) addr->size();
-  bool needsMask = masks->size() > 0;
+  bool needsMask = masks->size() > 1;
   bool load = values == nullptr;
 
   // tranpose mask and values if needed
@@ -865,6 +872,11 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
   for (unsigned i = 0; i < stride; ++i) {
     Value *ptr = (*addr)[i];
     Value *mask = needsMask ? maskTransposer.shuffleToInterleaved(builder, stride, i) : nullptr;
+
+    if (masks->size() == 1 && i == (stride - 1)) {
+      needsMask = true;
+      mask = (*masks)[0];
+    }
 
     if (load) {
       vecMem = createContiguousLoad(ptr, alignment, mask, UndefValue::get(vecType));

@@ -53,6 +53,7 @@ namespace native {
 
     bool useScatterGatherIntrinsics;
     bool vectorizeInterleavedAccess;
+    bool cropPseudoInterleaved;
 
     rv::VectorShape getVectorShape(const Value &val);
 

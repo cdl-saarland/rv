@@ -47,7 +47,7 @@ llvm::Value *getConstantVector(unsigned width, Constant *constant) {
   return ConstantVector::get(constants);
 }
 
-Value *getConstantVectorPadded(unsigned width, Type *type, std::vector<unsigned> &values) {
+Value *getConstantVectorPadded(unsigned width, Type *type, std::vector<unsigned> &values, bool padWithZero) {
   std::vector<Constant *> constants(width, nullptr);
   unsigned i = 0;
   for (; i < values.size(); ++i) {
@@ -55,9 +55,10 @@ Value *getConstantVectorPadded(unsigned width, Type *type, std::vector<unsigned>
                                                    : ConstantInt::get(type, values[i]);
     constants[i] = constant;
   }
-  Constant *undef = UndefValue::get(type);
+  Constant *zeroConst = type->isFloatingPointTy() ? ConstantFP::get(type, 0) : ConstantInt::get(type, 0);
+  Constant *padding = padWithZero ? zeroConst : UndefValue::get(type);
   for (; i < width; ++i) {
-    constants[i] = undef;
+    constants[i] = padding;
   }
   return ConstantVector::get(constants);
 }

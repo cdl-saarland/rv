@@ -22,7 +22,7 @@ llvm::Value *createContiguousVector(unsigned width, Type *type, int start, int s
 
 llvm::Value *getConstantVector(unsigned width, Type *type, unsigned value);
 llvm::Value *getConstantVector(unsigned width, llvm::Constant *constant);
-llvm::Value *getConstantVectorPadded(unsigned width, Type *type, std::vector<unsigned> &values);
+llvm::Value *getConstantVectorPadded(unsigned width, Type *type, std::vector<unsigned> &values, bool padWithZero = false);
 
 llvm::Value *getPointerOperand(llvm::Instruction *instr);
 
