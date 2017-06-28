@@ -1922,29 +1922,30 @@ bool NatBuilder::isPseudointerleaved(VectorShape addrShape, int byteSize) {
 
 void NatBuilder::visitMemInstructions() {
   // iterate over all instructions of all basic blocks (order does not matter)
-  // if we encounter a memory instruction, check if we would scalarize or optimize it
-  // if yes, add the address instruction to a queue
-  // then, work the queue until empty: check if the operands are binary integer instructions
+  // if we encounter a GEP of a memory instruction, check if we would scalarize or optimize it
+  // if yes, add the indices that are instructions to the queue
+  // then, work the queue until empty: check if the operands are integer instructions
   // if we can keep this instruction scalar, add their users and their operands to the queue
   // instructions that will be kept scalar, are added to a vector
   std::deque<Instruction *> workQueue;
   Function *scalarFn = vectorizationInfo.getMapping().scalarFn;
   for (inst_iterator I = inst_begin(scalarFn), E = inst_end(scalarFn); I != E; ++I) {
     Instruction *inst = &*I;
-    LoadInst *load = dyn_cast<LoadInst>(inst);
-    StoreInst *store = dyn_cast<StoreInst>(inst);
+    GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(inst);
 
-    if (!(load || store)) continue;
+    if (!gep) continue;
 
-    Value *addr = load ? load->getPointerOperand() : store->getPointerOperand();
-    VectorShape addrShape = getVectorShape(*addr);
-    Type *accessedType = load ? load->getType() : store->getValueOperand()->getType();
+    VectorShape addrShape = getVectorShape(*gep);
+    Type *accessedType = gep->getResultElementType();
     int byteSize = static_cast<int>(layout.getTypeStoreSize(accessedType));
 
     // keep scalar if uniform or contiguous
-    if (isa<Instruction>(addr) && (addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) {
-      workQueue.push_back(cast<Instruction>(addr));
-//      keepScalar.insert(cast<Instruction>(addr));
+    if (addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize) || isPseudointerleaved(addrShape, byteSize)) {
+      for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
+        Value *idxOp = gep->getOperand(i + 1);
+        if (isa<Instruction>(idxOp))
+          workQueue.push_back(cast<Instruction>(idxOp));
+      }
     }
   }
 
@@ -1953,37 +1954,28 @@ void NatBuilder::visitMemInstructions() {
     Instruction *inst = workQueue.front();
     workQueue.pop_front();
     visited.insert(inst);
-
-    GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(inst);
-    BitCastInst *bc = dyn_cast<BitCastInst>(inst);
-    BinaryOperator *binOp = dyn_cast<BinaryOperator>(inst);
     Type *type = inst->getType();
 
-//    assert((gep || bc || binOp) && "unsupported instruction in queue");
-    if (!(gep || bc || binOp))
-      continue; // TODO: support other
-
     // we only care about index calculation, which are exclusively integer type
-    if (binOp && !type->isIntegerTy()) continue;
+    if (!type->isIntegerTy()) continue;
 
     // we will not vectorize it if we do not have to anyway. so nothing to do
-    if (binOp && !shouldVectorize(inst)) continue;
+    if (!shouldVectorize(inst)) continue;
 
     // if all users of this instruction are part of the keepScalar set, we keep this one scalar as well
     bool notScalar = false;
     for (auto user : inst->users()) {
       Instruction *uInst = dyn_cast<Instruction>(user);
-      LoadInst *load = dyn_cast<LoadInst>(user);
-      StoreInst *store = dyn_cast<StoreInst>(user);
+      GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(user);
 
       if (!uInst) continue; // nothing to do if it is a constant
 
-      if ((bc || gep) && (load || store)) {
-        VectorShape addrShape = getVectorShape(*inst);
-        Type *accessedType = load ? load->getType() : store->getValueOperand()->getType();
+      if (gep) {
+        VectorShape addrShape = getVectorShape(*gep);
+        Type *accessedType = gep->getResultElementType();
         int byteSize = static_cast<int>(layout.getTypeStoreSize(accessedType));
 
-        if (!(addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) {
+        if (!(addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize) || isPseudointerleaved(addrShape, byteSize))) {
           notScalar = true;
           break;
         }
@@ -2003,14 +1995,12 @@ void NatBuilder::visitMemInstructions() {
     keepScalar.insert(inst);
 
     // add all operands to the queue
-    for (unsigned i = 0, iE = gep ? gep->getNumIndices() : inst->getNumOperands(); i < iE; ++i) {
-      Value *op = gep ? inst->getOperand(i + 1) : inst->getOperand(i);
-      GetElementPtrInst *opGEP = dyn_cast<GetElementPtrInst>(op);
-      BitCastInst *opBC = dyn_cast<BitCastInst>(op);
-      BinaryOperator *opBinOp = dyn_cast<BinaryOperator>(op);
+    for (unsigned i = 0, iE = inst->getNumOperands(); i < iE; ++i) {
+      Value *op = inst->getOperand(i);
+      Instruction *opInst = dyn_cast<Instruction>(op);
 
-      if ((opGEP || opBC || opBinOp) && !visited.count(cast<Instruction>(op)))
-        workQueue.push_back(cast<Instruction>(op));
+      if (opInst && !visited.count(opInst))
+        workQueue.push_back(opInst);
     }
   }
 }
