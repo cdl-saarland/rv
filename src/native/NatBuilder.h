@@ -32,6 +32,7 @@ namespace rv {
 namespace native {
   typedef std::map<const llvm::Function *, const rv::VectorMapping *> VectorMappingMap;
   typedef std::vector<llvm::Value *> LaneValueVector;
+  typedef std::vector<llvm::Value *> PseudointerValueVector;
   typedef std::vector<llvm::BasicBlock *> BasicBlockVector;
 
   class NatBuilder {
@@ -112,6 +113,7 @@ namespace native {
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
     std::map<const llvm::Type *, MemoryAccessGrouper> grouperMap;
+    std::map<const llvm::Value *, PseudointerValueVector> pseudointerValueMap;
     std::vector<llvm::PHINode *> phiVector;
     std::deque<llvm::Instruction *> lazyInstructions;
 
@@ -144,14 +146,14 @@ namespace native {
     bool canVectorize(llvm::Instruction *inst);
     bool shouldVectorize(llvm::Instruction *inst);
     bool isInterleaved(llvm::Instruction *inst, llvm::Value *accessedPtr, int byteSize, std::vector<Value *> &srcs);
-    bool isPseudointerleaved(Value *addr, int byteSize);
+    bool isPseudointerleaved(Instruction *inst, Value *addr, int byteSize);
 
     llvm::Value *createUniformMaskedMemory(llvm::Instruction *inst, llvm::Type *accessedType, unsigned alignment,
                                            llvm::Value *addr, llvm::Value *mask, llvm::Value *values);
     llvm::Value *createVaryingMemory(llvm::Type *vecType, unsigned alignment, llvm::Value *addr, llvm::Value *mask,
                                      llvm::Value *values);
     void createInterleavedMemory(llvm::Type *vecType, unsigned alignment, std::vector<Value *> *addr, std::vector<llvm::Value *> *mask,
-                                     std::vector<Value *> *values, std::vector<Value *> *srcs);
+                                     std::vector<Value *> *values, std::vector<Value *> *srcs, bool isPseudoInter = false);
 
     llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, unsigned alignment, llvm::Value *mask);
     llvm::Value *createContiguousLoad(llvm::Value *ptr, unsigned alignment, llvm::Value *mask, llvm::Value *passThru);

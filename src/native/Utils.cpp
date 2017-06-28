@@ -72,6 +72,19 @@ Value *getPointerOperand(Instruction *instr) {
   else return nullptr;
 }
 
+Value *getBasePointer(Value *addr) {
+  GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(addr);
+  BitCastInst *bc = dyn_cast<BitCastInst>(addr);
+
+  if (gep)
+    return getBasePointer(gep->getPointerOperand());
+
+  if (bc)
+    return getBasePointer(bc->getOperand(0));
+
+  return addr;
+}
+
 BasicBlock *createCascadeBlocks(Function *insertInto, unsigned vectorWidth,
                                 std::vector<BasicBlock *> &condBlocks,
                                 std::vector<BasicBlock *> &maskedBlocks) {

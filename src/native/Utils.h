@@ -25,6 +25,7 @@ llvm::Value *getConstantVector(unsigned width, llvm::Constant *constant);
 llvm::Value *getConstantVectorPadded(unsigned width, Type *type, std::vector<unsigned> &values, bool padWithZero = false);
 
 llvm::Value *getPointerOperand(llvm::Instruction *instr);
+llvm::Value *getBasePointer(llvm::Value *addr);
 
 
 llvm::BasicBlock *createCascadeBlocks(llvm::Function *insertInto, unsigned vectorWidth,
