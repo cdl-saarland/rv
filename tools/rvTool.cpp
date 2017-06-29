@@ -190,6 +190,17 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     rv::VectorizerInterface vectorizer(platformInfo);
 
+    // early math func lowering
+    vectorizer.lowerRuntimeCalls(vecInfo, loopInfo);
+    domTree.recalculate(parentFn);
+    postDomTree.recalculate(parentFn);
+    cdg.create(parentFn);
+    dfg.create(parentFn);
+
+    loopInfo.print(errs());
+    loopInfo.verify(domTree);
+
+
     // vectorizationAnalysis
     vectorizer.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
 
@@ -351,6 +362,16 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
       errs() << "-- normalized functions --\n";
       scalarCopy->print(errs());
     }
+
+    // early math func lowering
+    vectorizer.lowerRuntimeCalls(vecInfo, loopInfo);
+    domTree.recalculate(*scalarCopy);
+    postDomTree.recalculate(*scalarCopy);
+    cdg.create(*scalarCopy);
+    dfg.create(*scalarCopy);
+
+    loopInfo.print(errs());
+    loopInfo.verify(domTree);
 
     // vectorizationAnalysis
     vectorizer.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);

@@ -239,6 +239,15 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   CDG cdg(*PDT);
   cdg.create(*F);
 
+// early math func lowering
+  vectorizer->lowerRuntimeCalls(vecInfo, *LI);
+  DT->recalculate(*F);
+  PDT->recalculate(*F);
+  cdg.create(*F);
+  dfg.create(*F);
+
+  vecInfo.dump();
+
 // Vectorize
   // vectorizationAnalysis
   vectorizer->analyze(vecInfo, cdg, dfg, *LI, *PDT, *DT);

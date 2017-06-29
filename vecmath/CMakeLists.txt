@@ -14,6 +14,11 @@ SET ( SLEEF_H "${RV_LIB_SLEEF_DIR}/sleef.h" )
 SET ( SLEEF_HEADERS ${SLEEF_R_AVX2} ${SLEEF_R_AVX} ${SLEEF_R_SSE2} ${SLEEF_H} )
 SET ( SLEEF_MKRENAME "${RV_LIB_SLEEF_DIR}/mkrename" )
 
+# compiler-rt
+SET ( CRT_BC "${VECMATH_LIB_DIR}/crt.bc" )
+SET ( CRT_GENBC "${VECMATH_LIB_DIR}/crt.gen.cpp" )
+SET ( CRT_INC "${RV_SOURCE_DIR}/../compiler-rt/lib/builtins" )
+
 # SLEEF bc build paths
 SET ( SLEEF_BC_AVX2_SP "${VECMATH_LIB_DIR}/avx2_sleef_sp.bc" )
 SET ( SLEEF_GENBC_AVX2_SP "${VECMATH_LIB_DIR}/avx2_sleef_sp.gen.cpp" )
@@ -34,7 +39,7 @@ SET ( SLEEF_BC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.bc" )
 SET ( SLEEF_GENBC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.gen.cpp" )
 
 SET ( SLEEF_BC_LIBS ${SLEEF_BC_AVX2_SP} ${SLEEF_BC_AVX_SP} ${SLEEF_BC_SSE_SP} ${SLEEF_BC_AVX2_DP} ${SLEEF_BC_AVX_DP} ${SLEEF_BC_SSE_DP} )
-SET ( RV_GENBC_SOURCES ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP} )
+SET ( RV_GENBC_SOURCES ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP} ${CRT_GENBC} )
 
 # conditionally provide extra sources
 SET ( RV_LIB_SLEEF_OUT_DIR ${VECMATH_LIB_DIR} )
@@ -123,6 +128,13 @@ IF (${RV_ENABLE_SLEEF})
     #COMMAND ${LLVM_TOOL_LINK} ${EXTRA_BC_SSE_DP} ${SLEEF_BC_SSE_DP}.tmp -o ${SLEEF_BC_SSE_DP}
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_DP} \"sse_dp\" ${SLEEF_BC_SSE_DP}
     DEPENDS ${SLEEF_HEADERS}
+  )
+  # compiler-rt runtime library
+  ADD_CUSTOM_COMMAND (
+    OUTPUT ${CRT_GENBC}
+    COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
+    COMMAND ${LLVM_TOOL_CLANG} ${RV_SOURCE_DIR}/vecmath/crt.c -I${CRT_INC} -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -mavx2 -mfma -ffp-contract=off -o ${CRT_BC}
+    COMMAND ${GENCPP_TOOL} ${CRT_GENBC} \"crt\" ${CRT_BC}
   )
   # generate static library
   add_rv_library(gensleef STATIC ${RV_GENBC_SOURCES})

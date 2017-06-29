@@ -35,6 +35,9 @@ extern const size_t avx_dp_BufferLen;
 
 extern const unsigned char * sse_dp_Buffer;
 extern const size_t sse_dp_BufferLen;
+
+extern const unsigned char * crt_Buffer;
+extern const size_t crt_BufferLen;
 #endif
 
 
@@ -85,6 +88,7 @@ namespace rv {
 #endif
 
   static Module const *sleefModules[3 * 2];
+  static Module* scalarModule;
 
   bool addSleefMappings(const bool useSSE,
                         const bool useAVX,
@@ -495,9 +499,16 @@ namespace rv {
   }
 
   Function *cloneFunctionIntoModule(Function *func, Module *cloneInto, StringRef name) {
+    if (func->isIntrinsic()) {
+      // FIXME pass appropriate arg types to disambiguate declaration
+      return Intrinsic::getDeclaration(cloneInto, func->getIntrinsicID(), func->getFunctionType()->getParamType(0));
+    }
+
     // create function in new module, create the argument mapping, clone function into new function body, return
     Function *clonedFn = Function::Create(func->getFunctionType(), Function::LinkageTypes::ExternalLinkage,
                                           name, cloneInto);
+    // external decl
+    if (func->isDeclaration()) return func;
 
     ValueToValueMapTy VMap;
     auto CI = clonedFn->arg_begin();
@@ -512,10 +523,7 @@ namespace rv {
       CallInst *callInst = cast<CallInst>(&*I);
       Function *callee = callInst->getCalledFunction();
       Function *clonedCallee;
-      if (callee->isIntrinsic())
-        clonedCallee = Intrinsic::getDeclaration(cloneInto, callee->getIntrinsicID());
-      else
-        clonedCallee = cloneInto->getFunction(callee->getName());
+      clonedCallee = cloneInto->getFunction(callee->getName());
 
       if (!clonedCallee) clonedCallee = cloneFunctionIntoModule(callee, cloneInto, callee->getName());
       VMap[callee] = clonedCallee;
@@ -525,6 +533,17 @@ namespace rv {
 
     CloneFunctionInto(clonedFn, func, VMap, false, Returns);
     return clonedFn;
+  }
+
+  Function *
+  requestScalarImplementation(const StringRef & funcName, FunctionType & funcTy, Module &insertInto) {
+    if (!scalarModule) {
+      scalarModule = createModuleFromBuffer(reinterpret_cast<const char*>(&crt_Buffer), crt_BufferLen, insertInto.getContext());
+    }
+
+    auto * scalarFn = scalarModule->getFunction(funcName);
+    if (!scalarFn) return nullptr;
+    return cloneFunctionIntoModule(scalarFn, &insertInto, funcName);
   }
 
   Function *

@@ -16,6 +16,8 @@
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
+#include "llvm/Transforms/Utils/Cloning.h"
+
 #include <rv/analysis/MandatoryAnalysis.h>
 
 #include "rv/rv.h"
@@ -45,6 +47,7 @@
 
 #include "rv/transform/maskExpander.h"
 
+#include "rv/sleefLibrary.h"
 
 
 namespace rv {
@@ -102,6 +105,72 @@ VectorizerInterface::addIntrinsics() {
         }
     }
 }
+
+static void
+EmbedInlinedCode(BasicBlock & entry, Loop & hostLoop, LoopInfo & loopInfo, std::set<BasicBlock*> & funcBlocks) {
+  for (auto itSucc : successors(&entry)) {
+    auto & succ = *itSucc;
+
+    // block was newly inserted -> embed in loopInfo
+    if (funcBlocks.insert(&succ).second) {
+      hostLoop.addBasicBlockToLoop(&succ, loopInfo);
+      EmbedInlinedCode(succ, hostLoop, loopInfo, funcBlocks);
+    }
+  }
+}
+
+
+void
+VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, LoopInfo & loopInfo)
+{
+  auto & scalarFn = vecInfo.getScalarFunction();
+  auto & mod = *scalarFn.getParent();
+
+  std::vector<CallInst*> callSites;
+
+  // blocks that are known to be in the function
+  std::set<BasicBlock*> funcBlocks;
+  for (auto & BB : scalarFn) {
+    funcBlocks.insert(&BB);
+  }
+
+  for (auto & BB : scalarFn) {
+    if (!vecInfo.inRegion(BB)) continue;
+
+    for (auto & Inst : BB) {
+      auto * call = dyn_cast<CallInst>(&Inst);
+      if (!call) continue;
+      auto * callee = dyn_cast<Function>(call->getCalledValue());
+      if (!callee) continue;
+      if (callee->isIntrinsic() || !callee->isDeclaration()) continue;
+
+      Function * implFunc = requestScalarImplementation(callee->getName(), *callee->getFunctionType(), mod);
+
+      if (!implFunc) continue;
+
+      // replaced called function and prepare for inlining
+      for (auto & itUse : callee->uses()) {
+        auto & caller = cast<CallInst>(*itUse.getUser());
+        if (!vecInfo.inRegion(*caller.getParent())) continue;
+        callSites.push_back(&caller);
+        caller.setCalledFunction(implFunc);
+      }
+    }
+  }
+
+  // TODO repair loopInfo
+
+  // FIXME this invalidates loop info and thus the region
+  for (auto * call : callSites) {
+    auto & entryBB = *call->getParent();
+    auto * hostLoop = loopInfo.getLoopFor(&entryBB);
+    InlineFunctionInfo IFI;
+    InlineFunction(call, IFI);
+
+    if (hostLoop) EmbedInlinedCode(entryBB, *hostLoop, loopInfo, funcBlocks);
+  }
+}
+
 
 void
 VectorizerInterface::analyze(VectorizationInfo& vecInfo,

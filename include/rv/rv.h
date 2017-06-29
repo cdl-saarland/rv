@@ -44,6 +44,9 @@ class VectorizerInterface {
 public:
     VectorizerInterface(PlatformInfo & _platform);
 
+    // try to inline common math functions (compiler-rt) before the analysis
+    void lowerRuntimeCalls(VectorizationInfo & vecInfo, llvm::LoopInfo & loopInfo);
+
     //
     // Analyze properties of the scalar function that are needed later in transformations
     // towards its SIMD equivalent.
