@@ -49,8 +49,8 @@ public:
   VAWrapperPass(const VAWrapperPass&) = delete;
   VAWrapperPass& operator=(VAWrapperPass) = delete;
 
-  void getAnalysisUsage(AnalysisUsage& Info) const override;
-  bool runOnFunction(Function& F) override;
+  void getAnalysisUsage(llvm::AnalysisUsage& Info) const override;
+  bool runOnFunction(llvm::Function& F) override;
 };
 
 class VectorizationAnalysis {
@@ -73,72 +73,72 @@ class VectorizationAnalysis {
 public:
   VectorizationAnalysis(PlatformInfo & platInfo,
                         VectorizationInfo& VecInfo,
-                        const CDG& cdg,
-                        const DFG& dfg,
-                        const LoopInfo& LoopInfo,
-                        const DominatorTree & domTree,
-                        const PostDominatorTree & postDomTree);
+                        const llvm::CDG& cdg,
+                        const llvm::DFG& dfg,
+                        const llvm::LoopInfo& LoopInfo,
+                        const llvm::DominatorTree & domTree,
+                        const llvm::PostDominatorTree & postDomTree);
 
   VectorizationAnalysis(const VectorizationAnalysis&) = delete;
   VectorizationAnalysis& operator=(VectorizationAnalysis) = delete;
 
-  void analyze(Function& F);
+  void analyze(llvm::Function& F);
 
 private:
   /// Get the shape for a value
   //  if loop carried, this is the shape observed within the loop that defines @V
-  VectorShape getShape(const Value* const V);
+  VectorShape getShape(const llvm::Value* const V);
 
   // Initialize all statically known shapes (constants, arguments via argument mapping,
   // shapes set by the user)
-  void init(Function& F);
+  void init(llvm::Function& F);
 
   // adjust missing shapes to undef, optimize pointer shape alignments
-  void adjustValueShapes(Function& F);
+  void adjustValueShapes(llvm::Function& F);
 
   // Run Fix-Point-Iteration after initialization
-  void compute(Function& F);
+  void compute(llvm::Function& F);
 
   // specialized transfer functions
-  VectorShape computePHIShape(const PHINode& phi);
+  VectorShape computePHIShape(const llvm::PHINode& phi);
 
   // only call these if all operands have defined shape
-  VectorShape computeShapeForInst(const Instruction* I);
-  VectorShape computeShapeForBinaryInst(const BinaryOperator* I);
-  VectorShape computeShapeForCastInst(const CastInst* I);
+  VectorShape computeShapeForInst(const llvm::Instruction* I);
+  VectorShape computeShapeForBinaryInst(const llvm::BinaryOperator* I);
+  VectorShape computeShapeForCastInst(const llvm::CastInst* I);
 
   // generic (fallback) transfer function for instructions w/o side effects
-  VectorShape computeGenericArithmeticTransfer(const Instruction& I);
+  VectorShape computeGenericArithmeticTransfer(const llvm::Instruction& I);
 
   // Update a value with its computed shape, adding users to the WL if a change occured
-  void update(const Value* const V, VectorShape AT);
+  void update(const llvm::Value* const V, VectorShape AT);
 
   // Returns true iff the shape has been changed
-  bool updateShape(const Value* const V, VectorShape AT);
-  void analyzeDivergence(const BranchInst* const branch);
+  bool updateShape(const llvm::Value* const V, VectorShape AT);
+  void analyzeDivergence(const llvm::BranchInst* const branch);
 
   // Calls update on every user of this PHI that is not in its loop
-  void updateLCSSAPhisVarying(const Loop* divLoop);
+  void updateLCSSAPhisVarying(const llvm::Loop* divLoop);
 
   // Adds all dependent values of V to the worklist:
   // - Any user of this value in the region (minus void-returning calls)
   // - Any alloca used by this value if it is not of uniform shape
-  void addDependentValuesToWL(const Value* V);
+  void addDependentValuesToWL(const llvm::Value* V);
 
   // Return true iff all of loop's exit terminators have a uniform shape
-  bool allExitsUniform(const Loop* loop);
+  bool allExitsUniform(const llvm::Loop* loop);
 
-  VectorShape joinOperands(const Instruction& I);
+  VectorShape joinOperands(const llvm::Instruction& I);
 
   // Returns true iff all operands currently have a computed shape
   // This is essentially a negated check for bottom
-  bool pushMissingOperands(const Instruction* I);
+  bool pushMissingOperands(const llvm::Instruction* I);
 
   // Cast undefined instruction shapes to uniform shapes
-  void fixUndefinedShapes(Function& F);
+  void fixUndefinedShapes(llvm::Function& F);
 };
 
-FunctionPass* createVectorizationAnalysisPass();
+llvm::FunctionPass* createVectorizationAnalysisPass();
 
 }
 

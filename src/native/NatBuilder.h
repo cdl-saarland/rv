@@ -56,7 +56,7 @@ namespace native {
     bool vectorizeInterleavedAccess;
     bool cropPseudoInterleaved;
 
-    rv::VectorShape getVectorShape(const Value &val);
+    rv::VectorShape getVectorShape(const llvm::Value &val);
 
     // repair outside uses of redChainInst using repairFunc
     void repairOutsideUses(llvm::Instruction & scaChainInst, std::function<llvm::Value& (llvm::Value &,llvm::BasicBlock &)> repairFunc);
@@ -76,7 +76,7 @@ namespace native {
 
     // if embedRegion is set, replace the scalar source blocks/instructions with the vectorized version
     // if vecInstMap is set, store the mapping from scalar source insts/blocks to vector versions
-    void vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap = nullptr);
+    void vectorize(bool embedRegion, llvm::ValueToValueMapTy * vecInstMap = nullptr);
 
     void mapVectorValue(const llvm::Value *const value, llvm::Value *vecValue);
     void mapScalarValue(const llvm::Value *const value, llvm::Value *mapValue, unsigned laneIdx = 0);
@@ -91,10 +91,10 @@ namespace native {
     void vectorizeMemoryInstruction(llvm::Instruction *const inst);
     void vectorizeCallInstruction(llvm::CallInst *const scalCall);
     void vectorizeAllocaInstruction(llvm::AllocaInst *const alloca);
-    void vectorizeReductionCall(CallInst *rvCall, bool isRv_all);
-    void vectorizeExtractCall(CallInst *rvCall);
-    void vectorizeBallotCall(CallInst *rvCall);
-    void vectorizeAlignCall(CallInst *rvCall);
+    void vectorizeReductionCall(llvm::CallInst *rvCall, bool isRv_all);
+    void vectorizeExtractCall(llvm::CallInst *rvCall);
+    void vectorizeBallotCall(llvm::CallInst *rvCall);
+    void vectorizeAlignCall(llvm::CallInst *rvCall);
 
     void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
     void copyCallInstruction(llvm::CallInst *const scalCall, unsigned laneIdx = 0);
@@ -128,7 +128,7 @@ namespace native {
     llvm::BitCastInst *requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx);
     
     llvm::GetElementPtrInst *requestInterleavedGEP(llvm::GetElementPtrInst *const gep, unsigned interleavedIdx);
-    Value *requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, llvm::Type *const vecType);
+    llvm::Value *requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, llvm::Type *const vecType);
     
     llvm::Value *requestCascadeLoad(llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
     llvm::Value *requestCascadeStore(llvm::Value *vecVal, llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
@@ -139,21 +139,21 @@ namespace native {
     llvm::Function *getCascadeFunction(unsigned bitWidth, bool store);
 
     llvm::Value *createPTest(llvm::Value *vector, bool isRv_all);
-    llvm::Value *maskInactiveLanes(llvm::Value *const value, const BasicBlock* const block, bool invert);
+    llvm::Value *maskInactiveLanes(llvm::Value *const value, const llvm::BasicBlock* const block, bool invert);
 
     unsigned vectorWidth();
 
     bool canVectorize(llvm::Instruction *inst);
     bool shouldVectorize(llvm::Instruction *inst);
-    bool isInterleaved(llvm::Instruction *inst, llvm::Value *accessedPtr, int byteSize, std::vector<Value *> &srcs);
-    bool isPseudointerleaved(Instruction *inst, Value *addr, int byteSize);
+    bool isInterleaved(llvm::Instruction *inst, llvm::Value *accessedPtr, int byteSize, std::vector<llvm::Value *> &srcs);
+    bool isPseudointerleaved(llvm::Instruction *inst, llvm::Value *addr, int byteSize);
 
     llvm::Value *createUniformMaskedMemory(llvm::Instruction *inst, llvm::Type *accessedType, unsigned alignment,
                                            llvm::Value *addr, llvm::Value *mask, llvm::Value *values);
     llvm::Value *createVaryingMemory(llvm::Type *vecType, unsigned alignment, llvm::Value *addr, llvm::Value *mask,
                                      llvm::Value *values);
-    void createInterleavedMemory(llvm::Type *vecType, unsigned alignment, std::vector<Value *> *addr, std::vector<llvm::Value *> *mask,
-                                     std::vector<Value *> *values, std::vector<Value *> *srcs, bool isPseudoInter = false);
+    void createInterleavedMemory(llvm::Type *vecType, unsigned alignment, std::vector<llvm::Value *> *addr, std::vector<llvm::Value *> *mask,
+                                     std::vector<llvm::Value *> *values, std::vector<llvm::Value *> *srcs, bool isPseudoInter = false);
 
     llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, unsigned alignment, llvm::Value *mask);
     llvm::Value *createContiguousLoad(llvm::Value *ptr, unsigned alignment, llvm::Value *mask, llvm::Value *passThru);

@@ -14,10 +14,16 @@
 #include "llvm/Analysis/TargetLibraryInfo.h"
 
 namespace rv {
-  bool addSleefMappings(const bool useSSE, const bool useAVX, const bool useAVX2, PlatformInfo &platformInfo,
-                          bool useImpreciseFunctions);
-  Function *
-  requestSleefFunction(const StringRef &funcName, StringRef &vecFuncName, Module *insertInto, bool doublePrecision);
+  bool addSleefMappings(const bool useSSE,
+                        const bool useAVX,
+                        const bool useAVX2,
+                        PlatformInfo &platformInfo,
+                        bool useImpreciseFunctions);
+
+  llvm::Function * requestSleefFunction(const llvm::StringRef &funcName,
+                                        llvm::StringRef &vecFuncName,
+                                        llvm::Module *insertInto,
+                                        bool doublePrecision);
 }
 
 #endif //RV_SLEEFLIBRARY_H

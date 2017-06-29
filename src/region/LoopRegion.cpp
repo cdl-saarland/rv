@@ -11,6 +11,8 @@
 #include <llvm/IR/Dominators.h>
 #include "rv/region/LoopRegion.h"
 
+using namespace llvm;
+
 namespace rv {
 
 LoopRegion::LoopRegion(Loop & _loop)

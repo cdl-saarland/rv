@@ -24,7 +24,6 @@ namespace llvm {
   struct PostDominatorTree;
 }
 
-using llvm::DenseMap;
 using ConstBlockSet = llvm::SmallPtrSet<const llvm::BasicBlock*, 4>;
 
 using Edge = llvm::LoopBase<llvm::BasicBlock, llvm::Loop>::Edge;
@@ -56,10 +55,10 @@ class BranchDependenceAnalysis {
   static ConstBlockSet emptySet;
 
   // iterated post dominance frontier
-  DenseMap<const llvm::BasicBlock*, ConstBlockSet> pdClosureMap;
-  DenseMap<const llvm::BasicBlock*, ConstBlockSet> domClosureMap;
+  llvm::DenseMap<const llvm::BasicBlock*, ConstBlockSet> pdClosureMap;
+  llvm::DenseMap<const llvm::BasicBlock*, ConstBlockSet> domClosureMap;
 
-  DenseMap<const llvm::TerminatorInst*, ConstBlockSet> effectedBlocks;
+  llvm::DenseMap<const llvm::TerminatorInst*, ConstBlockSet> effectedBlocks;
   const llvm::CDG & cdg;
   const llvm::DFG & dfg;
   const llvm::LoopInfo & loopInfo;
@@ -68,7 +67,10 @@ class BranchDependenceAnalysis {
   void computeDomClosure(const llvm::BasicBlock & b, ConstBlockSet & closure);
 
 public:
-  BranchDependenceAnalysis(llvm::Function & F, const llvm::CDG & cdg, const llvm::DFG & dfg, const llvm::LoopInfo & loopInfo);
+  BranchDependenceAnalysis(llvm::Function & F,
+                           const llvm::CDG & cdg,
+                           const llvm::DFG & dfg,
+                           const llvm::LoopInfo & loopInfo);
 
   /// \brief returns the set of blocks whose PHI nodes become divergent if @branch is divergent
   const ConstBlockSet & getEffectedBlocks(const llvm::TerminatorInst & term) const {

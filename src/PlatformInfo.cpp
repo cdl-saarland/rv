@@ -9,6 +9,8 @@
 
 #include "rvConfig.h"
 
+using namespace llvm;
+
 namespace rv {
 
   PlatformInfo::PlatformInfo(Module & _mod, TargetTransformInfo *TTI, TargetLibraryInfo *TLI) : mod(_mod), mTTI(TTI), mTLI(TLI) {}

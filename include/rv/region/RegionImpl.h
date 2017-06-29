@@ -12,32 +12,30 @@
 #include <stack>
 #include <set>
 
-using namespace llvm;
-
 namespace rv {
 
 class RegionImpl {
 public:
     virtual ~RegionImpl() {}
 
-    virtual bool contains(const BasicBlock* BB) const = 0;
-    virtual BasicBlock& getRegionEntry() const = 0;
+    virtual bool contains(const llvm::BasicBlock* BB) const = 0;
+    virtual llvm::BasicBlock& getRegionEntry() const = 0;
 
     virtual std::string str() const = 0;
 
-    virtual void getEndingBlocks(SmallPtrSet<BasicBlock*, 2>& endingBlocks) const
+    virtual void getEndingBlocks(llvm::SmallPtrSet<llvm::BasicBlock*, 2>& endingBlocks) const
     {
         assert (endingBlocks.empty());
 
-        std::stack<BasicBlock*> blockStack;
+        std::stack<llvm::BasicBlock*> blockStack;
         blockStack.push(&this->getRegionEntry());
 
-        std::set<BasicBlock*> visitedBlocks;
+        std::set<llvm::BasicBlock*> visitedBlocks;
 
         while (!blockStack.empty())
         {
             // Pop the next block
-            BasicBlock* block = blockStack.top(); blockStack.pop();
+            llvm::BasicBlock* block = blockStack.top(); blockStack.pop();
 
             // Make sure we haven't seen it already
             if (visitedBlocks.count(block)) continue;
@@ -45,7 +43,7 @@ public:
 
             // If a successor is outside the region, the region ends here.
             // Successors inside the region need to be processed recursively
-            for (BasicBlock* successor : successors(block))
+            for (llvm::BasicBlock* successor : successors(block))
             {
                 if (this->contains(successor))
                 {

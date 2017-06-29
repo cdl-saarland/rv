@@ -14,18 +14,18 @@ namespace rv {
 class MandatoryAnalysis {
 private:
   VectorizationInfo& mVecInfo;
-  const LoopInfo& mLoopInfo;
-  const CDG& mCDG;
+  const llvm::LoopInfo& mLoopInfo;
+  const llvm::CDG& mCDG;
 
 public:
-  MandatoryAnalysis(VectorizationInfo& vInfo, const LoopInfo& LoopInfo, const CDG& cdg);
+  MandatoryAnalysis(VectorizationInfo& vInfo, const llvm::LoopInfo& LoopInfo, const llvm::CDG& cdg);
 
-  void analyze(Function& F);
+  void analyze(llvm::Function& F);
 
 private:
   void markDivergentLoopLatchesMandatory();
-  void markLoopLatchesRecursively(const Loop* loop);
-  void markDependentLoopExitsMandatory(const BasicBlock* BB);
+  void markLoopLatchesRecursively(const llvm::Loop* loop);
+  void markDependentLoopExitsMandatory(const llvm::BasicBlock* BB);
 };
 
 }

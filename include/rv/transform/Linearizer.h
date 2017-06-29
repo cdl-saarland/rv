@@ -88,7 +88,7 @@ namespace rv {
       bool needsPhiFolding;
 
       // a set of some blocks that will reach this block
-      SmallPtrSet<BasicBlock*, 4> reachingBlocks;
+      llvm::SmallPtrSet<llvm::BasicBlock*, 4> reachingBlocks;
 
       RelayNode(llvm::BasicBlock & _head, int _id)
       : head(_head)
@@ -104,11 +104,11 @@ namespace rv {
         return next == nullptr;
       }
 
-      void addReachingBlock(BasicBlock & reachingBlock) {
+      void addReachingBlock(llvm::BasicBlock & reachingBlock) {
         reachingBlocks.insert(&reachingBlock);
       }
 
-      void enable(BasicBlock & relayBlock, RelayNode * _tail) {
+      void enable(llvm::BasicBlock & relayBlock, RelayNode * _tail) {
         block = &relayBlock; next = _tail;
       }
 
@@ -125,7 +125,7 @@ namespace rv {
     RelayNode & createRelay(int headId, RelayNode * tail) {
       auto & head = relays[headId].head;
 
-      auto * relayBlock = BasicBlock::Create(context, "relay_" + head.getName(), &func);
+      auto * relayBlock = llvm::BasicBlock::Create(context, "relay_" + head.getName(), &func);
       relays[headId].enable(*relayBlock, tail);
       return relays[headId];
     }
@@ -143,40 +143,40 @@ namespace rv {
     }
 
     void dumpRelayChain(int headId) const {
-      errs() << "head " << getBlock(headId).getName();
+      llvm::errs() << "head " << getBlock(headId).getName();
       auto * relay = getRelay(headId);
 
       if (!relay) {
-        errs() << " chain {}";
+        llvm::errs() << " chain {}";
         return;
       }
 
       // dump all reaching blocks
       if (!relay->reachingBlocks.empty()) {
         bool first = true;
-        errs() << " reaching [";
+        llvm::errs() << " reaching [";
         for (auto * reachBlock : relay->reachingBlocks) {
-          if (!first) errs() << ", ";
-          errs() << reachBlock->getName();
+          if (!first) llvm::errs() << ", ";
+          llvm::errs() << reachBlock->getName();
           first = false;
         }
-        errs() << "] ";
+        llvm::errs() << "] ";
       }
       // dump chain
-      errs() << " chain {";
+      llvm::errs() << " chain {";
       while (relay) {
         if (relay->id != headId) {
-          errs() << " -> " << relay->head.getName();
+          llvm::errs() << " -> " << relay->head.getName();
         }
         relay = relay->next;
       }
-      errs() << "}";
+      llvm::errs() << "}";
     }
 
 
     // @return the advanced schedule head. Otw, nullptr if @head is not a schedule head or no @destBlocks remain
     // @oRelayBlock will hold the actual basic block if the schedule head was advanced
-    RelayNode * advanceScheduleHead(int headId, BasicBlock *& oRelayBlock) {
+    RelayNode * advanceScheduleHead(int headId, llvm::BasicBlock *& oRelayBlock) {
       auto * oldRelay = getRelay(headId);
       if (!oldRelay) {
         oRelayBlock = nullptr;
@@ -246,7 +246,7 @@ namespace rv {
 
     // process all blocks and branches in the loop
     // if that loop is divergent, processLoop will make it uniform before processing its body
-    int processLoop(int headId, Loop * loop);
+    int processLoop(int headId, llvm::Loop * loop);
 
     // update the relays for all branch targets of @block, linking them to @exitRelay
     void processBranch(llvm::BasicBlock & block, RelayNode * exitRelay, llvm::Loop * parentLoop);
@@ -257,7 +257,7 @@ namespace rv {
     RelayNode* emitBlock(int targetId);
 
     // add undef inputs to PHINodes for all predecessors of @block that do not occur in the PHINodes' block lists
-    void addUndefInputs(BasicBlock & block);
+    void addUndefInputs(llvm::BasicBlock & block);
 
   // phi -> select conversion aka phi folding
     // we invalidate mask analysis's and track edge masks on our own
@@ -286,7 +286,7 @@ namespace rv {
         edgeMasks.erase(Edge(&start, &dest));
         return;
       }
-      assert(val->getType() == Type::getInt1Ty(val->getContext()) && "expected i1 mask type");
+      assert(val->getType() == llvm::Type::getInt1Ty(val->getContext()) && "expected i1 mask type");
       edgeMasks[Edge(&start, &dest)] = val;
     }
 
@@ -299,12 +299,12 @@ namespace rv {
     llvm::Value & promoteDefinition(llvm::Value & inst, llvm::Value & defaultDef, int defBlockId, int destBlockId);
     /// \brief promoted a definition from the indexed block @defBlockId to the (possibly) non-indexed block @userBlock
     //  the userBlock is expected to have only indexed predecessors
-    llvm::Value & promoteDefinition(llvm::Value & inst, llvm::Value & defaultDef, int defBlockId, BasicBlock & userBlock);
+    llvm::Value & promoteDefinition(llvm::Value & inst, llvm::Value & defaultDef, int defBlockId, llvm::BasicBlock & userBlock);
 
     /// \brief promotes a definition from @defBlockId to @blockId (returns intermediate definitions on the interval between @defBlockId an @destBlockID
-    llvm::Value & promoteDefinitionExt(SmallVector<Value*, 16> & defs, Value & inst, Value & defaultDef, int defBlockId, int destBlockId);
+    llvm::Value & promoteDefinitionExt(llvm::SmallVector<llvm::Value*, 16> & defs, llvm::Value & inst, llvm::Value & defaultDef, int defBlockId, int destBlockId);
 
-    Value * createSuperInput(PHINode & phi, SuperInput & superInput);
+    llvm::Value * createSuperInput(llvm::PHINode & phi, SuperInput & superInput);
 
   // analysis structures
   protected:
@@ -315,11 +315,11 @@ namespace rv {
     Region * region;
     llvm::DominatorTree & dt;
     llvm::LoopInfo & li;
-    Function & func;
-    LLVMContext & context;
+    llvm::Function & func;
+    llvm::LLVMContext & context;
 
   // region support
-    bool inRegion(const BasicBlock & block) const { return !region || region->contains(&block); }
+    bool inRegion(const llvm::BasicBlock & block) const { return !region || region->contains(&block); }
 
   // topological sorted blocks in the region
     BlockIndex blockIndex;
@@ -328,9 +328,9 @@ namespace rv {
     inline bool hasIndex(const llvm::BasicBlock & block) const { return blockIndex.count(&block); }
     inline int getIndex(const llvm::BasicBlock & block) const { return blockIndex.at(&block); }
     /// the highest index of @block s predecessors
-    int getLeastIndex(const BasicBlock & block) const;
-    BasicBlock & getBlock(unsigned i) { assert(i < relays.size()); return relays[i].head; }
-    const BasicBlock & getBlock(unsigned i) const { assert(i < relays.size()); return relays[i].head; }
+    int getLeastIndex(const llvm::BasicBlock & block) const;
+    llvm::BasicBlock & getBlock(unsigned i) { assert(i < relays.size()); return relays[i].head; }
+    const llvm::BasicBlock & getBlock(unsigned i) const { assert(i < relays.size()); return relays[i].head; }
     int getNumBlocks() const { return (int) relays.size(); }
 
   // passes
@@ -356,11 +356,11 @@ namespace rv {
 
   // late SSA repair support
     // each incoming block and value of a repairPHI represents a definition of the repairPHI
-    PHINode & createRepairPhi(Value & val, BasicBlock & destBlock);
-    PHINode & createRepairPhi(Value & val, llvm::IRBuilder<> & builder);
+    llvm::PHINode & createRepairPhi(llvm::Value & val, llvm::BasicBlock & destBlock);
+    llvm::PHINode & createRepairPhi(llvm::Value & val, llvm::IRBuilder<> & builder);
 
-    DenseSet<PHINode*> repairPhis;
-    bool isRepairPhi(PHINode & val) const { return repairPhis.count(&val); }
+    llvm::DenseSet<llvm::PHINode*> repairPhis;
+    bool isRepairPhi(llvm::PHINode & val) const { return repairPhis.count(&val); }
 
     // repair the data flow graph denoted by repairPhis
     // we run SSA repair with these definitions and replace all uses of the repairPhi with the new value

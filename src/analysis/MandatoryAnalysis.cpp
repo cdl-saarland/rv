@@ -5,6 +5,8 @@
 #include <llvm/IR/CFG.h>
 #include "rv/analysis/MandatoryAnalysis.h"
 
+using namespace llvm;
+
 namespace rv {
 
 MandatoryAnalysis::MandatoryAnalysis(VectorizationInfo& vInfo,

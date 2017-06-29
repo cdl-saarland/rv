@@ -47,13 +47,9 @@ GenericTransfer(rv::VectorShape a, Shapes... nextShapes) {
 
 
 
-
+using namespace llvm;
 
 namespace rv {
-
-using ValueMap = std::map<const Value*, VectorShape>;
-
-// #define BYTE_SIZE 8
 
 char VAWrapperPass::ID = 0;
 

@@ -64,17 +64,22 @@ public:
     //
     bool
     linearize(VectorizationInfo& vecInfo,
-                 CDG& cdg,
-                 DFG& dfg,
-                 LoopInfo& loopInfo,
-                 PostDominatorTree& postDomTree,
-                 DominatorTree& domTree);
+              llvm::CDG& cdg,
+              llvm::DFG& dfg,
+              llvm::LoopInfo& loopInfo,
+              llvm::PostDominatorTree& postDomTree,
+              llvm::DominatorTree& domTree);
 
     //
     // Produce vectorized instructions
     //
     bool
-    vectorize(VectorizationInfo &vecInfo, const llvm::DominatorTree &domTree, const llvm::LoopInfo & loopInfo, llvm::ScalarEvolution & SE, llvm::MemoryDependenceResults & MDR, llvm::ValueToValueMapTy * vecInstMap);
+    vectorize(VectorizationInfo &vecInfo,
+              const llvm::DominatorTree &domTree,
+              const llvm::LoopInfo & loopInfo,
+              llvm::ScalarEvolution & SE,
+              llvm::MemoryDependenceResults & MDR,
+              llvm::ValueToValueMapTy * vecInstMap);
 
     //
     // Ends the vectorization process on this function, removes metadata and

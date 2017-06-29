@@ -11,6 +11,8 @@
 
 #include "rv/region/RegionImpl.h"
 
+using namespace llvm;
+
 namespace rv {
 
 class RegionImpl;

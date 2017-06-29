@@ -44,6 +44,8 @@
 #define IF_DEBUG_DTFIX if (false)
 #endif
 
+using namespace llvm;
+
 namespace rv {
 
 void
@@ -53,9 +55,6 @@ Linearizer::addToBlockIndex(BasicBlock & block) {
   blockIndex[&block] = id;
   relays.push_back(RelayNode(block, id));
 }
-
-using namespace rv;
-using namespace llvm;
 
 void
 Linearizer::buildBlockIndex() {

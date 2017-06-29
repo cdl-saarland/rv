@@ -39,8 +39,8 @@ struct LoopTracker {
 
   // value updates
   struct ValueUpdate {
-    PHINode * valueTracker; // value tracker
-    PHINode * latchUpdate; // latch update on this loop level
+    llvm::PHINode * valueTracker; // value tracker
+    llvm::PHINode * latchUpdate; // latch update on this loop level
 
 #if 0
     ValueUpdate(PHINode & _valueTracker, PHINode & _latchUpdate)
@@ -54,7 +54,7 @@ struct LoopTracker {
   llvm::DenseMap<llvm::BasicBlock*,  ValueUpdate> latchExitUpdates;
   llvm::DenseMap<llvm::Instruction*, ValueUpdate> latchValueUpdates;
 
-  LoopTracker(Loop & _loop, PHINode & _loopMaskPhi)
+  LoopTracker(llvm::Loop & _loop, llvm::PHINode & _loopMaskPhi)
   : loop(_loop)
   , loopMaskPhi(_loopMaskPhi)
   , maskUpdatePhi(nullptr)
@@ -73,9 +73,9 @@ struct LoopTracker {
   {}
 
   // generates a phi node in the pure latch that tracks whether @exit was taken in this loop iteration
-  PHINode & requestExitUpdate(BasicBlock & exit, PHINode & exitTracker);
+  llvm::PHINode & requestExitUpdate(llvm::BasicBlock & exit, llvm::PHINode & exitTracker);
 
-  ValueUpdate & getExitUpdate(BasicBlock & exit);
+  ValueUpdate & getExitUpdate(llvm::BasicBlock & exit);
 };
 
 
@@ -91,21 +91,21 @@ class DivLoopTrans {
   llvm::IntegerType * boolTy;
 
   // loop mask scaffolding
-  DenseMap<llvm::Loop*, LoopTracker*> loopTrackers;
+  llvm::DenseMap<llvm::Loop*, LoopTracker*> loopTrackers;
 
   // splits the latch to make it empty except for an unconditional header branch (pure latch)
-  BasicBlock & requestPureLatch(LoopTracker & loopTracker);
+  llvm::BasicBlock & requestPureLatch(LoopTracker & loopTracker);
 
   // generates a live mask for this loop
-  LoopTracker & requestLoopTracker(Loop & loop);
-  LoopTracker & getLoopTracker(Loop & loop); // asserting getter
+  LoopTracker & requestLoopTracker(llvm::Loop & loop);
+  LoopTracker & getLoopTracker(llvm::Loop & loop); // asserting getter
 
   // collect all divergent exits of this loop and send them through a dedicated latch exit
 
   // keep track of kill exits while the loop is transformed
   PHISet killPhis;
-  void addKillPhi(PHINode & killExitLCSSAPhi) { killPhis.insert(&killExitLCSSAPhi); }
-  bool isKillPhi(PHINode & lcssaPhi) const { return killPhis.count(&lcssaPhi); }
+  void addKillPhi(llvm::PHINode & killExitLCSSAPhi) { killPhis.insert(&killExitLCSSAPhi); }
+  bool isKillPhi(llvm::PHINode & lcssaPhi) const { return killPhis.count(&lcssaPhi); }
 
 // Control phase
   // return true, if any loops were transformed
@@ -124,7 +124,7 @@ class DivLoopTrans {
   void fixDivergentLoopUpdates(llvm::Loop & loop, LiveValueTracker & liveOutTracker);
 
   // after ALL divergent loops have been control converted fix the latch updates and exit conditions
-  void fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker);
+  void fixLatchUpdates(llvm::Loop & loop, LiveValueTracker & liveOutTracker);
 
 // finalization phase
   // descend into all of @loop's loops and attach an input mask to the loop live mask phi
@@ -134,7 +134,7 @@ class DivLoopTrans {
   void addDefaultInputsToLatchUpdates();
 
   // replace this value update phi with a proper blend cascade
-  Instruction& implementPhiUpdate(LoopTracker::ValueUpdate & valUpd);
+  llvm::Instruction& implementPhiUpdate(LoopTracker::ValueUpdate & valUpd);
 public:
   DivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo);
   ~DivLoopTrans();

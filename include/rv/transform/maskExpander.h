@@ -20,12 +20,8 @@
 
 namespace rv {
 
-using llvm::BasicBlock;
-using llvm::Value;
-using llvm::TerminatorInst;
-
 using IndexSet = llvm::SmallVector<int, 4>;
-using EdgeVec = SmallVector<Loop::Edge, 4>;
+using EdgeVec = llvm::SmallVector<llvm::Loop::Edge, 4>;
 
 
 class MaskExpander {
@@ -39,17 +35,17 @@ class MaskExpander {
   llvm::ConstantInt * falseConst;
 
   struct EdgePred {
-    Value * edgeMask; // complete edge predicate
-    Value * branchMask; // branch condition (w/o block predicate)
+    llvm::Value * edgeMask; // complete edge predicate
+    llvm::Value * branchMask; // branch condition (w/o block predicate)
     EdgePred() : edgeMask(nullptr), branchMask(nullptr) {}
   };
 
-  std::map<const BasicBlock*, Value*> blockMasks;
-  std::map<const BasicBlock*, std::vector<EdgePred>> edgeMasks;
+  std::map<const llvm::BasicBlock*, llvm::Value*> blockMasks;
+  std::map<const llvm::BasicBlock*, std::vector<EdgePred>> edgeMasks;
 
   // loopPhis that need patching after all acyclic masks have been generated
-  std::map<const Loop*, PHINode*> loopPhis;
-  void setLoopLiveMask(const Loop& loop, PHINode& phi) {
+  std::map<const llvm::Loop*, llvm::PHINode*> loopPhis;
+  void setLoopLiveMask(const llvm::Loop& loop, llvm::PHINode& phi) {
     loopPhis[&loop] = &phi;
   }
 
@@ -61,11 +57,16 @@ class MaskExpander {
   // attach entry masks to loops (post step)
   void patchLoopMasks();
 
-  void gatherLoopDivergenceInfo(Loop & loop, VectorShape & oLoopDivergenceShape, EdgeVec & oDivergentExits, EdgeVec & oKillExits);
+  void gatherLoopDivergenceInfo(llvm::Loop & loop,
+                                VectorShape & oLoopDivergenceShape,
+                                EdgeVec & oDivergentExits,
+                                EdgeVec & oKillExits);
 public:
 // lazy mask creation
   // request the block-local branch predicate
-  Value & requestBranchMask(TerminatorInst & term, int succIdx, IRBuilder<> & builder);
+  llvm::Value & requestBranchMask(llvm::TerminatorInst & term,
+                                  int succIdx,
+                                  llvm::IRBuilder<> & builder);
 
   // live mask of this block
   llvm::Value & requestBlockMask(llvm::BasicBlock & BB);
@@ -75,19 +76,21 @@ public:
 
   // live mask on this edge (given that the destinations live mask holds)
   llvm::Value & requestEdgeMask(llvm::TerminatorInst & term, int succIdx);
-  llvm::Value & requestEdgeMask(llvm::BasicBlock & source, BasicBlock & dest);
+  llvm::Value & requestEdgeMask(llvm::BasicBlock & source, llvm::BasicBlock & dest);
 
   // the successor indices of termInst that BB post-dominates
-  void getPredecessorEdges(const llvm::TerminatorInst & termInst, const BasicBlock & BB, IndexSet & oPredIndices) const;
+  void getPredecessorEdges(const llvm::TerminatorInst & termInst,
+                           const llvm::BasicBlock & BB,
+                           IndexSet & oPredIndices) const;
 
 // direct mask manipulation
-  void setBlockMask(BasicBlock & BB, Value & mask) { blockMasks[&BB] = &mask; }
-  void setEdgeMask(BasicBlock & BB, int succIdx, Value & mask); //  { edgeMasks[&BB][succIdx].edgeMask = &mask; }
-  void setBranchMask(BasicBlock & BB, int succIdx, Value & mask); // { edgeMasks[&BB][succIdx].branchMask = &mask; }
+  void setBlockMask(llvm::BasicBlock & BB, llvm::Value & mask) { blockMasks[&BB] = &mask; }
+  void setEdgeMask(llvm::BasicBlock & BB, int succIdx, llvm::Value & mask); //  { edgeMasks[&BB][succIdx].edgeMask = &mask; }
+  void setBranchMask(llvm::BasicBlock & BB, int succIdx, llvm::Value & mask); // { edgeMasks[&BB][succIdx].branchMask = &mask; }
 
-  Value* getEdgeMask(const BasicBlock & begin, const BasicBlock & end) const;
+  llvm::Value* getEdgeMask(const llvm::BasicBlock & begin, const llvm::BasicBlock & end) const;
 
-  Value* getBlockMask(const BasicBlock & BB) const {
+  llvm::Value* getBlockMask(const llvm::BasicBlock & BB) const {
     auto it = blockMasks.find(&BB);
     if (it != blockMasks.end()) {
       return it->second;
@@ -96,7 +99,7 @@ public:
     }
   }
 
-  Value* getEdgeMask(const TerminatorInst & branch, int succIdx) const {
+  llvm::Value* getEdgeMask(const llvm::TerminatorInst & branch, int succIdx) const {
     auto * branchBlock = branch.getParent();
     auto it = edgeMasks.find(branchBlock);
     if (it == edgeMasks.end()) return nullptr;
@@ -104,7 +107,7 @@ public:
     return edgeVec[succIdx].edgeMask;
   }
 
-  Value* getBranchMask(const TerminatorInst & branch, int succIdx) const {
+  llvm::Value* getBranchMask(const llvm::TerminatorInst & branch, int succIdx) const {
     auto * branchBlock = branch.getParent();
     auto it = edgeMasks.find(branchBlock);
     if (it == edgeMasks.end()) return nullptr;
@@ -115,7 +118,10 @@ public:
   // expand all masks in the region
   void expandRegionMasks();
 
-  MaskExpander(VectorizationInfo & _vecInfo, const DominatorTree & _domTree, const llvm::PostDominatorTree & _postDomTree, const llvm::LoopInfo & _loopInfo);
+  MaskExpander(VectorizationInfo & _vecInfo,
+               const llvm::DominatorTree & _domTree,
+               const llvm::PostDominatorTree & _postDomTree,
+               const llvm::LoopInfo & _loopInfo);
   ~MaskExpander();
 };
 

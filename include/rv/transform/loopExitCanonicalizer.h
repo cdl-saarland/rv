@@ -20,12 +20,10 @@ namespace rv {
   class RVInfo;
 }
 
-using namespace llvm;
-
 
 //namespace {
 
-class LoopExitCanonicalizerWrapper : public FunctionPass
+class LoopExitCanonicalizerWrapper : public llvm::FunctionPass
 {
 public:
 	static char ID; // Pass identification, replacement for typeid.
@@ -33,33 +31,33 @@ public:
 	LoopExitCanonicalizerWrapper();
 
 	virtual void releaseMemory   ();
-	virtual void getAnalysisUsage(AnalysisUsage &AU) const;
-	virtual bool doInitialization(Module& M);
-	virtual bool doFinalization  (Module& M);
-	virtual bool runOnFunction   (Function& F);
-	virtual void print           (raw_ostream& O, const Module* M) const;
+	virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const;
+	virtual bool doInitialization(llvm::Module& M);
+	virtual bool doFinalization  (llvm::Module& M);
+	virtual bool runOnFunction   (llvm::Function& F);
+	virtual void print           (llvm::raw_ostream& O, const llvm::Module* M) const;
 };
 
 class LoopExitCanonicalizer
 {
 public:
-	LoopExitCanonicalizer(LoopInfo& loopInfo);
+	LoopExitCanonicalizer(llvm::LoopInfo& loopInfo);
 	~LoopExitCanonicalizer();
 
-	bool canonicalize(Function& F);
+	bool canonicalize(llvm::Function& F);
 
 private:
-    LoopInfo&      mLoopInfo;
+	  llvm::LoopInfo&      mLoopInfo;
 
-    void canonicalizeLoop(Loop* loop) const;
-    BasicBlock* createIntermediateBlock(BasicBlock* source,
-                                        BasicBlock* target) const;
-    void adjustPhis(BasicBlock* source,
-                    BasicBlock* target,
-                    BasicBlock* newTarget) const;
-    void replaceTarget(BasicBlock* source,
-                       BasicBlock* target,
-                       BasicBlock* newTarget) const;
+    void canonicalizeLoop(llvm::Loop* loop) const;
+	  llvm::BasicBlock* createIntermediateBlock(llvm::BasicBlock* source,
+																							llvm::BasicBlock* target) const;
+    void adjustPhis(llvm::BasicBlock* source,
+										llvm::BasicBlock* target,
+										llvm::BasicBlock* newTarget) const;
+    void replaceTarget(llvm::BasicBlock* source,
+											 llvm::BasicBlock* target,
+											 llvm::BasicBlock* newTarget) const;
 };
 
 //} // unnamed namespace

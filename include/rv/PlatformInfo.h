@@ -9,8 +9,6 @@
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 
-using namespace llvm;
-
 namespace rv {
 
   struct VecDesc {
@@ -19,52 +17,58 @@ namespace rv {
     unsigned vectorWidth;
   };
 
-  typedef std::map<const Function *, const VectorMapping *> VectorFuncMap;
+  typedef std::map<const llvm::Function *, const VectorMapping *> VectorFuncMap;
 
   class PlatformInfo {
   public:
-    PlatformInfo(Module & mod, TargetTransformInfo *TTI, TargetLibraryInfo *TLI);
+    PlatformInfo(llvm::Module & mod, llvm::TargetTransformInfo *TTI, llvm::TargetLibraryInfo *TLI);
     ~PlatformInfo();
 
-    void addMapping(const Function *function, const VectorMapping *mapping);
+    void addMapping(const llvm::Function *function, const VectorMapping *mapping);
 
-    void removeMappingIfPresent(const Function *function);
-    const VectorMapping *getMappingByFunction(const Function *function) const;
+    void removeMappingIfPresent(const llvm::Function *function);
+    const VectorMapping *getMappingByFunction(const llvm::Function *function) const;
 
-    void setTTI(TargetTransformInfo *TTI);
-    void setTLI(TargetLibraryInfo *TLI);
+    void setTTI(llvm::TargetTransformInfo *TTI);
+    void setTLI(llvm::TargetLibraryInfo *TLI);
 
-    TargetTransformInfo *getTTI();
-    TargetLibraryInfo *getTLI();
+    llvm::TargetTransformInfo *getTTI();
+    llvm::TargetLibraryInfo *getTLI();
 
-    void addVectorizableFunctions(ArrayRef<VecDesc> funcs);
-    bool isFunctionVectorizable(StringRef funcName, unsigned vectorWidth);
-    StringRef getVectorizedFunction(StringRef func, unsigned vectorWidth, bool *isInTLI = nullptr);
-    Function *requestVectorizedFunction(StringRef funcName, unsigned vectorWidth, Module *insertInto,
-                                            bool doublePrecision);
+    void addVectorizableFunctions(llvm::ArrayRef<VecDesc> funcs);
+    bool isFunctionVectorizable(llvm::StringRef funcName, unsigned vectorWidth);
+
+    llvm::StringRef getVectorizedFunction(llvm::StringRef func,
+                                          unsigned vectorWidth,
+                                          bool *isInTLI = nullptr);
+
+    llvm::Function *requestVectorizedFunction(llvm::StringRef funcName,
+                                              unsigned vectorWidth,
+                                              llvm::Module *insertInto,
+                                              bool doublePrecision);
 
     VectorFuncMap & getFunctionMappings() { return funcMappings; }
 
-    Module & getModule() const { return mod; }
-    LLVMContext & getContext() const { return mod.getContext(); }
+    llvm::Module & getModule() const { return mod; }
+    llvm::LLVMContext & getContext() const { return mod.getContext(); }
 
     // add a new SIMD function mapping
     bool addSIMDMapping(rv::VectorMapping & mapping);
 
-    bool addSIMDMapping(const Function& scalarFunction,
-                        const Function& simdFunction,
-                        const int       maskPosition,
-                        const bool      mayHaveSideEffects);
+    bool addSIMDMapping(const llvm::Function& scalarFunction,
+                        const llvm::Function& simdFunction,
+                        const int             maskPosition,
+                        const bool            mayHaveSideEffects);
 
-    const DataLayout & getDataLayout() const { return mod.getDataLayout(); }
+    const llvm::DataLayout & getDataLayout() const { return mod.getDataLayout(); }
 
     llvm::Function * requestMaskReductionFunc(const std::string & name);
   private:
     VectorMapping * inferMapping(llvm::Function & scalarFnc, llvm::Function & simdFnc, int maskPos);
 
-    Module & mod;
-    TargetTransformInfo *mTTI;
-    TargetLibraryInfo *mTLI;
+    llvm::Module & mod;
+    llvm::TargetTransformInfo *mTTI;
+    llvm::TargetLibraryInfo *mTLI;
     VectorFuncMap funcMappings;
     std::vector<VecDesc> commonVectorMappings;
   };

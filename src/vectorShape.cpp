@@ -18,23 +18,11 @@
 #include "rv/vectorShape.h"
 #include "rv/vectorizationInfo.h"
 
-namespace rv {
-
-VectorShape::VectorShape()
-    : stride(0), hasConstantStride(false), alignment(0), defined(false) {}
-
-VectorShape::VectorShape(uint _alignment)
-    : stride(0), hasConstantStride(false), alignment(_alignment),
-      defined(true) {}
-
-// constant stride constructor
-VectorShape::VectorShape(int _stride, unsigned _alignment)
-    : stride(_stride), hasConstantStride(true), alignment(_alignment),
-      defined(true) {}
+using namespace llvm;
 
 namespace {
 
-unsigned getAlignment(const llvm::Constant* c) {
+unsigned getAlignment(const Constant* c) {
   assert (c);
 
   if (isa<BasicBlock>(c) || isa<Function>(c))
@@ -76,7 +64,21 @@ unsigned getAlignment(const llvm::Constant* c) {
 
 }
 
-VectorShape VectorShape::fromConstant(const llvm::Constant* C) {
+namespace rv {
+
+VectorShape::VectorShape()
+    : stride(0), hasConstantStride(false), alignment(0), defined(false) {}
+
+VectorShape::VectorShape(uint _alignment)
+    : stride(0), hasConstantStride(false), alignment(_alignment),
+      defined(true) {}
+
+// constant stride constructor
+VectorShape::VectorShape(int _stride, unsigned _alignment)
+    : stride(_stride), hasConstantStride(true), alignment(_alignment),
+      defined(true) {}
+
+VectorShape VectorShape::fromConstant(const Constant* C) {
   return VectorShape::uni(getAlignment(C));
 }
 
