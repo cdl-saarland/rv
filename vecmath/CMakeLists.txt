@@ -39,7 +39,13 @@ SET ( SLEEF_BC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.bc" )
 SET ( SLEEF_GENBC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.gen.cpp" )
 
 SET ( SLEEF_BC_LIBS ${SLEEF_BC_AVX2_SP} ${SLEEF_BC_AVX_SP} ${SLEEF_BC_SSE_SP} ${SLEEF_BC_AVX2_DP} ${SLEEF_BC_AVX_DP} ${SLEEF_BC_SSE_DP} )
-SET ( RV_GENBC_SOURCES ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP} ${CRT_GENBC} )
+
+
+IF (RV_ENABLE_CRT)
+  SET ( RV_GENBC_SOURCES ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP} ${CRT_GENBC} )
+ELSE()
+  SET ( RV_GENBC_SOURCES ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP} )
+ENDIF()
 
 # conditionally provide extra sources
 SET ( RV_LIB_SLEEF_OUT_DIR ${VECMATH_LIB_DIR} )
@@ -56,7 +62,7 @@ IF (${RV_ENABLE_SLEEF})
   SET(LLVM_TOOL_CLANG ${RV_BINARY_DIR}/../../bin/clang)
   SET(LLVM_TOOL_LINK ${RV_BINARY_DIR}/../../bin/llvm-link)
   # add SLEEF bc generators as extra source
-  MESSAGE("-- Building with SLEEF")
+  MESSAGE("-- rv: Building with SLEEF")
 
   # generate header files
   ADD_CUSTOM_COMMAND (
@@ -129,15 +135,20 @@ IF (${RV_ENABLE_SLEEF})
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_DP} \"sse_dp\" ${SLEEF_BC_SSE_DP}
     DEPENDS ${SLEEF_HEADERS}
   )
-  # compiler-rt runtime library
-  ADD_CUSTOM_COMMAND (
-    OUTPUT ${CRT_GENBC}
-    COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
-    COMMAND ${LLVM_TOOL_CLANG} ${RV_SOURCE_DIR}/vecmath/crt.c -I${CRT_INC} -m64 -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -ffp-contract=off -o ${CRT_BC}
-    COMMAND ${GENCPP_TOOL} ${CRT_GENBC} \"crt\" ${CRT_BC}
-  )
+  IF (RV_ENABLE_CRT) 
+    # compiler-rt runtime library
+    ADD_CUSTOM_COMMAND (
+      OUTPUT ${CRT_GENBC}
+      COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
+      COMMAND ${LLVM_TOOL_CLANG} ${RV_SOURCE_DIR}/vecmath/crt.c -I${CRT_INC} -m64 -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -ffp-contract=off -o ${CRT_BC}
+      COMMAND ${GENCPP_TOOL} ${CRT_GENBC} \"crt\" ${CRT_BC}
+    )
+    Message("-- rv: Building compiler-rt bc libs.")
+  ELSE()
+    Message("-- rv: Building without compiler-rt bc libs.")
+  ENDIF()
   # generate static library
   add_rv_library(gensleef STATIC ${RV_GENBC_SOURCES})
 ELSE()
-    Message("-- Buildling without SLEEF.")
+    Message("-- rv: Buildling without SLEEF.")
 ENDIF ()

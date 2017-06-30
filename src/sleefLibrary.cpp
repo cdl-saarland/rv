@@ -35,7 +35,9 @@ extern const size_t avx_dp_BufferLen;
 
 extern const unsigned char * sse_dp_Buffer;
 extern const size_t sse_dp_BufferLen;
+#endif
 
+#ifdef RV_ENABLE_CRT
 extern const unsigned char * crt_Buffer;
 extern const size_t crt_BufferLen;
 #endif
@@ -537,13 +539,19 @@ namespace rv {
 
   Function *
   requestScalarImplementation(const StringRef & funcName, FunctionType & funcTy, Module &insertInto) {
+#ifdef RV_ENABLE_CRT
     if (!scalarModule) {
       scalarModule = createModuleFromBuffer(reinterpret_cast<const char*>(&crt_Buffer), crt_BufferLen, insertInto.getContext());
     }
 
+    if (!scalarModule) return nullptr; // could not load module
+
     auto * scalarFn = scalarModule->getFunction(funcName);
     if (!scalarFn) return nullptr;
     return cloneFunctionIntoModule(scalarFn, &insertInto, funcName);
+#else
+    return nullptr; // compiler-rt not available as bc module
+#endif
   }
 
   Function *

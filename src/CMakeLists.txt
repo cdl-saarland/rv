@@ -7,6 +7,9 @@ endif ()
 
 if (RV_ENABLE_SLEEF) 
   add_definitions( "-DRV_ENABLE_BUILTINS" )
+  if (RV_ENABLE_CRT)
+    add_definitions( "-DRV_ENABLE_CRT" )
+  endif()
 endif()
 
 if (RV_DEBUG) 
