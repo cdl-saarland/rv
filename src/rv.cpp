@@ -16,9 +16,6 @@
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
-#include "llvm/Transforms/Utils/Cloning.h"
-
-#include <rv/analysis/MandatoryAnalysis.h>
 
 #include "rv/rv.h"
 #include "rv/analysis/DFG.h"
@@ -202,10 +199,6 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
                               loopInfo,
                               domTree, postDomTree);
     vea.analyze(scalarFn);
-
-    // TODO deprecate MandatoryAnalysis (still used to determine kill exits atm)
-    MandatoryAnalysis man(vecInfo, loopInfo, cdg);
-    man.analyze(scalarFn);
 }
 
 bool

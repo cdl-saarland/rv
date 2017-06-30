@@ -38,8 +38,6 @@ class VectorizationInfo
     std::unordered_map<const llvm::Value*, VectorShape> shapes;
 
     std::set<const llvm::Loop*> mDivergentLoops;
-
-    std::set<const llvm::BasicBlock*> MandatoryBlocks;
     std::set<const llvm::BasicBlock*> NonKillExits;
 
     Region* region;
@@ -90,14 +88,9 @@ public:
     void setDivergentLoop(const llvm::Loop* loop);
     void setLoopDivergence(const llvm::Loop & loop, bool toUniform);
 
-    bool isMandatory(const llvm::BasicBlock* block) const;
-    bool isMetadataMask(const llvm::Instruction* inst) const;
-
     // whether this exit block terminates the loop
     bool isKillExit(const llvm::BasicBlock & block) const;
     void setNotKillExit(const llvm::BasicBlock* block);
-
-    void markMandatory(const llvm::BasicBlock* block);
 
     llvm::LLVMContext & getContext() const;
     llvm::Function & getScalarFunction() { return *mapping.scalarFn; }

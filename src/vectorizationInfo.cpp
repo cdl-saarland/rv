@@ -246,19 +246,6 @@ VectorizationInfo::isDivergentLoopTopLevel(const llvm::Loop* loop) const
     return isDivergentLoop(loop) && (!parent || !isDivergentLoop(parent));
 }
 
-
-void
-VectorizationInfo::markMandatory(const BasicBlock* BB)
-{
-    MandatoryBlocks.insert(BB);
-}
-
-bool
-VectorizationInfo::isMandatory(const BasicBlock* BB) const
-{
-    return (bool) MandatoryBlocks.count(BB);
-}
-
 bool
 VectorizationInfo::isKillExit(const BasicBlock& BB) const {
     return NonKillExits.count(&BB) == 0;

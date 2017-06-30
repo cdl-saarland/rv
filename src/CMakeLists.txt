@@ -21,7 +21,6 @@ add_rv_library(RV
   VectorizationInfoProxyPass.cpp
   analysis/BranchDependenceAnalysis.cpp
   analysis/DFG.cpp
-  analysis/MandatoryAnalysis.cpp
   analysis/VectorizationAnalysis.cpp
   analysis/reductionAnalysis.cpp
   analysis/DivPathDecider.cpp
