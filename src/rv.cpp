@@ -119,6 +119,7 @@ EmbedInlinedCode(BasicBlock & entry, Loop & hostLoop, LoopInfo & loopInfo, std::
   }
 }
 
+#define IF_DEBUG_CRT IF_DEBUG
 
 void
 VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, LoopInfo & loopInfo)
@@ -145,11 +146,11 @@ VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, LoopInfo & l
       if (callee->isIntrinsic() || !callee->isDeclaration()) continue;
 
       Function * implFunc = requestScalarImplementation(callee->getName(), *callee->getFunctionType(), mod);
-      if (!implFunc) errs() << "CRT: could not find implementation for " << callee->getName() << "\n";
+      IF_DEBUG_CRT { if (!implFunc) errs() << "CRT: could not find implementation for " << callee->getName() << "\n"; }
 
       if (!implFunc) continue;
 
-      errs() << "CRT: implementing " << callee->getName() << " with " << implFunc->getName() << "\n";
+      IF_DEBUG_CRT { errs() << "CRT: implementing " << callee->getName() << " with " << implFunc->getName() << "\n"; }
 
       // replaced called function and prepare for inlining
       auto itStart = callee->use_begin();
