@@ -620,7 +620,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
          "accessed type and pointed object type differ!");
   assert(vectorizationInfo.hasKnownShape(*accessedPtr) && "no shape for accessed pointer!");
   VectorShape addrShape = getVectorShape(*accessedPtr);
-  VectorShape instrShape = getVectorShape(*inst);
   Type *vecType = getVectorType(accessedType, vectorWidth());
 
   Value *mask = nullptr;
@@ -650,14 +649,14 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   if (addrShape.isUniform()) {
     // scalar access
     addr.push_back(requestScalarValue(accessedPtr));
-    alignment = instrShape.getAlignmentFirst();
+    alignment = addrShape.getAlignmentFirst();
 
   } else if (addrShape.isContiguous() || addrShape.isStrided(byteSize)) {
     // cast pointer to vector-width pointer
     Value *ptr = requestScalarValue(accessedPtr);
     PointerType *vecPtrType = PointerType::getUnqual(vecType);
     addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
-    alignment = instrShape.getAlignmentFirst();
+    alignment = addrShape.getAlignmentFirst();
 
   } else if (addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) {
     // interleaved access. ptrs: base, base+vector, base+2vector, ...
@@ -668,7 +667,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       if (needsMask)
         masks.push_back(mask);
     }
-    alignment = instrShape.getAlignmentFirst();
+    alignment = addrShape.getAlignmentFirst();
     interleaved = true;
 
   } else if (addrShape.isStrided() && isPseudointerleaved(inst, accessedPtr, byteSize)) {
@@ -693,12 +692,12 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       }
     }
 
-    alignment = instrShape.getAlignmentFirst();
+    alignment = addrShape.getAlignmentFirst();
     pseudoInter = true;
 
   } else {
     addr.push_back(requestVectorValue(accessedPtr));
-    alignment = instrShape.getAlignmentGeneral();
+    alignment = addrShape.getAlignmentGeneral();
   }
 
   unsigned origAlignment = load ? load->getAlignment() : store->getAlignment();
