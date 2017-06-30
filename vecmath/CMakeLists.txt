@@ -133,7 +133,7 @@ IF (${RV_ENABLE_SLEEF})
   ADD_CUSTOM_COMMAND (
     OUTPUT ${CRT_GENBC}
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
-    COMMAND ${LLVM_TOOL_CLANG} ${RV_SOURCE_DIR}/vecmath/crt.c -I${CRT_INC} -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -mavx2 -mfma -ffp-contract=off -o ${CRT_BC}
+    COMMAND ${LLVM_TOOL_CLANG} ${RV_SOURCE_DIR}/vecmath/crt.c -I${CRT_INC} -m64 -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -ffp-contract=off -o ${CRT_BC}
     COMMAND ${GENCPP_TOOL} ${CRT_GENBC} \"crt\" ${CRT_BC}
   )
   # generate static library

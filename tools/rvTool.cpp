@@ -155,7 +155,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     const bool useSSE = false;
     const bool useAVX = true;
     const bool useAVX2 = false;
-    const bool useImpreciseFunctions = true;
+    const bool useImpreciseFunctions = false;
     addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
 
     rv::ReductionAnalysis reductionAnalysis(parentFn, loopInfo);

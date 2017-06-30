@@ -220,6 +220,8 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     vecInfo.setVectorShape(*val, VectorShape::uni());
   }
 
+  bool enableDiagOutput = CheckFlag("LV_DIAG");
+
   //DT.verifyDomTree();
   //LI.verify(DT);
 
@@ -246,27 +248,22 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   cdg.create(*F);
   dfg.create(*F);
 
-  vecInfo.dump();
-
 // Vectorize
   // vectorizationAnalysis
   vectorizer->analyze(vecInfo, cdg, dfg, *LI, *PDT, *DT);
+
+  if (enableDiagOutput) {
+    errs() << "-- VA result --\n";
+    vecInfo.dump();
+    errs() << "-- EOF --\n";
+  }
 
   IF_DEBUG F->dump();
   assert(L.getLoopPreheader());
 
   // control conversion
   vectorizer->linearize(vecInfo, cdg, dfg, *LI, *PDT, *DT);
-  //   if (!maskEx)
-  //     llvm_unreachable("mask generation failed.");
 
-#if 0
-  // control conversion
-  bool linearizeOk =
-      vectorizer->linearizeCFG(vecInfo, *maskEx, *LI, *DT);
-  if (!linearizeOk)
-    llvm_unreachable("linearization failed.");
-#endif
 
   const DominatorTree domTreeNew(
       *vecInfo.getMapping().scalarFn); // Control conversion does not preserve
@@ -274,7 +271,8 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
                                        // for now
 
   // vectorize the prepared loop embedding it in its context
-  bool vectorizeOk = vectorizer->vectorize(vecInfo, domTreeNew, *LI, *SE, *MDR, nullptr);
+  ValueToValueMapTy vecMap;
+  bool vectorizeOk = vectorizer->vectorize(vecInfo, domTreeNew, *LI, *SE, *MDR, &vecMap);
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
 
@@ -282,6 +280,14 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   DT->recalculate(*F);
   PDT->recalculate(*F);
 
+  if (enableDiagOutput) {
+    errs() << "-- Vectorized --\n";
+    for (const BasicBlock * BB : PreparedLoop->blocks()) {
+      const BasicBlock * vecB = cast<const BasicBlock>(vecMap[BB]);
+      vecB->dump();
+    }
+    errs() << "-- EOF --\n";
+  }
   return true;
 }
 

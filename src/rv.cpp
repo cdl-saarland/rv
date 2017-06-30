@@ -145,15 +145,24 @@ VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, LoopInfo & l
       if (callee->isIntrinsic() || !callee->isDeclaration()) continue;
 
       Function * implFunc = requestScalarImplementation(callee->getName(), *callee->getFunctionType(), mod);
+      if (!implFunc) errs() << "CRT: could not find implementation for " << callee->getName() << "\n";
 
       if (!implFunc) continue;
 
+      errs() << "CRT: implementing " << callee->getName() << " with " << implFunc->getName() << "\n";
+
       // replaced called function and prepare for inlining
-      for (auto & itUse : callee->uses()) {
-        auto & caller = cast<CallInst>(*itUse.getUser());
-        if (!vecInfo.inRegion(*caller.getParent())) continue;
+      auto itStart = callee->use_begin();
+      auto itEnd = callee->use_end();
+      for (auto itUse = itStart; itUse != itEnd; ) {
+        auto & caller = cast<CallInst>(*itUse->getUser());
+        if (!vecInfo.inRegion(*caller.getParent())) {
+          itUse++;
+          continue;
+        }
         callSites.push_back(&caller);
         caller.setCalledFunction(implFunc);
+        itUse = callee->use_begin();
       }
     }
   }
