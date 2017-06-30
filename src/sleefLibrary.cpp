@@ -502,8 +502,31 @@ namespace rv {
 
   Function *cloneFunctionIntoModule(Function *func, Module *cloneInto, StringRef name) {
     if (func->isIntrinsic()) {
-      // FIXME pass appropriate arg types to disambiguate declaration
-      return Intrinsic::getDeclaration(cloneInto, func->getIntrinsicID(), func->getFunctionType()->getParamType(0));
+
+      // decode ambiguous type arguments
+      auto id = func->getIntrinsicID();
+      auto * funcTy = func->getFunctionType();
+      SmallVector<Intrinsic::IITDescriptor, 4> paramDescs;
+      Intrinsic::getIntrinsicInfoTableEntries(id, paramDescs);
+      SmallVector<Type*,4> overloadedTypes;
+
+      // append ambiguous types
+      int i = 0;
+      for (auto desc : paramDescs) {
+        if (desc.Kind != Intrinsic::IITDescriptor::Argument) continue;
+        switch (desc.getArgumentKind()) {
+          case llvm::Intrinsic::IITDescriptor::AK_Any:
+            break;
+          default:
+            overloadedTypes.push_back(funcTy->getParamType(i));
+            break;
+        }
+        ++i;
+
+        if (i >= (int) funcTy->getNumParams()) break; // FIXME we should derive this entirely from the IITDescs
+      }
+
+      return Intrinsic::getDeclaration(cloneInto, func->getIntrinsicID(), overloadedTypes);
     }
 
     // create function in new module, create the argument mapping, clone function into new function body, return
