@@ -167,6 +167,12 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
         PHINode& phi = cast<PHINode>(*it);
         rv::Reduction* reduction = reductionAnalysis.getReductionInfo(phi);
 
+        // unrecognized reduction
+        if (!reduction) {
+          phi.printAsOperand(errs(), true, parentFn.getParent()); errs() << " ";
+          fail("header phi reduction not recognized. Aborting!");
+        }
+
         Instruction& reductinst = reduction->getReductor();
 
         if (reductinst.getOpcode() == BinaryOperator::Add &&
