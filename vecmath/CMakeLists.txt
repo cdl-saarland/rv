@@ -94,18 +94,14 @@ IF (${RV_ENABLE_SLEEF})
   ADD_CUSTOM_COMMAND (
     OUTPUT ${SLEEF_GENBC_AVX_SP}
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
-    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -DENABLE_AVX=ON -mavx -ffp-contract=off -o ${SLEEF_BC_AVX_SP}#.tmp
-    #COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRA_DIR}/extrasp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -mavx -DENABLE_AVX=ON -o ${EXTRA_BC_AVX_SP}
-    #COMMAND ${LLVM_TOOL_LINK} ${EXTRA_BC_AVX_SP} ${SLEEF_BC_AVX_SP}.tmp -o ${SLEEF_BC_AVX_SP}
+    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -mavx -DENABLE_AVX=ON -ffp-contract=off -o ${SLEEF_BC_AVX_SP}#.tmp
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_AVX_SP} \"avx_sp\" ${SLEEF_BC_AVX_SP}
     DEPENDS ${SLEEF_HEADERS}
   )
   ADD_CUSTOM_COMMAND (
     OUTPUT ${SLEEF_GENBC_SSE_SP}
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
-    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -m64 -DENABLE_SSE2=ON -msse2 -msse4.1 -ffp-contract=off -o ${SLEEF_BC_SSE_SP}#.tmp
-    #COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRA_DIR}/extrasp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${EXTRA_BC_SSE_SP}
-    #COMMAND ${LLVM_TOOL_LINK} ${EXTRA_BC_SSE_SP} ${SLEEF_BC_SSE_SP}.tmp -o ${SLEEF_BC_SSE_SP}
+    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -m64 -msse2 -msse4.1 -DENABLE_SSE2=ON -ffp-contract=off -o ${SLEEF_BC_SSE_SP}#.tmp
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_SP} \"sse_sp\" ${SLEEF_BC_SSE_SP}
     DEPENDS ${SLEEF_HEADERS}
   )
@@ -121,8 +117,6 @@ IF (${RV_ENABLE_SLEEF})
     OUTPUT ${SLEEF_GENBC_AVX_DP}
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
     COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -DENABLE_AVX=ON -mavx -ffp-contract=off -o ${SLEEF_BC_AVX_DP}#.tmp
-    #COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRA_DIR}/extradp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -mavx -DENABLE_AVX=ON -o ${EXTRA_BC_AVX_DP}
-    #COMMAND ${LLVM_TOOL_LINK} ${EXTRA_BC_AVX_DP} ${SLEEF_BC_AVX_DP}.tmp -o ${SLEEF_BC_AVX_DP}
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_AVX_DP} \"avx_dp\" ${SLEEF_BC_AVX_DP}
     DEPENDS ${SLEEF_HEADERS}
   )
@@ -130,8 +124,6 @@ IF (${RV_ENABLE_SLEEF})
     OUTPUT ${SLEEF_GENBC_SSE_DP}
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
     COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -m64 -DENABLE_SSE2=ON -msse2 -msse4.1 -ffp-contract=off -o ${SLEEF_BC_SSE_DP}#.tmp
-    #COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRA_DIR}/extradp.c -emit-llvm -c -Wall -Wno-unused-function ${RVLIB_BUILD_OPTS} -m64 -msse4 -DENABLE_SSE2=ON -o ${EXTRA_BC_SSE_DP}
-    #COMMAND ${LLVM_TOOL_LINK} ${EXTRA_BC_SSE_DP} ${SLEEF_BC_SSE_DP}.tmp -o ${SLEEF_BC_SSE_DP}
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_DP} \"sse_dp\" ${SLEEF_BC_SSE_DP}
     DEPENDS ${SLEEF_HEADERS}
   )
