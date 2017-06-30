@@ -15,9 +15,11 @@ For any questions, please get in touch with Simon Moll (moll@cs.uni-saarland.de)
 -- Prerequesites --
 LLVM 4.0
 Clang (for the vector math libraries)
+compiler-rt [optional] (for complex arithmetic functions)
 
 -- Buildling libRV --
 RV is an LLVM tool and integrates into the LLVM build system.
+To enable vectorized complex arithmetic through compiler-rt configure RV with RV_ENABLE_CRT=on. 
 Clone this repository into llvm/tools/rv where llvm is your LLVM source directory. RV will build along with LLVM.
 
 -- Testing libRV --
