@@ -27,11 +27,15 @@
 #include "rv/transform/irPolisher.h"
 #include "report.h"
 
+#include "rv/LinkAllPasses.h"
+#include "rv/passes.h"
+
 #include "rvConfig.h"
 
 using namespace llvm;
+using namespace rv;
 
-namespace rv {
+
 
 void IRPolisher::enqueueInst(llvm::Instruction* inst, unsigned bitWidth) {
   ExtInst extInst(inst, bitWidth);
@@ -418,4 +422,35 @@ void IRPolisher::polish() {
   }
 }
 
+
+
+
+
+namespace {
+
+class IRPolisherWrapper : public FunctionPass {
+public:
+  static char ID;
+  IRPolisherWrapper()
+  : FunctionPass(ID)
+  {}
+
+  bool runOnFunction(Function & F) {
+    rv::IRPolisher polisher(F);
+    polisher.polish();
+    return true;
+  }
+};
+
 }
+
+
+
+char IRPolisherWrapper::ID = 0;
+
+FunctionPass *rv::createIRPolisherWrapperPass() { return new IRPolisherWrapper(); }
+
+INITIALIZE_PASS_BEGIN(IRPolisherWrapper, "rv-irpolish",
+                      "RV - Polish Vector IR", false, false)
+INITIALIZE_PASS_END(IRPolisherWrapper, "rv-irpolish", "RV - Polish Vector IR",
+                    false, false)

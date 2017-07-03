@@ -37,6 +37,10 @@ static cl::opt<bool>
     rvLoopVecEnabled("rv-loopvec", cl::desc("Enable RV's outer-loop vectorizer"),
                  cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
+static cl::opt<bool>
+    rvOnlyPolish("rv-polish", cl::desc("Only run RV's polish phase"),
+                 cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+
 static bool
 shouldEnableRV() {
   return rvLoopVecEnabled;
@@ -45,15 +49,17 @@ shouldEnableRV() {
 static void
 registerRVPasses(const llvm::PassManagerBuilder &Builder,
                                        llvm::legacy::PassManagerBase &PM) {
-  if (!shouldEnableRV()) {
-    return;
-  }
+  if (rvOnlyPolish) {
+    PM.add(rv::createIRPolisherWrapperPass());
+  } else return;
 
-  PM.add(createLoopSimplifyPass());
-  PM.add(createLCSSAPass());
-  PM.add(createLoopExitCanonicalizerPass());
-  PM.add(rv::createLoopVectorizerPass());
-  PM.add(createAggressiveDCEPass());
+  if (rvLoopVecEnabled) {
+    PM.add(createLoopSimplifyPass());
+    PM.add(createLCSSAPass());
+    PM.add(createLoopExitCanonicalizerPass());
+    PM.add(rv::createLoopVectorizerPass());
+    PM.add(createAggressiveDCEPass());
+  }
 }
 
 

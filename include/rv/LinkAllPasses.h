@@ -25,6 +25,7 @@ class Pass;
 class PassRegistry;
 
 void initializeLoopVectorizerPass(PassRegistry&);
+void initializeIRPolisherWrapperPass(PassRegistry&);
 } // namespace llvm
 
 namespace {
@@ -38,6 +39,7 @@ struct RVForcePassLinking {
       return;
 
     rv::createLoopVectorizerPass();
+    rv::createIRPolisherWrapperPass();
   }
 } RVForcePassLinking; // Force link by creating a global definition.
 

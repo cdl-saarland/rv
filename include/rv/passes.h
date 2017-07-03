@@ -5,7 +5,10 @@
 
 namespace rv {
   // Rv-based loop vectorizer pass
-  llvm::Pass *createLoopVectorizerPass();
+  llvm::FunctionPass *createLoopVectorizerPass();
+
+  // vector IR polisher
+  llvm::FunctionPass *createIRPolisherWrapperPass();
 } // namespace rv
 
 

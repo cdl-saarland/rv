@@ -368,7 +368,7 @@ void LoopVectorizer::getAnalysisUsage(AnalysisUsage &AU) const {
 
 char LoopVectorizer::ID = 0;
 
-Pass *rv::createLoopVectorizerPass() { return new LoopVectorizer(); }
+FunctionPass *rv::createLoopVectorizerPass() { return new LoopVectorizer(); }
 
 INITIALIZE_PASS_BEGIN(LoopVectorizer, "rv-loop-vectorize",
                       "RV - Vectorize loops", false, false)
