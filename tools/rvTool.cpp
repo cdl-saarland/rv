@@ -534,6 +534,12 @@ int main(int argc, char** argv)
     if (runNormalize) {
       for (auto & func : *mod) {
         normalizeFunction(func);
+        bool broken = verifyFunction(func, &errs());
+        if (broken) {
+          errs() << func.getName() << "\n";
+          fail("Function broken");
+          return -1;
+        }
       }
       return 0;
     }
