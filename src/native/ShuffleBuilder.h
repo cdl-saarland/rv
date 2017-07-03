@@ -32,6 +32,8 @@ namespace native {
     void add(std::vector<llvm::Value *> &sources);
     llvm::Value *shuffleFromInterleaved(llvm::IRBuilder<> &builder, unsigned stride, unsigned start);
     llvm::Value *shuffleToInterleaved(llvm::IRBuilder<> &builder, unsigned stride, unsigned start);
+    llvm::Value *append(llvm::IRBuilder<> &builder);
+    llvm::Value *extractVector(llvm::IRBuilder<> &builder, unsigned index, unsigned offset);
   };
 }
 

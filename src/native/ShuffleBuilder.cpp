@@ -7,6 +7,7 @@
 //
 // @author montada
 
+#include <deque>
 #include "ShuffleBuilder.h"
 #include "Utils.h"
 
@@ -170,4 +171,42 @@ llvm::Value *ShuffleBuilder::shuffleToInterleaved(llvm::IRBuilder<> &builder, un
   } while (counter < inputVectors.size());
 
   return lastShuffle;
+}
+
+Value *ShuffleBuilder::append(IRBuilder<> &builder) {
+  assert(!inputVectors.empty() && "no vectors to append!");
+  std::deque<Value *> appendQueue(inputVectors.begin(), inputVectors.end());
+
+  Value *shuffle = nullptr;
+  while (!appendQueue.empty()) {
+    if (appendQueue.size() == 1) {
+      shuffle = appendQueue.back();
+      break;
+    }
+
+    Value *vec1 = appendQueue.front();
+    appendQueue.pop_front();
+
+    Value *vec2 = appendQueue.front();
+    appendQueue.pop_front();
+
+    Type *ty1 = vec1->getType(), *ty2 = vec2->getType();
+
+    unsigned numElements = ty1->getVectorNumElements() + ty2->getVectorNumElements();
+    Value *shuffleMask = createContiguousVector(numElements, builder.getInt32Ty(), 0, 1);
+    shuffle = builder.CreateShuffleVector(vec1, vec2, shuffleMask, "append_shuffle");
+
+    appendQueue.push_back(shuffle);
+  }
+  assert(shuffle->getType()->getVectorNumElements() == vectorWidth && "mismatch between append length and vector width!");
+  return shuffle;
+}
+
+Value *ShuffleBuilder::extractVector(IRBuilder<> &builder, unsigned index, unsigned offset) {
+  assert(index < inputVectors.size() && "index out of bounds!");
+
+  Value *shuffleMask = createContiguousVector(vectorWidth, builder.getInt32Ty(), offset, 1);
+  Value *vec = inputVectors[index];
+
+  return builder.CreateShuffleVector(vec, UndefValue::get(vec->getType()), shuffleMask, "extract_shuffle");
 }
