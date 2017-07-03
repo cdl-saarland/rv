@@ -62,13 +62,14 @@ class VectorizationAnalysis {
   /// Values that are marked final and may not be recomputed
   std::map<const llvm::Value*, VectorShape> overrides;
 
-  // Shape computation:
   const llvm::DataLayout& layout;
+  const llvm::LoopInfo& mLoopInfo; // Preserves LoopInfo
+
+  // Shape computation:
   const VectorFuncMap& mFuncinfo;
 
   // Divergence computation:
   BranchDependenceAnalysis BDA;
-  const llvm::LoopInfo& mLoopInfo; // Preserves LoopInfo
 
 public:
   VectorizationAnalysis(PlatformInfo & platInfo,

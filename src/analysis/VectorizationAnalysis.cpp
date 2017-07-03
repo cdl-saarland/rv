@@ -90,11 +90,11 @@ VectorizationAnalysis::VectorizationAnalysis(PlatformInfo& platInfo,
                                              const DominatorTree& domTree,
                                              const PostDominatorTree& postDomTree)
 
-        : layout(platInfo.getDataLayout()),
-          mVecinfo(VecInfo),
-          BDA(mVecinfo.getScalarFunction(), cdg, dfg, LoopInfo),
+        : mVecinfo(VecInfo),
+          layout(platInfo.getDataLayout()),
           mLoopInfo(LoopInfo),
-          mFuncinfo(platInfo.getFunctionMappings())
+          mFuncinfo(platInfo.getFunctionMappings()),
+          BDA(mVecinfo.getScalarFunction(), cdg, dfg, LoopInfo)
 { }
 
 void
