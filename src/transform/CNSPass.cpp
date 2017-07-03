@@ -18,6 +18,8 @@
 #include "rv/LinkAllPasses.h"
 #include "rv/passes.h"
 
+#include "report.h"
+
 using namespace rv;
 using namespace llvm;
 
@@ -53,10 +55,10 @@ public:
 cns::SplitTree *CNS::generateSplitSequence(cns::SplitTree *root,
                                                BlockGraph::SubgraphMask &mask,
                                                BlockGraph &graph) {
-#ifdef DEBUG
-  llvm::errs() << "### regularize : ";
-  dumpVector(mask);
-#endif
+  IF_DEBUG_CNS {
+    llvm::errs() << "### regularize : ";
+    dumpVector(mask);
+  }
 
   /*
    * initial transformation (T1/T2)
@@ -65,28 +67,26 @@ cns::SplitTree *CNS::generateSplitSequence(cns::SplitTree *root,
 
   cns::SplitTree *tree = root;
 
-#ifdef DEBUG
-  llvm::errs() << "mask after contraction = ";
-  dumpVector(mask);
-  llvm::errs() << "graph Size after initial contraction=" << graph.getSize(mask)
-               << "\n";
-#endif
+  IF_DEBUG_CNS {
+    llvm::errs() << "mask after contraction = ";
+    dumpVector(mask);
+    llvm::errs() << "graph Size after initial contraction=" << graph.getSize(mask)
+                 << "\n";
+  }
 
   while (graph.getSize(mask) > 1) {
 
 /*
  * identify RC-nodes
  */
-#ifdef DEBUG
-    llvm::errs() << "identifying candidate nodes (SED, non-RC). . \n";
-#endif
+    IF_DEBUG_CNS llvm::errs() << "identifying candidate nodes (SED, non-RC). . \n";
     BlockGraph::SubgraphMask candidates =
         cns::detectCandidateNodes(mask, graph);
 
-#ifdef DEBUG
-    llvm::errs() << "candidate nodes: ";
-    dumpVector(candidates);
-#endif
+    IF_DEBUG_CNS {
+      llvm::errs() << "candidate nodes: ";
+      dumpVector(candidates);
+    }
 
     /*
      * select splitting node (from the headers of the SCC)
@@ -94,9 +94,7 @@ cns::SplitTree *CNS::generateSplitSequence(cns::SplitTree *root,
     uint splitNode =
         cns::getLowestScoringNode(candidates, graph, &cns::scoreBranches);
 
-#ifdef DEBUG
-    llvm::errs() << "heuristic picked node: " << splitNode << "\n";
-#endif
+    IF_DEBUG_CNS llvm::errs() << "heuristic picked node: " << splitNode << "\n";
     /*
      * split (complete graph mask gets modified to match)
      */
@@ -104,12 +102,12 @@ cns::SplitTree *CNS::generateSplitSequence(cns::SplitTree *root,
 
     tree = tree->pushSplit(mask, splitGraph, splitNode);
 
-#ifdef DEBUG
-    llvm::errs() << "graph after split";
-    splitGraph.dump(mask);
-    llvm::errs() << "tree:\n";
-    tree->dump();
-#endif
+    IF_DEBUG_CNS {
+      llvm::errs() << "graph after split";
+      splitGraph.dump(mask);
+      llvm::errs() << "tree:\n";
+      tree->dump();
+    }
 
     // for now just iteratively operate on a single graph
     graph = splitGraph;
@@ -136,15 +134,13 @@ bool CNS::runOnFunction(llvm::Function &func) {
   cns::SplitTree *root = new cns::SplitTree(mask, graph);
   cns::SplitTree *tree = generateSplitSequence(root, mask, graph);
 
-#ifdef DEBUG
-  tree->dump();
-#endif
+  IF_DEBUG_CNS tree->dump();
 
-  uint length = tree->getDepth();
-  std::vector<uint> nodes(length);
+  size_t numSplits = tree->getDepth();
+  std::vector<uint> nodes(numSplits);
 
   // recover split sequence
-  for (uint i = length; i > 0; --i) {
+  for (size_t i = numSplits; i > 0; --i) {
     nodes[i - 1] = tree->getSplitNode();
     tree = tree->getParent();
   }
@@ -153,10 +149,12 @@ bool CNS::runOnFunction(llvm::Function &func) {
 
   applySplitSequence(graph, nodes);
 
-#ifdef DEBUG
-  llvm::errs() << "regularized function : \n";
-  func.dump();
-#endif
+  IF_DEBUG_CNS {
+    llvm::errs() << "regularized function : \n";
+    func.dump();
+  }
+
+  if (numSplits > 0) Report() << "cns: splitted " << numSplits << " nodes.\n";
 
   return true;
 }

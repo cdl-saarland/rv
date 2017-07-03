@@ -222,8 +222,10 @@ void patchClonedBlocksForBranches(ValueMap &cloneMap,
             clonedPHI->removeIncomingValue(incBlock, false);
           }
         }
-        IF_DEBUG_CNS llvm::errs() << "## PHI after\n";
-        clonedPHI->dump();
+        IF_DEBUG_CNS {
+          llvm::errs() << "## PHI after\n";
+          clonedPHI->dump();
+        }
       }
     }
 
