@@ -33,6 +33,7 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Passes/PassBuilder.h"
+#include "llvm/IR/Verifier.h"
 
 #include "llvm/Support/raw_ostream.h"
 
@@ -101,19 +102,6 @@ normalizeFunction(Function& F)
     FPM.add(createLCSSAPass());
     FPM.add(rv::createCNSPass());
     FPM.run(F);
-}
-
-static int
-AdjustStride(Instruction& increment, uint vectorWidth)
-{
-    // bump up loop increment to vector width
-    uint constPos = isa<Constant>(increment.getOperand(1)) ? 1 : 0;
-    auto* incStep = cast<ConstantInt>(increment.getOperand(constPos));
-    int oldinc = incStep->getLimitedValue();
-    auto* vectorIncStep = ConstantInt::getSigned(incStep->getType(), oldinc * vectorWidth);
-    increment.setOperand(constPos, vectorIncStep);
-
-    return oldinc;
 }
 
 void
@@ -517,10 +505,11 @@ int main(int argc, char** argv)
     std::string outFile;
     bool hasOutFile = reader.readOption<std::string>("-o", outFile);
 
-    if (!(hasFile && hasKernelName))
-    {
+    bool runNormalize = reader.hasOption("-normalize");
+
+    if (!hasFile) {
         std::cerr << "Not all arguments specified -wfv/-loopvec) "
-                  << "-i MODULE -k KERNELNAME [-target TARGET_DECL]"
+                  << "-i MODULE [-k KERNELNAME] [-target TARGET_DECL]"
                   << "[-o OUTPUT_LL] [-w 8] [--lower]\n";
         return -1;
     }
@@ -534,12 +523,34 @@ int main(int argc, char** argv)
         errs() << "Could not load module " << inFile << ". Aborting!\n";
         return 1;
     }
+
+    bool broken = verifyModule(*mod, &errs());
+    if (broken) {
+        errs() << "Broken module!\n";
+        return 1;
+    }
+
+    // run normalization and quit
+    if (runNormalize) {
+      for (auto & func : *mod) {
+        normalizeFunction(func);
+      }
+      return 0;
+    }
+
+
+
+  // WFV / loopVec mode
+    if (!hasKernelName) {
+        std::cerr << "kernel name argument missing!\n";
+        return -1;
+    }
+
     llvm::Function* scalarFn = mod->getFunction(kernelName);
     if (!scalarFn)
     {
         return 2;
     }
-
     // initialize argument mapping
     // first arg cons, all others uniform mapping
     // TODO apply user mappings
