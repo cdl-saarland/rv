@@ -83,6 +83,7 @@ namespace native {
 
     llvm::Value *getVectorValue(llvm::Value *const value, bool getLastBlock = false);
     llvm::Value *getScalarValue(llvm::Value *const value, unsigned laneIdx = 0);
+    BasicBlockVector &getMappedBlocks(llvm::BasicBlock *const bb);
 
   private:
     void vectorize(llvm::BasicBlock *const bb, llvm::BasicBlock *vecBlock);
@@ -120,12 +121,12 @@ namespace native {
     void requestLazyInstructions(llvm::Instruction *const upToInstruction);
     llvm::Value *requestVectorValue(llvm::Value *const value);
     llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
-                                    bool skipMappingWhenDone = false);
+                                    bool skipMapping = false);
     llvm::GetElementPtrInst *buildGEP(llvm::GetElementPtrInst *const gep, bool buildScalar, unsigned laneIdx);
     llvm::GetElementPtrInst *requestVectorGEP(llvm::GetElementPtrInst *const gep);
-    llvm::GetElementPtrInst *requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneIdx);
+    llvm::GetElementPtrInst *requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneIdx, bool skipMapping);
     llvm::BitCastInst *requestVectorBitCast(llvm::BitCastInst *const bc);
-    llvm::BitCastInst *requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx);
+    llvm::BitCastInst *requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx, bool skipMapping);
     
     llvm::GetElementPtrInst *requestInterleavedGEP(llvm::GetElementPtrInst *const gep, unsigned interleavedIdx);
     llvm::Value *requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, llvm::Type *const vecType);

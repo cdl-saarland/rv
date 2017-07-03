@@ -15,6 +15,7 @@
 
 #include <vector>
 #include <rv/PlatformInfo.h>
+#include <llvm/IR/IRBuilder.h>
 
 llvm::Type *getVectorType(llvm::Type *type, unsigned width);
 
@@ -35,7 +36,10 @@ llvm::BasicBlock *createCascadeBlocks(llvm::Function *insertInto, unsigned vecto
 bool isSupportedOperation(llvm::Instruction *const inst);
 
 bool isHomogeneousStruct(llvm::StructType *const type);
+
 llvm::StructType * isStructAccess(llvm::Value *const address);
 llvm::StructType * containsStruct(llvm::Type *const type);
+
+void setInsertionToDomBlockEnd(llvm::IRBuilder<> &builder, std::vector<llvm::BasicBlock *> &blocks);
 
 #endif //NATIVE_UTILS_H

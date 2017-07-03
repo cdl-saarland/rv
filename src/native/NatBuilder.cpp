@@ -568,7 +568,7 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
           phi->addIncoming(UndefValue::get(callType), condBlock);
           phi->addIncoming(call, maskedBlock);
           mapScalarValue(scalCall, phi, lane);
-          
+
         } else if (!callType->isVoidTy()) {
           PHINode *phi = builder.CreatePHI(resVec->getType(), 2);
           phi->addIncoming(resVec, condBlock);
@@ -820,7 +820,7 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedTy
     vecMem = phi;
   }
 
-  mapVectorValue(origBlock, memBlock);
+//  mapVectorValue(origBlock, memBlock);
   mapVectorValue(origBlock, continueBlock);
   return vecMem;
 }
@@ -1083,12 +1083,12 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
   return vecValue;
 }
 
-Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool skipMappingWhenDone) {
+Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool skipMapping) {
   if (isa<GetElementPtrInst>(value))
-    return requestScalarGEP(cast<GetElementPtrInst>(value), laneIdx);
+    return requestScalarGEP(cast<GetElementPtrInst>(value), laneIdx, false);
 
   if (isa<BitCastInst>(value))
-    return requestScalarBitCast(cast<BitCastInst>(value), laneIdx);
+    return requestScalarBitCast(cast<BitCastInst>(value), laneIdx, false);
 
   if (isa<Instruction>(value)) {
     Instruction *lazyMemInstr = cast<Instruction>(value);
@@ -1120,7 +1120,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   // if value has a vector mapping -> extract from vector. if not -> clone scalar op
   if (!reqVal) {
     // to avoid dominance problems assume: if we only have a vectorized value and need a scalar one -> do not map
-    skipMappingWhenDone = true;
+    skipMapping = true;
     mappedVal = getVectorValue(value);
     Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
     auto oldIP = builder.GetInsertPoint();
@@ -1167,12 +1167,17 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   }
 
   // only map if normal request. fresh requests will not get mapped
-  if (!skipMappingWhenDone) mapScalarValue(value, reqVal, laneIdx);
+  if (!skipMapping) mapScalarValue(value, reqVal, laneIdx);
   return reqVal;
 }
 
 GetElementPtrInst *
 NatBuilder::buildGEP(GetElementPtrInst *const gep, bool buildScalar, unsigned laneIdx) {
+  BasicBlockVector &mappedBlocks = getMappedBlocks(gep->getParent());
+  BasicBlock *insertBlock = builder.GetInsertBlock();
+  auto insertPoint = builder.GetInsertPoint();
+  setInsertionToDomBlockEnd(builder, mappedBlocks);
+
   assert(gep->getNumOperands() - 1 == gep->getNumIndices() && "llvm implementation for GEP changed!");
 
   // first, we need a vectorized base vecValue (or scalar if all_uniform). then, we have to calculate the indices
@@ -1205,30 +1210,75 @@ NatBuilder::buildGEP(GetElementPtrInst *const gep, bool buildScalar, unsigned la
   GetElementPtrInst *vecGEP = cast<GetElementPtrInst>(builder.CreateGEP(vecBasePtr, idxList, gep->getName()));
   vecGEP->setIsInBounds(gep->isInBounds());
 
+  builder.SetInsertPoint(insertBlock, insertPoint);
+
   return vecGEP;
 }
 
 GetElementPtrInst *NatBuilder::requestVectorGEP(GetElementPtrInst *const gep) {
-  return buildGEP(gep, false, 0);
+  Value *mapped = getVectorValue(gep);
+  if (mapped)
+    return cast<GetElementPtrInst>(mapped);
+
+  mapped = buildGEP(gep, false, 0);
+  mapVectorValue(gep, mapped);
+  return cast<GetElementPtrInst>(mapped);
 }
 
-GetElementPtrInst *NatBuilder::requestScalarGEP(GetElementPtrInst *const gep, unsigned laneIdx) {
-  return buildGEP(gep, true, laneIdx);
+llvm::GetElementPtrInst *NatBuilder::requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneIdx, bool skipMapping) {
+  Value *mapped = getScalarValue(gep, laneIdx);
+  if (mapped)
+    return cast<GetElementPtrInst>(mapped);
+
+  mapped = buildGEP(gep, true, laneIdx);
+  if (!skipMapping)
+    mapScalarValue(gep, mapped, laneIdx);
+  return cast<GetElementPtrInst>(mapped);
 }
 
 BitCastInst *NatBuilder::requestVectorBitCast(BitCastInst *const bc) {
+  Value *mapped = getVectorValue(bc);
+  if (mapped)
+    return cast<BitCastInst>(mapped);
+
+  BasicBlockVector &mappedBlocks = getMappedBlocks(bc->getParent());
+  BasicBlock *insertBlock = builder.GetInsertBlock();
+  auto insertPoint = builder.GetInsertPoint();
+  setInsertionToDomBlockEnd(builder, mappedBlocks);
+
   assert(bc->getNumOperands() == 1 && "code for bitcasts changed!");
   Value *op = bc->getOperand(0);
   Value *vecOp = requestVectorValue(op);
   Type *vecType = getVectorType(bc->getType(), vectorWidth());
-  return cast<BitCastInst>(builder.CreateBitCast(vecOp, vecType, bc->getName()));
+
+  mapped = builder.CreateBitCast(vecOp, vecType, bc->getName());
+  mapVectorValue(bc, mapped);
+
+  builder.SetInsertPoint(insertBlock, insertPoint);
+
+  return cast<BitCastInst>(mapped);
 }
 
-BitCastInst *NatBuilder::requestScalarBitCast(BitCastInst *const bc, unsigned laneIdx) {
+llvm::BitCastInst *NatBuilder::requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx, bool skipMapping) {
+  Value *mapped = getScalarValue(bc, laneIdx);
+  if (mapped)
+    return cast<BitCastInst>(mapped);
+
+  BasicBlockVector &mappedBlocks = getMappedBlocks(bc->getParent());
+  BasicBlock *insertBlock = builder.GetInsertBlock();
+  auto insertPoint = builder.GetInsertPoint();
+  setInsertionToDomBlockEnd(builder, mappedBlocks);
+
   assert(bc->getNumOperands() == 1 && "code for bitcasts changed!");
   Value *op = bc->getOperand(0);
   Value *scalOp = requestScalarValue(op, laneIdx);
-  return cast<BitCastInst>(builder.CreateBitCast(scalOp, bc->getType(), bc->getName()));
+  mapped = builder.CreateBitCast(scalOp, bc->getType(), bc->getName());
+  if (!skipMapping)
+    mapScalarValue(bc, mapped, laneIdx);
+
+  builder.SetInsertPoint(insertBlock, insertPoint);
+
+  return cast<BitCastInst>(mapped);
 }
 
 GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const gep, unsigned interleavedIdx) {
@@ -1274,7 +1324,7 @@ Value *NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned i
     interAddr = requestInterleavedGEP(cast<GetElementPtrInst>(addr), interleavedIdx);
 
   else {
-    Value *ptr = requestScalarValue(addr);
+    Value *ptr = requestScalarValue(addr, 0, true);
     interAddr = builder.CreateGEP(ptr, ConstantInt::get(i32Ty, vectorWidth() * interleavedIdx), "inter_gep");
   }
 
@@ -1825,6 +1875,12 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
     if (laneValues.size() > laneIdx) return laneValues[laneIdx];
     else return nullptr;
   } else return nullptr;
+}
+
+BasicBlockVector &NatBuilder::getMappedBlocks(BasicBlock *const block) {
+  auto blockIt = basicBlockMap.find(block);
+  assert(blockIt != basicBlockMap.end() && "no mapped blocks for block!");
+  return blockIt->second;
 }
 
 unsigned NatBuilder::vectorWidth() {

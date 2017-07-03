@@ -11,6 +11,7 @@
 #include <llvm/IR/Constants.h>
 #include <utils/rvTools.h>
 #include "Utils.h"
+#include "NatBuilder.h"
 
 using namespace llvm;
 using namespace rv;
@@ -158,4 +159,25 @@ StructType *containsStruct(Type *const type) {
 
   else
     return nullptr;
+}
+
+void setInsertionToDomBlockEnd(IRBuilder<> &builder, std::vector<llvm::BasicBlock *> &blocks) {
+  BasicBlock *domBlock = nullptr;
+  for (BasicBlock *block : blocks) {
+    if (block->getName().count("cascade_masked"))
+      continue;
+
+    domBlock = block;
+
+    if (block->empty())
+      break;
+    if (!block->getTerminator())
+      break;
+  }
+  assert(domBlock && "no block found!");
+  Instruction *term;
+  if ((term = domBlock->getTerminator()))
+    builder.SetInsertPoint(term);
+  else
+    builder.SetInsertPoint(domBlock);
 }
