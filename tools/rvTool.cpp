@@ -41,6 +41,7 @@
 #include "rv/rv.h"
 #include "rv/vectorMapping.h"
 #include "rv/sleefLibrary.h"
+#include "rv/passes.h"
 #include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
@@ -98,6 +99,7 @@ normalizeFunction(Function& F)
     legacy::FunctionPassManager FPM(F.getParent());
     FPM.add(createLoopSimplifyPass());
     FPM.add(createLCSSAPass());
+    FPM.add(rv::createCNSPass());
     FPM.run(F);
 }
 
