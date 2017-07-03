@@ -41,10 +41,10 @@ static cl::opt<bool>
     rvOnlyPolish("rv-polish", cl::desc("Only run RV's polish phase"),
                  cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
-static bool
-shouldEnableRV() {
-  return rvLoopVecEnabled;
-}
+
+static cl::opt<bool>
+    rvOnlyCNS("rv-cns", cl::desc("Only run RV's Irreducible Loop Normalizer"),
+                 cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static void
 registerRVPasses(const llvm::PassManagerBuilder &Builder,
@@ -53,7 +53,12 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
     PM.add(rv::createIRPolisherWrapperPass());
   } else return;
 
+  if (rvOnlyCNS) {
+    PM.add(rv::createCNSPass());
+  } else return;
+
   if (rvLoopVecEnabled) {
+    PM.add(rv::createCNSPass());
     PM.add(createLoopSimplifyPass());
     PM.add(createLCSSAPass());
     PM.add(createLoopExitCanonicalizerPass());

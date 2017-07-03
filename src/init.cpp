@@ -26,6 +26,7 @@ public:
     llvm::PassRegistry &Registry = *llvm::PassRegistry::getPassRegistry();
     llvm::initializeLoopVectorizerPass(Registry);
     llvm::initializeIRPolisherWrapperPass(Registry);
+    llvm::initializeCNSPass(Registry);
   }
 };
 static StaticInitializer InitializeEverything;

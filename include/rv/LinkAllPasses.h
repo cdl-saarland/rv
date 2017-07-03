@@ -26,6 +26,7 @@ class PassRegistry;
 
 void initializeLoopVectorizerPass(PassRegistry&);
 void initializeIRPolisherWrapperPass(PassRegistry&);
+void initializeCNSPass(PassRegistry&);
 } // namespace llvm
 
 namespace {
@@ -40,6 +41,7 @@ struct RVForcePassLinking {
 
     rv::createLoopVectorizerPass();
     rv::createIRPolisherWrapperPass();
+    rv::createCNSPass();
   }
 } RVForcePassLinking; // Force link by creating a global definition.
 

@@ -9,6 +9,9 @@ namespace rv {
 
   // vector IR polisher
   llvm::FunctionPass *createIRPolisherWrapperPass();
+
+  // Controlled Node Splitting (Irreducible loop normalization)
+  llvm::FunctionPass *createCNSPass();
 } // namespace rv
 
 
