@@ -115,8 +115,7 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
   SubgraphMaskVector prefix(graph.getSize()); // used for writing down the trace
                                               // that encountered this node
                                               // first
-  IntVector color(graph.getSize());
-  memset(&color, -1, graph.getSize());
+  IntVector color(graph.getSize(), -1);
 
   std::stack<SCCFrame> stack;
 
