@@ -563,7 +563,13 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
         builder.CreateBr(nextBlock);
         builder.SetInsertPoint(nextBlock);
 
-        if (!callType->isVoidTy()) {
+        if (callType->isStructTy() || callType->isVectorTy()) {
+          PHINode *phi = builder.CreatePHI(callType, 2);
+          phi->addIncoming(UndefValue::get(callType), condBlock);
+          phi->addIncoming(call, maskedBlock);
+          mapScalarValue(scalCall, phi, lane);
+          
+        } else if (!callType->isVoidTy()) {
           PHINode *phi = builder.CreatePHI(resVec->getType(), 2);
           phi->addIncoming(resVec, condBlock);
           phi->addIncoming(insert, maskedBlock);
