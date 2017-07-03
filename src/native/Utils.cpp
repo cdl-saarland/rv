@@ -119,13 +119,13 @@ bool isHomogeneousStruct(StructType *const type) {
   assert(type->getStructNumElements() > 0 && "emptry struct!");
   Type *prevElTy = nullptr;
   for (Type *elTy : type->elements()) {
-    if (!elTy->isStructTy() && !(elTy->isIntegerTy() || elTy->isFloatTy()))
+    if (!elTy->isStructTy() && !(elTy->isIntegerTy() || elTy->isFloatingPointTy()))
       return false;
 
     else if (elTy->isStructTy() && !isHomogeneousStruct(cast<StructType>(elTy)))
       return false;
 
-    if (prevElTy && prevElTy != elTy)
+    if (prevElTy && prevElTy->getPrimitiveSizeInBits() != elTy->getPrimitiveSizeInBits())
       return false;
 
     prevElTy = elTy;
