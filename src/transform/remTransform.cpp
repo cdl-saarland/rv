@@ -122,16 +122,17 @@ public:
 
   // iteration interval test
     // lift the predicate form NE/EQ to LT/GT
+    // the exit is taken on (%v == %n) send to exit if %V >= %n (if posStride)
     auto cmpPred = clonedCmp->getPredicate();
     if ((cmpPred == CmpInst::ICMP_EQ) || (cmpPred == CmpInst::ICMP_NE)) {
       bool posStride = redShape.getStride() > 0;
 
       CmpInst::Predicate adjustedPred;
       if (red.getReductor().hasNoSignedWrap()) {
-        adjustedPred  = posStride ? CmpInst::ICMP_SLT : CmpInst::ICMP_SGT;
+        adjustedPred  = posStride ? CmpInst::ICMP_SGE : CmpInst::ICMP_SLE;
       } else {
         assert(red.getReductor().hasNoUnsignedWrap());
-        adjustedPred  = posStride ? CmpInst::ICMP_ULT : CmpInst::ICMP_UGT;
+        adjustedPred  = posStride ? CmpInst::ICMP_UGE : CmpInst::ICMP_ULE;
       }
 
       clonedCmp->setPredicate(adjustedPred);
