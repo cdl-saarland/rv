@@ -17,6 +17,7 @@
 
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/Instructions.h"
 
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/PostDominators.h"
@@ -121,6 +122,9 @@ public:
     }
 
   // iteration interval test
+    bool nswFlag = red.getReductor().hasNoSignedWrap();
+    bool nuwFlag = red.getReductor().hasNoUnsignedWrap();
+
     // lift the predicate form NE/EQ to LT/GT
     // the exit is taken on (%v == %n) send to exit if %V >= %n (if posStride)
     auto cmpPred = clonedCmp->getPredicate();
@@ -128,9 +132,10 @@ public:
       bool posStride = redShape.getStride() > 0;
 
       CmpInst::Predicate adjustedPred;
-      if (red.getReductor().hasNoSignedWrap()) {
+      if (nswFlag) {
         adjustedPred  = posStride ? CmpInst::ICMP_SGE : CmpInst::ICMP_SLE;
       } else {
+        assert(nuwFlag && "can not extrapolate wrapping exit conditions");
         assert(red.getReductor().hasNoUnsignedWrap());
         adjustedPred  = posStride ? CmpInst::ICMP_UGE : CmpInst::ICMP_ULE;
       }
@@ -140,7 +145,7 @@ public:
 
     // adjust iteration value for the tested iteration
     auto & val = embReduct.val;
-    auto * adjusted = builder.CreateAdd(&val, ConstantInt::get(val.getType(), redShape.getStride() * effectiveOffset));
+    auto * adjusted = builder.CreateAdd(&val, ConstantInt::get(val.getType(), redShape.getStride() * effectiveOffset), "", nswFlag, nuwFlag);
     if (isa<Instruction>(adjusted)) if (valueSet) valueSet->insert(adjusted);
     clonedCmp->setOperand(cmpReductIdx, adjusted);
 
@@ -492,75 +497,6 @@ struct LoopTransformer {
 
     // TODO update PDT
   }
-
-  // reduce a vector loop liveout to a scalar value
-  Value&
-  ReduceValueToScalar(Value & val, BasicBlock & where, VectorShape valShape) {
-    if (valShape.isUniform()) {
-      return val;
-
-    } else if (valShape.hasStridedShape()) {
-      int64_t reducedStride = valShape.getStride() * vectorWidth;
-      IRBuilder<> builder(&where, where.getTerminator()->getIterator());
-      return *builder.CreateAdd(&val, ConstantInt::get(val.getType(), reducedStride));
-
-    } else {
-      errs() << "general on-the-fly reduction not yet implemented!\n";
-      abort();
-    }
-  }
-
-#if 0
-  // reduce all vector values to scalar values
-  // vecLoopHis will contain the reduced loop header phis (to be used as initial values in the scalar loop)
-  // vecLiveOuts will contain all reduced liveouts of the scalar loop
-  // header phis may be contained in both sets
-  void
-  reduceVectorLiveOuts(ValueToValueMapTy & vecLoopPhis, ValueToValueMapTy & vecLiveOuts) {
-    auto * scalHeader = ScalarL.getHeader();
-
-  // reduce all loop header phis
-    for (auto & scalInst : *scalHeader) {
-      if (!isa<PHINode>(scalInst)) break;
-      auto & scalarPhi = cast<PHINode>(scalInst);
-      assert(vecValMap.count(&scalarPhi));
-      auto & vecPhi = LookUp(vecValMap, scalarPhi);
-
-      // int loopIdx = GetLoopIncomingIndex(ScalarL, scalarPhi);
-      // auto & vecLoopLive = *vecPhi.getIncomingValue(loopIdx);
-
-      auto & red = *reda.getReductionInfo(scalarPhi);
-      auto valShape = red.getShape(vectorWidth);
-      auto & reducedLoopVal = ReduceValueToScalar(vecPhi, *vecToScalarExit, valShape);
-
-      vecLoopPhis[&scalarPhi] = &reducedLoopVal;
-    }
-
-  // TODO we do not support non-reduction live outs yet
-#if 0
-  // reduce all remaining live outs
-    for (auto * BB : ScalarL.blocks()) {
-      for (auto & Inst : *BB) {
-        for (auto & use : Inst.uses()) {
-          auto * userInst = cast<Instruction>(use.getUser());
-          if (ScalarL.contains(userInst)) continue;
-
-          // we already reduced this loop header phi
-          if (vecLoopPhis.count(&Inst)) {
-            vecLiveOuts[&Inst] = vecLoopPhis[&Inst];
-            continue;
-          }
-
-          // otw, reduce it now
-          auto & reducedLiveOut = ReduceValueToScalar(Inst, *vecToScalarExit);
-          vecLiveOuts[&Inst] = &reducedLiveOut;
-        }
-      }
-    }
-#endif
-    // TODO not supported yet
-  }
-#endif
 
   void
   updateScalarLoopStartValues(ValueToValueMapTy & vecLoopPhis) {
