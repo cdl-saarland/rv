@@ -764,7 +764,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       vals.reserve(addr.size());
       vals.push_back(mappedStoredVal);
       createInterleavedMemory(vecType, alignment, &addr, &masks, &vals, &srcs, true);
-      
+
     } else {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       vecMem = createVaryingMemory(vecType, alignment, addr[0], mask, mappedStoredVal);
@@ -1715,7 +1715,7 @@ NatBuilder::materializeStridedReduction(Reduction & red) {
   repairOutsideUses(red.getReductor(),
                     [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
                       // otw, replace with reduced value
-                      int64_t amount = vectorWidth * redShape.getStride();
+                      int64_t amount = (vectorWidth - 1) * redShape.getStride();
                       auto * insertPt = userBlock.getFirstNonPHI();
                       IRBuilder<> builder(&userBlock, insertPt->getIterator());
 
@@ -2077,7 +2077,7 @@ bool NatBuilder::isPseudointerleaved(Instruction *inst, Value *addr, int byteSiz
         pseudointerValueMap.erase(addr);
     }
   }
-  
+
   int stride = addrShape.getStride() / byteSize;
   return stride <= (int) (vectorWidth() / 2); // arbitrarily chosen
 }
