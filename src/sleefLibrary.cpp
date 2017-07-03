@@ -511,19 +511,18 @@ namespace rv {
       SmallVector<Type*,4> overloadedTypes;
 
       // append ambiguous types
-      int i = 0;
+      SmallSet<uint, 4> mangledArgs;
       for (auto desc : paramDescs) {
         if (desc.Kind != Intrinsic::IITDescriptor::Argument) continue;
         switch (desc.getArgumentKind()) {
           case llvm::Intrinsic::IITDescriptor::AK_Any:
             break;
           default:
-            overloadedTypes.push_back(funcTy->getParamType(i));
+            uint argIdx = desc.getArgumentNumber();
+            if (!mangledArgs.insert(argIdx).second) continue; // already mangled that arg
+            overloadedTypes.push_back(funcTy->getParamType(argIdx));
             break;
         }
-        ++i;
-
-        if (i >= (int) funcTy->getNumParams()) break; // FIXME we should derive this entirely from the IITDescs
       }
 
       return Intrinsic::getDeclaration(cloneInto, func->getIntrinsicID(), overloadedTypes);
