@@ -7,6 +7,7 @@
 #include "BlockGraph.h"
 #include <assert.h>
 #include <llvm/Support/raw_ostream.h>
+#include "CommonTypes.h"
 
 namespace rv {
 
@@ -39,9 +40,7 @@ BlockGraph BlockGraph::CreateFromFunction(llvm::Function &func,
   IndexMap indexMap;
 
 // build index map
-#ifdef DEBUG
-  llvm::errs() << "BlockGraph::BlockGraph(LLVMFunction) {\n";
-#endif
+  IF_DEBUG_CNS llvm::errs() << "BlockGraph::BlockGraph(LLVMFunction) {\n";
   {
     int index = 0;
     for (llvm::Function::iterator bb = func.begin(); bb != func.end();
@@ -50,14 +49,10 @@ BlockGraph BlockGraph::CreateFromFunction(llvm::Function &func,
 
       graph.labels[index] = block;
       indexMap[block] = index;
-#ifdef DEBUG
-      llvm::errs() << block->getName() << " @ " << index << "\n";
-#endif
+      IF_DEBUG_CNS llvm::errs() << block->getName() << " @ " << index << "\n";
     }
   }
-#ifdef DEBUG
-  llvm::errs() << "} // BlockGraph::BlockGraph(LLVMFunction)\n";
-#endif
+  IF_DEBUG_CNS llvm::errs() << "} // BlockGraph::BlockGraph(LLVMFunction)\n";
 
   // add adjacency information
   {
@@ -81,9 +76,7 @@ BlockGraph BlockGraph::CreateFromFunction(llvm::Function &func,
       }
     }
   }
-#ifdef DEBUG
-  graph.dumpGraphviz(oMask, std::cerr);
-#endif
+  IF_DEBUG_CNS graph.dumpGraphviz(oMask, std::cerr);
 
   return graph;
 }
@@ -226,10 +219,8 @@ void BlockGraph::removeNode(SubgraphMask &mask, uint index) const {
  */
 void BlockGraph::copyLeavingEdges(DirectedGraph &destGraph, uint destNode,
                                   DirectedGraph sourceGraph, uint sourceNode) {
-#ifdef DEBUG
-  std::cerr << "copyLeavingEdges(dest=" << destNode << ",source=" << sourceNode
+  IF_DEBUG_CNS std::cerr << "copyLeavingEdges(dest=" << destNode << ",source=" << sourceNode
             << ")\n";
-#endif
   for (uint edge = 0; edge < sourceGraph.size(); ++edge) {
     if (sourceGraph[edge][sourceNode])
       destGraph[edge][destNode] = sourceGraph[edge][sourceNode];
@@ -255,36 +246,34 @@ BlockGraph BlockGraph::createSplitGraph(SubgraphMask &mask, uint index) {
   uint numIncoming = getNumPredecessors(mask, index);
 
   if (numIncoming <= 1) {
-#ifdef DEBUG
-    std::cerr << "(!!!) attempted to split node with " << numIncoming
+    IF_DEBUG_CNS std::cerr << "(!!!) attempted to split node with " << numIncoming
               << " predecessors" << std::endl;
-#endif
     return *this;
   }
 
   uint graphSize = getSize() + numIncoming - 1;
   uint nextFreeIndex = getSize();
 
-#ifdef DEBUG
-  std::cerr << "---- SPLIT NODE ----- (destSize=" << graphSize
-            << ",splitNode=" << index << ")\n";
-  std::cerr << "mask : ";
-  dumpVector(mask);
-  std::cerr << "\n";
-  dumpInternal(graph);
-#endif
+  IF_DEBUG_CNS {
+    std::cerr << "---- SPLIT NODE ----- (destSize=" << graphSize
+              << ",splitNode=" << index << ")\n";
+    std::cerr << "mask : ";
+    dumpVector(mask);
+    std::cerr << "\n";
+    dumpInternal(graph);
+  }
 
   DirectedGraph splitGraph = createExtendedGraph(mask, graphSize);
   BlockVector splitLabels = labels;
   splitLabels.resize(graphSize, nodeLabel);
 
-#ifdef DEBUG
-  std::cerr << "extended graph : ";
-  dumpVector(mask);
-  std::cerr << "\n{\n";
-  dumpInternal(splitGraph);
-  std::cerr << "}\n";
-#endif
+  IF_DEBUG_CNS {
+    std::cerr << "extended graph : ";
+    dumpVector(mask);
+    std::cerr << "\n{\n";
+    dumpInternal(splitGraph);
+    std::cerr << "}\n";
+  }
 
   {
     BoolVector::iterator it = incoming.begin();
@@ -302,9 +291,7 @@ BlockGraph BlockGraph::createSplitGraph(SubgraphMask &mask, uint index) {
     // actual splitting
     for (; it != incoming.end(); ++it, ++start) {
       if (*it && mask[start]) {
-#ifdef DEBUG
-        std::cerr << "Splitting for incoming node=" << start << "\n";
-#endif
+        IF_DEBUG_CNS std::cerr << "Splitting for incoming node=" << start << "\n";
         mask[nextFreeIndex] = true;
 
         // reattaching incoming edge
@@ -312,33 +299,33 @@ BlockGraph BlockGraph::createSplitGraph(SubgraphMask &mask, uint index) {
             false; // remove the incoming edge to the splitted node
         splitGraph[nextFreeIndex][start] =
             true; // and instead attach it to the newly created offspring
-#ifdef DEBUG
-        std::cerr << "reattached entry to graph :";
-        dumpVector(mask);
-        std::cerr << "\n{\n";
-        dumpInternal(splitGraph);
-#endif
+        IF_DEBUG_CNS {
+          std::cerr << "reattached entry to graph :";
+          dumpVector(mask);
+          std::cerr << "\n{\n";
+          dumpInternal(splitGraph);
+        }
         // copy over leaving edges
         copyLeavingEdges(splitGraph, nextFreeIndex, graph,
                          index); // copy over all leaving edges
-#ifdef DEBUG
-        std::cerr << "after copying all leaving edges :";
-        dumpVector(mask);
-        std::cerr << "\n{\n";
-        dumpInternal(splitGraph);
-#endif
+        IF_DEBUG_CNS {
+          std::cerr << "after copying all leaving edges :";
+          dumpVector(mask);
+          std::cerr << "\n{\n";
+          dumpInternal(splitGraph);
+        }
         ++nextFreeIndex;
       }
     }
   }
 
-#ifdef DEBUG
-  std::cerr << "resulting graph : ";
-  dumpVector(mask);
-  std::cerr << "\n{\n";
-  dumpInternal(splitGraph);
-  std::cerr << "}\n";
-#endif
+  IF_DEBUG_CNS {
+    std::cerr << "resulting graph : ";
+    dumpVector(mask);
+    std::cerr << "\n{\n";
+    dumpInternal(splitGraph);
+    std::cerr << "}\n";
+  }
 
   return BlockGraph(splitGraph, splitLabels);
 }

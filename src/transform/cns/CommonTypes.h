@@ -32,6 +32,13 @@
 
 //#include <util/llvmShortCuts.h>
 
+
+#if 1
+#define IF_DEBUG_CNS if (false)
+#else
+#define IF_DEBUG CNS IF_DEBUG
+#endif
+
 namespace rv {
 
 typedef llvm::ValueToValueMapTy ValueMap;

@@ -5,6 +5,7 @@
  */
 
 #include "CNS.h"
+#include "CommonTypes.h"
 
 namespace rv {
 
@@ -67,13 +68,9 @@ void minimizeGraph(BlockGraph::SubgraphMask &mask, BlockGraph &graph) {
       if (mask[index]) {
         int pred = graph.getSinglePredecessorNonReflexive(mask, index);
         if (pred > -1) {
-#ifdef DEBUG
-          std::cerr << "contracting " << pred << " to " << index << "\n";
-#endif
+          IF_DEBUG_CNS std::cerr << "contracting " << pred << " to " << index << "\n";
           graph.contractNode(mask, pred, index);
-#ifdef DEBUG
-          graph.dumpGraphviz(mask, std::cerr);
-#endif
+          IF_DEBUG_CNS graph.dumpGraphviz(mask, std::cerr);
           contracted = true;
         }
       }
@@ -138,9 +135,7 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
 
   while (true) // iterate over all valid start points
   {
-#ifdef DEBUG
-    std::cerr << "# starting at node " << firstNode << "\n";
-#endif
+    IF_DEBUG_CNS std::cerr << "# starting at node " << firstNode << "\n";
 
     while (!stack.empty()) {
       SCCFrame frame = stack.top();
@@ -148,10 +143,10 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
 
       uint node = frame.node;
       int streakColor = frame.streakColor;
-#ifdef DEBUG
-      std::cerr << "stack top " << node << " with color " << streakColor
+      IF_DEBUG_CNS {
+        std::cerr << "stack top " << node << " with color " << streakColor
                 << "\n";
-#endif
+      }
 
       {
         /*
@@ -159,9 +154,7 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
          */
         // found a loop with the trace
         if (trace[node]) {
-#ifdef DEBUG
-          std::cerr << "trace loop at " << node << "\n";
-#endif
+          IF_DEBUG_CNS std::cerr << "trace loop at " << node << "\n";
           BlockGraph::SubgraphMask loopMask = AND(trace, NOT(prefix[node]));
           loopMask[node] = true;
 
@@ -185,10 +178,8 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
           // found an additional path at a loop
         } else if ((streakColor > -1) && visited[node] &&
                    (color[node] == streakColor)) {
-#ifdef DEBUG
-          std::cerr << "side streak at " << node << " with color "
+          IF_DEBUG_CNS std::cerr << "side streak at " << node << " with color "
                     << streakColor << "\n";
-#endif
           assert(streakColor != -1 && "somewhere something strange happened");
 
           BlockGraph::SubgraphMask loopMask = AND(trace, NOT(prefix[node]));
@@ -213,16 +204,12 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
           if (firstSucc < graph.getSize()) {
             stack.push(frame);
             stack.push(SCCFrame(firstSucc, streakColor));
-#ifdef DEBUG
-            std::cerr << "extending trace from " << node << " to " << firstSucc
+            IF_DEBUG_CNS std::cerr << "extending trace from " << node << " to " << firstSucc
                       << "\n";
-#endif
             visited[node] = true;
             continue;
           } else {
-#ifdef DEBUG
-            std::cerr << "collapsing leaf " << node << "\n";
-#endif
+            IF_DEBUG_CNS std::cerr << "collapsing leaf " << node << "\n";
             trace[node] = false;
           }
         }
@@ -248,18 +235,14 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
             continue;
 
           if (nextNode >= graph.getSize()) { // collapse this edge
-#ifdef DEBUG
-            std::cerr << "collapsing node " << frame.node << "\n";
-#endif
+            IF_DEBUG_CNS std::cerr << "collapsing node " << frame.node << "\n";
             frame = stack.top();
             stack.pop();
             goto NextEdge;
 
           } else { // reinsert the frame
-#ifdef DEBUG
-            std::cerr << "flipping edge from " << node << " to " << nextNode
+            IF_DEBUG_CNS std::cerr << "flipping edge from " << node << " to " << nextNode
                       << "\n";
-#endif
             frame.streakColor = parentFrame.streakColor;
             frame.node = nextNode;
           }
@@ -298,14 +281,13 @@ computeDominanceRegion(const BlockGraph::SubgraphMask &mask,
     dom = nextDom;
     nextDom = AND(mask, OR(dom, invGraph.mergedPredecessors(dom))); // successors
 
-#ifdef DEBUG
-    std::cerr << "# iteration " << it << "\n";
-    std::cerr << "dom     : ";
-    dumpVector(dom);
-    std::cerr << "nextDom : ";
-    dumpVector(nextDom);
-
-#endif
+    IF_DEBUG_CNS {
+      std::cerr << "# iteration " << it << "\n";
+      std::cerr << "dom     : ";
+      dumpVector(dom);
+      std::cerr << "nextDom : ";
+      dumpVector(nextDom);
+    }
 
     for (uint i = 0; i < graph.getSize(); ++i) {
       if (i == node) {
@@ -316,11 +298,11 @@ computeDominanceRegion(const BlockGraph::SubgraphMask &mask,
         BlockGraph::SubgraphMask nonDomPred = AND(incoming, NOT(dom));
         nonDomPred[i] = false; // allow self-loops
 
-#ifdef DEBUG
-        std::cerr << "- nonDomPred for " << i << "\n";
-        std::cerr << ": ";
-        dumpVector(nonDomPred);
-#endif
+        IF_DEBUG_CNS {
+          std::cerr << "- nonDomPred for " << i << "\n";
+          std::cerr << ": ";
+          dumpVector(nonDomPred);
+        }
 
         nextDom[i] = NONE(nonDomPred);
       }

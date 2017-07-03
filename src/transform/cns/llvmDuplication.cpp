@@ -12,6 +12,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/ValueMap.h>
+#include "CommonTypes.h"
 
 using namespace llvm;
 
@@ -193,17 +194,13 @@ void patchClonedBlocksForBranches(ValueMap &cloneMap,
         int blockIdx = clonedPHI->getBasicBlockIndex(branchBlock);
 
         if (blockIdx > -1) {
-#ifdef DEBUG
-          llvm::errs() << "spezialising PHI for branch value.phi="
+          IF_DEBUG_CNS llvm::errs() << "spezialising PHI for branch value.phi="
                        << clonedPHI->getName() << "\n";
-#endif
           llvm::Value *branchValue = clonedPHI->getIncomingValue(blockIdx);
           // specialize PHI (in cloned block)
           clonedPHI->replaceAllUsesWith(branchValue);
-#ifdef DEBUG
-          llvm::errs() << "replacing phi" << clonedPHI->getName().str()
+          IF_DEBUG_CNS llvm::errs() << "replacing phi" << clonedPHI->getName().str()
                        << " with " << branchValue->getName().str() << "\n";
-#endif
           cloneMap[srcPHI] = branchValue;
           clonedPHI->eraseFromParent();
 
@@ -211,63 +208,53 @@ void patchClonedBlocksForBranches(ValueMap &cloneMap,
           srcPHI->removeIncomingValue(branchBlock, true);
         }
       } else {
-#ifdef DEBUG
-        llvm::errs() << "## PHI before\n";
-        clonedPHI->dump();
-#endif
+        IF_DEBUG_CNS {
+          llvm::errs() << "## PHI before\n";
+          clonedPHI->dump();
+        }
         for (uint i = 0; i < clonedPHI->getNumIncomingValues(); ++i) {
           llvm::BasicBlock *incBlock = clonedPHI->getIncomingBlock(i);
-#ifdef DEBUG
-          llvm::errs() << "incoming : " << incBlock->getName() << "\n";
-#endif
+          IF_DEBUG_CNS llvm::errs() << "incoming : " << incBlock->getName() << "\n";
           auto it = std::find(clonedBlocks.begin(), clonedBlocks.end(), incBlock);
           if (it == clonedBlocks.end() &&
               !branchBlocks.count(incBlock)) {
-#ifdef DEBUG
-            llvm::errs() << "not from current set! remove";
-#endif
+            IF_DEBUG_CNS llvm::errs() << "not from current set! remove";
             clonedPHI->removeIncomingValue(incBlock, false);
           }
         }
-#ifdef DEBUG
-        llvm::errs() << "## PHI after\n";
-#endif
+        IF_DEBUG_CNS llvm::errs() << "## PHI after\n";
         clonedPHI->dump();
       }
     }
 
 // Fix all branches coming from branchBlocks
-#ifdef DEBUG
-    llvm::errs() << "## Patching branchBlocks\n";
-#endif
+    IF_DEBUG_CNS llvm::errs() << "## Patching branchBlocks\n";
     for (BlockSet::iterator itBranchBlock = branchBlocks.begin();
          itBranchBlock != branchBlocks.end(); ++itBranchBlock) {
       llvm::TerminatorInst *termInst = (*itBranchBlock)->getTerminator();
-#ifdef DEBUG
-      llvm::errs() << "unpatched:";
-      termInst->dump();
-#endif
+      IF_DEBUG_CNS {
+        llvm::errs() << "unpatched:";
+        termInst->dump();
+      }
       RemapInstruction(termInst, cloneMap, RF_IgnoreMissingLocals);
-#ifdef DEBUG
-      llvm::errs() << "patched:";
-      termInst->dump();
-#endif
+      IF_DEBUG_CNS {
+        llvm::errs() << "patched:";
+        termInst->dump();
+      }
     }
 
-#ifdef DEBUG
-    llvm::errs() << "## Patching cloned block\n";
-#endif
+    IF_DEBUG_CNS llvm::errs() << "## Patching cloned block\n";
     // Fix all instructions in the block itself
     for (Instruction &inst : *clonedBlock) {
-#ifdef DEBUG
-      llvm::errs() << "unpatched:";
-      inst.dump();
-#endif
+      IF_DEBUG_CNS {
+        llvm::errs() << "unpatched:";
+        inst.dump();
+      }
       RemapInstruction(&inst, cloneMap, RF_IgnoreMissingLocals);
-#ifdef DEBUG
-      llvm::errs() << "patched:";
-      inst.dump();
-#endif
+      IF_DEBUG_CNS {
+        llvm::errs() << "patched:";
+        inst.dump();
+      }
     }
 
     // Repair receiving PHI-nodes
@@ -278,20 +265,20 @@ void patchClonedBlocksForBranches(ValueMap &cloneMap,
       llvm::BasicBlock::iterator itPHI;
       for (itPHI = succBlock->begin(); llvm::isa<llvm::PHINode>(itPHI);
            ++itPHI) {
-#ifdef DEBUG
-        llvm::errs() << "## patching PHI:";
-        itPHI->dump();
-#endif
+        IF_DEBUG_CNS {
+          llvm::errs() << "## patching PHI:";
+          itPHI->dump();
+        }
         llvm::PHINode *phi = llvm::cast<llvm::PHINode>(itPHI);
         assert(phi->getBasicBlockIndex(clonedBlock) == -1 &&
                "value already mapped!");
         llvm::Value *inVal = phi->getIncomingValueForBlock(srcBlock);
         handledSrcValues.insert(inVal);
 
-#ifdef DEBUG
-        llvm::errs() << "### fixed PHI for new incoming edge\n";
-        inVal->dump();
-#endif
+        IF_DEBUG_CNS {
+          llvm::errs() << "### fixed PHI for new incoming edge\n";
+          inVal->dump();
+        }
         phi->addIncoming(cloneMap[inVal], clonedBlock);
       }
 
@@ -337,10 +324,10 @@ llvm::BasicBlock *cloneBlockForBranch(llvm::BasicBlock *srcBlock,
 llvm::BasicBlock *cloneBlockForBranchSet(llvm::BasicBlock *srcBlock,
                                          BlockSet branchSet,
                                          llvm::DominatorTree *domTree) {
-#ifdef DEBUG
-  llvm::errs() << " cloning block : " << srcBlock->getName().str() << "\n";
+  IF_DEBUG_CNS {
+    llvm::errs() << " cloning block : " << srcBlock->getName().str() << "\n";
                //<< " for blockset : " << toString(branchSet) << "\n";
-#endif
+  }
 
   // sanity check
   assert(!srcBlock->getUniquePredecessor() &&
