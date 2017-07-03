@@ -193,6 +193,9 @@ void InstructionGrouper::add(Instruction *instr, MemoryDependenceResults &MDR) {
     if (instrGroup.insert(instr, MDR))
       return;
   }
+  
+  if (isa<CallInst>(instr))
+    return;
 
   // new group
   InstructionGroup freshGroup(instr);
