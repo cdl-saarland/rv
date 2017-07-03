@@ -45,6 +45,7 @@
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
 
+#include "rv/transform/remTransform.h"
 #include "rv/vectorizationInfo.h"
 
 static const char LISTSEPERATOR = '_';
@@ -142,7 +143,19 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     // set-up for loop vectorization
     rv::VectorMapping targetMapping(&parentFn, &parentFn, vectorWidth);
 
-    rv::LoopRegion loopRegionImpl(loop);
+    rv::ReductionAnalysis reductionAnalysis(parentFn, loopInfo);
+    reductionAnalysis.analyze();
+
+    ValueSet uniOverrides;
+    rv::RemainderTransform remTrans(parentFn, domTree, postDomTree, loopInfo, reductionAnalysis);
+    auto * preparedLoop = remTrans.createVectorizableLoop(loop, uniOverrides, vectorWidth, vectorWidth);
+
+    if (!preparedLoop) {
+      fail("remTrans could not transform to a vectorizable loop.");
+    }
+
+    // setup region
+    rv::LoopRegion loopRegionImpl(*preparedLoop);
     rv::Region loopRegion(loopRegionImpl);
     rv::VectorizationInfo vecInfo(parentFn, vectorWidth, loopRegion);
 
@@ -158,41 +171,38 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     const bool useImpreciseFunctions = false;
     addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
 
-    rv::ReductionAnalysis reductionAnalysis(parentFn, loopInfo);
-    reductionAnalysis.analyze();
+#define IF_DEBUG if (false)
 
-    // configure initial shape for induction variable(s)
-    auto* header = loop.getHeader();
-    for (auto it = header->begin(); &*it != header->getFirstNonPHI(); ++it) {
-        PHINode& phi = cast<PHINode>(*it);
-        rv::Reduction* reduction = reductionAnalysis.getReductionInfo(phi);
+// Check reduction patterns of vector loop phis
+  // configure initial shape for induction variable
+  for (auto & inst : *preparedLoop->getHeader()) {
+    auto * phi = dyn_cast<PHINode>(&inst);
+    if (!phi) continue;
 
-        // unrecognized reduction
-        if (!reduction) {
-          phi.printAsOperand(errs(), true, parentFn.getParent()); errs() << " ";
-          fail("header phi reduction not recognized. Aborting!");
-        }
+    rv::Reduction * redInfo = reductionAnalysis.getReductionInfo(*phi);
+    IF_DEBUG { errs() << "loopVecPass: header phi  " << *phi << " : "; }
 
-        Instruction& reductinst = reduction->getReductor();
-
-        if (reductinst.getOpcode() == BinaryOperator::Add &&
-            (isa<ConstantInt>(reductinst.getOperand(0)) ||
-             isa<ConstantInt>(reductinst.getOperand(1))))
-        {
-            int oldinc = AdjustStride(reductinst, vectorWidth);
-            errs() << "Vectorizing loop with induction variable " << phi << "\n";
-            vecInfo.setVectorShape(phi, rv::VectorShape::strided(oldinc, vectorWidth));
-        } else {
-            vecInfo.setVectorShape(phi, rv::VectorShape::varying(vectorWidth));
-        }
+    if (!redInfo) {
+      errs() << "\n\tskip: non-reduction phi in vector loop header " << preparedLoop->getName() << "\n";
+      fail();
     }
 
-    // configure exit condition to be non-divergent in any case
-    auto* exitBlock = loop.getExitingBlock();
-    if (!exitBlock) fail("loop does not have a unique exit block!");
-    vecInfo.setVectorShape(*exitBlock->getTerminator(), rv::VectorShape::uni());
-    vecInfo.setVectorShape(*cast<BranchInst>(exitBlock->getTerminator())->getOperand(0),
-                           rv::VectorShape::uni());
+    rv::VectorShape phiShape = redInfo->getShape(vectorWidth);
+
+    IF_DEBUG { redInfo->dump(); }
+    IF_DEBUG { errs() << "header phi " << phi->getName() << " has shape " << phiShape.str() << "\n"; }
+
+    vecInfo.setVectorShape(*phi, phiShape);
+  }
+
+  // set uniform overrides
+  IF_DEBUG { errs() << "-- Setting remTrans uni overrides --\n"; }
+  for (auto * val : uniOverrides) {
+    IF_DEBUG { errs() << "- " << *val << "\n"; }
+    vecInfo.setVectorShape(*val, rv::VectorShape::uni());
+  }
+
+
 
     rv::VectorizerInterface vectorizer(platformInfo);
 
