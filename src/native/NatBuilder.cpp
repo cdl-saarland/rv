@@ -1303,13 +1303,31 @@ GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const ge
     Value *interIdx = requestScalarValue(idx);
     VectorShape idxShape = getVectorShape(*idx);
 
+    unsigned offset = 0;
+    if (st && !idxShape.isUniform()) {
+      Type *prevTy = st;
+      // add the remaining indices to the interIdx;
+      for (++i; i < gep->getNumIndices(); ++i) {
+        idx = gep->getOperand(i + 1);
+        assert(isa<ConstantInt>(idx) && "element access with non-constant!");
+        if (cast<ConstantInt>(idx)->isZeroValue())
+          continue;
+
+        unsigned k = (unsigned) cast<ConstantInt>(idx)->getLimitedValue();
+        prevTy = prevTy->getContainedType(k);
+
+        unsigned size = getNumPrimitiveElements(prevTy) * k;
+        offset += size;
+      }
+    }
+
     if (interleavedIdx > 0 && !idxShape.isUniform())
-      interIdx = builder.CreateAdd(interIdx, ConstantInt::get(interIdx->getType(), vectorWidth() * interleavedIdx), "inter_idx");
+      offset += vectorWidth() * interleavedIdx;
+
+    if (offset > 0)
+      interIdx = builder.CreateAdd(interIdx, ConstantInt::get(interIdx->getType(), offset), "inter_idx");
 
     idxList.push_back(interIdx);
-
-    if (st && !idxShape.isUniform())
-      break;
   }
 
   GetElementPtrInst *interGEP = cast<GetElementPtrInst>(builder.CreateGEP(basePtr, idxList, "inter_gep"));
@@ -1978,7 +1996,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
 
 bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSize, std::vector<Value *> &srcs) {
   StructType *st;
-  if ((st = isStructAccess(accessedPtr)) && !isHomogeneousStruct(st))
+  if ((st = isStructAccess(accessedPtr)) && !isHomogeneousStruct(st, layout))
     return false;
 
   // group memory instructions based on their dependencies
@@ -2036,7 +2054,7 @@ bool NatBuilder::isPseudointerleaved(Instruction *inst, Value *addr, int byteSiz
     return false;
 
   StructType *st;
-  if ((st = isStructAccess(addr)) && !isHomogeneousStruct(st))
+  if ((st = isStructAccess(addr)) && !isHomogeneousStruct(st, layout))
     return false;
 
   if (inst) {

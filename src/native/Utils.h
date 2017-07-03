@@ -35,10 +35,12 @@ llvm::BasicBlock *createCascadeBlocks(llvm::Function *insertInto, unsigned vecto
 
 bool isSupportedOperation(llvm::Instruction *const inst);
 
-bool isHomogeneousStruct(llvm::StructType *const type);
+bool isHomogeneousStruct(llvm::StructType *const type, llvm::DataLayout &layout);
 
 llvm::StructType * isStructAccess(llvm::Value *const address);
 llvm::StructType * containsStruct(llvm::Type *const type);
+
+unsigned int getNumPrimitiveElements(llvm::Type *const type);
 
 void setInsertionToDomBlockEnd(llvm::IRBuilder<> &builder, std::vector<llvm::BasicBlock *> &blocks);
 

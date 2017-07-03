@@ -116,17 +116,17 @@ bool isSupportedOperation(Instruction *const inst) {
           (inst->getOpcode() >= Instruction::OtherOpsBegin && inst->getOpcode() <= Instruction::OtherOpsEnd));
 }
 
-bool isHomogeneousStruct(StructType *const type) {
+bool isHomogeneousStruct(StructType *const type, DataLayout &layout) {
   assert(type->getStructNumElements() > 0 && "emptry struct!");
   Type *prevElTy = nullptr;
   for (Type *elTy : type->elements()) {
     if (!elTy->isStructTy() && !(elTy->isIntegerTy() || elTy->isFloatingPointTy()))
       return false;
 
-    else if (elTy->isStructTy() && !isHomogeneousStruct(cast<StructType>(elTy)))
+    else if (elTy->isStructTy() && !isHomogeneousStruct(cast<StructType>(elTy), layout))
       return false;
 
-    if (prevElTy && prevElTy->getPrimitiveSizeInBits() != elTy->getPrimitiveSizeInBits())
+    if (prevElTy && layout.getTypeStoreSize(prevElTy) != layout.getTypeStoreSize(elTy))
       return false;
 
     prevElTy = elTy;
@@ -159,6 +159,19 @@ StructType *containsStruct(Type *const type) {
 
   else
     return nullptr;
+}
+
+unsigned int getNumPrimitiveElements(Type *const type) {
+  if (!(type->isVectorTy() || type->isStructTy() || type->isArrayTy() || type->isAggregateType()))
+    return 1;
+
+  unsigned numPrimEls = 0;
+  for (unsigned i = 0; i < type->getNumContainedTypes(); ++i) {
+    Type *elTy = type->getContainedType(i);
+    numPrimEls += getNumPrimitiveElements(elTy);
+  }
+
+  return numPrimEls;
 }
 
 void setInsertionToDomBlockEnd(IRBuilder<> &builder, std::vector<llvm::BasicBlock *> &blocks) {
