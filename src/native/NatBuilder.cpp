@@ -91,7 +91,8 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
     region(vectorizationInfo.getRegion()),
     useScatterGatherIntrinsics(true),
-    vectorizeInterleavedAccess(true),
+    enableInterleaved(true),
+    enablePseudoInterleaved(false),
     cropPseudoInterleaved(false),
     keepScalar(),
     cascadeLoadMap(),
@@ -249,7 +250,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
 
     // loads and stores need special treatment (masking, shuffling, etc) (build them lazily)
     if (canVectorize(inst) && (load || store))
-      if (vectorizeInterleavedAccess) lazyInstructions.push_back(inst);
+      if (enableInterleaved) lazyInstructions.push_back(inst);
       else vectorizeMemoryInstruction(inst);
     else if (call) {
       // calls need special treatment
@@ -265,7 +266,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       else if (callee && callee->getName() == "rv_align")
         vectorizeAlignCall(call);
       else
-        if (vectorizeInterleavedAccess) lazyInstructions.push_back(inst);
+        if (enableInterleaved) lazyInstructions.push_back(inst);
         else {
           if (shouldVectorize(call))
             vectorizeCallInstruction(call);
@@ -812,7 +813,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
     alignment = addrShape.getAlignmentFirst();
 
-  } else if (addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) {
+  } else if (enableInterleaved && (addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs))) {
     // interleaved access. ptrs: base, base+vector, base+2vector, ...
     Value *srcPtr = getPointerOperand(cast<Instruction>(srcs[0]));
     for (unsigned i = 0; i < srcs.size(); ++i) {
@@ -824,7 +825,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     alignment = addrShape.getAlignmentFirst();
     interleaved = true;
 
-  } else if (addrShape.isStrided() && isPseudointerleaved(inst, accessedPtr, byteSize)) {
+  } else if (enablePseudoInterleaved && (addrShape.isStrided() && isPseudointerleaved(inst, accessedPtr, byteSize))) {
     // pseudo-interleaved: same as above. we don't know the array limits, so we skip the last index of the last load
     unsigned stride = (unsigned) addrShape.getStride() / byteSize;
     srcs.push_back(inst);
@@ -2223,7 +2224,7 @@ bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSi
 }
 
 bool NatBuilder::isPseudointerleaved(Instruction *inst, Value *addr, int byteSize) {
-  if (!vectorizeInterleavedAccess)
+  if (!enableInterleaved)
     return false;
 
   VectorShape addrShape = getVectorShape(*addr);

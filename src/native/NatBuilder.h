@@ -53,7 +53,8 @@ namespace native {
     rv::Region *region;
 
     bool useScatterGatherIntrinsics;
-    bool vectorizeInterleavedAccess;
+    bool enableInterleaved;
+    bool enablePseudoInterleaved;
     bool cropPseudoInterleaved;
 
     void printStatistics();
@@ -129,10 +130,10 @@ namespace native {
     llvm::GetElementPtrInst *requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneIdx, bool skipMapping);
     llvm::BitCastInst *requestVectorBitCast(llvm::BitCastInst *const bc);
     llvm::BitCastInst *requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx, bool skipMapping);
-    
+
     llvm::GetElementPtrInst *requestInterleavedGEP(llvm::GetElementPtrInst *const gep, unsigned interleavedIdx);
     llvm::Value *requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, llvm::Type *const vecType);
-    
+
     llvm::Value *requestCascadeLoad(llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
     llvm::Value *requestCascadeStore(llvm::Value *vecVal, llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
     llvm::Function *createCascadeMemory(llvm::VectorType *pointerVectorType, unsigned alignment,
