@@ -99,6 +99,7 @@ normalizeFunction(Function& F)
 {
     legacy::FunctionPassManager FPM(F.getParent());
     FPM.add(rv::createCNSPass());
+    FPM.add(createPromoteMemoryToRegisterPass());
     FPM.add(createLoopSimplifyPass());
     FPM.add(createLCSSAPass());
     FPM.run(F);
@@ -574,8 +575,14 @@ int main(int argc, char** argv)
           std::stringstream shapestream(shapeText);
           readList<LISTSEPERATOR>(shapestream, argShapes, decodeShape);
 
-          if (argShapes.size() != scalarFn->getArgumentList().size())
-              fail("Number of specified shapes unequal to argument number.");
+          // fail on excessive specification
+          if (argShapes.size() > scalarFn->getArgumentList().size())
+              fail("too many arg shapes specified");
+
+          // pad with uniform shapes
+          while (argShapes.size() < scalarFn->getArgumentList().size()) {
+            argShapes.push_back(rv::VectorShape::uni());
+          }
 
           if (shapestream.peek() != EOF)
           { // return shape
