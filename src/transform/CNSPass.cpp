@@ -156,7 +156,7 @@ bool CNS::runOnFunction(llvm::Function &func) {
 
   if (numSplits > 0) Report() << "cns: splitted " << numSplits << " nodes.\n";
 
-  return true;
+  return numSplits > 0;
 }
 
 llvm::StringRef CNS::getPassName() const {
