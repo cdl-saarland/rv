@@ -56,6 +56,8 @@ namespace native {
     bool vectorizeInterleavedAccess;
     bool cropPseudoInterleaved;
 
+    void printStatistics();
+
     rv::VectorShape getVectorShape(const llvm::Value &val);
 
     // repair outside uses of redChainInst using repairFunc

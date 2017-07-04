@@ -13,6 +13,7 @@
 #include <llvm/ADT/SmallSet.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/InstIterator.h>
+#include <report.h>
 
 #include "NatBuilder.h"
 #include "Utils.h"
@@ -29,6 +30,46 @@
 using namespace native;
 using namespace llvm;
 using namespace rv;
+
+unsigned numGather, numScatter, numPseudoMaskedLoads, numPseudoMaskedStores, numInterMaskedLoads, numInterMaskedStores,
+    numPseudoLoads, numPseudoStores, numInterLoads, numInterStores, numContMaskedLoads, numContMaskedStores,
+    numContLoads, numContStores, numUniMaskedLoads, numUniMaskedStores, numUniLoads, numUniStores;
+unsigned numVecGEPs, numScalGEPs, numInterGEPs, numVecBCs, numScalBCs;
+unsigned numVecCalls, numSemiCalls, numFallCalls, numCascadeCalls, numRVIntrinsics;
+unsigned numScalarized, numVectorized, numFallbacked;
+
+void NatBuilder::printStatistics() {
+  Report() << "naTIVE Statistics Report\n";
+
+  // memory statistics
+  Report() << "Memory\n";
+  Report() << "Varying: " << numScatter << "/" << numGather << " scatters/gathers\n";
+  Report() << "Pseudo-Interleaved: " << numPseudoMaskedLoads << "/" << numPseudoMaskedStores << "/" << numPseudoLoads << "/" << numPseudoStores << " masked/loads/stores\n";
+  Report() << "Interleaved: " << numInterMaskedLoads << "/" << numInterMaskedStores << "/" << numInterLoads << "/" << numInterStores << " masked/loads/stores\n";
+  Report() << "Contiguous Memory: " << numContMaskedLoads << "/" << numContMaskedStores << "/" << numContLoads << "/" << numContStores << " masked/loads/stores\n";
+  Report() << "Uniform Memory: " << numUniMaskedLoads << "/" << numUniMaskedStores << "/" << numUniLoads << "/" << numUniStores << " masked/loads/stores\n";
+  Report() << "\n";
+
+  // lazy statistics
+  Report() << "GEPs/BCs\n";
+  Report() << "GEPs: " << numVecGEPs << "/" << numScalGEPs << "/" << numInterGEPs << " vec/scal/inter\n";
+  Report() << "BCs: " << numVecBCs << "/" << numScalBCs << " vec/scal\n";
+  Report() << "\n";
+
+  // call statistics
+  Report() << "Function Calls\n";
+  Report() << "Vectorized: " << numVecCalls << "/" << numSemiCalls << " fully/semi\n";
+  Report() << "Replicated: " << numFallCalls << "/" << numCascadeCalls << " replicated/cascaded\n";
+  Report() << "RV Intrinsics: " << numRVIntrinsics << " intrinsics\n";
+  Report() << "\n";
+
+  // general statistics
+  Report() << "Everything else\n";
+  Report() << "Scalarized: " << numScalarized << " instructions\n";
+  Report() << "Vectorized: " << numVectorized << " instructions\n";
+  Report() << "Replicated: " << numFallbacked << " instructions\n";
+  Report() << "\n";
+}
 
 VectorShape NatBuilder::getVectorShape(const Value &val) {
   if (vectorizationInfo.hasKnownShape(val)) return vectorizationInfo.getVectorShape(val);
@@ -124,6 +165,9 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
 
   // revisit PHINodes now and add the mapped incoming values
   if (!phiVector.empty()) addValuesToPHINodes();
+
+  // report statistics
+  printStatistics();
 
   if (!region) return;
 
@@ -314,6 +358,8 @@ void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
       mapScalarValue(scalPhi, phi, lane);
   }
   phiVector.push_back(scalPhi);
+
+  shape.isVarying() ? loopEnd == 1 ? ++numVectorized : ++numFallbacked : ++numScalarized;
 }
 
 /* expects that builder has valid insertion point set */
@@ -339,6 +385,8 @@ void NatBuilder::copyInstruction(Instruction *const inst, unsigned laneIdx) {
   }
   builder.Insert(cpInst, inst->getName());
   mapScalarValue(inst, cpInst, laneIdx);
+
+  ++numScalarized; // statistics
 }
 
 void NatBuilder::fallbackVectorize(Instruction *const inst) {
@@ -362,6 +410,8 @@ void NatBuilder::fallbackVectorize(Instruction *const inst) {
     if (resVec) resVec = builder.CreateInsertElement(resVec, cpInst, lane, "fallBackInsert");
   }
   if (resVec) mapVectorValue(inst, resVec);
+
+  ++numFallbacked;
 }
 
 /* expects that builder has valid insertion point set */
@@ -381,6 +431,8 @@ void NatBuilder::vectorize(Instruction *const inst) {
     builder.Insert(vecInst, inst->getName() + "_SIMD");
 
   mapVectorValue(inst, vecInst);
+
+  ++numVectorized;
 }
 
 void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
@@ -399,10 +451,14 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
   }
 
   mapScalarValue(rvCall, reduction);
+
+  ++numRVIntrinsics;
 }
 
 void
 NatBuilder::vectorizeExtractCall(CallInst *rvCall) {
+  ++numRVIntrinsics;
+
   assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_extract(vec, laneId)");
 
   Value *vecArg = rvCall->getArgOperand(0);
@@ -425,6 +481,8 @@ NatBuilder::vectorizeExtractCall(CallInst *rvCall) {
 
 void
 NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
+  ++numRVIntrinsics;
+
   assert(rvCall->getNumArgOperands() == 1 && "expected 1 argument for rv_ballot(cond)");
 
   Value *condArg = rvCall->getArgOperand(0);
@@ -457,6 +515,8 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
 
 void
 NatBuilder::vectorizeAlignCall(CallInst *rvCall) {
+  ++numRVIntrinsics;
+
   assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_align(ptr, alignment)");
 
   Value *vecArg = rvCall->getArgOperand(0);
@@ -475,7 +535,7 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   Value * callee = scalCall->getCalledValue();
   StringRef calleeName = callee->getName();
   Function * calledFunction = dyn_cast<Function>(callee);
-  
+
   // if calledFunction is vectorizable (standard mapping exists for given vector width), create new call to vector calledFunction
   if (calledFunction && platformInfo.isFunctionVectorizable(calledFunction->getName(), vectorWidth())) {
     CallInst *call = cast<CallInst>(scalCall->clone());
@@ -489,6 +549,8 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     mapOperandsInto(scalCall, call, true);
     mapVectorValue(scalCall, call);
     builder.Insert(call, scalCall->getName());
+
+    ++numVecCalls;
 
   } else {
     // try if we can semi-vectorize the call by replication a smaller vectorized version
@@ -537,6 +599,8 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       Value *append = appender.append(builder);
       mapVectorValue(scalCall, append);
 
+      ++numSemiCalls;
+
     } else if (calledFunction && calledFunction->isIntrinsic() && Intrinsic::isOverloaded(calledFunction->getIntrinsicID())) {
         // decode ambiguous type arguments
         auto id = calledFunction->getIntrinsicID();
@@ -567,6 +631,8 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
         mapOperandsInto(scalCall, call, true);
         mapVectorValue(scalCall, call);
         builder.Insert(call, scalCall->getName());
+
+      ++numVecCalls;
 
       }  else {
       // check if we need cascade first
@@ -660,6 +726,8 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       // map resVec as vector value for scalCall and remap parent block of scalCall with resBlock
       mapVectorValue(scalCall, resVec);
       if (resBlock) mapVectorValue(scalCall->getParent(), resBlock);
+
+      needCascade ? ++numCascadeCalls : ++numFallCalls;
     }
   }
 }
@@ -680,6 +748,8 @@ void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx)
 
   Value *call = builder.CreateCall(callee, args, scalCall->getName());
   mapScalarValue(scalCall, call, laneIdx);
+
+  ++numScalarized;
 }
 
 void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
@@ -798,6 +868,8 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       vecMem = createContiguousLoad(addr[0], alignment, needsMask ? mask : nullptr, UndefValue::get(vecType));
 
+      addrShape.isUniform() ? ++numUniLoads : needsMask ? ++numContMaskedLoads : ++numContLoads;
+
     } else if (interleaved) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
       createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs);
@@ -824,6 +896,8 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     } else if ((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment, needsMask ? mask : nullptr);
+
+      addrShape.isUniform() ? ++numUniStores : needsMask ? ++numContMaskedStores : ++numContStores;
 
     } else if (interleaved) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
@@ -863,6 +937,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
 Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedType, unsigned int alignment,
                                              Value *addr, Value *mask, Value *values) {
+  values ? ++numUniMaskedStores : ++numUniMaskedLoads;
 
   assert((values && isa<StoreInst>(inst)) || (!values && isa<LoadInst>(inst)));
 
@@ -907,6 +982,8 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
                                        Value *values) {
   bool scatter(values != nullptr);
 
+  scatter ? ++numScatter : ++numGather;
+
   if (useScatterGatherIntrinsics) {
     std::vector<Value *> args;
     if (scatter) args.push_back(values);
@@ -930,6 +1007,18 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
   unsigned stride = (unsigned) addr->size();
   bool needsMask = masks->size() > 0;
   bool load = values == nullptr;
+
+  if (load) {
+    if (needsMask)
+      isPseudoInter ? ++numPseudoMaskedLoads : numInterMaskedLoads += stride;
+    else
+      isPseudoInter ? ++numPseudoLoads : numInterLoads += stride;
+  } else {
+    if (needsMask)
+      isPseudoInter ? ++numPseudoMaskedStores : numInterMaskedStores += stride;
+    else
+      isPseudoInter ? ++numPseudoStores : numInterStores += stride;
+  }
 
   // search if address was already pseudo interleaved by a load before
   if (isPseudoInter && !load) {
@@ -1298,6 +1387,8 @@ GetElementPtrInst *NatBuilder::requestVectorGEP(GetElementPtrInst *const gep) {
   if (mapped)
     return cast<GetElementPtrInst>(mapped);
 
+  ++numVecGEPs;
+
   mapped = buildGEP(gep, false, 0);
   mapVectorValue(gep, mapped);
   return cast<GetElementPtrInst>(mapped);
@@ -1307,6 +1398,8 @@ llvm::GetElementPtrInst *NatBuilder::requestScalarGEP(llvm::GetElementPtrInst *c
   Value *mapped = getScalarValue(gep, laneIdx);
   if (mapped)
     return cast<GetElementPtrInst>(mapped);
+
+  ++numScalGEPs;
 
   mapped = buildGEP(gep, true, laneIdx);
   if (!skipMapping)
@@ -1318,6 +1411,8 @@ BitCastInst *NatBuilder::requestVectorBitCast(BitCastInst *const bc) {
   Value *mapped = getVectorValue(bc);
   if (mapped)
     return cast<BitCastInst>(mapped);
+
+  ++numVecBCs;
 
   BasicBlockVector &mappedBlocks = getMappedBlocks(bc->getParent());
   BasicBlock *insertBlock = builder.GetInsertBlock();
@@ -1341,6 +1436,8 @@ llvm::BitCastInst *NatBuilder::requestScalarBitCast(llvm::BitCastInst *const bc,
   Value *mapped = getScalarValue(bc, laneIdx);
   if (mapped)
     return cast<BitCastInst>(mapped);
+
+  ++numScalBCs;
 
   BasicBlockVector &mappedBlocks = getMappedBlocks(bc->getParent());
   BasicBlock *insertBlock = builder.GetInsertBlock();
@@ -1415,6 +1512,8 @@ GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const ge
 }
 
 Value *NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, Type *const vecType) {
+  ++numInterGEPs;
+
   Value *interAddr;
   if (isa<GetElementPtrInst>(addr))
     interAddr = requestInterleavedGEP(cast<GetElementPtrInst>(addr), interleavedIdx);
