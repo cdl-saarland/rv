@@ -51,11 +51,13 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
                                        llvm::legacy::PassManagerBase &PM) {
   if (rvOnlyPolish) {
     PM.add(rv::createIRPolisherWrapperPass());
-  } else return;
+    return;
+  }
 
   if (rvOnlyCNS) {
     PM.add(rv::createCNSPass());
-  } else return;
+    return;
+  }
 
   if (rvLoopVecEnabled) {
     PM.add(rv::createCNSPass());
