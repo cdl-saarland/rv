@@ -98,9 +98,9 @@ void
 normalizeFunction(Function& F)
 {
     legacy::FunctionPassManager FPM(F.getParent());
+    FPM.add(rv::createCNSPass());
     FPM.add(createLoopSimplifyPass());
     FPM.add(createLCSSAPass());
-    FPM.add(rv::createCNSPass());
     FPM.run(F);
 }
 
@@ -530,6 +530,8 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    bool finish = false;
+
     // run normalization and quit
     if (runNormalize) {
       for (auto & func : *mod) {
@@ -541,94 +543,100 @@ int main(int argc, char** argv)
           return -1;
         }
       }
-      return 0;
+
+      finish = true;
     }
 
 
 
-  // WFV / loopVec mode
-    if (!hasKernelName) {
-        std::cerr << "kernel name argument missing!\n";
-        return -1;
-    }
-
-    llvm::Function* scalarFn = mod->getFunction(kernelName);
-    if (!scalarFn)
-    {
-        return 2;
-    }
-    // initialize argument mapping
-    // first arg cons, all others uniform mapping
-    // TODO apply user mappings
-
-    rv::VectorShape resShape;
-    rv::VectorShapeVec argShapes;
-    std::string shapeText;
-    if (reader.readOption<std::string>("-s", shapeText))
-    {
-        std::stringstream shapestream(shapeText);
-        readList<LISTSEPERATOR>(shapestream, argShapes, decodeShape);
-
-        if (argShapes.size() != scalarFn->getArgumentList().size())
-            fail("Number of specified shapes unequal to argument number.");
-
-        if (shapestream.peek() != EOF)
-        { // return shape
-            if (shapestream.get() != RETURNSHAPESEPERATOR) fail("expected return shape");
-            resShape = decodeShape(shapestream);
-        }
-
-    }
-    else
-    {
-      for (auto& it : scalarFn->getArgumentList()) {
-        (void) it;
-        argShapes.push_back(rv::VectorShape::uni());
+    // TODO factor out
+    if (!finish) {
+    // WFV / loopVec mode
+      if (!hasKernelName) {
+          std::cerr << "kernel name argument missing!\n";
+          return -1;
       }
-    }
 
-    uint vectorWidth = reader.getOption<uint>("-w", 8);
+      llvm::Function* scalarFn = mod->getFunction(kernelName);
+      if (!scalarFn)
+      {
+          return 2;
+      }
+      // initialize argument mapping
+      // first arg cons, all others uniform mapping
+      // TODO apply user mappings
 
-    if (wfvMode)
-    {
+      rv::VectorShape resShape;
+      rv::VectorShapeVec argShapes;
+      std::string shapeText;
+      if (reader.readOption<std::string>("-s", shapeText))
+      {
+          std::stringstream shapestream(shapeText);
+          readList<LISTSEPERATOR>(shapestream, argShapes, decodeShape);
 
-        // Create simd decl
-        Function* vectorFn = nullptr;
-        if (!hasTargetDeclName)
-        {
-            vectorFn = createVectorDeclaration(*scalarFn, resShape, argShapes, vectorWidth);
+          if (argShapes.size() != scalarFn->getArgumentList().size())
+              fail("Number of specified shapes unequal to argument number.");
+
+          if (shapestream.peek() != EOF)
+          { // return shape
+              if (shapestream.get() != RETURNSHAPESEPERATOR) fail("expected return shape");
+              resShape = decodeShape(shapestream);
+          }
+
+      }
+      else
+      {
+        for (auto& it : scalarFn->getArgumentList()) {
+          (void) it;
+          argShapes.push_back(rv::VectorShape::uni());
         }
-        else
-        {
-            vectorFn = mod->getFunction(targetDeclName);
-            // TODO verify shapes
-            if (!vectorFn)
-            {
-                llvm::errs() << "Target declaration " << targetDeclName
-                             << " not found. Aborting!\n";
-                return 3;
-            }
-        }
-        assert(vectorFn);
+      }
 
-        rv::VectorMapping vectorizerJob(scalarFn, vectorFn, vectorWidth, -1, resShape, argShapes);
+      uint vectorWidth = reader.getOption<uint>("-w", 8);
 
-        // Vectorize
-        errs() << "\nVectorizing kernel \"" << vectorizerJob.scalarFn->getName()
-               << "\" into declaration \"" << vectorizerJob.vectorFn->getName()
-               << "\" with vector size " << vectorizerJob.vectorWidth << "... \n";
-        vectorizeFunction(vectorizerJob);
+      if (wfvMode)
+      {
 
-    }
-    else if (loopVecMode)
-    {
-        vectorizeFirstLoop(*scalarFn, vectorWidth);
-    }
+          // Create simd decl
+          Function* vectorFn = nullptr;
+          if (!hasTargetDeclName)
+          {
+              vectorFn = createVectorDeclaration(*scalarFn, resShape, argShapes, vectorWidth);
+          }
+          else
+          {
+              vectorFn = mod->getFunction(targetDeclName);
+              // TODO verify shapes
+              if (!vectorFn)
+              {
+                  llvm::errs() << "Target declaration " << targetDeclName
+                               << " not found. Aborting!\n";
+                  return 3;
+              }
+          }
+          assert(vectorFn);
 
-    if (lowerIntrinsics) {
-      errs() << "Lowering intrinsics in function " << scalarFn->getName() << "\n";
-      rv::lowerIntrinsics(*scalarFn);
-    }
+          rv::VectorMapping vectorizerJob(scalarFn, vectorFn, vectorWidth, -1, resShape, argShapes);
+
+          // Vectorize
+          errs() << "\nVectorizing kernel \"" << vectorizerJob.scalarFn->getName()
+                 << "\" into declaration \"" << vectorizerJob.vectorFn->getName()
+                 << "\" with vector size " << vectorizerJob.vectorWidth << "... \n";
+          vectorizeFunction(vectorizerJob);
+
+      }
+      else if (loopVecMode)
+      {
+          vectorizeFirstLoop(*scalarFn, vectorWidth);
+      }
+
+      if (lowerIntrinsics) {
+        errs() << "Lowering intrinsics in function " << scalarFn->getName() << "\n";
+        rv::lowerIntrinsics(*scalarFn);
+      }
+
+    } // !finish
+
 
     //output
     if (hasOutFile)
