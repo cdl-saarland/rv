@@ -60,12 +60,12 @@ def wholeFunctionVectorize(srcFile, argMappings):
   ret = runWFV(srcFile, destFile, scalarName, argMappings, logPrefix)
   return destFile if ret == 0 else None
 
-def outerLoopVectorize(srcFile, loopDesc):
+def outerLoopVectorize(srcFile, loopDesc, width):
   baseName = path.basename(srcFile).split(".")[0]
   destFile = "build/" + baseName + ".loopvec.ll"
   logPrefix =  "logs/"  + baseName + ".loopvec"
   scalarName = "foo"
-  ret = runOuterLoopVec(srcFile, destFile, scalarName, loopDesc, logPrefix)
+  ret = runOuterLoopVec(srcFile, destFile, scalarName, loopDesc, logPrefix, width)
   return destFile if ret == 0 else None
 
 def executeWFVTest(scalarLL, options, profileMode):
@@ -93,15 +93,19 @@ def executeOuterLoopTest(scalarLL, options, profileMode):
   sigInfo = options.split(",")
   # launchCode = options.split("-k")[1].split("-")[0].strip()
 
+  width = 8
+
   for option in sigInfo:
     opSplit = option.split(":")
     if opSplit[0].strip() == "LaunchCode":
       launchCode = opSplit[1].strip()
     elif opSplit[0].strip() == "LoopHint":
       loopHint = opSplit[1].strip()
+    elif opSplit[0].strip() == "Width":
+      width = int(opSplit[1].strip())
 
   # create RV-vectorizer version
-  vectorIR = outerLoopVectorize(scalarLL, loopHint)
+  vectorIR = outerLoopVectorize(scalarLL, loopHint, width)
   if vectorIR is None:
     return (None, None) if profileMode else False
 

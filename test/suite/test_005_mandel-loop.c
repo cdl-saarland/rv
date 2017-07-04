@@ -1,4 +1,4 @@
-// LoopHint: 0, LaunchCode: fooiA
+// LoopHint: 0, LaunchCode: fooiA, Width: 4
 
 #define ESCAPE 2
 #define IMAGE_SIZE 8 * 800

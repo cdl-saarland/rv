@@ -77,7 +77,7 @@ def buildScalarIR(srcFile):
     compileToIR(srcFile, scalarLL)
     return scalarLL
 
-def runOuterLoopVec(scalarLL, destFile, scalarName = "foo", loopDesc=None, logPrefix=None):
+def runOuterLoopVec(scalarLL, destFile, scalarName = "foo", loopDesc=None, logPrefix=None, width=None):
     baseName = plainName(scalarLL)
     cmd = rvToolLine + " -loopvec -i " + scalarLL
     if destFile:
@@ -86,6 +86,8 @@ def runOuterLoopVec(scalarLL, destFile, scalarName = "foo", loopDesc=None, logPr
       cmd = cmd + " -k " + scalarName
     if loopDesc:
       cmd = cmd + " -l " + loopDesc
+    if width:
+      cmd = cmd + " -w " + str(width)
 
     return shellCmd(cmd,  None, logPrefix)
 
