@@ -10,6 +10,7 @@
 #include <deque>
 
 #include <llvm/ADT/PostOrderIterator.h>
+#include <llvm/ADT/SmallSet.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/InstIterator.h>
 
@@ -474,9 +475,8 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   Value * callee = scalCall->getCalledValue();
   StringRef calleeName = callee->getName();
   Function * calledFunction = dyn_cast<Function>(callee);
-
-
-  // is func is vectorizable (standard mapping exists for given vector width), create new call to vector func
+  
+  // if calledFunction is vectorizable (standard mapping exists for given vector width), create new call to vector calledFunction
   if (calledFunction && platformInfo.isFunctionVectorizable(calledFunction->getName(), vectorWidth())) {
     CallInst *call = cast<CallInst>(scalCall->clone());
     bool doublePrecision = false;
@@ -537,8 +537,38 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       Value *append = appender.append(builder);
       mapVectorValue(scalCall, append);
 
-    } else {
+    } else if (calledFunction && calledFunction->isIntrinsic() && Intrinsic::isOverloaded(calledFunction->getIntrinsicID())) {
+        // decode ambiguous type arguments
+        auto id = calledFunction->getIntrinsicID();
+        auto * funcTy = calledFunction->getFunctionType();
+        SmallVector<Intrinsic::IITDescriptor, 4> paramDescs;
+        Intrinsic::getIntrinsicInfoTableEntries(id, paramDescs);
+        SmallVector<Type*,4> overloadedTypes;
 
+        // append ambiguous types
+        SmallSet<uint, 4> mangledArgs;
+        for (auto desc : paramDescs) {
+          if (desc.Kind != Intrinsic::IITDescriptor::Argument) continue;
+          switch (desc.getArgumentKind()) {
+            case llvm::Intrinsic::IITDescriptor::AK_Any:
+              break;
+            default:
+              uint argIdx = desc.getArgumentNumber();
+              if (!mangledArgs.insert(argIdx).second) continue; // already mangled that arg
+              overloadedTypes.push_back(getVectorType(funcTy->getParamType(argIdx), vectorWidth()));
+              break;
+          }
+        }
+
+        Function *vecIntr = Intrinsic::getDeclaration(vectorizationInfo.getVectorFunction().getParent(), calledFunction->getIntrinsicID(), overloadedTypes);
+        CallInst *call = cast<CallInst>(scalCall->clone());
+        call->setCalledFunction(vecIntr);
+        call->mutateType(vecIntr->getReturnType());
+        mapOperandsInto(scalCall, call, true);
+        mapVectorValue(scalCall, call);
+        builder.Insert(call, scalCall->getName());
+
+      }  else {
       // check if we need cascade first
       Value *predicate = vectorizationInfo.getPredicate(*scalCall->getParent());
       assert(predicate && "expected predicate!");
