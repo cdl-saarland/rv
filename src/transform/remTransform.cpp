@@ -103,7 +103,7 @@ public:
   // call embedFunc for all loop carred instructions
   // the test will be true if it applies for all iterations from [phi to phi + iterOffset]
   Value&
-  synthesize(int iterOffset, std::string suffix, IRBuilder<> & builder, std::set<Value*> * valueSet, std::function<IterValue (Instruction&)> embedFunc) {
+  synthesize(bool exitOnTrue, int iterOffset, std::string suffix, IRBuilder<> & builder, std::set<Value*> * valueSet, std::function<IterValue (Instruction&)> embedFunc) {
     auto * origReduct = cast<Instruction>(cmp.getOperand(cmpReductIdx));
 
     // the returned value evaluates to the mapped requested value at iteration offset @embReduct.timeOffset
@@ -133,11 +133,11 @@ public:
 
       CmpInst::Predicate adjustedPred;
       if (nswFlag) {
-        adjustedPred  = posStride ? CmpInst::ICMP_SGE : CmpInst::ICMP_SLE;
+        adjustedPred  = (exitOnTrue ^ posStride) ? CmpInst::ICMP_SGE : CmpInst::ICMP_SLT;
       } else {
         assert(nuwFlag && "can not extrapolate wrapping exit conditions");
         assert(red.getReductor().hasNoUnsignedWrap());
-        adjustedPred  = posStride ? CmpInst::ICMP_UGE : CmpInst::ICMP_ULE;
+        adjustedPred  = (exitOnTrue ^ posStride) ? CmpInst::ICMP_UGE : CmpInst::ICMP_ULT;
       }
 
       clonedCmp->setPredicate(adjustedPred);
@@ -612,8 +612,10 @@ struct LoopTransformer {
     // replicate the vector loop exit condition
     IRBuilder<> builder(&vecHead, vecHead.getTerminator()->getIterator());
 
+    bool exitOnTrue = ClonedL.contains(vecExitingBr.getSuccessor(0)); // false; // FIXME infer from program
+
     auto & exitVal =
-      exitConditionBuilder.synthesize(2 * vectorWidth, ".vecExit", builder, &uniOverrides,
+      exitConditionBuilder.synthesize(exitOnTrue, 2 * vectorWidth, ".vecExit", builder, &uniOverrides,
          [&](Instruction & inst) -> IterValue {
            assert (!isa<CallInst>(inst));
 
@@ -672,9 +674,11 @@ struct LoopTransformer {
     // replicate the vector loop exit condition
     IRBuilder<> builder(vecGuardBlock, vecGuardBr.getIterator());
 
+    bool exitOnTrue = true; // FIXME
+
     // synthesize(int iterOffset, std::string suffix, IRBuilder<> & builder, std::function<Instruction& (Instruction&)> embedFunc) {
     auto & exitVal =
-      exitConditionBuilder.synthesize(vectorWidth, ".vecGuard", builder, nullptr,
+      exitConditionBuilder.synthesize(exitOnTrue, vectorWidth, ".vecGuard", builder, nullptr,
          [&](Instruction & inst) -> IterValue {
            assert (!isa<CallInst>(inst));
 
