@@ -7,6 +7,7 @@
 #include <fstream>
 
 #include <llvm/Pass.h>
+#include <llvm/IR/Verifier.h>
 
 #include "cns/BlockGraph.h"
 #include "cns/CNS.h"
@@ -122,41 +123,53 @@ cns::SplitTree *CNS::generateSplitSequence(cns::SplitTree *root,
 }
 
 bool CNS::runOnFunction(llvm::Function &func) {
-  BlockGraph::SubgraphMask mask;
-  BlockGraph graph = BlockGraph::CreateFromFunction(func, mask);
-  /*
-          {
-                  std::ofstream of( (func.getNameStr() + "_graph.gv").c_str(),
-     std::ios::out);
-                  graph.dumpGraphviz(mask, of);
-          }
-  */
-  cns::SplitTree *root = new cns::SplitTree(mask, graph);
-  cns::SplitTree *tree = generateSplitSequence(root, mask, graph);
+  size_t totalNumSplits = 0, numSplits;
+  do {
+    numSplits = 0;
 
-  IF_DEBUG_CNS tree->dump();
+    BlockGraph::SubgraphMask mask;
+    BlockGraph graph = BlockGraph::CreateFromFunction(func, mask);
+    /*
+            {
+                    std::ofstream of( (func.getNameStr() + "_graph.gv").c_str(),
+       std::ios::out);
+                    graph.dumpGraphviz(mask, of);
+            }
+    */
+    cns::SplitTree *root = new cns::SplitTree(mask, graph);
 
-  size_t numSplits = tree->getDepth();
-  std::vector<uint> nodes(numSplits);
+    // FIXME split sequence implementation is broken..
+    cns::SplitTree *tree = generateSplitSequence(root, mask, graph);
 
-  // recover split sequence
-  for (size_t i = numSplits; i > 0; --i) {
-    nodes[i - 1] = tree->getSplitNode();
-    tree = tree->getParent();
-  }
+    IF_DEBUG_CNS tree->dump();
 
-  delete root;
+    numSplits = tree->getDepth();
+    totalNumSplits += numSplits;
+    std::vector<uint> nodes(numSplits);
 
-  applySplitSequence(graph, nodes);
 
-  IF_DEBUG_CNS {
-    llvm::errs() << "regularized function : \n";
-    func.dump();
-  }
+    // recover split sequence
+    for (size_t i = numSplits; i > 0; --i) {
+      nodes[i - 1] = tree->getSplitNode();
+      tree = tree->getParent();
+    }
 
-  if (numSplits > 0) Report() << "cns: splitted " << numSplits << " nodes.\n";
+    delete root;
 
-  return numSplits > 0;
+    applySplitSequence(graph, nodes);
+
+    IF_DEBUG_CNS {
+      llvm::errs() << "regularized function : \n";
+      func.dump();
+    }
+
+    bool broken = verifyFunction(func, &errs());
+    if (broken) fail("CNS broke the module");
+  } while (numSplits > 0);
+
+  if (totalNumSplits > 0) Report() << "cns: splitted " << totalNumSplits << " nodes.\n";
+
+  return totalNumSplits > 0;
 }
 
 llvm::StringRef CNS::getPassName() const {
