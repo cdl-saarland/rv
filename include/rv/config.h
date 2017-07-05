@@ -1,6 +1,8 @@
 #ifndef RV_CONFIG_H
 #define RV_CONFIG_H
 
+#include <llvm/Support/raw_ostream.h>
+
 namespace rv {
 
 
@@ -15,18 +17,31 @@ struct Config {
 
 // va configuration (divergence)
   // set to VA_Full for complete lattice
-  VAMethod vaMethod = VA_Full;
+  VAMethod vaMethod;
 
   // should all (non-loop exiting) branches be folded regardless of VA result?
   // set to false for partial linearization
-  bool foldAllBranches = false;
+  bool foldAllBranches;
 
 // native configuration (backend)
-  bool useScatterGatherIntrinsics = true;
-  bool enableInterleaved = true;
-  bool enablePseudoInterleaved = true;
-  bool cropPseudoInterleaved = false;
+  bool useScatterGatherIntrinsics;
+  bool enableInterleaved;
+  bool enablePseudoInterleaved;
+  bool cropPseudoInterleaved;
+
+// optimization flags
+  bool enableStructOpt;
+  bool enableSROV;
+  bool enableIRPolish;
+
+  // initialize defaults
+  Config();
+
+  void print(llvm::raw_ostream&) const;
+
 };
+
+std::string to_string(Config::VAMethod vam);
 
 }
 

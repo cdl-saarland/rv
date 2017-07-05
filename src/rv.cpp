@@ -57,6 +57,8 @@ VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo, Config _confi
         , platInfo(_platInfo)
 {
   addIntrinsics();
+  // dump configuration to report stream
+  config.print(Report());
 }
 
 void
@@ -259,7 +261,7 @@ bool
 VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree, const LoopInfo & loopInfo, ScalarEvolution & SE, MemoryDependenceResults & MDR, ValueToValueMapTy * vecInstMap)
 {
   // transform allocas from Array-of-struct into Struct-of-vector where possibe
-  if (!CheckFlag("RV_DISABLE_STRUCTOPT")) {
+  if (config.enableStructOpt) {
     StructOpt sopt(vecInfo, platInfo.getDataLayout());
     sopt.run();
   } else {
@@ -267,7 +269,7 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
   }
 
   // Scalar-Replication-Of-Varying-(Aggregates): split up structs of vectorizable elements to promote use of vector registers
-  if (!CheckFlag("RV_DISABLE_SROV")) {
+  if (config.enableSROV) {
     SROVTransform srovTransform(vecInfo, platInfo);
     srovTransform.run();
   } else {
@@ -282,7 +284,7 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
   natBuilder.vectorize(true, vecInstMap);
 
   // IR Polish phase: promote i1 vectors and perform early instruction (read: intrinsic) selection
-  if (!CheckFlag("RV_DISABLE_POLISH")) {
+  if (config.enableIRPolish) {
     IRPolisher polisher(vecInfo.getVectorFunction());
     polisher.polish();
   } else {
