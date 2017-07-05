@@ -19,8 +19,13 @@ int main(int argc, char ** argv) {
   for (unsigned i = 0; i < numInputs; ++i) {
     T d[width];
 
-    for (unsigned j = 0; j < sizeof(d); j += 4) {
-      *(((float*) d) + j) = rand();
+    for (unsigned j = 0; j < width; ++j) {
+      d[j].a.x = rand();
+      d[j].a.y = rand();
+      d[j].a.z = rand();
+      d[j].b.x = rand();
+      d[j].b.y = rand();
+      d[j].b.z = rand();
     }
 
     float8 simdRes = foo_SIMD(0, d);
