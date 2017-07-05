@@ -14,6 +14,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/InstIterator.h>
 #include <report.h>
+#include <fstream>
 
 #include "NatBuilder.h"
 #include "Utils.h"
@@ -37,6 +38,12 @@ unsigned numGather, numScatter, numPseudoMaskedLoads, numPseudoMaskedStores, num
 unsigned numVecGEPs, numScalGEPs, numInterGEPs, numVecBCs, numScalBCs;
 unsigned numVecCalls, numSemiCalls, numFallCalls, numCascadeCalls, numRVIntrinsics;
 unsigned numScalarized, numVectorized, numFallbacked;
+
+bool DumpStatistics(std::string &file) {
+  char * envVal = getenv("NAT_STAT_DUMP");
+  if (!envVal) return false;
+  else return !(file = envVal).empty();
+}
 
 void NatBuilder::printStatistics() {
   Report() << "naTIVE Statistics Report\n";
@@ -69,6 +76,57 @@ void NatBuilder::printStatistics() {
   Report() << "Vectorized: " << numVectorized << " instructions\n";
   Report() << "Replicated: " << numFallbacked << " instructions\n";
   Report() << "\n";
+
+  std::string fileName;
+  if (!DumpStatistics(fileName))
+    return;
+
+  std::ofstream file;
+  file.open(fileName);
+
+  // memory statistics
+  file << "#scatters," << numScatter << "\n";
+  file << "#gathers," << numGather << "\n";
+  file << "#pseudointer-masked-loads," << numPseudoMaskedLoads << "\n";
+  file << "#pseudointer-masked-stores," << numPseudoMaskedStores << "\n";
+  file << "#pseudointer-loads," << numPseudoLoads << "\n";
+  file << "#pseudointer-loads," << numPseudoStores << "\n";
+  file << "#interleaved-masked-loads," << numInterMaskedLoads << "\n";
+  file << "#interleaved-masked-stores," << numInterMaskedStores << "\n";
+  file << "#interleaved-loads," << numInterLoads << "\n";
+  file << "#interleaved-loads," << numInterStores << "\n";
+  file << "#contiguous-masked-loads," << numContMaskedLoads << "\n";
+  file << "#contiguous-masked-stores," << numContMaskedStores << "\n";
+  file << "#contiguous-loads," << numContLoads << "\n";
+  file << "#contiguous-loads," << numContStores << "\n";
+  file << "#uniform-masked-loads," << numUniMaskedLoads << "\n";
+  file << "#uniform-masked-stores," << numUniMaskedStores << "\n";
+  file << "#uniform-loads," << numUniLoads << "\n";
+  file << "#uniform-loads," << numUniStores << "\n";
+  file << "\n";
+
+  // lazy statistics
+  file << "#vector-GEPs," << numVecGEPs << "\n";
+  file << "#scalar-GEPs," << numScalGEPs << "\n";
+  file << "#interleaved-GEPs," << numInterGEPs << "\n";
+  file << "#vector-BCs," << numVecBCs << "\n";
+  file << "#scalar-BCs," << numScalBCs << "\n";
+  file << "\n";
+
+  // call statistics
+  file << "#vec-calls," << numVecCalls << "\n";
+  file << "#semi-vec-calls," << numSemiCalls << "\n";
+  file << "#replicated-calls," << numFallCalls << "\n";
+  file << "#cascaded-calls," << numCascadeCalls << "\n";
+  file << "#rv-intrinsics," << numRVIntrinsics << "\n";
+  file << "\n";
+
+  // general statistics
+  file << "#scalarized," << numScalarized << "\n";
+  file << "#vectorized," << numVectorized << "\n";
+  file << "#replicated," << numFallbacked << "\n";
+
+  file.close();
 }
 
 VectorShape NatBuilder::getVectorShape(const Value &val) {
