@@ -363,11 +363,28 @@ void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst,
   assert(scalInst && "no instruction to map operands from");
   assert(builder.GetInsertBlock() && "no insertion point set");
 
+  // check for division. opcodes for divisions are (in order) UDiv, SDiv, FDiv. only care if non-trivial mask
+  auto opCode = scalInst->getOpcode();
+  bool isDivision = (opCode >= BinaryOperator::UDiv) && (opCode <= BinaryOperator::FDiv) && !isa<Constant>(vectorizationInfo.getPredicate(*scalInst->getParent()));
+
   unsigned e = isa<CallInst>(scalInst) ? inst->getNumOperands() - 1 : inst->getNumOperands();
   for (unsigned i = 0; i < e; ++i) {
     Value *op = scalInst->getOperand(i);
     Value *mappedOp = (vectorizedInst || isa<BasicBlock>(op)) ? requestVectorValue(op) : requestScalarValue(op,
                                                                                                             laneIdx);
+
+    // only have to deal with the 2nd operand
+    if (isDivision && i > 0) {
+      // create a select between mappedOp and neutral element vector (1)
+      Value *neutralVec = vectorizedInst ? getConstantVector(vectorWidth(), op->getType(), 1)
+                                         : (op->getType()->isFloatingPointTy() ? ConstantFP::get(op->getType(), 1)
+                                                                              : ConstantInt::get(op->getType(), 1));
+      Value *mask = vectorizationInfo.getPredicate(*scalInst->getParent());
+      mask = vectorizedInst ? requestVectorValue(mask) : requestScalarValue(mask, laneIdx);
+
+      mappedOp = builder.CreateSelect(mask, mappedOp, neutralVec, "divSelect");
+    }
+
     assert(mappedOp && "could not map operand");
     inst->setOperand(i, mappedOp);
   }
