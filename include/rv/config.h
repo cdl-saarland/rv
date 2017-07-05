@@ -34,6 +34,12 @@ struct Config {
   bool enableSROV;
   bool enableIRPolish;
 
+// target features
+  bool useSSE;
+  bool useAVX;
+  bool useAVX2;
+  bool useNEON;
+
   // initialize defaults
   Config();
 

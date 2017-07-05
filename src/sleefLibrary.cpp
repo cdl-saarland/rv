@@ -92,13 +92,11 @@ namespace rv {
   static Module const *sleefModules[3 * 2];
   static Module* scalarModule;
 
-  bool addSleefMappings(const bool useSSE,
-                        const bool useAVX,
-                        const bool useAVX2,
+  bool addSleefMappings(const Config & config,
                         PlatformInfo &platformInfo,
                         bool useImpreciseFunctions) {
 #ifdef RV_ENABLE_BUILTINS
-    if (useAVX2) {
+    if (config.useAVX2) {
       const VecDesc VecFuncs[] = {
 //        {"ldexpf", "xldexpf_avx2", 8},
           {"ilogbf", "xilogbf_avx2", 8},
@@ -230,7 +228,7 @@ namespace rv {
       }
     }
 
-    if (useAVX) {
+    if (config.useAVX) {
       const VecDesc VecFuncs[] = {
 //        {"ldexpf", "xldexpf_avx", 8},
           {"ilogbf", "xilogbf_avx", 8},
@@ -362,7 +360,7 @@ namespace rv {
       }
     }
 
-    if (useSSE || useAVX || useAVX2) {
+    if (config.useSSE || config.useAVX || config.useAVX2) {
       const VecDesc VecFuncs[] = {
 //        {"ldexpf", "xldexpf_sse2", 4},
           {"ilogbf", "xilogbf_sse2", 4},
@@ -493,7 +491,7 @@ namespace rv {
         platformInfo.addVectorizableFunctions(ImprecVecFuncs);
       }
     }
-    return useAVX || useAVX2 || useSSE;
+    return config.useAVX || config.useAVX2 || config.useSSE;
 
 #else
     return false;

@@ -327,9 +327,12 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   PlatformInfo platInfo(*F.getParent(), &tti, &tli);
 
   // TODO query target capabilities
-  bool useSSE = false, useAVX = true, useAVX2 = true, useImpreciseFunctions = true;
-  addSleefMappings(useSSE, useAVX, useAVX2, platInfo, useImpreciseFunctions);
-  vectorizer.reset(new VectorizerInterface(platInfo));
+  Config config;
+  config.useAVX2 = true;
+
+  bool useImpreciseFunctions = true;
+  addSleefMappings(config, platInfo, useImpreciseFunctions);
+  vectorizer.reset(new VectorizerInterface(platInfo, config));
 
   reda.reset(new ReductionAnalysis(F, *LI));
   reda->analyze();

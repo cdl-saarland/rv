@@ -145,6 +145,11 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
       fail("remTrans could not transform to a vectorizable loop.");
     }
 
+    // configure RV
+    rv::Config config;
+    config.useAVX = true;
+    config.useAVX2 = true;
+
     // setup region
     rv::LoopRegion loopRegionImpl(*preparedLoop);
     rv::Region loopRegion(loopRegionImpl);
@@ -156,11 +161,8 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     MemoryDependenceResults MDR = mdAnalysis.run(parentFn, fam);
 
     // link in SIMD library
-    const bool useSSE = false;
-    const bool useAVX = true;
-    const bool useAVX2 = false;
     const bool useImpreciseFunctions = false;
-    addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
+    addSleefMappings(config, platformInfo, useImpreciseFunctions);
 
 #define IF_DEBUG if (false)
 
@@ -194,8 +196,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
   }
 
 
-
-    rv::VectorizerInterface vectorizer(platformInfo);
+    rv::VectorizerInterface vectorizer(platformInfo, config);
 
     // early math func lowering
     vectorizer.lowerRuntimeCalls(vecInfo, loopInfo);
@@ -319,14 +320,16 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent(), mam);
     rv::PlatformInfo platformInfo(mod, &tti, &tli);
 
-    rv::VectorizerInterface vectorizer(platformInfo);
+    // configure RV
+    rv::Config config;
+    config.useAVX = true;
+    config.useAVX2 = false;
+    const bool useImpreciseFunctions = true;
 
     // link in SIMD library
-    const bool useSSE = false;
-    const bool useAVX = true;
-    const bool useAVX2 = false;
-    const bool useImpreciseFunctions = true;
-    addSleefMappings(useSSE, useAVX, useAVX2, platformInfo, useImpreciseFunctions);
+    addSleefMappings(config, platformInfo, useImpreciseFunctions);
+
+    rv::VectorizerInterface vectorizer(platformInfo, config);
 
     // set-up vecInfo overlay and define vectorization job (mapping)
     rv::VectorMapping targetMapping = vectorizerJob;

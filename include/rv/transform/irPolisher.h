@@ -9,6 +9,8 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 
+#include "rv/config.h"
+
 namespace rv {
 
 // The IR polisher tries to modify the llvm IR so that the
@@ -20,6 +22,7 @@ namespace rv {
 class IRPolisher {
   llvm::Function &F;
   llvm::Type* boolVector;
+  rv::Config config;
 
   struct ExtInst {
     llvm::Instruction* inst;
@@ -60,9 +63,9 @@ class IRPolisher {
   llvm::Value *getConditionFromMask(llvm::IRBuilder<>&, llvm::Value*);
 
 public:
-  IRPolisher(llvm::Function &f) : F(f) {}
+  IRPolisher(llvm::Function &f, Config _config) : F(f), config(_config) {}
 
-  void polish();
+  bool polish();
 };
 
 }

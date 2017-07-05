@@ -14,12 +14,18 @@ Config::Config()
 , useScatterGatherIntrinsics(true)
 , enableInterleaved(true)
 , enablePseudoInterleaved(true)
-, cropPseudoInterleaved(false)
+, cropPseudoInterleaved(true)
 
 // optimization defaults
 , enableStructOpt(!CheckFlag("RV_DISABLE_STRUCTOPT"))
 , enableSROV(!CheckFlag("RV_DISABLE_SROV"))
 , enableIRPolish(!CheckFlag("RV_DISABLE_POLISH"))
+
+// feature flags
+, useSSE(false)
+, useAVX(false)
+, useAVX2(false)
+, useNEON(false)
 {}
 
 std::string
@@ -36,12 +42,12 @@ rv::to_string(Config::VAMethod vam) {
 
 static void
 printVAFlags(const Config & config, llvm::raw_ostream & out) {
-    out << "VA:   " << to_string(config.vaMethod);
+    out << "VA:   " << to_string(config.vaMethod) << ", foldAllBranches = " << config.foldAllBranches;
 }
 
 static void
 printNativeFlags(const Config & config, llvm::raw_ostream & out) {
-   out << "nat:  tuseScatterGather = " << config.useScatterGatherIntrinsics
+   out << "nat:  useScatterGather = " << config.useScatterGatherIntrinsics
        << ", enableInterleaved = " << config.enableInterleaved
        << ", enablePseudoIL = " << config.enablePseudoInterleaved
        << ", cropPseudoIL = " << config.cropPseudoInterleaved;
@@ -54,6 +60,12 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
         << ", enableIRPolish = " << config.enableIRPolish;
 }
 
+static void
+printFeatureFlags(const Config & config, llvm::raw_ostream & out) {
+  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useNEON = " << config.useNEON << "\n";
+}
+
+
 void
 Config::print(llvm::raw_ostream & out) const {
   out << "RVConfig {\n\t";
@@ -62,5 +74,7 @@ Config::print(llvm::raw_ostream & out) const {
   printOptFlags(*this, out);
   out << "\n\t";
   printNativeFlags(*this, out);
+  out << "\n\t";
+  printFeatureFlags(*this, out);
   out << "\n}\n";
 }

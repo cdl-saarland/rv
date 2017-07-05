@@ -285,7 +285,7 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
 
   // IR Polish phase: promote i1 vectors and perform early instruction (read: intrinsic) selection
   if (config.enableIRPolish) {
-    IRPolisher polisher(vecInfo.getVectorFunction());
+    IRPolisher polisher(vecInfo.getVectorFunction(), config);
     polisher.polish();
   } else {
     Report() << "IR Polisher disabled (RV_DISABLE_POLISH != 0)\n";

@@ -29,8 +29,10 @@
 
 #include "rv/LinkAllPasses.h"
 #include "rv/passes.h"
+#include "rv/config.h"
 
 #include "rvConfig.h"
+
 
 using namespace llvm;
 using namespace rv;
@@ -379,7 +381,11 @@ llvm::Value *IRPolisher::getConditionFromMask(IRBuilder<> &builder, llvm::Value*
   return builder.CreateICmpNE(value, Constant::getNullValue(value->getType()));
 }
 
-void IRPolisher::polish() {
+bool IRPolisher::polish() {
+  if (!(config.useAVX2 || config.useAVX2)) {
+    return false; // requires >= AVX
+  }
+
   IF_DEBUG { errs() << "Starting polishing phase\n"; }
 
   visitedInsts.clear();
@@ -420,6 +426,8 @@ void IRPolisher::polish() {
   if (visitedInsts.size() > 0) {
     Report() << "IRPolish: polished " << visitedInsts.size() << " instruction(s)\n";
   }
+
+  return visitedInsts.size() > 0;
 }
 
 
@@ -429,16 +437,23 @@ void IRPolisher::polish() {
 namespace {
 
 class IRPolisherWrapper : public FunctionPass {
+  rv::Config config;
+
 public:
   static char ID;
   IRPolisherWrapper()
   : FunctionPass(ID)
   {}
 
+  IRPolisherWrapper(const Config & _config)
+  : FunctionPass(ID)
+  , config(_config)
+  {}
+
   bool runOnFunction(Function & F) {
-    rv::IRPolisher polisher(F);
-    polisher.polish();
-    return true;
+    rv::IRPolisher polisher(F, config);
+    bool changed = polisher.polish();
+    return changed;
   }
 };
 
@@ -448,7 +463,7 @@ public:
 
 char IRPolisherWrapper::ID = 0;
 
-FunctionPass *rv::createIRPolisherWrapperPass() { return new IRPolisherWrapper(); }
+FunctionPass *rv::createIRPolisherWrapperPass(rv::Config config) { return new IRPolisherWrapper(config); }
 
 INITIALIZE_PASS_BEGIN(IRPolisherWrapper, "rv-irpolish",
                       "RV - Polish Vector IR", false, false)
