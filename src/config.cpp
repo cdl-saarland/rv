@@ -34,18 +34,33 @@ rv::to_string(Config::VAMethod vam) {
   }
 }
 
+static void
+printVAFlags(const Config & config, llvm::raw_ostream & out) {
+    out << "VA:   " << to_string(config.vaMethod);
+}
+
+static void
+printNativeFlags(const Config & config, llvm::raw_ostream & out) {
+   out << "nat:  tuseScatterGather = " << config.useScatterGatherIntrinsics
+       << ", enableInterleaved = " << config.enableInterleaved
+       << ", enablePseudoIL = " << config.enablePseudoInterleaved
+       << ", cropPseudoIL = " << config.cropPseudoInterleaved;
+}
+
+static void
+printOptFlags(const Config & config, llvm::raw_ostream & out) {
+    out << "opts: enableStructOpt = " << config.enableStructOpt
+        << ", enableSROV = " << config.enableSROV
+        << ", enableIRPolish = " << config.enableIRPolish;
+}
+
 void
 Config::print(llvm::raw_ostream & out) const {
-  out
-    << "RVConfig {\n"
-    << "\tvaMethod = " << to_string(vaMethod) << ",\n"
-    << "\tfoldAllBranches = " << foldAllBranches  << ",\n"
-    << "\tuseScatterGather = " << useScatterGatherIntrinsics  << ",\n"
-    << "\tenableInterleaved = " << enableInterleaved  << ",\n"
-    << "\tenablePseudoIL = " << enablePseudoInterleaved  << ",\n"
-    << "\tcropPseudoIL = " << cropPseudoInterleaved  << ",\n"
-    << "\tenableStructOpt = " << enableStructOpt  << ",\n"
-    << "\tenableSROV = " << enableSROV  << ",\n"
-    << "\tenableIRPolish = " << enableIRPolish << ",\n"
-  << "}\n";
+  out << "RVConfig {\n\t";
+  printVAFlags(*this, out);
+  out << "\n\t";
+  printOptFlags(*this, out);
+  out << "\n\t";
+  printNativeFlags(*this, out);
+  out << "\n}\n";
 }
