@@ -883,6 +883,11 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
       // add must-have targets
       auto & relay = addTargetToRelay(exitRelay, targetId);
 
+      // statistics (cant branch to the block we wanted to go)
+      if (relay.id < targetId && dt.dominates(&head, &destBlock)) {
+        ++numDivertedHeads;
+      }
+
       // promote reachability down to successors
       mergeInReaching(relay, headRelay);
 
@@ -895,42 +900,19 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
       term.setSuccessor(i, relay.block);
     }
 
-    ++numPreservedBranches;
+    // only track preserved conditional branches
+    if (term.getNumSuccessors() > 1) {
+      ++numPreservedBranches;
+    }
     return;
   }
 
 
+// this branch needs to be folded
   assert(isa<BranchInst>(term) && "folding only implemented for branches!");
   auto * branch = dyn_cast<BranchInst>(&term);
-
-// Unconditional branch case
-  if (!branch->isConditional()) {
-    auto & nextBlock = *branch->getSuccessor(0);
-    int nextBlockId = getIndex(nextBlock);
-
-    auto & relay = addTargetToRelay(exitRelay, nextBlockId);
-
-    // statistics (cant branch to the block we wanted to go)
-    if (relay.id < nextBlockId && dt.dominates(&head, &nextBlock)) {
-      ++numDivertedHeads;
-    }
-
-    // if the branch target feeds a phi and the edge is relayed -> track reachability
-    if (containsOriginalPhis(nextBlock)) {
-       relay.addReachingBlock(head);
-    }
-
-    IF_DEBUG_LIN {
-      errs() << "\tunconditional. merged with " << nextBlock.getName() << " "; dumpRelayChain(relay.id); errs() << "\n";
-    }
-
-    mergeInReaching(relay, headRelay);
-    branch->setSuccessor(0,  relay.block);
-    return;
-  }
-
-// whether this branch must be eliminated from the CFG
   assert(branch && "can only fold conditional BranchInsts (for now)");
+  assert(branch->isConditional());
 
 // order successors by global topologic order
   uint firstSuccIdx = 0;
