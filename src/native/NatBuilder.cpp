@@ -76,10 +76,11 @@ VectorShape NatBuilder::getVectorShape(const Value &val) {
   else return VectorShape::uni();
 }
 
-NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
+NatBuilder::NatBuilder(Config _config, PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
                        const DominatorTree &dominatorTree, MemoryDependenceResults &_memDepRes,
                        ScalarEvolution &SE, ReductionAnalysis & _reda) :
     builder(vectorizationInfo.getMapping().vectorFn->getContext()),
+    config(_config),
     platformInfo(platformInfo),
     vectorizationInfo(vectorizationInfo),
     dominatorTree(dominatorTree),
@@ -90,10 +91,6 @@ NatBuilder::NatBuilder(PlatformInfo &platformInfo, VectorizationInfo &vectorizat
     i1Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
     region(vectorizationInfo.getRegion()),
-    useScatterGatherIntrinsics(true),
-    enableInterleaved(true),
-    enablePseudoInterleaved(false),
-    cropPseudoInterleaved(false),
     keepScalar(),
     cascadeLoadMap(),
     cascadeStoreMap(),
@@ -250,7 +247,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
 
     // loads and stores need special treatment (masking, shuffling, etc) (build them lazily)
     if (canVectorize(inst) && (load || store))
-      if (enableInterleaved) lazyInstructions.push_back(inst);
+      if (config.enableInterleaved) lazyInstructions.push_back(inst);
       else vectorizeMemoryInstruction(inst);
     else if (call) {
       // calls need special treatment
@@ -266,7 +263,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       else if (callee && callee->getName() == "rv_align")
         vectorizeAlignCall(call);
       else
-        if (enableInterleaved) lazyInstructions.push_back(inst);
+        if (config.enableInterleaved) lazyInstructions.push_back(inst);
         else {
           if (shouldVectorize(call))
             vectorizeCallInstruction(call);
@@ -813,7 +810,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
     alignment = addrShape.getAlignmentFirst();
 
-  } else if (enableInterleaved && (addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs))) {
+  } else if (config.enableInterleaved && (addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs))) {
     // interleaved access. ptrs: base, base+vector, base+2vector, ...
     Value *srcPtr = getPointerOperand(cast<Instruction>(srcs[0]));
     for (unsigned i = 0; i < srcs.size(); ++i) {
@@ -825,14 +822,14 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     alignment = addrShape.getAlignmentFirst();
     interleaved = true;
 
-  } else if (enablePseudoInterleaved && (addrShape.isStrided() && isPseudointerleaved(inst, accessedPtr, byteSize))) {
+  } else if (config.enablePseudoInterleaved && (addrShape.isStrided() && isPseudointerleaved(inst, accessedPtr, byteSize))) {
     // pseudo-interleaved: same as above. we don't know the array limits, so we skip the last index of the last load
     unsigned stride = (unsigned) addrShape.getStride() / byteSize;
     srcs.push_back(inst);
     Value *srcPtr = getPointerOperand(inst);
     Type *interType = vecType;
     for (unsigned i = 0; i < stride; ++i) {
-      if (cropPseudoInterleaved && i == (stride - 1)) {
+      if (config.cropPseudoInterleaved && i == (stride - 1)) {
         interType = getVectorType(accessedType, vectorWidth() - (stride-1));
       }
       Value *ptr = requestInterleavedAddress(srcPtr, i, interType);
@@ -842,7 +839,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     if (store && needsMask) {
       masks.push_back(mask);
       for (unsigned i = 1; i < stride; ++i) {
-        unsigned width = i == (stride - 1) && cropPseudoInterleaved ? vectorWidth() - (stride - 1) : vectorWidth();
+        unsigned width = i == (stride - 1) && config.cropPseudoInterleaved ? vectorWidth() - (stride - 1) : vectorWidth();
         masks.push_back(getConstantVector(width, i1Ty, 0));
       }
     }
@@ -985,7 +982,7 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
 
   scatter ? ++numScatter : ++numGather;
 
-  if (useScatterGatherIntrinsics) {
+  if (config.useScatterGatherIntrinsics) {
     std::vector<Value *> args;
     if (scatter) args.push_back(values);
     args.push_back(addr);
@@ -1043,7 +1040,7 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
         masks->push_back(getConstantVector(vectorWidth(), i1Ty, 1));
       unsigned width = vectorWidth();
       for (unsigned i = 1; i < addr->size(); ++i) {
-        if (i == (stride - 1) && cropPseudoInterleaved) {
+        if (i == (stride - 1) && config.cropPseudoInterleaved) {
           width = vectorWidth() - (stride - 1);
           interType = getVectorType(vecType->getVectorElementType(), width);
         }
@@ -1053,7 +1050,7 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
       }
       needsMask = true;
     }
-  } else if (isPseudoInter && load && !cropPseudoInterleaved) {
+  } else if (isPseudoInter && load && !config.cropPseudoInterleaved) {
     unsigned width = vectorWidth() - (stride - 1);
     std::vector<unsigned> trueMask(width, 1);
     masks->push_back(getConstantVectorPadded(vectorWidth(), i1Ty, trueMask, true));
@@ -2224,7 +2221,7 @@ bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSi
 }
 
 bool NatBuilder::isPseudointerleaved(Instruction *inst, Value *addr, int byteSize) {
-  if (!enableInterleaved)
+  if (!config.enableInterleaved)
     return false;
 
   VectorShape addrShape = getVectorShape(*addr);

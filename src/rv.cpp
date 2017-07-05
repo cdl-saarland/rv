@@ -52,8 +52,9 @@
 
 namespace rv {
 
-VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo)
-        : platInfo(_platInfo)
+VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo, Config _config)
+        : config(_config)
+        , platInfo(_platInfo)
 {
   addIntrinsics();
 }
@@ -193,12 +194,13 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
     auto & scalarFn = vecInfo.getScalarFunction();
 
     // determines value and control shapes
-    VectorizationAnalysis vea(platInfo,
-                                  vecInfo,
-                                  cdg,
-                                  dfg,
-                                  loopInfo,
-                                  domTree, postDomTree);
+    VectorizationAnalysis vea(config,
+                              platInfo,
+                              vecInfo,
+                              cdg,
+                              dfg,
+                              loopInfo,
+                              domTree, postDomTree);
     vea.analyze(scalarFn);
 
     // TODO deprecate MandatoryAnalysis (still used to determine kill exits atm)
@@ -276,7 +278,7 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
   reda.analyze();
 
 // vectorize with native
-  native::NatBuilder natBuilder(platInfo, vecInfo, domTree, MDR, SE, reda);
+  native::NatBuilder natBuilder(config, platInfo, vecInfo, domTree, MDR, SE, reda);
   natBuilder.vectorize(true, vecInstMap);
 
   // IR Polish phase: promote i1 vectors and perform early instruction (read: intrinsic) selection

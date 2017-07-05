@@ -76,13 +76,14 @@ VAWrapperPass::runOnFunction(Function& F) {
   const auto & domTree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   const auto & postDomTree = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
 
-  VectorizationAnalysis vea(platInfo, Vecinfo, cdg, dfg, LoopInfo, domTree, postDomTree);
+  VectorizationAnalysis vea(config, platInfo, Vecinfo, cdg, dfg, LoopInfo, domTree, postDomTree);
   vea.analyze(F);
 
   return false;
 }
 
-VectorizationAnalysis::VectorizationAnalysis(PlatformInfo& platInfo,
+VectorizationAnalysis::VectorizationAnalysis(Config _config,
+                                             PlatformInfo& platInfo,
                                              VectorizationInfo& VecInfo,
                                              const CDG& cdg,
                                              const DFG& dfg,
@@ -90,7 +91,8 @@ VectorizationAnalysis::VectorizationAnalysis(PlatformInfo& platInfo,
                                              const DominatorTree& domTree,
                                              const PostDominatorTree& postDomTree)
 
-        : mVecinfo(VecInfo),
+        : config(_config),
+          mVecinfo(VecInfo),
           layout(platInfo.getDataLayout()),
           mLoopInfo(LoopInfo),
           mFuncinfo(platInfo.getFunctionMappings()),
@@ -107,7 +109,7 @@ VectorizationAnalysis::analyze(const Function& F) {
   fixUndefinedShapes(F);
 
   // mark all non-loop exiting branches as divergent to trigger a full linearization
-  if (mVecinfo.foldAllBranches()) {
+  if (config.foldAllBranches) {
     for (auto & BB: F) {
       auto & term = *BB.getTerminator();
       if (term.getNumSuccessors() <= 1) continue; // uninteresting
@@ -449,7 +451,7 @@ void VectorizationAnalysis::compute(const Function& F) {
       // Otw, we can compute the instruction shape
       New = computeShapeForInst(I);
 
-      if (mVecinfo.getVAMethod() == VA_Karrenberg) {
+      if (config.vaMethod == Config::VA_Karrenberg) {
         // degrade non-cont negatively strided shapes
 
         if (New.isVarying()) {
@@ -474,7 +476,7 @@ void VectorizationAnalysis::compute(const Function& F) {
           }
         }
 
-      } else if (mVecinfo.getVAMethod() == VA_Coutinho) {
+      } else if (config.vaMethod == Config::VA_Coutinho) {
         // only degrade alignment information
         New.setAlignment(1);
       }
@@ -503,7 +505,7 @@ void VectorizationAnalysis::compute(const Function& F) {
 
 VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
   // always default to the naive transformer (only top or bottom)
-  if (mVecinfo.getVAMethod() == VA_TopBot) { return computeGenericArithmeticTransfer(*I); }
+  if (config.vaMethod == Config::VA_TopBot) { return computeGenericArithmeticTransfer(*I); }
 
   if (I->isBinaryOp()) return computeShapeForBinaryInst(cast<BinaryOperator>(I));
   if (I->isCast()) return computeShapeForCastInst(cast<CastInst>(I));
@@ -901,8 +903,8 @@ VectorShape VectorizationAnalysis::getShape(const Value* const V) {
   return mVecinfo.getVectorShape(*V);
 }
 
-FunctionPass* createVectorizationAnalysisPass() {
-  return new VAWrapperPass();
+FunctionPass* createVectorizationAnalysisPass(rv::Config config) {
+  return new VAWrapperPass(config);
 }
 
 

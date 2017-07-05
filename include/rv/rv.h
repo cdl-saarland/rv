@@ -12,6 +12,7 @@
 #include "rv/PlatformInfo.h"
 #include "rv/analysis/DFG.h"
 #include "rv/transform/maskExpander.h"
+#include "rv/config.h"
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
 
@@ -42,7 +43,7 @@ class VectorizationInfo;
  */
 class VectorizerInterface {
 public:
-    VectorizerInterface(PlatformInfo & _platform);
+    VectorizerInterface(PlatformInfo & _platform, Config config = Config());
 
     // try to inline common math functions (compiler-rt) before the analysis
     void lowerRuntimeCalls(VectorizationInfo & vecInfo, llvm::LoopInfo & loopInfo);
@@ -91,6 +92,7 @@ public:
     void finalize();
 
 private:
+    Config config;
     PlatformInfo & platInfo;
 
     void addIntrinsics();

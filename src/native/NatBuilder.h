@@ -16,6 +16,7 @@
 
 #include <rv/vectorizationInfo.h>
 #include <rv/PlatformInfo.h>
+#include "rv/config.h"
 
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
 #include <llvm/IR/Dominators.h>
@@ -38,6 +39,7 @@ namespace native {
   class NatBuilder {
     llvm::IRBuilder<> builder;
 
+    rv::Config config;
     rv::PlatformInfo &platformInfo;
     rv::VectorizationInfo &vectorizationInfo;
     const llvm::DominatorTree &dominatorTree;
@@ -51,11 +53,6 @@ namespace native {
     llvm::Type *i32Ty;
 
     rv::Region *region;
-
-    bool useScatterGatherIntrinsics;
-    bool enableInterleaved;
-    bool enablePseudoInterleaved;
-    bool cropPseudoInterleaved;
 
     void printStatistics();
 
@@ -73,7 +70,7 @@ namespace native {
     llvm::Value& materializeVectorReduce(llvm::IRBuilder<> & builder, llvm::Value & phiInitVal, llvm::Value & vecVal, llvm::Instruction & reduceOp);
 
   public:
-    NatBuilder(rv::PlatformInfo &platformInfo, rv::VectorizationInfo &vectorizationInfo,
+    NatBuilder(rv::Config config, rv::PlatformInfo &platformInfo, rv::VectorizationInfo &vectorizationInfo,
                const llvm::DominatorTree &dominatorTree, llvm::MemoryDependenceResults &memDepRes,
                llvm::ScalarEvolution &SE, rv::ReductionAnalysis & _reda);
 

@@ -29,6 +29,7 @@
 
 #include "DFG.h"
 
+#include "rv/config.h"
 #include "rv/vectorizationInfo.h"
 #include "rv/vectorMapping.h"
 #include "rv/VectorizationInfoProxyPass.h"
@@ -44,8 +45,11 @@ namespace rv {
 
 class VAWrapperPass : public llvm::FunctionPass {
   static char ID;
+  Config config;
+
 public:
-  VAWrapperPass() : FunctionPass(ID) { }
+  VAWrapperPass() : FunctionPass(ID), config() { }
+  VAWrapperPass(Config _config) : FunctionPass(ID), config(_config) { }
   VAWrapperPass(const VAWrapperPass&) = delete;
   VAWrapperPass& operator=(VAWrapperPass) = delete;
 
@@ -54,6 +58,8 @@ public:
 };
 
 class VectorizationAnalysis {
+  Config config;
+
   /// In- and output
   VectorizationInfo& mVecinfo;
 
@@ -72,7 +78,8 @@ class VectorizationAnalysis {
   BranchDependenceAnalysis BDA;
 
 public:
-  VectorizationAnalysis(PlatformInfo & platInfo,
+  VectorizationAnalysis(Config config,
+                        PlatformInfo & platInfo,
                         VectorizationInfo& VecInfo,
                         const llvm::CDG& cdg,
                         const llvm::DFG& dfg,
@@ -141,7 +148,7 @@ private:
   void fixUndefinedShapes(const llvm::Function& F);
 };
 
-llvm::FunctionPass* createVectorizationAnalysisPass();
+llvm::FunctionPass* createVectorizationAnalysisPass(Config config=Config());
 
 }
 
