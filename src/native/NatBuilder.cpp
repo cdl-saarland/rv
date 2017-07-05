@@ -810,7 +810,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
     alignment = addrShape.getAlignmentFirst();
 
-  } else if (config.enableInterleaved && (addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs))) {
+  } else if (addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) {
     // interleaved access. ptrs: base, base+vector, base+2vector, ...
     Value *srcPtr = getPointerOperand(cast<Instruction>(srcs[0]));
     for (unsigned i = 0; i < srcs.size(); ++i) {
@@ -822,7 +822,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     alignment = addrShape.getAlignmentFirst();
     interleaved = true;
 
-  } else if (config.enablePseudoInterleaved && (addrShape.isStrided() && isPseudointerleaved(inst, accessedPtr, byteSize))) {
+  } else if (addrShape.isStrided() && isPseudointerleaved(inst, accessedPtr, byteSize)) {
     // pseudo-interleaved: same as above. we don't know the array limits, so we skip the last index of the last load
     unsigned stride = (unsigned) addrShape.getStride() / byteSize;
     srcs.push_back(inst);
@@ -1463,12 +1463,6 @@ GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const ge
   Value *basePtr = requestScalarValue(scalBasePtr);
   Type *st = isStructAccess(gep);
 
-  if (st) {
-    Type *accessedType = gep->getResultElementType();
-    Type *ptrType = PointerType::getUnqual(accessedType);
-    basePtr = builder.CreateBitCast(basePtr, ptrType, "struct_inter_cast");
-  }
-
   std::vector<Value *> idxList;
   idxList.reserve(gep->getNumIndices());
   for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
@@ -1476,29 +1470,34 @@ GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const ge
     Value *interIdx = requestScalarValue(idx);
     VectorShape idxShape = getVectorShape(*idx);
 
-    unsigned offset = 0;
-    if (st && !idxShape.isUniform()) {
-      Type *prevTy = st;
-      // add the remaining indices to the interIdx;
+    if (st && !idxShape.isUniform() && interleavedIdx > 0) {
+      // calculate total offset from base and size of struct (1 if no struct)
+      unsigned offset = vectorWidth() * interleavedIdx + getStructOffset(gep);
+      unsigned structSize = getNumLeafElements(st, gep->getResultElementType(), layout);
+      unsigned k = offset / structSize;
+      if (k > 0)
+        interIdx = builder.CreateAdd(interIdx, ConstantInt::get(interIdx->getType(), k), "inter_struct_idx");
+
+      idxList.push_back(interIdx);
+
+      // create the actual struct access indices
       for (++i; i < gep->getNumIndices(); ++i) {
         idx = gep->getOperand(i + 1);
         assert(isa<ConstantInt>(idx) && "element access with non-constant!");
-        if (cast<ConstantInt>(idx)->isZeroValue())
-          continue;
 
-        unsigned k = (unsigned) cast<ConstantInt>(idx)->getLimitedValue();
-        prevTy = prevTy->getContainedType(k);
+        unsigned idxValue = (unsigned) cast<ConstantInt>(idx)->getLimitedValue();
+        offset %= structSize;
+        st = st->getContainedType(idxValue);
+        structSize = getNumLeafElements(st, gep->getResultElementType(), layout);
+        k = offset / structSize;
 
-        unsigned size = getNumPrimitiveElements(prevTy) * k;
-        offset += size;
+        idxList.push_back(ConstantInt::get(idx->getType(), k));
       }
+      break;
+
+    } else if (interleavedIdx > 0 && !idxShape.isUniform()) {
+      interIdx = builder.CreateAdd(interIdx, ConstantInt::get(interIdx->getType(), vectorWidth() * interleavedIdx), "inter_idx");
     }
-
-    if (interleavedIdx > 0 && !idxShape.isUniform())
-      offset += vectorWidth() * interleavedIdx;
-
-    if (offset > 0)
-      interIdx = builder.CreateAdd(interIdx, ConstantInt::get(interIdx->getType(), offset), "inter_idx");
 
     idxList.push_back(interIdx);
   }
@@ -1511,10 +1510,13 @@ GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const ge
 
 Value *NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, Type *const vecType) {
   ++numInterGEPs;
+  Value *interAddr = addr;
 
-  Value *interAddr;
-  if (isa<GetElementPtrInst>(addr))
-    interAddr = requestInterleavedGEP(cast<GetElementPtrInst>(addr), interleavedIdx);
+  if (isa<BitCastInst>(interAddr))
+    interAddr = cast<BitCastInst>(interAddr)->getOperand(0);
+
+  if (isa<GetElementPtrInst>(interAddr))
+    interAddr = requestInterleavedGEP(cast<GetElementPtrInst>(interAddr), interleavedIdx);
 
   else {
     Value *ptr = requestScalarValue(addr, 0, true);
@@ -2170,6 +2172,9 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
 }
 
 bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSize, std::vector<Value *> &srcs) {
+  if (!config.enableInterleaved)
+    return false;
+
   StructType *st;
   if ((st = isStructAccess(accessedPtr)) && !isHomogeneousStruct(st, layout))
     return false;
@@ -2221,7 +2226,7 @@ bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSi
 }
 
 bool NatBuilder::isPseudointerleaved(Instruction *inst, Value *addr, int byteSize) {
-  if (!config.enableInterleaved)
+  if (!config.enablePseudoInterleaved)
     return false;
 
   VectorShape addrShape = getVectorShape(*addr);

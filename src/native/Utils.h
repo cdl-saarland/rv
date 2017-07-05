@@ -40,7 +40,8 @@ bool isHomogeneousStruct(llvm::StructType *const type, llvm::DataLayout &layout)
 llvm::StructType * isStructAccess(llvm::Value *const address);
 llvm::StructType * containsStruct(llvm::Type *const type);
 
-unsigned int getNumPrimitiveElements(llvm::Type *const type);
+unsigned getNumLeafElements(llvm::Type *const type, llvm::Type *const leafType, llvm::DataLayout &layout);
+unsigned getStructOffset(llvm::GetElementPtrInst *const gep);
 
 void setInsertionToDomBlockEnd(llvm::IRBuilder<> &builder, std::vector<llvm::BasicBlock *> &blocks);
 

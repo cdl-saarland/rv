@@ -161,17 +161,65 @@ StructType *containsStruct(Type *const type) {
     return nullptr;
 }
 
-unsigned int getNumPrimitiveElements(Type *const type) {
-  if (!(type->isVectorTy() || type->isStructTy() || type->isArrayTy() || type->isAggregateType()))
-    return 1;
+unsigned getNumLeafElements(Type *const type, Type *const leafType, DataLayout &layout) {
+  return (unsigned) (layout.getTypeStoreSize(type) / layout.getTypeStoreSize(leafType));
 
-  unsigned numPrimEls = 0;
-  for (unsigned i = 0; i < type->getNumContainedTypes(); ++i) {
-    Type *elTy = type->getContainedType(i);
-    numPrimEls += getNumPrimitiveElements(elTy);
+#if 0
+  std::deque<std::pair<Type *const, unsigned>> queue;
+  queue.push_back(std::pair<Type *const, unsigned>(type, 0));
+
+  unsigned nodes = 0;
+  unsigned lastDistance = 0;
+  bool lastTrip = false;
+  while (!queue.empty()) {
+    Type *const ty = queue.front().first;
+    unsigned distance = queue.front().second;
+    queue.pop_front();
+
+    if (distance == lastDistance)
+      ++nodes;
+    else if (!lastTrip) {
+      nodes = 1;
+      lastDistance = distance;
+    } else
+      break;
+
+    if (ty->getNumContainedTypes() == 0)
+      lastTrip = true;
+
+    if (!lastTrip)
+      for (unsigned i = 0; i < ty->getNumContainedTypes(); ++i) {
+        Type *const elTy = ty->getContainedType(i);
+        queue.push_back(std::pair<Type *const, unsigned>(elTy, distance + 1));
+      }
   }
 
-  return numPrimEls;
+  return nodes;
+#endif
+}
+
+unsigned getStructOffset(GetElementPtrInst *const gep) {
+  Type *srcPtrType = gep->getSourceElementType();
+  std::vector<Value *> indices;
+  for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
+    Value *idx = gep->getOperand(i + 1);
+    indices.push_back(idx);
+
+    Type *indexedType = GetElementPtrInst::getIndexedType(srcPtrType, indices);
+    if (indexedType->isStructTy()) {
+      unsigned structOffset = 0;
+      for (++i; i < gep->getNumIndices(); ++i) {
+        idx = gep->getOperand(i + 1);
+        assert(isa<ConstantInt>(idx) && "element access with non-constant!");
+
+        unsigned idxValue = (unsigned) cast<ConstantInt>(idx)->getLimitedValue();
+        structOffset += idxValue;
+      }
+      return structOffset;
+    }
+  }
+
+  return 0;
 }
 
 void setInsertionToDomBlockEnd(IRBuilder<> &builder, std::vector<llvm::BasicBlock *> &blocks) {
