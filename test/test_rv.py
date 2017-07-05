@@ -135,6 +135,9 @@ for pattern in patterns:
   for testCase in tests:
     baseName = path.basename(testCase)
 
+    if profileMode:
+      os.environ["NAT_STAT_DUMP"] = baseName.split(".")[0].split("-")[0] + ".csv"
+
     with open("suite/" + baseName, 'r') as f:
       options = f.readline().strip("//").strip("\n").strip()
 

@@ -90,19 +90,19 @@ void NatBuilder::printStatistics() {
   file << "#pseudointer-masked-loads," << numPseudoMaskedLoads << "\n";
   file << "#pseudointer-masked-stores," << numPseudoMaskedStores << "\n";
   file << "#pseudointer-loads," << numPseudoLoads << "\n";
-  file << "#pseudointer-loads," << numPseudoStores << "\n";
+  file << "#pseudointer-stores," << numPseudoStores << "\n";
   file << "#interleaved-masked-loads," << numInterMaskedLoads << "\n";
   file << "#interleaved-masked-stores," << numInterMaskedStores << "\n";
   file << "#interleaved-loads," << numInterLoads << "\n";
-  file << "#interleaved-loads," << numInterStores << "\n";
+  file << "#interleaved-stores," << numInterStores << "\n";
   file << "#contiguous-masked-loads," << numContMaskedLoads << "\n";
   file << "#contiguous-masked-stores," << numContMaskedStores << "\n";
   file << "#contiguous-loads," << numContLoads << "\n";
-  file << "#contiguous-loads," << numContStores << "\n";
+  file << "#contiguous-stores," << numContStores << "\n";
   file << "#uniform-masked-loads," << numUniMaskedLoads << "\n";
   file << "#uniform-masked-stores," << numUniMaskedStores << "\n";
   file << "#uniform-loads," << numUniLoads << "\n";
-  file << "#uniform-loads," << numUniStores << "\n";
+  file << "#uniform-stores," << numUniStores << "\n";
   file << "\n";
 
   // lazy statistics
