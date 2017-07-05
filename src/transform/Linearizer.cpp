@@ -327,17 +327,8 @@ bool
 Linearizer::needsFolding(TerminatorInst & termInst) {
   if (isa<ReturnInst>(termInst) || isa<UnreachableInst>(termInst)) return false;
 
-// uniform terminators don't need folding
-  if (vecInfo.getVectorShape(termInst).isUniform()) return false;
-
-// Only conditional branches are subject to divergence
-  auto & branch = cast<BranchInst>(termInst);
-  if (!branch.isConditional()) return false;
-
-// the branch condition is immediately divergent
-  if (!vecInfo.getVectorShape(branch).isUniform()) return true;
-
-  return false;
+  // fold all non-uniform branches
+  return !vecInfo.getVectorShape(termInst).isUniform();
 }
 
 static void
