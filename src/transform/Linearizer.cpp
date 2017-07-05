@@ -914,6 +914,9 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   assert(branch && "can only fold conditional BranchInsts (for now)");
   assert(branch->isConditional());
 
+// statistics: this branch will be folded
+  ++numFoldedBranches;
+
 // order successors by global topologic order
   uint firstSuccIdx = 0;
   uint secondSuccIdx = 1;
@@ -927,27 +930,6 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   int secondId = getIndex(*secondBlock);
   assert(firstId > 0 && secondId > 0 && "branch leaves the region!");
 
-// statistics: check if we are about to loose a schedule head
-  // our exitRelay has a lower id than the actual branch targets
-  // if this branch is uniform, it will be folded never the less so both reach the exitRelay (bad!)
-  if (!mustFoldBranch) {
-    bool canKeepBranch = true;
-    if (exitRelay) {
-      int exitId = exitRelay->id;
-      if ((dt.dominates(&head, firstBlock) && exitId < firstId) ||
-          (dt.dominates(&head, secondBlock) && exitId < secondId)) {
-        canKeepBranch = false;
-      }
-    }
-    if (canKeepBranch) {
-      ++numPreservedBranches;
-    } else {
-      ++numDivertedHeads;
-    }
-  } else {
-    ++numFoldedBranches;
-  }
-
   IF_DEBUG_LIN {
     if (mustFoldBranch) {  errs() << "\tneeds folding. first is " << firstBlock->getName() << " at " << firstId << " , second is " << secondBlock->getName() << " at " << secondId << "\n"; }
   }
@@ -957,14 +939,12 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   RelayNode * firstRelay = &addTargetToRelay(exitRelay, firstId);
 
   // the branch to secondBlock is relayed -> remember we came from head
-  if (mustFoldBranch && containsOriginalPhis(*secondBlock)) {
+  if (containsOriginalPhis(*secondBlock)) {
     firstRelay->addReachingBlock(head);
   }
 
-  if (mustFoldBranch) {
-    firstRelay = &addTargetToRelay(firstRelay, secondId);
-    branch->setSuccessor(secondSuccIdx, firstRelay->block);
-  }
+  firstRelay = &addTargetToRelay(firstRelay, secondId);
+  branch->setSuccessor(secondSuccIdx, firstRelay->block);
 
 
 // relay the first branch to its relay block
@@ -988,6 +968,7 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   }
 
 // process the second successor
+  // this makes sure all paths from the first successor will eventuall reach the second successor (post dom constraint)
   auto & secondRelay = addTargetToRelay(exitRelay, secondId);
 
   mergeInReaching(secondRelay, headRelay);
@@ -996,13 +977,7 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   if (containsOriginalPhis(*secondBlock)) {
     secondRelay.addReachingBlock(head);
   }
-
-  if (!mustFoldBranch) {
-    branch->setSuccessor(secondSuccIdx, secondRelay.block);
-
-  } else {
-    secondRelay.addReachingBlock(*firstBlock);
-  }
+  secondRelay.addReachingBlock(*firstBlock);
 
 // mark branch as non-divergent
   vecInfo.setVectorShape(*branch, VectorShape::uni());
