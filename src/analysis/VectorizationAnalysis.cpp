@@ -106,6 +106,24 @@ VectorizationAnalysis::analyze(const Function& F) {
   compute(F);
   fixUndefinedShapes(F);
 
+  // mark all non-loop exiting branches as divergent to trigger a full linearization
+  if (mVecinfo.foldAllBranches()) {
+    for (auto & BB: F) {
+      auto & term = *BB.getTerminator();
+      if (term.getNumSuccessors() <= 1) continue; // uninteresting
+
+      if (!mVecinfo.inRegion(BB)) continue; // no begin vectorized
+
+      auto * loop = mLoopInfo.getLoopFor(&BB);
+      bool keepShape = loop && loop->isLoopExiting(&BB);
+
+      if (!keepShape) {
+        mVecinfo.setVectorShape(term, VectorShape::varying());
+      }
+    }
+  }
+
+
   IF_DEBUG_VA {
     errs() << "VecInfo after VA:\n";
     mVecinfo.dump();
@@ -430,6 +448,30 @@ void VectorizationAnalysis::compute(const Function& F) {
     } else {
       // Otw, we can compute the instruction shape
       New = computeShapeForInst(I);
+
+      if (mVecinfo.getVAMethod() == VA_Karrenberg) {
+        if (New.isVarying()) {
+          // keep
+        } else if (New.getStride() < 0) {
+          New = VectorShape::varying();
+        } else if (New.isUniform()) {
+          // keep uniform
+        } else {
+          // contiguous case
+          int64_t contStride = 1;
+
+          if (I->getType()->isPointerTy()) {
+            // contiguous stride for pointers (bytes)
+            auto *elemTy = I->getType()->getPointerElementType();
+            contStride = layout.getTypeStoreSize(elemTy);
+          }
+
+          if (New.getStride() != contStride) {
+            // demote non-contiguous value strides
+            New = VectorShape::varying();
+          }
+        }
+      }
     }
 
     // if no output shape could be computed, skip.
@@ -454,6 +496,9 @@ void VectorizationAnalysis::compute(const Function& F) {
 }
 
 VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
+  // always default to the naive transformer (only top or bottom)
+  if (mVecinfo.getVAMethod() == VA_TopBot) { return computeGenericArithmeticTransfer(*I); }
+
   if (I->isBinaryOp()) return computeShapeForBinaryInst(cast<BinaryOperator>(I));
   if (I->isCast()) return computeShapeForCastInst(cast<CastInst>(I));
 

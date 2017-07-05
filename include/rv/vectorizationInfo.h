@@ -28,6 +28,13 @@ namespace llvm {
 namespace rv
 {
 
+// disable precise transformers in the VA (always return top)
+enum VAMethod {
+  VA_Full = 0, // {varying(a)} \_/ {(s,a)}
+  VA_TopBot = 1, // {varying, uniform}
+  VA_Karrenberg = 2, // {varying, uniform, consecutive} x alignment
+};
+
 class Region;
 
 // provides vectorization information (vector shapes, block predicates) for a function
@@ -44,6 +51,11 @@ class VectorizationInfo
     Region* region;
 
 public:
+    // FIXME move this to come configuration class
+    // run precise VA but mark all non-loop exiting branches as varying (triggers full linearization)
+    bool foldAllBranches() const { return true; }
+    VAMethod getVAMethod() { return VA_Karrenberg; }
+
     bool inRegion(const llvm::Instruction & inst) const;
     bool inRegion(const llvm::BasicBlock & block) const;
     llvm::BasicBlock & getEntry() const;
