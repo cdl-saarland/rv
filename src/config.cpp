@@ -14,7 +14,7 @@ Config::Config()
 , useScatterGatherIntrinsics(true)
 , enableInterleaved(true)
 , enablePseudoInterleaved(true)
-, cropPseudoInterleaved(true)
+, cropPseudoInterleaved(false)
 
 // optimization defaults
 , enableStructOpt(!CheckFlag("RV_DISABLE_STRUCTOPT"))
