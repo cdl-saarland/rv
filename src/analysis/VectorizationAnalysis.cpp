@@ -450,9 +450,12 @@ void VectorizationAnalysis::compute(const Function& F) {
       New = computeShapeForInst(I);
 
       if (mVecinfo.getVAMethod() == VA_Karrenberg) {
+        // degrade non-cont negatively strided shapes
+
         if (New.isVarying()) {
           // keep
         } else if (New.getStride() < 0) {
+          // negative stride
           New = VectorShape::varying();
         } else if (New.isUniform()) {
           // keep uniform
@@ -467,10 +470,13 @@ void VectorizationAnalysis::compute(const Function& F) {
           }
 
           if (New.getStride() != contStride) {
-            // demote non-contiguous value strides
             New = VectorShape::varying();
           }
         }
+
+      } else if (mVecinfo.getVAMethod() == VA_Coutinho) {
+        // only degrade alignment information
+        New.setAlignment(1);
       }
     }
 
