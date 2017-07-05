@@ -70,9 +70,9 @@ namespace native {
     llvm::Value& materializeVectorReduce(llvm::IRBuilder<> & builder, llvm::Value & phiInitVal, llvm::Value & vecVal, llvm::Instruction & reduceOp);
 
   public:
-    NatBuilder(rv::Config config, rv::PlatformInfo &platformInfo, rv::VectorizationInfo &vectorizationInfo,
-               const llvm::DominatorTree &dominatorTree, llvm::MemoryDependenceResults &memDepRes,
-               llvm::ScalarEvolution &SE, rv::ReductionAnalysis & _reda);
+    NatBuilder(rv::Config config, rv::PlatformInfo &_platformInfo, rv::VectorizationInfo &_vectorizationInfo,
+               const llvm::DominatorTree &_dominatorTree, llvm::MemoryDependenceResults &memDepRes,
+               llvm::ScalarEvolution &_SE, rv::ReductionAnalysis & _reda);
 
     // if embedRegion is set, replace the scalar source blocks/instructions with the vectorized version
     // if vecInstMap is set, store the mapping from scalar source insts/blocks to vector versions

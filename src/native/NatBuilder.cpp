@@ -134,21 +134,21 @@ VectorShape NatBuilder::getVectorShape(const Value &val) {
   else return VectorShape::uni();
 }
 
-NatBuilder::NatBuilder(Config _config, PlatformInfo &platformInfo, VectorizationInfo &vectorizationInfo,
-                       const DominatorTree &dominatorTree, MemoryDependenceResults &_memDepRes,
-                       ScalarEvolution &SE, ReductionAnalysis & _reda) :
-    builder(vectorizationInfo.getMapping().vectorFn->getContext()),
+NatBuilder::NatBuilder(Config _config, PlatformInfo &_platformInfo, VectorizationInfo &_vectorizationInfo,
+                       const DominatorTree &_dominatorTree, MemoryDependenceResults &_memDepRes,
+                       ScalarEvolution &_SE, ReductionAnalysis & _reda) :
+    builder(_vectorizationInfo.getMapping().vectorFn->getContext()),
     config(_config),
-    platformInfo(platformInfo),
-    vectorizationInfo(vectorizationInfo),
-    dominatorTree(dominatorTree),
+    platformInfo(_platformInfo),
+    vectorizationInfo(_vectorizationInfo),
+    dominatorTree(_dominatorTree),
     memDepRes(_memDepRes),
-    SE(SE),
+    SE(_SE),
     reda(_reda),
-    layout(vectorizationInfo.getScalarFunction().getParent()),
-    i1Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 1)),
-    i32Ty(IntegerType::get(vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
-    region(vectorizationInfo.getRegion()),
+    layout(_vectorizationInfo.getScalarFunction().getParent()),
+    i1Ty(IntegerType::get(_vectorizationInfo.getMapping().vectorFn->getContext(), 1)),
+    i32Ty(IntegerType::get(_vectorizationInfo.getMapping().vectorFn->getContext(), 32)),
+    region(_vectorizationInfo.getRegion()),
     keepScalar(),
     cascadeLoadMap(),
     cascadeStoreMap(),
