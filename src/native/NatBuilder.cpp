@@ -13,6 +13,7 @@
 #include <llvm/ADT/SmallSet.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/InstIterator.h>
+#include <llvm/IR/Metadata.h>
 #include <report.h>
 #include <fstream>
 
@@ -2123,6 +2124,11 @@ void NatBuilder::mapScalarValue(const Value *const value, Value *mapValue, unsig
 }
 
 Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
+  if (isa<MetadataAsValue>(value)) {
+    // as used in "llvm.dbg.value" calls
+    return value;
+  }
+
   // in case of regions, keep any values that are live into the region
   if (region && isa<Argument>(value)) {
     return value;
