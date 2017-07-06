@@ -153,7 +153,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   int depDist = getDependenceDistance(L);
   if (depDist <= 1) {
     // too verbose
-    // Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Min dependence distance was " << depDist << "\n";
+    if (enableDiagOutput) Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Min dependence distance was " << depDist << "\n";
     return false;
   }
 
@@ -162,7 +162,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
   int VectorWidth = getVectorWidth(L);
   if (VectorWidth < 0) {
-    Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Vector width was " << VectorWidth << "\n";
+    if (enableDiagOutput) Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Vector width was " << VectorWidth << "\n";
     return false;
   }
 
@@ -181,6 +181,12 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   if (!PreparedLoop) {
     Report() << "loopVecPass: Can not prepare vectorization of the loop\n";
     return false;
+  }
+
+  // print configuration banner once
+  if (!introduced) {
+    config.print(Report());
+    introduced = true;
   }
 
 // start vectorizing the prepared loop
@@ -221,8 +227,6 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     IF_DEBUG { errs() << "- " << *val << "\n"; }
     vecInfo.setVectorShape(*val, VectorShape::uni());
   }
-
-  bool enableDiagOutput = CheckFlag("LV_DIAG");
 
   //DT.verifyDomTree();
   //LI.verify(DT);
@@ -317,11 +321,16 @@ bool LoopVectorizer::vectorizeLoopOrSubLoops(Loop &L) {
 }
 
 bool LoopVectorizer::runOnFunction(Function &F) {
+  // have we introduced or self? (reporting output)
+  enableDiagOutput = CheckFlag("LV_DIAG");
+  introduced = false;
+
+
   if (getenv("RV_DISABLE")) return false;
 
   IF_DEBUG { errs() << " -- module before RV --\n"; F.getParent()->dump(); }
 
-  Report() << "loopVecPass: run on " << F.getName() << "\n";
+  if (enableDiagOutput) Report() << "loopVecPass: run on " << F.getName() << "\n";
   bool Changed = false;
 
 // stash function analyses
@@ -338,7 +347,6 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   PlatformInfo platInfo(*F.getParent(), &tti, &tli);
 
   // TODO query target capabilities
-  Config config;
   config.useAVX2 = true;
 
   bool useImpreciseFunctions = true;

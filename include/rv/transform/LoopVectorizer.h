@@ -14,8 +14,9 @@
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "rv/transform/remTransform.h"
-
+#include "rv/config.h"
 #include "rv/analysis/reductionAnalysis.h"
+
 #include <limits>
 
 namespace llvm {
@@ -39,6 +40,9 @@ public:
   static char ID;
   LoopVectorizer()
   : llvm::FunctionPass(ID)
+  , config()
+  , enableDiagOutput(false)
+  , introduced(false)
   , DT(nullptr)
   , PDT(nullptr)
   , LI(nullptr)
@@ -54,6 +58,11 @@ public:
   void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
 private:
+  Config config;
+
+  bool enableDiagOutput;
+  bool introduced;
+
   llvm::Function * F;
   llvm::DominatorTree * DT;
   llvm::PostDominatorTree * PDT;

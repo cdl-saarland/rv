@@ -149,6 +149,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     rv::Config config;
     config.useAVX = true;
     config.useAVX2 = true;
+    config.print(outs());
 
     // setup region
     rv::LoopRegion loopRegionImpl(*preparedLoop);

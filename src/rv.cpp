@@ -57,8 +57,6 @@ VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo, Config _confi
         , platInfo(_platInfo)
 {
   addIntrinsics();
-  // dump configuration to report stream
-  config.print(Report());
 }
 
 void
