@@ -374,7 +374,7 @@ void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst,
                                                                                                             laneIdx);
 
     // only have to deal with the 2nd operand
-    if (isDivision && i > 0) {
+    if (config.useSafeDivisors && (isDivision && i > 0)) {
       // create a select between mappedOp and neutral element vector (1)
       Value *neutralVec = vectorizedInst ? getConstantVector(vectorWidth(), op->getType(), 1)
                                          : (op->getType()->isFloatingPointTy() ? ConstantFP::get(op->getType(), 1)

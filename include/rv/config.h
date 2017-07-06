@@ -28,6 +28,7 @@ struct Config {
   bool enableInterleaved;
   bool enablePseudoInterleaved;
   bool cropPseudoInterleaved;
+  bool useSafeDivisors; // blend-in safe divisors to eliminate spurious arithmetic exceptions
 
 // optimization flags
   bool enableStructOpt;

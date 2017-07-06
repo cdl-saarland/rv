@@ -15,6 +15,7 @@ Config::Config()
 , enableInterleaved(true)
 , enablePseudoInterleaved(true)
 , cropPseudoInterleaved(false)
+, useSafeDivisors(true)
 
 // optimization defaults
 , enableStructOpt(!CheckFlag("RV_DISABLE_STRUCTOPT"))
@@ -50,7 +51,8 @@ printNativeFlags(const Config & config, llvm::raw_ostream & out) {
    out << "nat:  useScatterGather = " << config.useScatterGatherIntrinsics
        << ", enableInterleaved = " << config.enableInterleaved
        << ", enablePseudoIL = " << config.enablePseudoInterleaved
-       << ", cropPseudoIL = " << config.cropPseudoInterleaved;
+       << ", cropPseudoIL = " << config.cropPseudoInterleaved
+       << ", useSafeDiv = " << config.useSafeDivisors;
 }
 
 static void
