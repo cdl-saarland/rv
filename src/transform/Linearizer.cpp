@@ -745,7 +745,22 @@ Linearizer::emitBlock(int targetId) {
   IF_DEBUG_DTFIX { errs() << "DT after dom change:";dt.print(errs()); }
 
 // if there are any instructions stuck in @relayBlock move them to target now
+  // repair LCSSA incoming blocks along the way
   for (auto it = relayBlock->begin(); it != relayBlock->end() && !isa<TerminatorInst>(*it); it = relayBlock->begin()) {
+    auto * phi = dyn_cast<PHINode>(it);
+    if (phi && phi->getNumIncomingValues() == 1) {
+      auto itPred = pred_begin(relayBlock);
+      auto predEnd = pred_end(relayBlock);
+      assert(itPred != predEnd);
+      auto * singlePred = *itPred;
+
+      IF_DEBUG_LIN {
+        itPred++;
+        assert(itPred == predEnd);
+      }
+      phi->setIncomingBlock(0, singlePred);
+    }
+
     it->removeFromParent();
     InsertAtFront(target, *it);
   }
@@ -1010,20 +1025,7 @@ Linearizer::run() {
     errs() << "-- LIN: divergent loops/brances in the region --";
     for (int i = 0; i < getNumBlocks(); ++i) {
       auto & block = getBlock(i);
-      auto * loop = li.getLoopFor(&block);
-
       errs() << "\n" << i << " : " << block.getName() << " , ";
-
-      if (loop && loop->getHeader() == &block) {
-        if (vecInfo.isDivergentLoop(loop)) {
-           errs() << "div-loop header: " << block.getName();
-
-           auto & latch = *loop->getLoopLatch();
-           auto & latchMask = *maskEx.getEdgeMask(latch, block);
-           errs() << "\t latch mask " << latchMask << "\n";
-
-        }
-      }
       if (needsFolding(*block.getTerminator())) {
          errs() << "Fold : " << *block.getTerminator();
       }
@@ -1051,7 +1053,7 @@ Linearizer::run() {
   IF_DEBUG_LIN verify();
 
 // report statistics
-  if (numFoldedBranches > 0 || numDivertedHeads > 0 || numDivergentLoops > 0) {
+  if (numFoldedBranches > 0 || numDivertedHeads > 0) {
     Report() << "lin:\n";
   }
   if (numFoldedBranches > 0) {
@@ -1064,10 +1066,8 @@ Linearizer::run() {
   if (numDivertedHeads > 0) {
     Report() << "\t" << numDivertedHeads << " diverted relays.\n";
   }
-  if (numDivergentLoops > 0) {
-    Report() << "\t"
-      << numUniformLoops << " uniform loops,\n\t"
-      << numDivergentLoops << " divergent loops with " << numKillExits << " kill exits.\n";
+  if (numUniformLoops > 0) {
+    Report() << "\t" << numUniformLoops << " uniform loops.\n";
   }
 }
 

@@ -59,10 +59,6 @@ namespace rv {
       size_t numPreservedBranches;
       // number of uniform loops
       size_t numUniformLoops;
-      // number of divergent loops
-      size_t numDivergentLoops;
-      // number of preserved kill exits
-      size_t numKillExits;
       // number of select instructions
       size_t numBlends;
       // number of simplified blends (including pre-existing blends)
@@ -378,8 +374,6 @@ namespace rv {
     , numFoldedBranches(0)
     , numPreservedBranches(0)
     , numUniformLoops(0)
-    , numDivergentLoops(0)
-    , numKillExits(0)
     , numBlends(0)
     , numSimplifiedBlends(0)
 
