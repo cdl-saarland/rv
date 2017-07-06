@@ -520,38 +520,6 @@ DivLoopTrans::fixLiveOutUses(Loop & loop, LiveValueTracker & liveOutTracker) {
     liveOutTracker.addTrackerUpdate(*valueUpd.valueTracker, *valueUpd.latchUpdate);
   }
 
-#if 0
-// materialize exit masks (LCSSA)
-  // repair exit mask uses
-  IF_DEBUG_DLT { errs() << "Patching exit mask phis in " << divExitBlock->getName() << "\n"; }
-  for (auto & itExitMaskUpd : loopTracker.latchExitUpdates) {
-    LoopTracker::ValueUpdate & valueUpd = itExitMaskUpd.second;
-    auto * exitTracker = valueUpd.valueTracker;
-
-    auto & liveOutVal = liveOutTracker.getLastTrackerState(*exitTracker);
-    auto & liveOutUpdater = cast<Instruction>(liveOutVal);
-    IF_DEBUG_DLT { errs() << "- exit tracker: " << *exitTracker << "\n"; }
-
-    for (auto & use : exitTracker->uses()) {
-      auto *userPhi = dyn_cast<PHINode>(use.getUser());
-      if (!userPhi) continue; // lowered update
-      if (loop.contains(userPhi->getParent())) continue; // promoted
-      if (userPhi->getNumIncomingValues() != 1) continue; // LCSSA
-
-      IF_DEBUG_DLT { errs() << "\t exitPhi: " << *userPhi << "\n"; }
-
-  // replace outside uses with tracker
-      // if this exit branch kills the loop
-      userPhi->setIncomingValue(0, &liveOutUpdater);
-      userPhi->setIncomingBlock(0, liveOutUpdater.getParent()); // FIXME predecessor only finalized during exit construction
-
-      addKillPhi(*userPhi); // TODO
-
-      IF_DEBUG_DLT { errs() << "\t (fixed) exitPhi: " << *userPhi << "\n"; }
-    }
-  }
-#endif
-
 
 // fix live outs in exit blocks
    // repair live out uses
@@ -571,9 +539,8 @@ DivLoopTrans::fixLiveOutUses(Loop & loop, LiveValueTracker & liveOutTracker) {
      };
 
      auto & liveOutInst = cast<Instruction>(liveOut);
-     // TODO check if this is a live out to a kill exiconst t
      if (isKillPhi(*lcPhi)) {
-       IF_DEBUG_DLT errs() << "\tkill exit liveout OR exit mask. skip.\n";
+       IF_DEBUG_DLT errs() << "\tkill exit. skip.\n";
        continue;
      }
 
