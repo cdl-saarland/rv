@@ -40,7 +40,7 @@ struct LoopTracker {
   // value updates
   struct ValueUpdate {
     llvm::PHINode * valueTracker; // value tracker
-    llvm::PHINode * latchUpdate; // latch update on this loop level
+    llvm::Instruction * latchUpdate; // latch update on this loop level (phi or fixLiveOutUse)
 
 #if 0
     ValueUpdate(PHINode & _valueTracker, PHINode & _latchUpdate)
@@ -121,10 +121,14 @@ class DivLoopTrans {
   void trackLiveOuts(llvm::Loop &hostLoop, llvm::BasicBlock & exitignBlock, llvm::BasicBlock & exitBlock, llvm::BasicBlock & reboundBlock, LiveValueTracker & liveOutTracker);
 
 // Latch update phase
-  void fixDivergentLoopUpdates(llvm::Loop & loop, LiveValueTracker & liveOutTracker);
-
   // after ALL divergent loops have been control converted fix the latch updates and exit conditions
+  void fixDivergentLoopUpdates(llvm::Loop & loop, LiveValueTracker & liveOutTracker);
   void fixLatchUpdates(llvm::Loop & loop, LiveValueTracker & liveOutTracker);
+
+// Latch update phase
+  // after ALL divergent loops have been control converted fix the latch updates and exit conditions
+  void fixDivergentLiveOutUses(llvm::Loop & loop, LiveValueTracker & liveOutTracker);
+  void fixLiveOutUses(llvm::Loop & loop, LiveValueTracker & liveOutTracker);
 
 // finalization phase
   // descend into all of @loop's loops and attach an input mask to the loop live mask phi

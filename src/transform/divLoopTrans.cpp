@@ -49,8 +49,16 @@ class LiveValueTracker {
 
 public:
   // maps live out values to chains of tracker phis (inner-most phi of chain)
+  std::set<PHINode*> trackerPhis;
   DenseMap<Instruction*, PHINode*> liveOutPhis;
   SmallPtrSet<PHINode*, 16> latchUpdatePhis;
+
+  // returns whether this phi is part of a tracker cascade
+  bool
+  isTrackerPhi(Instruction & inst) const {
+    auto * phi = dyn_cast<PHINode>(&inst);
+    return phi ? trackerPhis.count(phi) : false;
+  }
 
   // create an updater for @tracker at @updateLoopTracker's loop level
   PHINode &
@@ -143,6 +151,7 @@ public:
 
     // create a tracker phi in every surrounding loop of @defInst
       auto * phi = PHINode::Create(defInst.getType(), 2, prefix + ".track", &*trackedLoopHeader.getFirstInsertionPt()); // TODO vector shape
+      trackerPhis.insert(phi);
       vecInfo.setVectorShape(*phi, VectorShape::varying());
 
       // remember inner-most tracker Phi
@@ -351,7 +360,7 @@ DivLoopTrans::trackLiveOuts(Loop & hostLoop, BasicBlock & exitingBlock, BasicBlo
     errs() << "# tracking live outs in exitBlock: \n" << exitBlock.getName() << "\n";
   }
   auto & leftLoop = *loopInfo.getLoopFor(&exitingBlock);
-  auto & leftLoopTracker = requestLoopTracker(leftLoop);
+  auto & leftLoopTracker = requestLoopTracker(leftLoop); // FIXME the live mask has no registered tracker
 
   auto itBegin = exitBlock.begin(), itEnd = exitBlock.end();
   for (auto it = itBegin; isa<PHINode>(*it) && it != itEnd; ++it) {
@@ -393,10 +402,27 @@ DivLoopTrans::fixDivergentLoopUpdates(llvm::Loop & loop, LiveValueTracker & live
   }
 }
 
+void
+DivLoopTrans::fixDivergentLiveOutUses(llvm::Loop & loop, LiveValueTracker & liveOutTracker) {
+  for (auto * childLoop : loop) {
+    fixDivergentLiveOutUses(*childLoop, liveOutTracker);
+  }
+
+  // promote latch updates (SSA repair)
+  // At this point, all exiting edges from this loop have been control converted
+  if (vecInfo.isDivergentLoop(&loop)) {
+    fixLiveOutUses(loop, liveOutTracker);
+  }
+
+  // done: all control flow uniform now
+  vecInfo.setLoopDivergence(loop, true);
+}
+
 Instruction&
 DivLoopTrans::implementPhiUpdate(LoopTracker::ValueUpdate & valUpd) {
+  assert(isa<PHINode>(valUpd.latchUpdate) && "already lowered this one??");
   auto & trackerPhi = *valUpd.valueTracker;
-  auto & updPhi = *valUpd.latchUpdate;
+  auto & updPhi = cast<PHINode>(*valUpd.latchUpdate);
   auto & BB = *updPhi.getParent();
 
   auto shape = vecInfo.getVectorShape(trackerPhi);
@@ -439,8 +465,8 @@ DivLoopTrans::fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker) {
   assert(exitingBlock == loopTracker.pureLatch);
   assert(divExitBlock && "control transform should leave a single exit");
 
-// repair LCSSA phis (SSAUpdater uses these to determine predecessors)
-   IF_DEBUG_DLT { errs() << "Patching live out values in " << divExitBlock->getName() << "\n"; }
+// repair LCSSA incoming block
+   IF_DEBUG_DLT { errs() << "Patching incoming blocks in " << divExitBlock->getName() << "\n"; }
    for (auto & inst : *divExitBlock) {
      auto * lcPhi = dyn_cast<PHINode>(&inst);
      if (!lcPhi) break;
@@ -449,17 +475,14 @@ DivLoopTrans::fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker) {
      lcPhi->setIncomingBlock(0, exitingBlock);
    }
 
-// Implement live value updates
-  // attach live out updates to latches
+// Lower live value updates to selects
+  // lower update phis to explicit selects
+  // (latchUpdate phis have implicit incoming undef edges, these will break SSAUpdater in addTrackerUpdate)
   for (auto & itValueUpd : loopTracker.latchValueUpdates) {
     LoopTracker::ValueUpdate & valueUpd = itValueUpd.second;
     // replace the update phi with a proper blend cascade
-    Instruction & updateInst = implementPhiUpdate(valueUpd);
-    valueUpd.latchUpdate = nullptr; // lowered
-    // chain in the update instructions
-    liveOutTracker.addTrackerUpdate(*valueUpd.valueTracker, updateInst);
+    valueUpd.latchUpdate = &implementPhiUpdate(valueUpd); // there will only be one update phi per loop level (in the pure latch with incoming edges for all divergent exits)
   }
-
 
 // Implement the live mask update
   auto & liveUpdatePhi = *loopTracker.maskUpdatePhi;
@@ -467,11 +490,37 @@ DivLoopTrans::fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker) {
   // all threads that survive to this point are live
   auto & survivorMask = maskEx.requestEdgeMask(*loopTracker.oldLatch, *loopTracker.pureLatch);
   survivorMask.setName(liveUpdatePhi.getName());
+
   IF_DEBUG_DLT errs() << "LIVE UPDATE FOR " << loop.getName() << "\n\told PHI: " << liveUpdatePhi << "\n\treplacement: " << survivorMask << "\n";
   liveUpdatePhi.replaceAllUsesWith(&survivorMask);
   vecInfo.dropVectorShape(liveUpdatePhi);
   liveUpdatePhi.eraseFromParent();
+}
 
+void
+DivLoopTrans::fixLiveOutUses(Loop & loop, LiveValueTracker & liveOutTracker) {
+  IF_DEBUG_DLT { errs() << "# fixLiveOutUses  " << loop.getName() << "\n"; }
+
+  // loop control handles
+  LoopTracker & loopTracker = getLoopTracker(loop);
+  auto * divExitBlock = loop.getUniqueExitBlock();
+  auto * exitingBlock = loop.getExitingBlock();
+  assert(exitingBlock == loopTracker.pureLatch);
+  assert(divExitBlock && "control transform should leave a single exit");
+
+
+// from this point on the region must not contain PHI nodes that have inconsistent predecessor lists with their parent blocks
+  // Otw SSAUpdater will break! (llvm FindPredecessorBlocks)
+
+// promote live value updates to the latch blocks
+  // attach explicit live out updates to latches
+  for (auto & itValueUpd : loopTracker.latchValueUpdates) {
+    LoopTracker::ValueUpdate & valueUpd = itValueUpd.second;
+    // chain in the update instructions
+    liveOutTracker.addTrackerUpdate(*valueUpd.valueTracker, *valueUpd.latchUpdate);
+  }
+
+#if 0
 // materialize exit masks (LCSSA)
   // repair exit mask uses
   IF_DEBUG_DLT { errs() << "Patching exit mask phis in " << divExitBlock->getName() << "\n"; }
@@ -501,6 +550,7 @@ DivLoopTrans::fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker) {
       IF_DEBUG_DLT { errs() << "\t (fixed) exitPhi: " << *userPhi << "\n"; }
     }
   }
+#endif
 
 
 // fix live outs in exit blocks
@@ -521,7 +571,6 @@ DivLoopTrans::fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker) {
      };
 
      auto & liveOutInst = cast<Instruction>(liveOut);
-
      // TODO check if this is a live out to a kill exiconst t
      if (isKillPhi(*lcPhi)) {
        IF_DEBUG_DLT errs() << "\tkill exit liveout OR exit mask. skip.\n";
@@ -530,9 +579,17 @@ DivLoopTrans::fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker) {
 
      // otw replace old live out with tracker live out state
      auto * tracker = liveOutTracker.getTrackerForLiveOut(liveOutInst);
-     assert(tracker && "divergent exit live out was not tracked!");
 
-     IF_DEBUG_DLT errs() << "\tdivergent loop live out\n";
+     if (liveOutTracker.isTrackerPhi(liveOutInst)) {
+       // exit trackers insert their header tracker phi directly in LCSSA phis
+       IF_DEBUG_DLT errs() << "\t direct tracker use in LCSSA phi -> promote\n";
+       tracker = &cast<PHINode>(liveOutInst);
+     } else {
+       // regular tracked live outs have an associated tracker
+       assert(tracker && "divergent exit live out was not tracked!");
+       IF_DEBUG_DLT errs() << "\t use of live out in LCSSA phi -> promote\n";
+     }
+
      // get the live out value at this loop level
      auto & liveOutUpd = liveOutTracker.getLastTrackerStateAtLevel(*tracker, loop);
 
@@ -540,10 +597,6 @@ DivLoopTrans::fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker) {
    }
 
    IF_DEBUG_DLT vecInfo.dump();
-
-
-  // done: all loop exits are uniform now
-  vecInfo.setLoopDivergence(loop, true);
 }
 
 void
@@ -786,6 +839,7 @@ DivLoopTrans::convertToLatchExitLoop(Loop & loop, LiveValueTracker & liveOutTrac
 
        // Otw, hoist this LCSSA phi
        lcPhi.removeFromParent();
+       lcPhi.setIncomingBlock(0, loopTracker.pureLatch);
        InsertAtFront(latchExit, lcPhi);
        knownLiveOuts[liveOutInst] = &lcPhi;
      }
@@ -805,7 +859,7 @@ DivLoopTrans::convertToLatchExitLoop(Loop & loop, LiveValueTracker & liveOutTrac
 PHINode &
 LoopTracker::requestExitUpdate(BasicBlock & exit, PHINode & exitTracker) {
   auto it = latchExitUpdates.find(&exit);
-  if (it != latchExitUpdates.end()) return *it->second.latchUpdate;
+  if (it != latchExitUpdates.end()) return cast<PHINode>(*it->second.latchUpdate);
 
   IF_DEBUG_DLT { errs() << "# reqExitLatchPhi " << loop.getName() << ", exit " << exit.getName() << "\n"; }
 
@@ -872,6 +926,7 @@ DivLoopTrans::requestPureLatch(LoopTracker & loopTracker) {
 
   // latchPhi updates the loop mask depending on the predecessors
   // the pure latch is the dedicated predecessor of the loop header so we can safely use the live.upd mask here
+  loopTracker.loopMaskPhi.addIncoming(UndefValue::get(Type::getInt1Ty(header.getContext())), loop.getLoopPreheader());
   loopTracker.loopMaskPhi.addIncoming(&latchPhi, &pureLatchBlock);
 
   // insert on the latche edge
@@ -887,6 +942,8 @@ DivLoopTrans::requestPureLatch(LoopTracker & loopTracker) {
   vecInfo.setVectorShape(pureLatchBr, VectorShape::uni());
 
   // broken edge to loop header -> fix incoming blocks
+#if 0
+  // TODO remove should be redundant with latch control transform
   for (auto & inst : header) {
     auto * phi = dyn_cast<PHINode>(&inst);
     if (!phi) break;
@@ -894,11 +951,22 @@ DivLoopTrans::requestPureLatch(LoopTracker & loopTracker) {
     if (latchIdx < 0) continue;
     phi->setIncomingBlock(latchIdx, &pureLatchBlock);
   }
+#endif
 
   // register with LoopInfo & LoopTracker
   loop.addBasicBlockToLoop(&pureLatchBlock, loopInfo);
   loopTracker.pureLatch = &pureLatchBlock;
   loopTracker.oldLatch = &latchBlock;
+
+  // fix header phi incoming blocks (the pure latch breaks this edge)
+  for (auto & inst : header) {
+    auto * phi = dyn_cast<PHINode>(&inst);
+    if (!phi) break;
+    int latchIdx = phi->getBasicBlockIndex(loopTracker.oldLatch);
+    if (latchIdx >= 0) {
+      phi->setIncomingBlock(latchIdx, &pureLatchBlock);
+    }
+  }
 
   assert((loop.getLoopLatch() == &pureLatchBlock) && "latch replacement didn't work");
   return pureLatchBlock;
@@ -926,7 +994,10 @@ DivLoopTrans::addLoopInitMasks(llvm::Loop & loop) {
   auto & initMask = maskEx.requestJoinedEdgeMask(preHeadTerm, headerIndices);
 
   // attach the missing preheader input to the live mask
-  loopTracker->loopMaskPhi.addIncoming(&initMask, &loopPreHead);
+  int initIdx = loopTracker->loopMaskPhi.getBasicBlockIndex(&loopPreHead);
+  assert(initIdx >= 0 && "loop pre-header has changed!");
+
+  loopTracker->loopMaskPhi.setIncomingValue(initIdx, &initMask);
 
   auto * divExit = loop.getExitBlock();
   assert(divExit);
@@ -1029,21 +1100,29 @@ DivLoopTrans::transformDivergentLoops() {
   }
 
   // repair value flow in tracker/latch updates and live out uses
-  IF_DEBUG_DLT { errs() << "# 2. repairing live out value flow:\n"; }
+  IF_DEBUG_DLT { errs() << "# 2. materialize value tracker updates:\n"; }
   for (auto * loop : loopInfo) {
     fixDivergentLoopUpdates(*loop, liveOutTracker);
+  }
+  IF_DEBUG_DLT { errs() << "# vecInfo after value tracker materialization:\n"; vecInfo.dump(); }
+
+  // repair live out uses
+  IF_DEBUG_DLT { errs() << "# 3. repairing live out value flow:\n"; }
+  for (auto * loop : loopInfo) {
+    fixDivergentLiveOutUses(*loop, liveOutTracker);
   }
   IF_DEBUG_DLT { errs() << "# vecInfo after liveout repair:\n"; vecInfo.dump(); }
 
   // request initial loop live masks
-  IF_DEBUG_DLT { errs() << "# 3. requesting initial loop live masks:\n"; }
+  IF_DEBUG_DLT { errs() << "# 4. requesting initial loop live masks:\n"; }
   for (auto * loop : loopInfo) {
     addLoopInitMasks(*loop);
   }
 
+  // TODO we must not do this or we cannot use SSAUpdater
   // add missing default input to latch updates
-  IF_DEBUG_DLT { errs() << "# 4. adding default inputs to latch update phis:\n"; }
-  addDefaultInputsToLatchUpdates();
+  // IF_DEBUG_DLT { errs() << "# 4. adding default inputs to latch update phis:\n"; }
+  // addDefaultInputsToLatchUpdates();
 
   IF_DEBUG_DLT {
     errs() << "-- divLoopTrans finished. VecInfo::\n";
