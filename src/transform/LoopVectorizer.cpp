@@ -151,7 +151,8 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 // check the dependence distance of this loop
   int depDist = getDependenceDistance(L);
   if (depDist <= 1) {
-    Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Min dependence distance was " << depDist << "\n";
+    // too verbose
+    // Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Min dependence distance was " << depDist << "\n";
     return false;
   }
 
