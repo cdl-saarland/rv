@@ -202,11 +202,10 @@ public:
 
     assert((loopInfo.getLoopFor(updateInst.getParent()) == currentLoop) && "updating on wrong loop level");
 
+    // promote exit update to latch
     IF_DEBUG_DLT { errs() << "# addTrackerUpdate " << updateInst << " for update " << updateInst.getName() << "\n"; }
     while (isa<PHINode>(currentLiveInDef)) {
       auto & currPhi = *cast<PHINode>(currentLiveInDef);
-      IF_DEBUG_DLT { errs() << "\t- partial def: " << currentPartialDef->getName() << " to latch of tracker PHI " << currPhi.getName() << "\n"; }
-
       assert(currentLoop == loopInfo.getLoopFor(currPhi.getParent()) && "curr header PHI and curr loop out of sync");
 
       // we need to promote the live out tracker to its user outside of thsi loop
@@ -215,23 +214,28 @@ public:
       auto & currLoopHeader = *currPhi.getParent();
       auto & currLatchBlock = *currentLoop->getLoopLatch();
 
+      IF_DEBUG_DLT { errs() << "\t- partial def: " << currentPartialDef->getName() << " to latch " << currLatchBlock.getName() << " of tracker PHI " << currPhi.getName() << "\n"; }
+
       // update SSA down to the latch to get a dominating definition
       if (!domTree.dominates(defBlock, &currLatchBlock)) {
         std::string phiName = currentLiveInDef->getName().str() + ".prom";
 
-        // promote exit update to latch
+        // prepare ssa repair
         SmallVector<PHINode*, 8> phiVec;
         SSAUpdater ssaUpdater(&phiVec);
         ssaUpdater.Initialize(tracker.getType(), phiName);
+
         ssaUpdater.AddAvailableValue(&currLoopHeader, &currPhi);
+        IF_DEBUG_DLT { errs() << "\t\t def " << currPhi.getName() << " @ " << currLoopHeader.getName() << "\n"; }
         ssaUpdater.AddAvailableValue(defBlock, currentPartialDef);
+        IF_DEBUG_DLT { errs() << "\t\t def " << currentPartialDef->getName() << " @ " << defBlock->getName() << "\n"; }
         auto * promotedUpdate = ssaUpdater.GetValueAtEndOfBlock(&currLatchBlock);
         assert(isa<Instruction>(promotedUpdate));
         currentPartialDef = cast<Instruction>(promotedUpdate);
 
-        for (auto * phi : phiVec) {
-          vecInfo.setVectorShape(*phi, trackerShape);
-        }
+         for (auto * phi : phiVec) {
+           vecInfo.setVectorShape(*phi, trackerShape);
+         }
       }
 
       // the definition is dominating at the latch
@@ -435,6 +439,15 @@ DivLoopTrans::fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker) {
   assert(exitingBlock == loopTracker.pureLatch);
   assert(divExitBlock && "control transform should leave a single exit");
 
+// repair LCSSA phis (SSAUpdater uses these to determine predecessors)
+   IF_DEBUG_DLT { errs() << "Patching live out values in " << divExitBlock->getName() << "\n"; }
+   for (auto & inst : *divExitBlock) {
+     auto * lcPhi = dyn_cast<PHINode>(&inst);
+     if (!lcPhi) break;
+
+     // all lcPhis receive their incoming value from the pure latch
+     lcPhi->setIncomingBlock(0, exitingBlock);
+   }
 
 // Implement live value updates
   // attach live out updates to latches
@@ -498,7 +511,7 @@ DivLoopTrans::fixLatchUpdates(Loop & loop, LiveValueTracker & liveOutTracker) {
      if (!lcPhi) break;
 
      // all lcPhis receive their incoming value from the pure latch
-     lcPhi->setIncomingBlock(0, exitingBlock);
+     // lcPhi->setIncomingBlock(0, exitingBlock); // doing this early to have consistent PHI nodes for SSAUpdater (addTrackerUpdate)
      IF_DEBUG_DLT { errs() << "- lcPhi : " << *lcPhi << "\n"; }
 
      auto & liveOut = *lcPhi->getIncomingValue(0);
