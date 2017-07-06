@@ -27,6 +27,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/Passes/PassBuilder.h"
 
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/PostDominators.h"
@@ -273,7 +274,16 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
   // vectorize the prepared loop embedding it in its context
   ValueToValueMapTy vecMap;
-  bool vectorizeOk = vectorizer->vectorize(vecInfo, domTreeNew, *LI, *SE, *MDR, &vecMap);
+
+  // FIXME SE is invalid at this point..
+  PassBuilder pb;
+  FunctionAnalysisManager fam;
+  pb.registerFunctionAnalyses(fam);
+  ScalarEvolutionAnalysis adhocAnalysis;
+  adhocAnalysis.run(*F, fam);
+
+  auto & localSE = fam.getResult<ScalarEvolutionAnalysis>(*F);
+  bool vectorizeOk = vectorizer->vectorize(vecInfo, domTreeNew, *LI, localSE, *MDR, &vecMap);
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
 
