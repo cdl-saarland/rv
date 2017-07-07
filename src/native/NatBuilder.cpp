@@ -2327,12 +2327,12 @@ bool NatBuilder::isPseudointerleaved(Instruction *inst, Value *addr, int byteSiz
     if (isLoad && pseudointerValueMap.count(addr))
       pseudointerValueMap.erase(addr);
     else if (!isLoad) {
-      Instruction *prevInst = inst->getPrevNode();
       Value *baseAddr = getBasePointer(addr);
       LoadInst *load;
       bool erase = false;
 
-      do {
+      Instruction *prevInst = inst;
+      while ((prevInst = prevInst->getPrevNode())) {
         CallInst *call = dyn_cast<CallInst>(prevInst);
         StoreInst *store = dyn_cast<StoreInst>(prevInst);
         load = dyn_cast<LoadInst>(prevInst);
@@ -2350,7 +2350,8 @@ bool NatBuilder::isPseudointerleaved(Instruction *inst, Value *addr, int byteSiz
           }
         }
 
-      } while ((prevInst = prevInst->getPrevNode()) && !(load && load->getPointerOperand() == addr));
+        if (load && load->getPointerOperand() == addr) break;
+      }
 
       if (erase)
         pseudointerValueMap.erase(addr);
