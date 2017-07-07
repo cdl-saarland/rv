@@ -127,13 +127,15 @@ bool MemoryAccessGrouper::getConstantOffset(const SCEV *a, const SCEV *b, int &o
   return false;
 }
 
-MemoryGroup MemoryAccessGrouper::getMemoryGroup(const SCEV *scev) {
+const MemoryGroup & MemoryAccessGrouper::getMemoryGroup(const SCEV *scev) {
+  static MemoryGroup emptyGroup;
+
   for (MemoryGroup &group : memoryGroups) {
     auto findIt = std::find(group.begin(), group.end(), scev);
     if (findIt != group.end())
       return group;
   }
-  return MemoryGroup();
+  return emptyGroup;
 }
 
 // MemoryAccessGrouper_END
@@ -193,7 +195,7 @@ void InstructionGrouper::add(Instruction *instr, MemoryDependenceResults &MDR) {
     if (instrGroup.insert(instr, MDR))
       return;
   }
-  
+
   if (isa<CallInst>(instr))
     return;
 
@@ -210,13 +212,15 @@ bool InstructionGrouper::empty() {
   return instructionGroups.empty();
 }
 
-InstructionGroup InstructionGrouper::getInstructionGroup(llvm::Instruction *instr) {
+const InstructionGroup & InstructionGrouper::getInstructionGroup(llvm::Instruction *instr) {
+  static InstructionGroup emptyGroup;
+
   for (InstructionGroup &group: instructionGroups) {
     auto findIt = std::find(group.begin(), group.end(), instr);
     if (findIt != group.end())
       return group;
   }
-  return InstructionGroup();
+  return emptyGroup;
 }
 
 // InstructionGrouper_END

@@ -39,7 +39,7 @@ namespace native {
 
     MemoryAccessGrouper(llvm::ScalarEvolution &SE, unsigned laneByteSize);
     const llvm::SCEV *add(llvm::Value *addrVal);
-    MemoryGroup getMemoryGroup(const llvm::SCEV *scev);
+    const MemoryGroup & getMemoryGroup(const llvm::SCEV *scev);
   };
 
   class InstructionGroup {
@@ -66,7 +66,7 @@ namespace native {
     void add(llvm::Instruction *instr, llvm::MemoryDependenceResults &MDR);
     void clearAll();
     bool empty();
-    InstructionGroup getInstructionGroup(llvm::Instruction *instr);
+    const InstructionGroup & getInstructionGroup(llvm::Instruction *instr);
   };
 }
 
