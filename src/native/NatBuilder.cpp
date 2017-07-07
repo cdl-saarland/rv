@@ -85,47 +85,47 @@ void NatBuilder::printStatistics() {
   std::ofstream file;
   file.open(fileName);
 
+  // header
+  file << "Feature,Frequency\n";
+
   // memory statistics
-  file << "#scatters," << numScatter << "\n";
-  file << "#gathers," << numGather << "\n";
-  file << "#pseudointer-masked-loads," << numPseudoMaskedLoads << "\n";
-  file << "#pseudointer-masked-stores," << numPseudoMaskedStores << "\n";
-  file << "#pseudointer-loads," << numPseudoLoads << "\n";
-  file << "#pseudointer-stores," << numPseudoStores << "\n";
-  file << "#interleaved-masked-loads," << numInterMaskedLoads << "\n";
-  file << "#interleaved-masked-stores," << numInterMaskedStores << "\n";
-  file << "#interleaved-loads," << numInterLoads << "\n";
-  file << "#interleaved-stores," << numInterStores << "\n";
-  file << "#contiguous-masked-loads," << numContMaskedLoads << "\n";
-  file << "#contiguous-masked-stores," << numContMaskedStores << "\n";
-  file << "#contiguous-loads," << numContLoads << "\n";
-  file << "#contiguous-stores," << numContStores << "\n";
-  file << "#uniform-masked-loads," << numUniMaskedLoads << "\n";
-  file << "#uniform-masked-stores," << numUniMaskedStores << "\n";
-  file << "#uniform-loads," << numUniLoads << "\n";
-  file << "#uniform-stores," << numUniStores << "\n";
-  file << "\n";
+  file << (config.useScatterGatherIntrinsics ? "scatter," : "cascade-store,") << numScatter << "\n";
+  file << (config.useScatterGatherIntrinsics ? "gather," : "cascade-load,")  << numGather << "\n";
+  file << "pseudointer-masked-load," << numPseudoMaskedLoads << "\n";
+  file << "pseudointer-masked-store," << numPseudoMaskedStores << "\n";
+  file << "pseudointer-load," << numPseudoLoads << "\n";
+  file << "pseudointer-store," << numPseudoStores << "\n";
+  file << "interleaved-masked-load," << numInterMaskedLoads << "\n";
+  file << "interleaved-masked-store," << numInterMaskedStores << "\n";
+  file << "interleaved-load," << numInterLoads << "\n";
+  file << "interleaved-store," << numInterStores << "\n";
+  file << "contiguous-masked-load," << numContMaskedLoads << "\n";
+  file << "contiguous-masked-store," << numContMaskedStores << "\n";
+  file << "contiguous-load," << numContLoads << "\n";
+  file << "contiguous-store," << numContStores << "\n";
+  file << "uniform-masked-load," << numUniMaskedLoads << "\n";
+  file << "uniform-masked-store," << numUniMaskedStores << "\n";
+  file << "uniform-load," << numUniLoads << "\n";
+  file << "uniform-store," << numUniStores << "\n";
 
   // lazy statistics
-  file << "#vector-GEPs," << numVecGEPs << "\n";
-  file << "#scalar-GEPs," << numScalGEPs << "\n";
-  file << "#interleaved-GEPs," << numInterGEPs << "\n";
-  file << "#vector-BCs," << numVecBCs << "\n";
-  file << "#scalar-BCs," << numScalBCs << "\n";
-  file << "\n";
+  file << "vector-GEP," << numVecGEPs << "\n";
+  file << "scalar-GEP," << numScalGEPs << "\n";
+  file << "interleaved-GEP," << numInterGEPs << "\n";
+  file << "vector-BC," << numVecBCs << "\n";
+  file << "scalar-BC," << numScalBCs << "\n";
 
   // call statistics
-  file << "#vec-calls," << numVecCalls << "\n";
-  file << "#semi-vec-calls," << numSemiCalls << "\n";
-  file << "#replicated-calls," << numFallCalls << "\n";
-  file << "#cascaded-calls," << numCascadeCalls << "\n";
-  file << "#rv-intrinsics," << numRVIntrinsics << "\n";
-  file << "\n";
+  file << "vec-call," << numVecCalls << "\n";
+  file << "semi-vec-call," << numSemiCalls << "\n";
+  file << "replicated-call," << numFallCalls << "\n";
+  file << "cascaded-call," << numCascadeCalls << "\n";
+  file << "rv-intrinsic," << numRVIntrinsics << "\n";
 
   // general statistics
-  file << "#scalarized," << numScalarized << "\n";
-  file << "#vectorized," << numVectorized << "\n";
-  file << "#replicated," << numFallbacked << "\n";
+  file << "scalarized," << numScalarized << "\n";
+  file << "vectorized," << numVectorized << "\n";
+  file << "replicated," << numFallbacked << "\n";
 
   file.close();
 }
