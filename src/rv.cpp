@@ -184,20 +184,12 @@ void
 VectorizerInterface::analyze(VectorizationInfo& vecInfo,
                              const CDG& cdg,
                              const DFG& dfg,
-                             const LoopInfo& loopInfo,
-                             PostDominatorTree& postDomTree,
-                             const DominatorTree& domTree)
+                             const LoopInfo& loopInfo)
 {
     auto & scalarFn = vecInfo.getScalarFunction();
 
     // determines value and control shapes
-    VectorizationAnalysis vea(config,
-                              platInfo,
-                              vecInfo,
-                              cdg,
-                              dfg,
-                              loopInfo,
-                              domTree, postDomTree);
+    VectorizationAnalysis vea(config, platInfo, vecInfo, cdg, dfg, loopInfo);
     vea.analyze(scalarFn);
 }
 

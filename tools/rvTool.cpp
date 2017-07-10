@@ -211,7 +211,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
 
     // vectorizationAnalysis
-    vectorizer.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
+    vectorizer.analyze(vecInfo, cdg, dfg, loopInfo);
 
     // control conversion
     vectorizer.linearize(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
@@ -385,7 +385,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     loopInfo.verify(domTree);
 
     // vectorizationAnalysis
-    vectorizer.analyze(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
+    vectorizer.analyze(vecInfo, cdg, dfg, loopInfo);
 
     // mask generator
     vectorizer.linearize(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);

@@ -99,7 +99,6 @@ GetDomRegion(DomTreeNodeBase<BasicBlock> & domNode, ConstBlockSet & domRegion) {
 BranchDependenceAnalysis::BranchDependenceAnalysis(Function & F,
                                                    const CDG & _cdg,
                                                    const DFG & _dfg,
-                                                   PostDominatorTree& postDomTree,
                                                    const LoopInfo & _loopInfo)
 : pdClosureMap()
 , domClosureMap()
@@ -107,7 +106,6 @@ BranchDependenceAnalysis::BranchDependenceAnalysis(Function & F,
 , effectedBlocks_new()
 , cdg(_cdg)
 , dfg(_dfg)
-, postdomtree(postDomTree)
 , loopInfo(_loopInfo)
 {
 
@@ -238,30 +236,6 @@ BranchDependenceAnalysis::BranchDependenceAnalysis(Function & F,
     }
   }
 
-// taint LCSSA phis on loop exit divergence
-  std::vector<Loop*> loopStack;
-  for (auto * loop : loopInfo) loopStack.push_back(loop);
-
-  while (!loopStack.empty()) {
-    auto * loop = loopStack.back();
-    loopStack.pop_back();
-
-    for (auto * childLoop : *loop) {
-      loopStack.push_back(childLoop);
-    }
-
-    // tain all exit blocks if any exit is divergent
-    SmallVector<Edge, 4> exitEdges;
-    loop->getExitEdges(exitEdges);
-
-    // the loop header encodes the loop divergence
-    // make the loop header dependent on loop exit conditions
-    auto * loopHeader = loop->getHeader();
-    for (auto ee : exitEdges) {
-      inverseMap[loopHeader].insert(ee.first);
-    }
-  }
-
 // invert result for look up table
   for (auto it : inverseMap) {
     const auto * phiBlock = it.first;
@@ -349,26 +323,16 @@ BranchDependenceAnalysis::computeDomClosure(const BasicBlock & b, ConstBlockSet 
 
 const ConstBlockSet&
 BranchDependenceAnalysis::getEffectedBlocks(const llvm::TerminatorInst& term) const {
-  return getEffectedBlocks_new(term);
-}
-
-const ConstBlockSet&
-BranchDependenceAnalysis::getEffectedBlocks_new(const llvm::TerminatorInst & term) const {
   auto it = effectedBlocks_new.find(&term);
   if (it != effectedBlocks_new.end()) return it->second;
 
   const BasicBlock* parent = term.getParent();
-  const auto* postdominatornode = postdomtree.getNode(const_cast<BasicBlock*>(parent))->getIDom();
-  const auto* postdominator = postdominatornode ? postdominatornode->getBlock() : nullptr;
 
   // Find divergent blocks by node-disjoint paths
-  for (const BasicBlock& BB : *parent->getParent()) {
-    if (postdominator && !postdomtree.dominates(postdominator, &BB)) {
-      continue;
-    }
-
-    if (DPD.divergentPaths(parent, &BB)) {
-      effectedBlocks_new[&term].insert(&BB);
+  // Refine the old analysis
+  for (const BasicBlock* BB : getEffectedBlocks_old(term)) {
+    if (DPD.divergentPaths(parent, BB)) {
+      effectedBlocks_new[&term].insert(BB);
     }
   }
 

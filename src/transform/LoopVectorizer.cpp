@@ -256,7 +256,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
 // Vectorize
   // vectorizationAnalysis
-  vectorizer->analyze(vecInfo, cdg, dfg, *LI, *PDT, *DT);
+  vectorizer->analyze(vecInfo, cdg, dfg, *LI);
 
   if (enableDiagOutput) {
     errs() << "-- VA result --\n";

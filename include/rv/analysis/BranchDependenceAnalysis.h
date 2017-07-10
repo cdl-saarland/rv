@@ -66,7 +66,6 @@ class BranchDependenceAnalysis {
   mutable llvm::DenseMap<const llvm::TerminatorInst*, ConstBlockSet> effectedBlocks_new;
   const llvm::CDG & cdg;
   const llvm::DFG & dfg;
-  llvm::PostDominatorTree& postdomtree;
   const llvm::LoopInfo & loopInfo;
 
   void computePostDomClosure(const llvm::BasicBlock & x, ConstBlockSet & closure);
@@ -76,13 +75,10 @@ public:
   BranchDependenceAnalysis(llvm::Function & F,
                            const llvm::CDG & cdg,
                            const llvm::DFG & dfg,
-                           llvm::PostDominatorTree& postDomTree,
                            const llvm::LoopInfo & loopInfo);
 
   /// \brief returns the set of blocks whose PHI nodes become divergent if @branch is divergent
   const ConstBlockSet & getEffectedBlocks(const llvm::TerminatorInst & term) const;
-
-  const ConstBlockSet & getEffectedBlocks_new(const llvm::TerminatorInst & term) const;
 
   const ConstBlockSet& getEffectedBlocks_old(const llvm::TerminatorInst & term) const {
     auto it = effectedBlocks_old.find(&term);

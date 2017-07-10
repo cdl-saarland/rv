@@ -53,8 +53,6 @@ VAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
   Info.addRequired<DFGBaseWrapper<false>>();
   Info.addRequired<LoopInfoWrapperPass>();
   Info.addRequired<VectorizationInfoProxyPass>();
-  Info.addRequired<DominatorTreeWrapperPass>();
-  Info.addRequired<PostDominatorTreeWrapperPass>();
 
   Info.setPreservesAll();
 }
@@ -67,10 +65,8 @@ VAWrapperPass::runOnFunction(Function& F) {
   const CDG& cdg = *getAnalysis<llvm::CDGWrapper>().getDFG();
   const DFG& dfg = *getAnalysis<llvm::DFGWrapper>().getDFG();
   const LoopInfo& LoopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-  const auto & domTree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  auto & postDomTree = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
 
-  VectorizationAnalysis vea(config, platInfo, Vecinfo, cdg, dfg, LoopInfo, domTree, postDomTree);
+  VectorizationAnalysis vea(config, platInfo, Vecinfo, cdg, dfg, LoopInfo);
   vea.analyze(F);
 
   return false;
@@ -81,16 +77,14 @@ VectorizationAnalysis::VectorizationAnalysis(Config _config,
                                              VectorizationInfo& VecInfo,
                                              const CDG& cdg,
                                              const DFG& dfg,
-                                             const LoopInfo& LoopInfo,
-                                             const DominatorTree& domTree,
-                                             PostDominatorTree& postDomTree)
+                                             const LoopInfo& LoopInfo)
 
         : config(_config),
           mVecinfo(VecInfo),
           layout(platInfo.getDataLayout()),
           mLoopInfo(LoopInfo),
           mFuncinfo(platInfo.getFunctionMappings()),
-          BDA(mVecinfo.getScalarFunction(), cdg, dfg, postDomTree, LoopInfo)
+          BDA(mVecinfo.getScalarFunction(), cdg, dfg, LoopInfo)
 { }
 
 void

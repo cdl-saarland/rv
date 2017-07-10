@@ -58,9 +58,7 @@ public:
     void analyze(VectorizationInfo& vecInfo,
                  const llvm::CDG& cdg,
                  const llvm::DFG& dfg,
-                 const llvm::LoopInfo& loopInfo,
-                 llvm::PostDominatorTree& postDomTree,
-                 const llvm::DominatorTree& domTree);
+                 const llvm::LoopInfo& loopInfo);
 
     //
     // Linearize divergent regions of the scalar function to preserve semantics for the
