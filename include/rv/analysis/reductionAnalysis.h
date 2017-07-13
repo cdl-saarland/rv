@@ -13,63 +13,53 @@
 
 namespace rv {
 
+// recognized kinds of reductions/recurrences
+enum class RedKind : int32_t {
+  Top = -1, // not a recognized reduction
+  Bot = 0, // not yet analyzed
+  Add = 1,
+  Mul = 2,
+  And = 3,
+  Or = 4
+}
 
-// models a primitive value reduction of the form
-// @phi [@initInputIndex, V]. [@loopInputIndex, @reductInst]
-// where @reductInst has two operands: @phi and @reductInput
-class Reduction {
-public:
-  // neutral element of this reduction operation
-  llvm::Constant & neutralElem;
-  // instruction feeding into the reduction phi
-  llvm::Instruction & reductorInst;
-  // reduction loop that contains the header phi
-  llvm::Loop & redLoop;
+static const char* to_string(RedKind red);
 
-// reduction phi
-  llvm::PHINode & phi;
-  int initInputIndex;
-  int loopInputIndex;
+// get the neutral element for this reduction kind and data type
+static Constant& getNeutralElement(RedKind redKind, Type & chainType);
 
-  llvm::Instruction & getReductor() {
-    return reductorInst;
-  }
+// try to infer the reduction kind of the operator implemented by inst
+static RedKind InferRedKind(Instruction & inst);
 
-  llvm::Value & getInitValue() {
-    return *phi.getIncomingValue(initInputIndex);
-  }
+// materialize a single instance of firstArg [[RedKind~OpCode]] secondArg
+static Instruction& CreateReduce(IRBuilder<> & builder, Value & firstArg, Value & secondArg);
 
-  // operand index of @phi in @reductorInst
-  int getReductorPhiIndex() {
-    int phiIdx = 1;
-    if (reductorInst.getOperand(0) == &phi) {
-      phiIdx = 0;
-    }
-    assert(reductorInst.getOperand(phiIdx) == &phi && "invalid reduction");
-    return phiIdx;
-  }
+// reduce the vector @vectorVal to a scalar value (using redKind)
+static Value & CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vectorVal);
 
-  // value being reduced by @reductorInst into @phi
-  llvm::Value & getReducibleValue() {
-    int phiIdx = getReductorPhiIndex();
-    return *reductorInst.getOperand(1 - phiIdx);
+
+struct Reduction {
+  // all users outside of @levelLoop may reduce any of the instructions in @elements using a @kind reduction
+  Loop * levelLoop;
+  // the kind of reduction pattern
+  RedKind kind;
+  // the instructions that make up this reduction pattern
+  std::set<Instruction*> elements;
+
+  Reduction(Loop & _levelLoop, Instruction & _seedElem)
+  : levelLoop(&_levelLoop)
+  , kind(RedKind::Bot)
+  , elements()
+  {
+    elements.insert(&_seedElem);
   }
 
   void dump() const;
-
-  rv::VectorShape
-  getShape(int vectorWidth);
-
-  Reduction(llvm::Constant & _neutralElem, llvm::Instruction & _reductorInst, llvm::Loop & _reductLoop, llvm::PHINode & _phi, int _initInputIndex, int _loopInputIndex)
-  : neutralElem(_neutralElem)
-  , reductorInst(_reductorInst)
-  , redLoop(_reductLoop)
-  , phi(_phi)
-  , initInputIndex(_initInputIndex)
-  , loopInputIndex(_loopInputIndex)
-  {}
+  void print(llvm::raw_ostream & out) const;
 };
 
+// infer the shape of a reduction
+static rv::VectorShape InferShape(Reduction & red);
 
 class ReductionAnalysis {
   std::map<llvm::Instruction*, Reduction*> reductMap;
@@ -77,7 +67,6 @@ class ReductionAnalysis {
   const llvm::LoopInfo & loopInfo;
 
   void analyze(llvm::Loop & loop);
-  llvm::Constant * inferNeutralElement(llvm::Instruction & reductInst);
   Reduction* tryInferReduction(llvm::PHINode & headerPhi);
 
 public:
@@ -90,7 +79,7 @@ public:
   void updateForClones(llvm::LoopInfo & LI, llvm::ValueToValueMapTy & cloneMap);
 
   // look up a reduction by its constituent
-  Reduction * getReductionInfo(llvm::Instruction & reductor) const;
+  Reduction * getReductionInfo(llvm::Instruction & inst) const;
 };
 
 

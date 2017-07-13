@@ -11,6 +11,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/IR/IRBuilder.h>
 
 #include "rvConfig.h"
 #include "rv/vectorShape.h"
@@ -25,12 +26,72 @@ using namespace llvm;
 
 namespace rv {
 
+
+static
+const char *
+to_string(RedKind red) {
+  switch (red) {
+    case RedKind::Bot: return "Bot";
+    case RedKind::Top: return "Top";
+    case RedKind::Add: return "Add";
+    case RedKind::Mul: return "Mul";
+    case RedKind::And: return "And";
+    case RedKind::Or: return "Or";
+    default:
+      abort();
+  }
+}
+
+// try to infer the reduction kind of the operator implemented by inst
+static RedKind
+InferRedKind(Instruction & inst) {
+  switch (inst.getOpcode()) {
+    case Instruction::FAdd:
+    case Instruction::Add:
+      return RedKind::Add;
+
+    case Instruction::FMul:
+    case Instruction::Mul:
+      return RedKind::Mul;
+
+    case Instruction::Or:
+      return RedKind::Or;
+
+    case Instruction::And:
+      return RedKind::And;
+
+    default:
+      return RedKind::Top;
+  }
+  abort();
+}
+
+// materialize a single instance of firstArg [[RedKind~OpCode]] secondArg
+static Instruction&
+CreateReduce(IRBuilder<> & builder, Value & firstArg, Value & secondArg) {
+  abort();
+}
+
+// reduce the vector @vectorVal to a scalar value (using redKind)
+static Value &
+CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vectorVal) {
+  abort();
+}
+
+
+
+
 // struct Reduction
 
 
 void
 Reduction::dump() const {
-  errs() << "Reduction { " << phi.getName() << " reductor " << reductorInst << " with neutral elem " << neutralElem << "}\n";
+  print(errs());
+}
+
+void
+Reduction::print(raw_ostream & out) {
+   out << "Reduction { " << phi.getName() << " reductor " << reductorInst << " with neutral elem " << neutralElem << "}\n";
 }
 
 
@@ -150,19 +211,129 @@ ReductionAnalysis::tryInferReduction(PHINode & headerPhi) {
   return red;
 }
 
+RedNode &
+ReductionAnalysis::requestNode(PHINode & chainPhi, Instruction & inst) {
+  auto it = reductMap.find(&inst);
+  if (it == reductMap.end()) {
+    auto * entry = new RedNode(inst, chainPhi, RedKind::Bot);
+    reductMap[&inst] = entry;
+    return *entry;
+  } else {
+    return *it->second;
+  }
+}
+
+static RedKind JoinKinds(RedKind A, RedKind B) {
+  if (A == RedKind::Bot) return B;
+  if (B == RedKind::Bot) return A;
+  if (A != B) return RedKind::Top;
+  return A;
+}
+
+void
+ReductionAnalysis::visitHeaderPhi(RedNode & phiNode, NodeStack & nodeStack) {
+  auto & BB = *phiNode.recPhi.getParent();
+  auto * pLoop = loopInfo.getLoopFor(&BB);
+  assert(pLoop);
+
+  auto & headerPhi = phiNode.recPhi;
+  auto & loop = *pLoop;
+
+  for (size_t i = 0; i < headerPhi.getNumIncomingValues(); ++i) {
+
+    auto & inVal = *headerPhi.getIncomingValue(i);
+    auto * inInst = dyn_cast<Instruction>(&inVal);
+
+    // loop carried input input
+    if (inInst && loop.contains(inInst->getParent())) {
+      auto & inputLoop = *loopInfo.getLoopFor(inInst->getParent());
+      auto * inRed = getReductionInfo(*inInst);
+
+      // input from a nested loop (already analyzed)
+      if (&inputLoop != &loop) {
+        if (!inRed) {
+          // non-reduction input
+          continue;
+        } else {
+        // reduction has to be compatible (for now)
+          // TODO this is actually only the case if the reduction can not be completly reduced outside of that loop
+          auto joined = JoinKinds(phiNode.kind, inRed->kind);
+          updateKind(phiNode, joined);
+          continue;
+        }
+      }
+
+      if (inRed) {
+        auto & headerPhi = inRed->getHeaderPhi();
+
+        if (&headerPhi == inInst) {
+          // PHI recurrence
+          phiNode.kind = inRed->kind; // true?
+          continue;
+
+        } else {
+          auto instKind = inferKindFromInst(*inInst);
+          auto & instNode = requestNode(headerPhi, *inInst);
+
+          // chain in the local kind of this operation
+          auto joined = JoinKinds(instKind, phiNode.kind); // TODO define
+          phiNode.kind = joined;
+          instNode.kind = joined;
+
+          // if this kind is incompatible abort this reduction chain
+          if (joined == RedKind::Top) {
+            // TODO we need to taint the entire reduction chain
+          }
+
+          instNode.kind = phiNode.kind;
+          // uncharted input
+        }
+
+      } else {
+        // TODO this is an unmapped instruction
+      }
+
+    } else {
+      // the input is loop invariant
+      continue;
+    }
+  }
+
+  abort(); // TODO implement
+}
+
+void
+ReductionAnalysis::visitInputNode(RedNode & phiNode, NodeStack & nodeStack) {
+  abort(); // TODO implement
+}
+
+typedef std::pair<Instruction*, Reduction*> RedElem;
+typedef std::vector<RedElem> NodeStack;
+
 void
 ReductionAnalysis::analyze(Loop & loop) {
   for (auto * childLoop : loop) analyze(*childLoop);
 
+  NodeStack nodeStack;
   for (auto & inst : *loop.getHeader()) {
     auto * phi = dyn_cast<PHINode>(&inst);
     if (!phi) break;
 
-    auto * red = tryInferReduction(*phi);
-    if (!red) continue;
+    auto * node = new Reduction(loop, phi);
+    reductMap[phi] = node;
+    nodeStack.emplace_back(phi, node);
+  }
 
-    reductMap[phi] = red;
-    reductMap[&red->getReductor()] = red;
+  // TODO run work list algorithm
+  while (!nodeStack.empty()) {
+    auto * node = nodeStack.back();
+    nodeStack.pop_back();
+
+    if (node->isHeaderPhi()) {
+      visitHeaderPhi(*node, nodeStack);
+    } else {
+      visitInputNode(*node, nodeStack);
+    }
   }
 }
 
@@ -173,7 +344,7 @@ ReductionAnalysis::analyze() {
   }
 }
 
-Reduction *
+RedNode *
 ReductionAnalysis::getReductionInfo(Instruction & inst) const {
   auto itReduct = reductMap.find(&inst);
   if (itReduct == reductMap.end()) {
@@ -185,7 +356,9 @@ ReductionAnalysis::getReductionInfo(Instruction & inst) const {
 
 void
 ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) {
-  std::vector<std::pair<Instruction*, Reduction*>> cloneVec;
+  abort(); // TODO implement
+#if 0
+  std::vector<std::pair<Instruction*, RedNode*>> cloneVec;
 
   // check for cloned phis and register new reductions for them
   for (auto itRed : reductMap) {
@@ -222,6 +395,7 @@ ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) 
   for (auto it : cloneVec) {
     reductMap[it.first] = it.second;
   }
+#endif
 }
 
 
