@@ -64,6 +64,7 @@ public:
   const llvm::DataLayout &getDataLayout() const { return mod.getDataLayout(); }
 
   llvm::Function *requestMaskReductionFunc(const std::string &name);
+  llvm::Function *requestVectorMaskReductionFunc(const std::string &name, size_t width);
 
 private:
   VectorMapping *inferMapping(llvm::Function &scalarFnc,

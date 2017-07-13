@@ -1803,15 +1803,27 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
   assert(cast<VectorType>(vector->getType())->getElementType()->isIntegerTy(1) &&
          "vector elements must have i1 type!");
 
-  // rv_all(x) == !rv_any(!x)
-  Type *i32VecType = VectorType::get(i32Ty, vectorWidth());
-  Type *intSIMDType = Type::getIntNTy(vector->getContext(), vectorWidth() * 32);
   Constant *simdFalseConst = ConstantInt::get(vector->getContext(), APInt::getMinValue(vectorWidth() * 32));
   if (isRv_all)
     vector = builder.CreateNot(vector, "rvall_cond_not");
-  Value *zext = builder.CreateZExt(vector, i32VecType, "ptest_zext");
-  Value *bc = builder.CreateBitCast(zext, intSIMDType, "ptest_bc");
-  Value *ptest = builder.CreateICmpNE(bc, simdFalseConst, "ptest_comp");
+
+  Value * ptest = nullptr;
+  // TODO from LLVM >= 5.0 use reduction intrinsics
+  // rv_all(x) == !rv_any(!x)
+  if (config.enableIRPolish) {
+    // this is a workaround until LLVM reduction intrinsics are available
+    // emit a rv_ptest intrinsic
+    auto * redFunc = platformInfo.requestVectorMaskReductionFunc("rv_reduce_or", vector->getType()->getVectorNumElements());
+    ptest = builder.CreateCall(redFunc, vector, "ptest");
+
+  } else {
+    // idiomatic x86 ptest pattern
+    Type *i32VecType = VectorType::get(i32Ty, vectorWidth());
+    Type *intSIMDType = Type::getIntNTy(vector->getContext(), vectorWidth() * 32);
+    Value *zext = builder.CreateSExt(vector, i32VecType, "ptest_zext");
+    Value *bc = builder.CreateBitCast(zext, intSIMDType, "ptest_bc");
+    ptest = builder.CreateICmpNE(bc, simdFalseConst, "ptest_comp");
+  }
 
   if (isRv_all)
     ptest = builder.CreateNot(ptest, "rvall_not");
@@ -1828,58 +1840,65 @@ Value *NatBuilder::maskInactiveLanes(Value *const value, const BasicBlock* const
   }
 }
 
+static
+bool
+IsPower2(int x) {
+  return x && !(x & (x - 1));
+}
+
 Value&
 NatBuilder::materializeVectorReduce(IRBuilder<> & builder, Value & initVal, Value & vecVal, Instruction & reductOp) {
   uint vecWidth = vecVal.getType()->getVectorNumElements();
 
   auto * intTy = Type::getInt32Ty(builder.getContext());
 
-  auto * accu = &vecVal;
+  // TODO from LLVM >= 5.0 use reduction intrinsics
+  if (IsPower2(vectorizationInfo.getVectorWidth())) {
+    auto * accu = &vecVal;
+    for (size_t range = vecWidth / 2; range >= 1; range /= 2) {
+      // create a permutation vector
+      std::vector<Constant*> shuffleVec;
+      shuffleVec.reserve(vecWidth);
 
-  for (int range = vecWidth / 2; range >= 1; range /= 2) {
-    // create a permutation vector
-    std::vector<Constant*> shuffleVec;
-    shuffleVec.reserve(vecWidth);
+      // 4 5 6 7 * * * *
+      // 2 3 * * * * * *
+      // 1 * * * * * * *
+      for (size_t i = 0; i < range; ++i) {
+        shuffleVec.push_back(ConstantInt::getSigned(intTy, range + i));
+      }
+      // fill up with undef elements
+      while (shuffleVec.size() < vecWidth) shuffleVec.push_back( UndefValue::get(intTy) );
 
-    // 4 5 6 7 * * * *
-    // 2 3 * * * * * *
-    // 1 * * * * * * *
-    for (int i = 0; i < range; ++i) {
-      shuffleVec.push_back(ConstantInt::getSigned(intTy, range + i));
+      // fold
+      auto * mask = ConstantVector::get(shuffleVec);
+      auto * folded = builder.CreateShuffleVector(accu, UndefValue::get(vecVal.getType()), mask, "fold");
+
+      // Create reduction
+      auto *reduce = reductOp.clone();
+      reduce->mutateType(vecVal.getType());
+      reduce->setOperand(0, accu);
+      reduce->setOperand(1, folded);
+      builder.Insert(reduce, "reduce");
+
+      accu = reduce;
     }
-    // fill up with undef elements
-    while (shuffleVec.size() < vecWidth) shuffleVec.push_back( UndefValue::get(intTy) );
 
-    // fold
-    auto * mask = ConstantVector::get(shuffleVec);
-    auto * folded = builder.CreateShuffleVector(accu, UndefValue::get(vecVal.getType()), mask, "fold");
+    return *builder.CreateExtractElement(accu, ConstantInt::getNullValue(intTy), "reduce_last");
 
-    // Create reduction
-    auto *reduce = reductOp.clone();
-    reduce->mutateType(vecVal.getType());
-    reduce->setOperand(0, accu);
-    reduce->setOperand(1, folded);
-    builder.Insert(reduce, "reduce");
+  } else {
+    Value * accu = &initVal;
+    for (size_t i = 0; i < vectorizationInfo.getVectorWidth(); ++i) {
+      auto * laneVal = builder.CreateExtractElement(&vecVal, i, "red_ext");
 
-    accu = reduce;
+      Instruction * copy = reductOp.clone();
+      copy->setOperand(0, accu);
+      copy->setOperand(1, laneVal);
+      builder.Insert(copy, "red");
+      accu = copy;
+    }
+
+    return *accu;
   }
-
-  return *builder.CreateExtractElement(accu, ConstantInt::getNullValue(intTy), "reduce_last");
-
-#if 0
-  Value * accu = &initVal;
-  for (uint i = 0; i < vectorizationInfo.getVectorWidth(); ++i) {
-    auto * laneVal = builder.CreateExtractElement(&vecVal, i, "red_ext");
-
-    Instruction * copy = reductOp.clone();
-    copy->setOperand(0, accu);
-    copy->setOperand(1, laneVal);
-    builder.Insert(copy, "red");
-    accu = copy;
-  }
-
-  return *accu;
-#endif
 }
 
 void

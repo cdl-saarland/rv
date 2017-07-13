@@ -218,6 +218,22 @@ VectorMapping *PlatformInfo::inferMapping(llvm::Function &scalarFnc,
                                maskPos, resultShape, argShapes);
 }
 
+Function *PlatformInfo::requestVectorMaskReductionFunc(const std::string &name, size_t width) {
+  std::string mangledName = name + "_v" + std::to_string(width);
+  auto *redFunc = mod.getFunction(mangledName);
+  if (redFunc)
+    return redFunc;
+  auto &context = mod.getContext();
+  auto *boolTy = Type::getInt1Ty(context);
+  auto *vecBoolTy = VectorType::get(boolTy, width);
+  auto *funcTy = FunctionType::get(boolTy, vecBoolTy, false);
+  redFunc = Function::Create(funcTy, GlobalValue::ExternalLinkage, mangledName, &mod);
+  redFunc->setDoesNotAccessMemory();
+  redFunc->setDoesNotThrow();
+  redFunc->setConvergent();
+  redFunc->setDoesNotRecurse();
+  return redFunc; // TODO add SIMD mapping
+}
 Function *PlatformInfo::requestMaskReductionFunc(const std::string &name) {
   auto *redFunc = mod.getFunction(name);
   if (redFunc)
