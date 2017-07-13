@@ -326,6 +326,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     config.useAVX2 = true;
     config.useSLEEF = true;
     const bool useImpreciseFunctions = true;
+    config.print(outs());
 
     // link in SIMD library
     addSleefMappings(config, platformInfo, useImpreciseFunctions);
