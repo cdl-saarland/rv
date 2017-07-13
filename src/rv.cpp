@@ -225,7 +225,7 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 
     // insert BOSCC branches if desired
     if (config.enableHeuristicBOSCC) {
-      BOSCCTransform bosccTrans(vecInfo, platInfo, domTree, postDomTree, loopInfo);
+      BOSCCTransform bosccTrans(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo);
       bosccTrans.run();
     }
 

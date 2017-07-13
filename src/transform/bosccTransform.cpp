@@ -22,6 +22,7 @@
 
 #include "rv/vectorizationInfo.h"
 #include "rv/PlatformInfo.h"
+#include "rv/transform/maskExpander.h"
 
 #include <rvConfig.h>
 #include "report.h"
@@ -40,15 +41,17 @@ typedef std::map<BasicBlock*,double> RatioMap;
 struct Impl {
   VectorizationInfo & vecInfo;
   PlatformInfo & platInfo;
+  MaskExpander & maskEx;
   DominatorTree & domTree;
   PostDominatorTree & postDomTree;
   LoopInfo & loopInfo;
   Module & mod;
 
 
-Impl(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, DominatorTree & _domTree, PostDominatorTree & _postDomTree, LoopInfo & _loopInfo)
+Impl(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, DominatorTree & _domTree, PostDominatorTree & _postDomTree, LoopInfo & _loopInfo)
 : vecInfo(_vecInfo)
 , platInfo(_platInfo)
+, maskEx(_maskEx)
 , domTree(_domTree)
 , postDomTree(_postDomTree)
 , loopInfo(_loopInfo)
@@ -62,6 +65,9 @@ requestMaskIntrinsic(std::string name) {
 
 void
 transformBranch(BranchInst & branch, int succIdx) {
+  assert(false && "implement maskExpander fixup");
+  abort(); // TODO fix maskExpander edge masks!!!
+
   auto & context = branch.getContext();
   assert(0 <= succIdx && succIdx <= 1);
   assert(branch.isConditional());
@@ -256,16 +262,18 @@ bosccHeuristic(BranchInst & branch, double & regScore, const RatioMap & dispMap)
   }
 
   // const size_t maxScore = 10000000;
-  const double maxRatio = 0.25;
+  const double maxRatio = 0.26;
   const size_t minScore = GetValue("BOSCC_LIMIT", 8);
 
+  errs() << "score " << onTrueBlock->getName() << "   " << onTrueScore << "\nscore  " << onFalseBlock->getName() << "   " << onFalseScore << "\n";
+
 // otw try to skip the bigger dominated part
-  if (onTrueLegal && (trueRatio < maxRatio && trueRatio < falseRatio) && onTrueScore >= minScore)
+  if (onTrueLegal && (trueRatio < maxRatio && trueRatio <= falseRatio) && onTrueScore >= minScore)
   {
     regScore = trueRatio;
     return -1;
   }
-  else if (onFalseLegal && (falseRatio < maxRatio && falseRatio < trueRatio) && onFalseScore >= minScore)
+  else if (onFalseLegal && (falseRatio < maxRatio && falseRatio <= trueRatio) && onFalseScore >= minScore)
   {
     regScore = falseRatio;
     return 1;
@@ -280,7 +288,7 @@ static double GetEdgeProb(BasicBlock & start, BasicBlock & end) {
   return 1.0 / start.getTerminator()->getNumSuccessors();
 }
 
-#if 1
+#if 0
 #define IF_DEBUG_DISP if (false)
 #else
 #define IF_DEBUG_DISP if (true)
@@ -415,14 +423,15 @@ run() {
 
 bool
 BOSCCTransform::run() {
-  Impl impl(vecInfo, platInfo, domTree, postDomTree, loopInfo);
+  Impl impl(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo);
   return impl.run();
 }
 
 
-BOSCCTransform::BOSCCTransform(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, llvm::DominatorTree & _domTree, llvm::PostDominatorTree & _postDomTree, llvm::LoopInfo & _loopInfo)
+BOSCCTransform::BOSCCTransform(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::PostDominatorTree & _postDomTree, llvm::LoopInfo & _loopInfo)
 : vecInfo(_vecInfo)
 , platInfo(_platInfo)
+, maskEx(_maskEx)
 , domTree(_domTree)
 , postDomTree(_postDomTree)
 , loopInfo(_loopInfo)
