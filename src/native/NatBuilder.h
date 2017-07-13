@@ -118,6 +118,7 @@ namespace native {
     std::vector<llvm::PHINode *> phiVector;
     std::deque<llvm::Instruction *> lazyInstructions;
 
+    void addLazyInstruction(llvm::Instruction *const instr);
     void requestLazyInstructions(llvm::Instruction *const upToInstruction);
     llvm::Value *requestVectorValue(llvm::Value *const value);
     llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,

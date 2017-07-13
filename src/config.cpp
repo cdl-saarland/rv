@@ -11,6 +11,7 @@ Config::Config()
 , foldAllBranches(false)
 
 // backend defaults
+, scalarizeIndexComputation(true)
 , useScatterGatherIntrinsics(true)
 , enableInterleaved(true)
 , enablePseudoInterleaved(true)
@@ -27,6 +28,7 @@ Config::Config()
 , useAVX(false)
 , useAVX2(false)
 , useNEON(false)
+, useSLEEF(false)
 {}
 
 std::string

@@ -24,6 +24,7 @@ struct Config {
   bool foldAllBranches;
 
 // native configuration (backend)
+  bool scalarizeIndexComputation;
   bool useScatterGatherIntrinsics;
   bool enableInterleaved;
   bool enablePseudoInterleaved;
@@ -40,6 +41,7 @@ struct Config {
   bool useAVX;
   bool useAVX2;
   bool useNEON;
+  bool useSLEEF;
 
   // initialize defaults
   Config();

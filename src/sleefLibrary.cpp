@@ -95,6 +95,9 @@ namespace rv {
   bool addSleefMappings(const Config & config,
                         PlatformInfo &platformInfo,
                         bool useImpreciseFunctions) {
+    if (!config.useSLEEF)
+      return false;
+
 #ifdef RV_ENABLE_BUILTINS
     if (config.useAVX2) {
       const VecDesc VecFuncs[] = {

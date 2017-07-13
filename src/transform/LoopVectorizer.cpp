@@ -348,6 +348,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
 
   // TODO query target capabilities
   config.useAVX2 = true;
+  config.useSLEEF = true;
 
   bool useImpreciseFunctions = true;
   addSleefMappings(config, platInfo, useImpreciseFunctions);

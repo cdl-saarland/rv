@@ -147,8 +147,8 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     // configure RV
     rv::Config config;
-    config.useAVX = true;
     config.useAVX2 = true;
+    config.useSLEEF = true;
     config.print(outs());
 
     // setup region
@@ -162,7 +162,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     MemoryDependenceResults MDR = mdAnalysis.run(parentFn, fam);
 
     // link in SIMD library
-    const bool useImpreciseFunctions = false;
+    const bool useImpreciseFunctions = true;
     addSleefMappings(config, platformInfo, useImpreciseFunctions);
 
 #define IF_DEBUG if (false)
@@ -323,8 +323,8 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
 
     // configure RV
     rv::Config config;
-    config.useAVX = true;
-    config.useAVX2 = false;
+    config.useAVX2 = true;
+    config.useSLEEF = true;
     const bool useImpreciseFunctions = true;
 
     // link in SIMD library

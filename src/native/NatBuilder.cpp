@@ -33,12 +33,13 @@ using namespace native;
 using namespace llvm;
 using namespace rv;
 
-unsigned numGather, numScatter, numPseudoMaskedLoads, numPseudoMaskedStores, numInterMaskedLoads, numInterMaskedStores,
-    numPseudoLoads, numPseudoStores, numInterLoads, numInterStores, numContMaskedLoads, numContMaskedStores,
-    numContLoads, numContStores, numUniMaskedLoads, numUniMaskedStores, numUniLoads, numUniStores;
+unsigned numMaskedGather, numMaskedScatter, numGather, numScatter, numPseudoMaskedLoads, numPseudoMaskedStores,
+    numInterMaskedLoads, numInterMaskedStores, numPseudoLoads, numPseudoStores, numInterLoads, numInterStores,
+    numContMaskedLoads, numContMaskedStores, numContLoads, numContStores, numUniMaskedLoads, numUniMaskedStores,
+    numUniLoads, numUniStores;
 unsigned numVecGEPs, numScalGEPs, numInterGEPs, numVecBCs, numScalBCs;
 unsigned numVecCalls, numSemiCalls, numFallCalls, numCascadeCalls, numRVIntrinsics;
-unsigned numScalarized, numVectorized, numFallbacked;
+unsigned numScalarized, numVectorized, numFallbacked, numLazy;
 
 bool DumpStatistics(std::string &file) {
   char * envVal = getenv("NAT_STAT_DUMP");
@@ -51,7 +52,7 @@ void NatBuilder::printStatistics() {
 
   // memory statistics
   Report() << "Memory\n";
-  Report() << "Varying: " << numScatter << "/" << numGather << " scatters/gathers\n";
+  Report() << "Varying: " << numMaskedScatter << "/" << numMaskedGather << "/" << numScatter << "/" << numGather << " masked/scatters/gathers\n";
   Report() << "Pseudo-Interleaved: " << numPseudoMaskedLoads << "/" << numPseudoMaskedStores << "/" << numPseudoLoads << "/" << numPseudoStores << " masked/loads/stores\n";
   Report() << "Interleaved: " << numInterMaskedLoads << "/" << numInterMaskedStores << "/" << numInterLoads << "/" << numInterStores << " masked/loads/stores\n";
   Report() << "Contiguous Memory: " << numContMaskedLoads << "/" << numContMaskedStores << "/" << numContLoads << "/" << numContStores << " masked/loads/stores\n";
@@ -76,6 +77,7 @@ void NatBuilder::printStatistics() {
   Report() << "Scalarized: " << numScalarized << " instructions\n";
   Report() << "Vectorized: " << numVectorized << " instructions\n";
   Report() << "Replicated: " << numFallbacked << " instructions\n";
+  Report() << "Lazy Instructions: " << numLazy << " instructions\n";
   Report() << "\n";
 
   std::string fileName;
@@ -89,6 +91,8 @@ void NatBuilder::printStatistics() {
   file << "Feature,Frequency\n";
 
   // memory statistics
+  file << (config.useScatterGatherIntrinsics ? "masked-scatter," : "masked-casc-store,") << numMaskedScatter << "\n";
+  file << (config.useScatterGatherIntrinsics ? "masked-gather," : "masked-casc-load,") << numMaskedGather << "\n";
   file << (config.useScatterGatherIntrinsics ? "scatter," : "cascade-store,") << numScatter << "\n";
   file << (config.useScatterGatherIntrinsics ? "gather," : "cascade-load,")  << numGather << "\n";
   file << "pseudointer-masked-load," << numPseudoMaskedLoads << "\n";
@@ -126,6 +130,7 @@ void NatBuilder::printStatistics() {
   file << "scalarized," << numScalarized << "\n";
   file << "vectorized," << numVectorized << "\n";
   file << "replicated," << numFallbacked << "\n";
+  file << "lazy-instr," << numLazy << "\n";
 
   file.close();
 }
@@ -188,7 +193,8 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   }
 
   // visit all memory instructions and check if we can scalarize their index calculation
-  visitMemInstructions();
+  if (config.scalarizeIndexComputation)
+    visitMemInstructions();
 
   // create all BasicBlocks first and map them
   for (auto &block : *func) {
@@ -306,7 +312,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
 
     // loads and stores need special treatment (masking, shuffling, etc) (build them lazily)
     if (canVectorize(inst) && (load || store))
-      if (config.enableInterleaved) lazyInstructions.push_back(inst);
+      if (config.enableInterleaved) addLazyInstruction(inst);
       else vectorizeMemoryInstruction(inst);
     else if (call) {
       // calls need special treatment
@@ -322,7 +328,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       else if (callee && callee->getName() == "rv_align")
         vectorizeAlignCall(call);
       else
-        if (config.enableInterleaved) lazyInstructions.push_back(inst);
+        if (config.enableInterleaved) addLazyInstruction(inst);
         else {
           if (shouldVectorize(call))
             vectorizeCallInstruction(call);
@@ -1055,8 +1061,8 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedTy
 Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Value *addr, Value *mask,
                                        Value *values) {
   bool scatter(values != nullptr);
-
-  scatter ? ++numScatter : ++numGather;
+  bool maskNonConst(!isa<ConstantVector>(mask));
+  maskNonConst ? (scatter ? ++numMaskedScatter : ++numMaskedGather) : (scatter ? ++numScatter : ++numGather);
 
   if (config.useScatterGatherIntrinsics) {
     std::vector<Value *> args;
@@ -1195,6 +1201,11 @@ Value *NatBuilder::createContiguousLoad(Value *ptr, unsigned alignment, Value *m
     load->setAlignment(alignment);
     return load;
   }
+}
+
+void NatBuilder::addLazyInstruction(Instruction *const instr) {
+  lazyInstructions.push_back(instr);
+  ++numLazy;
 }
 
 void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
@@ -2359,7 +2370,7 @@ bool NatBuilder::isPseudointerleaved(Instruction *inst, Value *addr, int byteSiz
   }
 
   int stride = addrShape.getStride() / byteSize;
-  return stride <= (int) (vectorWidth() / 2); // arbitrarily chosen
+  return stride <= (int) vectorWidth() - 1; // need at least two elements per vector
 }
 
 void NatBuilder::visitMemInstructions() {
