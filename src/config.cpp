@@ -23,6 +23,7 @@ Config::Config()
 , enableStructOpt(!CheckFlag("RV_DISABLE_STRUCTOPT"))
 , enableSROV(!CheckFlag("RV_DISABLE_SROV"))
 , enableIRPolish(!CheckFlag("RV_DISABLE_POLISH"))
+, enableHeuristicBOSCC(CheckFlag("RV_EXP_BOSCC"))
 
 // feature flags
 , useSSE(false)
@@ -62,6 +63,7 @@ static void
 printOptFlags(const Config & config, llvm::raw_ostream & out) {
     out << "opts: enableStructOpt = " << config.enableStructOpt
         << ", enableSROV = " << config.enableSROV
+        << ", enableHeuristicBOSCC = " << config.enableHeuristicBOSCC
         << ", enableIRPolish = " << config.enableIRPolish;
 }
 

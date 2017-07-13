@@ -34,6 +34,7 @@
 #include "rv/transform/structOpt.h"
 #include "rv/transform/srovTransform.h"
 #include "rv/transform/irPolisher.h"
+#include "rv/transform/bosccTransform.h"
 
 #include "native/NatBuilder.h"
 
@@ -221,6 +222,12 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 
     // expand all remaining masks in the region
     maskEx.expandRegionMasks();
+
+    // insert BOSCC branches if desired
+    if (config.enableHeuristicBOSCC) {
+      BOSCCTransform bosccTrans(vecInfo, platInfo, domTree, postDomTree, loopInfo);
+      bosccTrans.run();
+    }
 
     IF_DEBUG {
       errs() << "--- VecInfo before Linearizer ---\n";

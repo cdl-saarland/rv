@@ -36,6 +36,7 @@ struct Config {
   bool enableStructOpt;
   bool enableSROV;
   bool enableIRPolish;
+  bool enableHeuristicBOSCC;
 
 // target features
   bool useSSE;
