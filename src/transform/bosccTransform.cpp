@@ -276,8 +276,10 @@ static double GetEdgeProb(BasicBlock & start, BasicBlock & end) {
   return 1.0 / start.getTerminator()->getNumSuccessors();
 }
 
+typedef std::map<BasicBlock*,double> RatioMap;
+
 void
-computeDispersion(std::map<BasicBlock*, double> & dispMap) {
+computeDispersion(RatioMap & dispMap) {
   std::vector<BasicBlock*> stack;
 
   // bootstrap with region entry (executed by all ratio == 1.0)
@@ -289,17 +291,18 @@ computeDispersion(std::map<BasicBlock*, double> & dispMap) {
     stack.push_back(succ);
   }
 
+  errs() << "--- compute dispersion ---\n";
+
   // disperse down branches
   while (!stack.empty()) {
     auto * block = stack.back();
+    stack.pop_back();
 
     bool hadRatio = dispMap.count(block);
     double oldRatio = dispMap[block]; // initialize to zero
 
     Loop * blockLoop = loopInfo.getLoopFor(block);
-    bool isHeader = blockLoop->getHeader() == block;
-
-    errs() << "--- compute dispersion ---\n";
+    bool isHeader = blockLoop && blockLoop->getHeader() == block;
 
     // join incoming fractions
     bool validRatio = true;
@@ -339,11 +342,14 @@ computeDispersion(std::map<BasicBlock*, double> & dispMap) {
     // process operands first
     if (!validRatio) continue;
 
-    errs() << block->getName() << "  old " << oldRatio << "  new " << ratio << "\n";
-
     auto & term = *block->getTerminator();
     if (!hadRatio || (std::fabs(oldRatio - ratio) > 0.000001)) {
-      // ratio update for this block -> push all successors
+      errs() << block->getName() << "  old " << oldRatio << "  new " << ratio << "\n";
+
+      // set new ratio
+      dispMap[block] = ratio;
+
+      // push all successors
       for (size_t i = 0; i < term.getNumSuccessors(); ++i) {
         auto * succ = term.getSuccessor(i);
         if (!vecInfo.inRegion(*succ)) continue; // leaving the region -> don't care
@@ -358,7 +364,9 @@ bool
 run() {
   domTree.recalculate(vecInfo.getScalarFunction());
 
-  // TODO build
+  // compute approximate execution ratios
+  RatioMap dispMap;
+  computeDispersion(dispMap);
 
   size_t numBosccBranches = 0;
 
