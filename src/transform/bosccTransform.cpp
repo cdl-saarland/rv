@@ -35,6 +35,8 @@ using namespace llvm;
 #define IF_DEBUG_BOSCC if (false)
 #endif
 
+typedef std::map<BasicBlock*,double> RatioMap;
+
 struct Impl {
   VectorizationInfo & vecInfo;
   PlatformInfo & platInfo;
@@ -209,10 +211,10 @@ GetValue(const char * name, int defVal) {
 // -1 : boscc onTrue
 // 1 : boscc onFalse
 int
-bosccHeuristic(BranchInst & branch, size_t & regScore) {
+bosccHeuristic(BranchInst & branch, double & regScore, const RatioMap & dispMap) {
 // run legality checks
-  auto * onTrueBlock = branch.getSuccessor(0);
-  auto * onFalseBlock = branch.getSuccessor(1);
+  BasicBlock * onTrueBlock = branch.getSuccessor(0);
+  BasicBlock * onFalseBlock = branch.getSuccessor(1);
 
   if (!vecInfo.inRegion(*onTrueBlock) || !vecInfo.inRegion(*onFalseBlock)) return 0;
 
@@ -224,6 +226,11 @@ bosccHeuristic(BranchInst & branch, size_t & regScore) {
   if (onTrueLoop != branchLoop || branchLoop != onFalseLoop) return 0;
   if (onTrueLoop && onTrueLoop->getHeader() == onTrueBlock) return 0;
   if (onFalseLoop && onFalseLoop->getHeader() == onTrueBlock) return 0;
+
+  assert(dispMap.count(onTrueBlock));
+  double trueRatio = dispMap.at(onTrueBlock);
+  assert(dispMap.count(onFalseBlock));
+  double falseRatio = dispMap.at(onFalseBlock);
 
 
 // per sucess legality
@@ -248,22 +255,19 @@ bosccHeuristic(BranchInst & branch, size_t & regScore) {
     onFalseScore = getDomRegionScore(*onFalseBlock);
   }
 
-  const size_t minScore = GetValue("BOSCC_LIMIT", 64);
-  const size_t maxScore = 10000000;
+  // const size_t maxScore = 10000000;
+  const double maxRatio = 0.25;
+  const size_t minScore = GetValue("BOSCC_LIMIT", 8);
 
 // otw try to skip the bigger dominated part
-  if (onTrueLegal &&
-      onTrueScore <= maxScore && onTrueScore >= minScore &&
-      onTrueScore > onFalseScore)
+  if (onTrueLegal && (trueRatio < maxRatio && trueRatio < falseRatio) && onTrueScore >= minScore)
   {
-    regScore = onTrueScore;
+    regScore = trueRatio;
     return -1;
   }
-  else if (onFalseLegal &&
-      onFalseScore <= maxScore && onFalseScore >= minScore &&
-      onFalseScore > onTrueScore)
+  else if (onFalseLegal && (falseRatio < maxRatio && falseRatio < trueRatio) && onFalseScore >= minScore)
   {
-    regScore = onFalseScore;
+    regScore = falseRatio;
     return 1;
   }
 
@@ -276,8 +280,11 @@ static double GetEdgeProb(BasicBlock & start, BasicBlock & end) {
   return 1.0 / start.getTerminator()->getNumSuccessors();
 }
 
-typedef std::map<BasicBlock*,double> RatioMap;
-
+#if 1
+#define IF_DEBUG_DISP if (false)
+#else
+#define IF_DEBUG_DISP if (true)
+#endif
 void
 computeDispersion(RatioMap & dispMap) {
   std::vector<BasicBlock*> stack;
@@ -291,7 +298,7 @@ computeDispersion(RatioMap & dispMap) {
     stack.push_back(succ);
   }
 
-  errs() << "--- compute dispersion ---\n";
+  IF_DEBUG_DISP errs() << "--- compute dispersion ---\n";
 
   // disperse down branches
   while (!stack.empty()) {
@@ -344,7 +351,7 @@ computeDispersion(RatioMap & dispMap) {
 
     auto & term = *block->getTerminator();
     if (!hadRatio || (std::fabs(oldRatio - ratio) > 0.000001)) {
-      errs() << block->getName() << "  old " << oldRatio << "  new " << ratio << "\n";
+      IF_DEBUG_DISP errs() << block->getName() << "  old " << oldRatio << "  new " << ratio << "\n";
 
       // set new ratio
       dispMap[block] = ratio;
@@ -382,8 +389,8 @@ run() {
     if (!branchInst->isConditional()) continue;
     if (vecInfo.getVectorShape(*branchInst).isUniform()) continue;
 
-    size_t regScore = 0;
-    int score = bosccHeuristic(*branchInst, regScore);
+    double regScore = 0;
+    int score = bosccHeuristic(*branchInst, regScore, dispMap);
     if (score == 0) continue;
     int succIdx = score < 0 ? 0 : 1;
 
