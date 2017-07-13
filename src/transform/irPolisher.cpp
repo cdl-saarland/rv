@@ -295,7 +295,17 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
   } else if (auto castInst = dyn_cast<CastInst>(inst)) {
     auto destTy = castInst->getDestTy();
     auto newOp = getMaskForValueOrInst(builder, inst->getOperand(0), bitWidth);
-    newInst = builder.CreateCast(castInst->getOpcode(), newOp, destTy);
+    auto opCode = castInst->getOpcode();
+
+    if (opCode == Instruction::ZExt) {
+        // Truncate back to i1s, because newOp is sign extended, not zero extended
+        auto trunc = builder.CreateTruncOrBitCast(newOp, inst->getOperand(0)->getType());
+        newInst = builder.CreateCast(opCode, trunc, destTy);
+    } else if (opCode == Instruction::SExt && bitWidth > destTy->getScalarSizeInBits()) {
+        newInst = builder.CreateTruncOrBitCast(newOp, destTy);
+    } else {
+        newInst = builder.CreateCast(opCode, newOp, destTy);
+    }
   } else if (auto storeInst = dyn_cast<StoreInst>(inst)) {
     auto value = storeInst->getOperand(0);
     auto valueMask = getMaskForValueOrInst(builder, value, bitWidth);
