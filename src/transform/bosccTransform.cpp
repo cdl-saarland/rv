@@ -272,9 +272,93 @@ bosccHeuristic(BranchInst & branch, size_t & regScore) {
   return 0;
 }
 
+static double GetEdgeProb(BasicBlock & start, BasicBlock & end) {
+  return 1.0 / start.getTerminator()->getNumSuccessors();
+}
+
+void
+computeDispersion(std::map<BasicBlock*, double> & dispMap) {
+  std::vector<BasicBlock*> stack;
+
+  // bootstrap with region entry (executed by all ratio == 1.0)
+  auto & entry = vecInfo.getEntry();
+  dispMap[&entry] = 1.0;
+  for (auto * succ : successors(&entry)) {
+    if (succ == &entry)  continue;
+    if (!vecInfo.inRegion(*succ)) continue;
+    stack.push_back(succ);
+  }
+
+  // disperse down branches
+  while (!stack.empty()) {
+    auto * block = stack.back();
+
+    bool hadRatio = dispMap.count(block);
+    double oldRatio = dispMap[block]; // initialize to zero
+
+    Loop * blockLoop = loopInfo.getLoopFor(block);
+    bool isHeader = blockLoop->getHeader() == block;
+
+    errs() << "--- compute dispersion ---\n";
+
+    // join incoming fractions
+    bool validRatio = true;
+    double ratio = 0.0;
+    for (auto * pred : predecessors(block)) {
+      if (!vecInfo.inRegion(*pred)) {
+        continue;
+      }
+      if (isHeader && blockLoop->contains(pred)) {
+        // do not look into latches
+        continue;
+      }
+
+      if (!dispMap.count(pred)) {
+        // missing operand -> do not update ratio yet
+        stack.push_back(pred);
+        validRatio = false;
+      }
+      if (!validRatio) continue;
+
+      // keep computing a new result from the blocks predecessors
+      double inProb;
+      if (vecInfo.getVectorShape(*pred->getTerminator()).isUniform()) {
+        // there is no dispersion at uniform branches -> keep predecessor ratio
+        // this is an overapproximation that may lead to block ratios >> 1.0
+        inProb = dispMap[pred];
+      } else {
+        // the predecessor disperses control ratios
+        inProb = dispMap[pred] * GetEdgeProb(*pred, *block);
+      }
+      ratio += inProb;
+    }
+
+    // the ratio can exceed 1.0 if we have multiple reaching uniform paths
+    ratio = std::min<double>(ratio, 1.0); // cap at 1.0
+
+    // process operands first
+    if (!validRatio) continue;
+
+    errs() << block->getName() << "  old " << oldRatio << "  new " << ratio << "\n";
+
+    auto & term = *block->getTerminator();
+    if (!hadRatio || (std::fabs(oldRatio - ratio) > 0.000001)) {
+      // ratio update for this block -> push all successors
+      for (size_t i = 0; i < term.getNumSuccessors(); ++i) {
+        auto * succ = term.getSuccessor(i);
+        if (!vecInfo.inRegion(*succ)) continue; // leaving the region -> don't care
+        if (blockLoop && succ == blockLoop->getHeader()) continue; // latches not taken
+        stack.push_back(succ);
+      }
+    }
+  }
+}
+
 bool
 run() {
   domTree.recalculate(vecInfo.getScalarFunction());
+
+  // TODO build
 
   size_t numBosccBranches = 0;
 
