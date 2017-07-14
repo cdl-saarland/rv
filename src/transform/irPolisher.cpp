@@ -79,6 +79,51 @@ bool IRPolisher::canReplaceInst(llvm::Instruction *inst, unsigned& bitWidth) {
   return true;
 }
 
+inline bool startsWith(const char* str1, const char* str2) {
+  return !strncmp(str1, str2, strlen(str2));
+}
+
+Value *IRPolisher::mapIntrinsicCall(llvm::IRBuilder<>& builder, llvm::CallInst* callInst, unsigned bitWidth) {
+  auto callee = callInst->getCalledFunction();
+  auto isReduceOr = startsWith(callee->getName().data(), "rv_reduce_or");
+  auto isReduceAnd = startsWith(callee->getName().data(), "rv_reduce_and");
+  if (isReduceOr || isReduceAnd) {
+    // Use the PTEST instruction for boolean reductions
+    auto newArg = getMaskForValueOrInst(builder, callInst->getArgOperand(0), bitWidth);
+    auto vecLen = newArg->getType()->getVectorNumElements();
+    auto destTy = VectorType::get(builder.getIntNTy(64), bitWidth * vecLen / 64);
+
+    auto isAVX = vecLen * bitWidth == 256;
+    auto id = isAVX ? Intrinsic::x86_avx_ptestz_256 : Intrinsic::x86_sse41_ptestz;
+    auto func = Intrinsic::getDeclaration(callInst->getModule(), id);
+
+    auto castedArg = builder.CreateBitCast(isReduceAnd ? builder.CreateNot(newArg) : newArg, destTy);
+    auto ptestCall = builder.CreateCall(func, { castedArg, castedArg });
+    return isReduceOr
+      ? builder.CreateICmpEQ(ptestCall, builder.getInt32(0))
+      : builder.CreateICmpNE(ptestCall, builder.getInt32(0));
+  }
+  return nullptr;
+}
+
+Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
+  auto callee = callInst->getCalledFunction();
+  auto isReduceOr = startsWith(callee->getName().data(), "rv_reduce_or");
+  auto isReduceAnd = startsWith(callee->getName().data(), "rv_reduce_and");
+
+  // Insert instructions after the current one
+  if (isReduceOr || isReduceAnd) {
+    IRBuilder<> builder(callInst);
+    auto arg = callInst->getArgOperand(0);
+    auto castTy = builder.getIntNTy(arg->getType()->getVectorNumElements());
+    auto castedArg = builder.CreateBitCast(arg, castTy);
+    return isReduceOr
+      ? builder.CreateICmpNE(castedArg, Constant::getNullValue(castTy))
+      : builder.CreateICmpEQ(castedArg, Constant::getAllOnesValue(castTy));
+  }
+  return nullptr;
+}
+
 Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, unsigned bitWidth) {
   auto left  = cmpInst->getOperand(0);
   auto right = cmpInst->getOperand(1);
@@ -294,18 +339,8 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     newInst = replaceSelectInst(builder, select, bitWidth);
   } else if (auto castInst = dyn_cast<CastInst>(inst)) {
     auto destTy = castInst->getDestTy();
-    auto newOp = getMaskForValueOrInst(builder, inst->getOperand(0), bitWidth);
-    auto opCode = castInst->getOpcode();
-
-    if (opCode == Instruction::ZExt) {
-        // Truncate back to i1s, because newOp is sign extended, not zero extended
-        auto trunc = builder.CreateTruncOrBitCast(newOp, inst->getOperand(0)->getType());
-        newInst = builder.CreateCast(opCode, trunc, destTy);
-    } else if (opCode == Instruction::SExt && bitWidth > destTy->getScalarSizeInBits()) {
-        newInst = builder.CreateTruncOrBitCast(newOp, destTy);
-    } else {
-        newInst = builder.CreateCast(opCode, newOp, destTy);
-    }
+    auto newOp = getConditionFromMask(builder, getMaskForValueOrInst(builder, inst->getOperand(0), bitWidth));
+    newInst = builder.CreateCast(castInst->getOpcode(), newOp, destTy);
   } else if (auto storeInst = dyn_cast<StoreInst>(inst)) {
     auto value = storeInst->getOperand(0);
     auto valueMask = getMaskForValueOrInst(builder, value, bitWidth);
@@ -333,17 +368,23 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     }
     newInst = newPhi;
   } else if (auto callInst = dyn_cast<CallInst>(inst)) {
-    std::vector<Value*> newArgs;
-    for (auto& arg : callInst->arg_operands()) {
-      auto newArg = arg.get();
-      // If the argument is a boolean vector, we reconstruct it from the new mask
-      if (isBooleanVector(arg->getType()))
-        newArg = getConditionFromMask(builder, getMaskForValueOrInst(builder, newArg, bitWidth));
-      newArgs.emplace_back(newArg);
+    // Handle intrinsics
+    if (auto mappedInst = mapIntrinsicCall(builder, callInst, bitWidth)) {
+      newInst = mappedInst;
+    } else {
+      // Default path for all other function calls
+      std::vector<Value*> newArgs;
+      for (auto& arg : callInst->arg_operands()) {
+        auto newArg = arg.get();
+        // If the argument is a boolean vector, we reconstruct it from the new mask
+        if (isBooleanVector(arg->getType()))
+          newArg = getConditionFromMask(builder, getMaskForValueOrInst(builder, newArg, bitWidth));
+        newArgs.emplace_back(newArg);
+      }
+      newInst = builder.CreateCall(callInst->getCalledFunction(), newArgs);
+      if (isBooleanVector(newInst->getType()))
+        newInst = getMaskForValue(builder, newInst, bitWidth);
     }
-    newInst = builder.CreateCall(callInst->getCalledFunction(), newArgs);
-    if (isBooleanVector(newInst->getType()))
-      newInst = getMaskForValue(builder, newInst, bitWidth);
   }
 
   assert(newInst);
@@ -432,6 +473,22 @@ bool IRPolisher::polish() {
     inst->replaceAllUsesWith(UndefValue::get(inst->getType()));
     inst->eraseFromParent();
   }
+
+  // Handle intrinsics that were not removed during mask expansion.
+  // This happens when doing comparisons with objects that do not
+  // map to SSE/AVX registers (e.g. fcmp <8 x double> ...). We handle
+  // this by emitting generic LLVM IR.
+  std::vector<CallInst*> loweredCalls;
+  for (auto it = inst_begin(F), end = inst_end(F); it != end; ++it) {
+    auto inst = &*it;
+    if (auto callInst = dyn_cast<CallInst>(inst)) {
+      if (auto newInst = lowerIntrinsicCall(callInst)) {
+        callInst->replaceAllUsesWith(newInst);
+        loweredCalls.push_back(callInst);
+      }
+    }
+  }
+  for (auto call : loweredCalls) call->eraseFromParent();
 
   if (visitedInsts.size() > 0) {
     Report() << "IRPolish: polished " << visitedInsts.size() << " instruction(s)\n";
