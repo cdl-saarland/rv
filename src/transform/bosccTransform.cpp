@@ -65,9 +65,6 @@ requestMaskIntrinsic(std::string name) {
 
 void
 transformBranch(BranchInst & branch, int succIdx) {
-  assert(false && "implement maskExpander fixup");
-  abort(); // TODO fix maskExpander edge masks!!!
-
   auto & context = branch.getContext();
   assert(0 <= succIdx && succIdx <= 1);
   assert(branch.isConditional());
@@ -116,6 +113,17 @@ transformBranch(BranchInst & branch, int succIdx) {
 // link bosccBranch into old branch
    branch.setSuccessor(succIdx, bosccBlock);
 
+// copy edge predicates
+  // bosccBlock -> bosccRegion (same pred)
+  auto * edgeTakenMask = maskEx.getEdgeMask(branch, succIdx);
+  assert(edgeTakenMask);
+  maskEx.setEdgeMask(*bosccBlock, 0, *edgeTakenMask);
+
+  // bosccBlock -> exit (same as old exit branch)
+  auto * edgeSkippedMask = maskEx.getEdgeMask(branch,  1 - succIdx);
+  assert(edgeSkippedMask);
+  maskEx.setEdgeMask(*bosccBlock, 1, *edgeSkippedMask);
+
 // patch phis in succBlock
   for (auto & inst : *succBlock) {
     auto * phi =  dyn_cast<PHINode>(&inst);
@@ -142,7 +150,7 @@ getDomRegionValue(BasicBlock & entry, BasicBlock & subBlock, SmallSet<BasicBlock
 
   // compute score of other (dominated) reachable blocks in the region
   auto * termInst = subBlock.getTerminator();
-  for (int i = 0; i < termInst->getNumSuccessors(); ++i) {
+  for (size_t i = 0; i < termInst->getNumSuccessors(); ++i) {
     auto & nextBlock = *termInst->getSuccessor(i);
     score += getDomRegionValue(entry, nextBlock, seenBlocks);
   }

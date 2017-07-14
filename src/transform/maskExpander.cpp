@@ -571,7 +571,8 @@ MaskExpander::setEdgeMask(BasicBlock & BB, int succIdx, Value & mask) {
       it->second.resize(succIdx + 1);
     }
   } else {
-    edgeMasks[&BB] = std::vector<EdgePred>(succIdx + 1);
+    size_t minSize = std::max(succIdx + 1, 4);
+    edgeMasks[&BB] = std::vector<EdgePred>(minSize);
   }
 
   edgeMasks[&BB][succIdx].edgeMask = &mask;
