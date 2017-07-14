@@ -220,14 +220,15 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     IF_DEBUG loopInfo.verify(domTree);
 #endif
 
-    // expand all remaining masks in the region
-    maskEx.expandRegionMasks();
-
     // insert BOSCC branches if desired
     if (config.enableHeuristicBOSCC) {
       BOSCCTransform bosccTrans(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo);
       bosccTrans.run();
     }
+
+    // expand all remaining masks in the region
+    maskEx.expandRegionMasks();
+
 
     IF_DEBUG {
       errs() << "--- VecInfo before Linearizer ---\n";

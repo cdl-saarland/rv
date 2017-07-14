@@ -83,14 +83,18 @@ transformBranch(BranchInst & branch, int succIdx) {
   blockName << succBlock->getName().str() << "_boscc";
   auto * bosccBlock = BasicBlock::Create(context, blockName.str(), &vecInfo.getScalarFunction());
 
+// embed block in loopInfo
+  auto * loop = loopInfo.getLoopFor(branch.getParent());
+  if (loop) loop->addBasicBlockToLoop(bosccBlock, loopInfo);
+
   // register with domTree
   auto * bosccNode = domTree.addNewBlock(bosccBlock, branch.getParent());
   domTree.changeImmediateDominator(domTree.getNode(succBlock), bosccNode);
-  // register with loopInfo
-  auto * succLoop = loopInfo.getLoopFor(succBlock);
-  if (succLoop) succLoop->addBasicBlockToLoop(bosccBlock, loopInfo);
+
+#if 0
   // bosccBlock has same predicate as BOSCC successor
   vecInfo.setPredicate(*bosccBlock, *vecInfo.getPredicate(*succBlock));
+#endif
 
   IRBuilder<> builder(bosccBlock);
 
@@ -113,16 +117,20 @@ transformBranch(BranchInst & branch, int succIdx) {
 // link bosccBranch into old branch
    branch.setSuccessor(succIdx, bosccBlock);
 
+#if 0
 // copy edge predicates
   // bosccBlock -> bosccRegion (same pred)
   auto * edgeTakenMask = maskEx.getEdgeMask(branch, succIdx);
-  assert(edgeTakenMask);
-  maskEx.setEdgeMask(*bosccBlock, 0, *edgeTakenMask);
+  if (edgeTakenMask) {
+    maskEx.setEdgeMask(*bosccBlock, 0, *edgeTakenMask);
+  }
 
   // bosccBlock -> exit (same as old exit branch)
   auto * edgeSkippedMask = maskEx.getEdgeMask(branch,  1 - succIdx);
-  assert(edgeSkippedMask);
-  maskEx.setEdgeMask(*bosccBlock, 1, *edgeSkippedMask);
+  if (edgeSkippedMask) {
+    maskEx.setEdgeMask(*bosccBlock, 1, *edgeSkippedMask);
+  }
+#endif
 
 // patch phis in succBlock
   for (auto & inst : *succBlock) {
@@ -136,7 +144,8 @@ transformBranch(BranchInst & branch, int succIdx) {
   for (auto & inst : *exitBlock) {
     auto * phi =  dyn_cast<PHINode>(&inst);
     if (!phi) break;
-    phi->addIncoming(UndefValue::get(phi->getType()), bosccBlock);
+    auto * origExitVal = phi->getIncomingValueForBlock(branch.getParent());
+    phi->addIncoming(origExitVal, bosccBlock);
   }
 }
 
@@ -240,6 +249,8 @@ bosccHeuristic(BranchInst & branch, double & regScore, const RatioMap & dispMap)
   if (onTrueLoop != branchLoop || branchLoop != onFalseLoop) return 0;
   if (onTrueLoop && onTrueLoop->getHeader() == onTrueBlock) return 0;
   if (onFalseLoop && onFalseLoop->getHeader() == onTrueBlock) return 0;
+  if (maskEx.getBlockMask(*branch.getParent())) return 0; // FIXME this is a workaround transformed divergent loops (we may end up invalidating masks)
+  // FIXME in divLoopTrans: use predicate futures where possible
 
   assert(dispMap.count(onTrueBlock));
   double trueRatio = dispMap.at(onTrueBlock);
