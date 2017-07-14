@@ -280,7 +280,6 @@ bosccHeuristic(BranchInst & branch, double & regScore, const RatioMap & dispMap)
     onFalseScore = getDomRegionScore(*onFalseBlock);
   }
 
-  // const size_t maxScore = 10000000;
   const double maxRatio = 0.26;
   const size_t minScore = GetValue("BOSCC_LIMIT", 8);
 
@@ -307,7 +306,7 @@ static double GetEdgeProb(BasicBlock & start, BasicBlock & end) {
   return 1.0 / start.getTerminator()->getNumSuccessors();
 }
 
-#if 0
+#if 1
 #define IF_DEBUG_DISP if (false)
 #else
 #define IF_DEBUG_DISP if (true)
