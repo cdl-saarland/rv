@@ -14,6 +14,7 @@
 #include <llvm/IR/Dominators.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/BranchProbabilityInfo.h>
+#include <llvm/Support/Format.h>
 
 #include <llvm/ADT/SmallSet.h>
 #include <llvm/ADT/PostOrderIterator.h>
@@ -237,7 +238,7 @@ GetValue(const char * name, int defVal) {
 // -1 : boscc onTrue
 // 1 : boscc onFalse
 int
-bosccHeuristic(BranchInst & branch, double & regScore, const RatioMap & dispMap) {
+bosccHeuristic(BranchInst & branch, double & regProb, size_t & regScore, const RatioMap & dispMap) {
 // run legality checks
   BasicBlock * onTrueBlock = branch.getSuccessor(0);
   BasicBlock * onFalseBlock = branch.getSuccessor(1);
@@ -291,12 +292,14 @@ bosccHeuristic(BranchInst & branch, double & regScore, const RatioMap & dispMap)
 // otw try to skip the bigger dominated part
   if (onTrueLegal && (trueRatio < maxRatio && trueRatio <= falseRatio) && onTrueScore >= minScore)
   {
-    regScore = trueRatio;
+    regProb = trueRatio;
+    regScore = onTrueScore;
     return -1;
   }
   else if (onFalseLegal && (falseRatio < maxRatio && falseRatio <= trueRatio) && onFalseScore >= minScore)
   {
-    regScore = falseRatio;
+    regProb = falseRatio;
+    regScore = onFalseScore;
     return 1;
   }
 
@@ -430,14 +433,15 @@ run() {
     if (!branchInst->isConditional()) continue;
     if (vecInfo.getVectorShape(*branchInst).isUniform()) continue;
 
-    double regScore = 0;
-    int score = bosccHeuristic(*branchInst, regScore, dispMap);
+    double regProb = 0.0;
+    size_t regScore = 0;
+    int score = bosccHeuristic(*branchInst, regProb, regScore, dispMap);
     if (score == 0) continue;
     int succIdx = score < 0 ? 0 : 1;
 
     ++numBosccBranches;
 
-    Report() << "boscc: skip succ " << branchInst->getSuccessor(succIdx)->getName() << " of block " << branchInst->getParent()->getName() << "  score: " << regScore << "\n";
+    Report() << "boscc: skip succ " << branchInst->getSuccessor(succIdx)->getName() << " of block " << branchInst->getParent()->getName() << "  dispProb: " << format("%1.4f", regProb) << ", score: " << regScore << "\n";
     transformBranch(*branchInst, succIdx);
   }
 
