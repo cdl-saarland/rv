@@ -1,4 +1,4 @@
-// LoopHint: 0, LaunchCode: foodAB
+// LoopHint: 0, LaunchCode: foodAB, Width: 4
 
 #include <complex.h>
 
