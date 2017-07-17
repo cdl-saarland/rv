@@ -239,8 +239,8 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
   // have seen this user
     if (!seen.insert(inst).second) continue;
 
-  // dont touch this alloca if its used on the outside
-    if (!vecInfo.inRegion(*inst)) {
+  // dont touch this alloca if its used on the outside (unless its the alloca itself)
+    if (&allocaInst != inst && !vecInfo.inRegion(*inst)) {
       IF_DEBUG_SO { errs() << "skip: has user outside of region: " << *inst << "\n";  }
       return false;
     }
