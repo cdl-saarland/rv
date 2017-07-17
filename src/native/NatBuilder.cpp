@@ -85,7 +85,7 @@ void NatBuilder::printStatistics() {
     return;
 
   std::ofstream file;
-  file.open(fileName);
+  file.open(fileName, std::fstream::app);
 
   // header
   file << "Feature,Frequency\n";
