@@ -330,7 +330,10 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
     if (!isa<AllocaInst>(op))      continue; // Only allocas
     if (!getShape(op).isUniform()) continue; // Already processed
 
-    mWorklist.push(cast<Instruction>(op));
+    // taint the alloca
+    updateShape(op, VectorShape::varying()); // alloca was tainted by divergent accesses (divergent value store or divergent address)
+
+    IF_DEBUG_VA errs() << "Inserted (transitive) alloca operand of " << *V << ":" << *op << "\n";
   }
 }
 
