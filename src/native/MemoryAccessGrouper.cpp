@@ -104,6 +104,12 @@ bool MemoryAccessGrouper::getConstantOffset(const SCEV *a, const SCEV *b, int &o
       return false;
     offset = byteOffset / laneByteSize;
 
+    // break overly large stride groups
+    const int64_t strideLimit = 64; // max offset to be part of the same group in mutiples of accessed data size
+    if (abs(offset) > strideLimit) {
+      return false;
+    }
+
     return true;
   }
 
