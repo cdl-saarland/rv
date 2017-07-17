@@ -2,6 +2,7 @@
 #define RV_TRANSFORM_REMTRANSFORM_H
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
+#include "llvm/Analysis/BranchProbabilityInfo.h"
 #include "llvm/IR/Function.h"
 
 #include <set>
@@ -11,6 +12,7 @@ namespace llvm {
   class Loop;
   class DominatorTree;
   class PostDominatorTree;
+  class BranchProbabilityInfo;
 }
 
 template<class T>
@@ -35,6 +37,7 @@ class RemainderTransform {
   llvm::PostDominatorTree & PDT;
   llvm::LoopInfo & LI;
   ReductionAnalysis & reda;
+  llvm::BranchProbabilityInfo * PB;
 
 
 // RemainderTransform capability checks
@@ -45,12 +48,13 @@ class RemainderTransform {
   bool canTransformLoop(llvm::Loop & L);
 
 public:
-  RemainderTransform(llvm::Function &_F, llvm::DominatorTree & _DT, llvm::PostDominatorTree & _PDT, llvm::LoopInfo & _LI, ReductionAnalysis & _reda)
+  RemainderTransform(llvm::Function &_F, llvm::DominatorTree & _DT, llvm::PostDominatorTree & _PDT, llvm::LoopInfo & _LI, ReductionAnalysis & _reda, llvm::BranchProbabilityInfo * _PB = nullptr)
   : F(_F)
   , DT(_DT)
   , PDT(_PDT)
   , LI(_LI)
   , reda(_reda)
+  , PB(_PB)
   {}
 
   // create a vectorizable loop or return nullptr if remTrans can not currently do it

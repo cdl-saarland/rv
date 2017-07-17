@@ -27,6 +27,7 @@ namespace llvm {
   class ScalarEvolution;
   struct PostDominatorTree;
   class MemoryDependenceResults;
+  class BranchProbabilityInfo;
 }
 
 
@@ -48,6 +49,7 @@ public:
   , LI(nullptr)
   , SE(nullptr)
   , MDR(nullptr)
+  , PB(nullptr)
   , reda()
   , vectorizer()
   {}
@@ -69,6 +71,7 @@ private:
   llvm::LoopInfo * LI;
   llvm::ScalarEvolution * SE;
   llvm::MemoryDependenceResults * MDR;
+  llvm::BranchProbabilityInfo * PB;
   std::unique_ptr<ReductionAnalysis> reda;
   std::unique_ptr<VectorizerInterface> vectorizer;
 

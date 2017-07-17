@@ -167,12 +167,14 @@ struct LoopCloner {
   DominatorTree & DT;
   PostDominatorTree & PDT;
   LoopInfo & LI;
+  BranchProbabilityInfo * PB;
 
-  LoopCloner(Function & _F, DominatorTree & _DT, PostDominatorTree & _PDT, LoopInfo & _LI)
+  LoopCloner(Function & _F, DominatorTree & _DT, PostDominatorTree & _PDT, LoopInfo & _LI, BranchProbabilityInfo * _PB)
   : F(_F)
   , DT(_DT)
   , PDT(_PDT)
   , LI(_LI)
+  , PB(_PB)
   {}
 
   // TODO pretend that the new loop is inserted
@@ -222,11 +224,29 @@ struct LoopCloner {
     PDT.recalculate(F);
     auto * clonedExitingPostDom = PDT.getNode(&clonedExiting);
 
+    // transfer branch probabilities, if any
+    if (PB) {
+      CloneBranchProbabilities(L, valueMap);
+    }
+
     // drop the fake branch again (we created it to fake a sound CFG during analyses repair)
     splitBranch->eraseFromParent();
     assert(loopPreHead->getTerminator() == preTerm);
 
     return LoopCloneInfo{*clonedLoop, *clonedDomNode, *clonedExitingPostDom};
+  }
+
+  // transfer all branch probabilities from the src loop to the dest loop
+  void
+  CloneBranchProbabilities(Loop & srcLoop, ValueToValueMapTy & valueMap) {
+    for (auto * block : srcLoop.blocks()) {
+      const auto & term = *block->getTerminator();
+      for (size_t i = 0; i < term.getNumSuccessors(); ++i) {
+        auto p = PB->getEdgeProbability(block, i);
+        auto * cloned = &LookUp(valueMap, *block);
+        PB->setEdgeProbability(cloned, i, p);
+      }
+    }
   }
 
   // clone and remap all loop blocks internally
@@ -940,7 +960,7 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
   }
 
 // otw, clone the scalar loop
-  LoopCloner loopCloner(F, DT, PDT, LI);
+  LoopCloner loopCloner(F, DT, PDT, LI, PB);
   ValueToValueMapTy cloneMap;
   LoopCloner::LoopCloneInfo cloneInfo = loopCloner.CloneLoop(L, cloneMap);
   auto & clonedLoop = cloneInfo.clonedLoop;

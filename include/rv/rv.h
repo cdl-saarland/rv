@@ -22,6 +22,7 @@ namespace llvm {
   class DominatorTree;
   class ScalarEvolution;
   class MemoryDependenceResults;
+  class BranchProbabilityInfo;
 }
 
 namespace rv {
@@ -70,7 +71,8 @@ public:
               llvm::DFG& dfg,
               llvm::LoopInfo& loopInfo,
               llvm::PostDominatorTree& postDomTree,
-              llvm::DominatorTree& domTree);
+              llvm::DominatorTree& domTree,
+              llvm::BranchProbabilityInfo * pbInfo = nullptr);
 
     //
     // Produce vectorized instructions

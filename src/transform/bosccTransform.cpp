@@ -13,6 +13,7 @@
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/Analysis/LoopInfo.h>
+#include <llvm/Analysis/BranchProbabilityInfo.h>
 
 #include <llvm/ADT/SmallSet.h>
 #include <llvm/ADT/PostOrderIterator.h>
@@ -46,9 +47,10 @@ struct Impl {
   PostDominatorTree & postDomTree;
   LoopInfo & loopInfo;
   Module & mod;
+  BranchProbabilityInfo *pbInfo;
 
 
-Impl(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, DominatorTree & _domTree, PostDominatorTree & _postDomTree, LoopInfo & _loopInfo)
+Impl(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo,  MaskExpander & _maskEx, DominatorTree & _domTree, PostDominatorTree & _postDomTree, LoopInfo & _loopInfo, BranchProbabilityInfo * _pbInfo)
 : vecInfo(_vecInfo)
 , platInfo(_platInfo)
 , maskEx(_maskEx)
@@ -56,6 +58,7 @@ Impl(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _mas
 , postDomTree(_postDomTree)
 , loopInfo(_loopInfo)
 , mod(*vecInfo.getScalarFunction().getParent())
+, pbInfo(_pbInfo)
 {}
 
 Function &
@@ -302,7 +305,19 @@ bosccHeuristic(BranchInst & branch, double & regScore, const RatioMap & dispMap)
   return 0;
 }
 
-static double GetEdgeProb(BasicBlock & start, BasicBlock & end) {
+double
+GetEdgeProb(BasicBlock & start, BasicBlock & end) {
+  // use BranchProbabilityInfo if available
+  if (pbInfo) {
+    auto prob = pbInfo->getEdgeProbability(&start, &end);
+    if (prob.isZero()) {
+      return 0.0;
+    } else if (!prob.isUnknown()) {
+      return prob.getNumerator() / (double) prob.getDenominator();
+    }
+  }
+
+  // otw use uniform distribution
   return 1.0 / start.getTerminator()->getNumSuccessors();
 }
 
@@ -441,16 +456,17 @@ run() {
 
 bool
 BOSCCTransform::run() {
-  Impl impl(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo);
+  Impl impl(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo, pbInfo);
   return impl.run();
 }
 
 
-BOSCCTransform::BOSCCTransform(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::PostDominatorTree & _postDomTree, llvm::LoopInfo & _loopInfo)
+BOSCCTransform::BOSCCTransform(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::PostDominatorTree & _postDomTree, llvm::LoopInfo & _loopInfo, BranchProbabilityInfo * _pbInfo)
 : vecInfo(_vecInfo)
 , platInfo(_platInfo)
 , maskEx(_maskEx)
 , domTree(_domTree)
 , postDomTree(_postDomTree)
 , loopInfo(_loopInfo)
+, pbInfo(_pbInfo)
 {}

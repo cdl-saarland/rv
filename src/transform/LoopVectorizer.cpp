@@ -34,6 +34,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/MemoryDependenceAnalysis.h"
+#include "llvm/Analysis/BranchProbabilityInfo.h"
 
 #include "llvm/Transforms/Utils/Cloning.h"
 
@@ -141,7 +142,7 @@ LoopVectorizer::transformToVectorizableLoop(Loop &L, int VectorWidth, int tripAl
   IF_DEBUG { errs() << "\tCreating scalar remainder Loop for " << L.getName() << "\n"; }
 
   // try to applu the remainder transformation
-  RemainderTransform remTrans(*F, *DT, *PDT, *LI, *reda);
+  RemainderTransform remTrans(*F, *DT, *PDT, *LI, *reda, PB);
   auto * preparedLoop = remTrans.createVectorizableLoop(L, uniformOverrides, VectorWidth, tripAlign);
 
   return preparedLoop;
@@ -268,7 +269,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   assert(L.getLoopPreheader());
 
   // control conversion
-  vectorizer->linearize(vecInfo, cdg, dfg, *LI, *PDT, *DT);
+  vectorizer->linearize(vecInfo, cdg, dfg, *LI, *PDT, *DT, PB);
 
 
   const DominatorTree domTreeNew(
@@ -340,6 +341,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   this->LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   this->SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   this->MDR = &getAnalysis<MemoryDependenceWrapperPass>().getMemDep();
+  this->PB = &getAnalysis<BranchProbabilityInfoWrapperPass>().getBPI();
 
 // setup PlatformInfo
   TargetTransformInfo & tti = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
@@ -374,6 +376,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   this->LI = nullptr;
   this->SE = nullptr;
   this->MDR = nullptr;
+  this->PB = nullptr;
   return Changed;
 }
 
@@ -383,6 +386,7 @@ void LoopVectorizer::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<MemoryDependenceWrapperPass>();
   AU.addRequired<PostDominatorTreeWrapperPass>();
   AU.addRequired<ScalarEvolutionWrapperPass>();
+  AU.addRequired<BranchProbabilityInfoWrapperPass>();
 
   // PlatformInfo
   AU.addRequired<TargetTransformInfoWrapperPass>();
@@ -399,6 +403,7 @@ INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(MemoryDependenceWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(BranchProbabilityInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
 // PlatformInfo
 INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)

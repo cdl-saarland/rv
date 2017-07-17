@@ -13,6 +13,7 @@ namespace llvm {
   class LoopInfo;
   class DominatorTree;
   class PostDominatorTree;
+  class BranchProbabilityInfo;
 }
 
 namespace rv {
@@ -27,9 +28,10 @@ class BOSCCTransform {
   llvm::DominatorTree & domTree;
   llvm::PostDominatorTree & postDomTree;
   llvm::LoopInfo & loopInfo;
+  llvm::BranchProbabilityInfo * pbInfo;
 
 public:
-  BOSCCTransform(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::PostDominatorTree & _postDomTree, llvm::LoopInfo & _loopInfo);
+  BOSCCTransform(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::PostDominatorTree & _postDomTree, llvm::LoopInfo & _loopInfo, llvm::BranchProbabilityInfo * _pbInfo);
 
   bool run();
 };

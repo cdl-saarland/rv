@@ -16,6 +16,7 @@
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
+#include <llvm/Analysis/BranchProbabilityInfo.h>
 
 #include "rv/rv.h"
 #include "rv/analysis/DFG.h"
@@ -47,6 +48,8 @@
 
 #include "rv/sleefLibrary.h"
 
+
+using namespace llvm;
 
 namespace rv {
 
@@ -200,7 +203,8 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
                  DFG& dfg,
                  LoopInfo& loopInfo,
                  PostDominatorTree& postDomTree,
-                 DominatorTree& domTree)
+                 DominatorTree& domTree,
+                 BranchProbabilityInfo * pbInfo)
 {
     // use a fresh domtree here
     // DominatorTree fixedDomTree(vecInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
@@ -222,7 +226,7 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 
     // insert BOSCC branches if desired
     if (config.enableHeuristicBOSCC) {
-      BOSCCTransform bosccTrans(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo);
+      BOSCCTransform bosccTrans(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo, pbInfo);
       bosccTrans.run();
     }
 
