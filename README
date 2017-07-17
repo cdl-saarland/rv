@@ -19,7 +19,7 @@ compiler-rt [optional] (for complex arithmetic functions)
 
 -- Buildling libRV --
 RV is an LLVM tool and integrates into the LLVM build system.
-To enable vectorized complex arithmetic through compiler-rt configure RV with RV_ENABLE_CRT=on. 
+To enable vectorized complex arithmetic through compiler-rt checkout compiler-rt in llvm/runtimes and configure RV with RV_ENABLE_CRT=on. 
 Clone this repository into llvm/tools/rv where llvm is your LLVM source directory. RV will build along with LLVM.
 
 -- Testing libRV --
