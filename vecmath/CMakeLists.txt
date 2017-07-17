@@ -17,7 +17,7 @@ SET ( SLEEF_MKRENAME "${RV_LIB_SLEEF_DIR}/mkrename" )
 # compiler-rt
 SET ( CRT_BC "${VECMATH_LIB_DIR}/crt.bc" )
 SET ( CRT_GENBC "${VECMATH_LIB_DIR}/crt.gen.cpp" )
-SET ( CRT_INC "${RV_SOURCE_DIR}/../compiler-rt/lib/builtins" )
+SET ( CRT_INC "${RV_SOURCE_DIR}/../../runtimes/compiler-rt/lib/builtins" )
 
 # SLEEF bc build paths
 SET ( SLEEF_BC_AVX2_SP "${VECMATH_LIB_DIR}/avx2_sleef_sp.bc" )
