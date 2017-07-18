@@ -454,6 +454,66 @@ ReductionAnalysis::isHeaderPhi(Instruction & inst, Loop & loop) const {
   return loopInfo.getLoopFor(inst.getParent()) == &loop;
 }
 
+typedef std::vector<Instruction*> NodeStack;
+
+static void
+FilterForwardUses(Reduction & red, PHINode & seed) {
+  NodeStack stack;
+  stack.push_back(&seed);
+  std::set<Instruction*> seen;
+
+  while (!stack.empty()) {
+    auto * inst = stack.back();
+    stack.pop_back();
+    if (!seen.insert(inst).second) continue; // already visited
+
+    for (auto & itUse : inst->uses()) {
+      auto * userInst = cast<Instruction>(itUse.getUser());
+      stack.push_back(userInst);
+    }
+  }
+
+  // filter out unseen elements
+  decltype(seen)::iterator it = red.elements.begin(), itEnd = red.elements.end();
+  for (; it != itEnd; ) {
+    auto * inst = *it;
+    if (!seen.count(inst)) {
+      it = red.elements.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+static RedKind
+ClassifyReduction(Reduction & red) {
+  RedKind kind = RedKind::Bot;
+  for (auto * inst : red.elements) {
+    auto nodeKind = InferRedKind(*inst);
+
+    if (nodeKind != RedKind::Bot) {
+      // verify that there is exactly one incoming operand from the chain
+      bool foundChainOperand = false;
+      for (size_t i = 0; i < inst->getNumOperands(); ++i) {
+        auto * opInst = dyn_cast<Instruction>(inst->getOperand(i));
+        if (opInst && red.elements.count(opInst)) {
+          if (foundChainOperand) {
+            nodeKind = RedKind::Top; // multiple chain inputs -> jump to top
+            break;
+          } else {
+            foundChainOperand = true;
+          }
+        }
+      }
+    }
+
+    // TODO verify that reduction
+    kind = JoinKinds(kind, nodeKind);
+    if (kind == RedKind::Top) return kind;
+  }
+  return kind;
+}
+
 void
 ReductionAnalysis::analyze() {
 // init work list (loop header phis for now)
@@ -462,7 +522,7 @@ ReductionAnalysis::analyze() {
     loopStack.push_back(l);
   }
 
-  typedef std::vector<Instruction*> NodeStack;
+  std::vector<PHINode*> seedNodes;
   NodeStack nodeStack;
   while (!loopStack.empty()) {
     auto * loop = loopStack.back();
@@ -474,7 +534,12 @@ ReductionAnalysis::analyze() {
       if (!phi) break;
 
       // try to match a known recurrence pattern
-      tryMatchStridePattern(*phi);
+      if (tryMatchStridePattern(*phi)) {
+        continue;
+      }
+
+      // this phi node is not part of an inductive pattern
+      seedNodes.push_back(phi);
 
       auto * node = new Reduction(*loop, *phi);
       reductMap[phi] = node;
@@ -486,7 +551,7 @@ ReductionAnalysis::analyze() {
     }
   }
 
-// work list for general value reduction
+// work list for general value reduction (backward scan)
   while (!nodeStack.empty()) {
     auto * inst = nodeStack.back();
     nodeStack.pop_back();
@@ -559,6 +624,18 @@ ReductionAnalysis::analyze() {
       // inspect all users of this instruction
       nodeStack.push_back(opInst);
     }
+  }
+
+// general reductions (forward scan)
+  std::set<Reduction*> seen;
+  for (auto * phi : seedNodes) {
+    auto * red = getReductionInfo(*phi);
+    assert(red);
+    if (!seen.insert(red).second) continue;
+    FilterForwardUses(*red, *phi);
+
+    // TODO classify reduction set after filtering
+    red->kind = ClassifyReduction(*red);
   }
 }
 

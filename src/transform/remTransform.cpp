@@ -921,13 +921,15 @@ RemainderTransform::canTransformLoop(llvm::Loop & L) {
     return false;
   }
 
+  reda.print(errs());
+
   // only attempt loops with recognized reduction patterns
   for (auto & Inst : *L.getHeader()) {
     auto * phi = dyn_cast<PHINode>(&Inst);
     if (!phi) break;
 
-    if (!(reda.getReductionInfo(*phi)) || reda.getStrideInfo(*phi)) {
-      Report() << "loopVecPass remTrans: unsupported header PHI " << *phi << "\n";
+    if (!(reda.getReductionInfo(*phi) || reda.getStrideInfo(*phi))) {
+      Report() << "remTrans: unsupported header PHI " << *phi << "\n";
       return false;
     }
 
