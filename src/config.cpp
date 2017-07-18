@@ -13,6 +13,7 @@ Config::Config()
 // backend defaults
 , scalarizeIndexComputation(true)
 , useScatterGatherIntrinsics(true)
+, enableMaskedMove(true)
 , enableInterleaved(true)
 , enablePseudoInterleaved(true)
 , cropPseudoInterleaved(false)

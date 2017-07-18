@@ -885,14 +885,14 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     addr.push_back(requestScalarValue(accessedPtr));
     alignment = addrShape.getAlignmentFirst();
 
-  } else if (addrShape.isContiguous() || addrShape.isStrided(byteSize)) {
+  } else if ((addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !(needsMask && !config.enableMaskedMove)) {
     // cast pointer to vector-width pointer
     Value *ptr = requestScalarValue(accessedPtr);
     PointerType *vecPtrType = PointerType::getUnqual(vecType);
     addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
     alignment = addrShape.getAlignmentFirst();
 
-  } else if (addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) {
+  } else if ((addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) && !(needsMask && !config.enableMaskedMove)) {
     // interleaved access. ptrs: base, base+vector, base+2vector, ...
     Value *srcPtr = getPointerOperand(cast<Instruction>(srcs[0]));
     for (unsigned i = 0; i < srcs.size(); ++i) {
@@ -904,7 +904,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     alignment = addrShape.getAlignmentFirst();
     interleaved = true;
 
-  } else if (addrShape.isStrided() && isPseudointerleaved(inst, accessedPtr, byteSize)) {
+  } else if ((addrShape.isStrided() && isPseudointerleaved(inst, accessedPtr, byteSize)) && !(needsMask && !config.enableMaskedMove)) {
     // pseudo-interleaved: same as above. we don't know the array limits, so we skip the last index of the last load
     unsigned stride = (unsigned) addrShape.getStride() / byteSize;
     srcs.push_back(inst);
@@ -944,17 +944,17 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       mask = createPTest(mask, false);
       vecMem = createUniformMaskedMemory(load, accessedType, alignment, addr[0], mask, nullptr);
 
-    } else if ((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) {
+    } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       vecMem = createContiguousLoad(addr[0], alignment, needsMask ? mask : nullptr, UndefValue::get(vecType));
 
       addrShape.isUniform() ? ++numUniLoads : needsMask ? ++numContMaskedLoads : ++numContLoads;
 
-    } else if (interleaved) {
+    } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
       createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs);
 
-    } else if (pseudoInter) {
+    } else if (pseudoInter && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
       createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs, true);
 
@@ -973,13 +973,13 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       mask = createPTest(mask, false);
       vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr[0], mask, mappedStoredVal);
 
-    } else if ((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) {
+    } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment, needsMask ? mask : nullptr);
 
       addrShape.isUniform() ? ++numUniStores : needsMask ? ++numContMaskedStores : ++numContStores;
 
-    } else if (interleaved) {
+    } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
       std::vector<Value *> vals;
       vals.reserve(addr.size());
@@ -990,7 +990,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       }
       createInterleavedMemory(vecType, alignment, &addr, &masks, &vals, &srcs);
 
-    } else if (pseudoInter) {
+    } else if (pseudoInter && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
       std::vector<Value *> vals;
       vals.reserve(addr.size());

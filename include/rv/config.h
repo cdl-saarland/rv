@@ -26,6 +26,7 @@ struct Config {
 // native configuration (backend)
   bool scalarizeIndexComputation;
   bool useScatterGatherIntrinsics;
+  bool enableMaskedMove;
   bool enableInterleaved;
   bool enablePseudoInterleaved;
   bool cropPseudoInterleaved;
