@@ -26,8 +26,14 @@ using namespace llvm;
 
 namespace rv {
 
+RedKind JoinKinds(RedKind A, RedKind B) {
+  if (A == RedKind::Bot) return B;
+  if (B == RedKind::Bot) return A;
+  if (A != B) return RedKind::Top;
+  return A;
+}
 
-static
+
 const char *
 to_string(RedKind red) {
   switch (red) {
@@ -43,9 +49,10 @@ to_string(RedKind red) {
 }
 
 // try to infer the reduction kind of the operator implemented by inst
-static RedKind
+RedKind
 InferRedKind(Instruction & inst) {
   switch (inst.getOpcode()) {
+  // actually operations folding a reduction input into the chian
     case Instruction::FAdd:
     case Instruction::Add:
       return RedKind::Add;
@@ -60,6 +67,12 @@ InferRedKind(Instruction & inst) {
     case Instruction::And:
       return RedKind::And;
 
+  // preserving operations
+    case Instruction::Select:
+    case Instruction::PHI:
+      return RedKind::Bot;
+
+  // unkown -> unrecognized operation in reduction chain
     default:
       return RedKind::Top;
   }
@@ -67,15 +80,37 @@ InferRedKind(Instruction & inst) {
 }
 
 // materialize a single instance of firstArg [[RedKind~OpCode]] secondArg
-static Instruction&
+Instruction&
 CreateReduce(IRBuilder<> & builder, Value & firstArg, Value & secondArg) {
   abort();
 }
 
 // reduce the vector @vectorVal to a scalar value (using redKind)
-static Value &
+Value &
 CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vectorVal) {
   abort();
+}
+
+Constant&
+GetNeutralElement(RedKind redKind, Type & chainTy) {
+  switch(redKind) {
+    case RedKind::Or:
+      assert(chainTy.isIntegerTy());
+      return *ConstantInt::getNullValue(&chainTy);
+    case RedKind::And:
+      assert(chainTy.isIntegerTy());
+      return *ConstantInt::getAllOnesValue(&chainTy);
+
+    case RedKind::Add:
+      return chainType.isFloatTy() ? ConstantFP::get(&chainTy, 0.0) : ConstantInt::getNullValue(&chainTy);
+
+    case RedKind::Mul:
+      return chainType.isFloatTy() ? ConstantFP::get(&chainTy, 1.0) : ConstantInt::get(&chainTy, 1, false);
+
+    default:
+      IF_DEBUG_RED { errs() << "red: Unknown neutral element for " << to_string(redKind) << "\n"; }
+      abort();
+  }
 }
 
 
@@ -90,30 +125,79 @@ Reduction::dump() const {
 }
 
 void
-Reduction::print(raw_ostream & out) {
-   out << "Reduction { " << phi.getName() << " reductor " << reductorInst << " with neutral elem " << neutralElem << "}\n";
+Reduction::print(raw_ostream & out) const {
+  std::string loopName =
+    levelLoop ? "(" + std::to_string(levelLoop->getLoopDepth()) + ") " + levelLoop->getName().str()
+              : "<none>";
+
+   out << "Reduction { levelLoop = " << loopName << " redKind " << to_string(kind) << " elems:\n";
+   for (const Instruction * elem : elements) {
+     out << "- " << elem->print(out); out << "\n";
+   }
+   out << "}\n";
 }
 
+static  bool
+MatchStridePattern(Reduction & red, PHINode* & oHeaderPhi, Instruction* & oReductor, int64_t & oInc) {
+
+  if (red.kind != RedKind::Add) return false;
+  if (red.elements.size() != 2) return false;
+
+  auto it = red.elements.begin();
+  auto * firstInst = *it++;
+  auto * secInst =  *it;
+
+  // match one phi node and one instruction (TODO allow strided recurrences)
+  auto * headerPhi = isa<PHINode>(firstInst) ? cast<PHINode>(firstInst) : dyn_cast<PHINode>(&secInst);
+  Instruction * redInst = isa<PHINode>(firstInst) ? &secInst : &firstInst;
+  if (!headerPhi || !redInst) return false;
+
+  oHeaderPhi = headerPhi;
+
+  // match opCode
+  auto oc = redInst->getOpcode();
+  int64_t sign = 0;
+  if (oc == Instruction::Add || oc == Instruction::FAdd) {
+    sign = 1;
+  } else if (oc == Instruction::Sub || oc == Instruction::FSub) {
+    sign = -1;
+  } else {
+    return false;
+  }
+
+// parse constant (oInc)
+  Constant* firstConst = dyn_cast<Constant>(redInst->getOperand(0));
+  Constant* secConst = dyn_cast<Constant>(redInst->getOperand(1));
+
+  // at least one op needs to be constant
+  if (!firstConst && !secConst) {
+    return false;
+  }
+
+  Constant * incConst = firstConst ? firstConst : secConst;
+  if (auto * intIncrement = dyn_cast<ConstantInt>(incConst)) {
+    oInc =  sign * intIncrement->getSExtValue();
+  } else if (auto * fpInc = dyn_cast<ConstantFP>(incConst)) {
+    return false; // TODO allow natural number fp increments in fast-math
+  }
+
+  // decompose the reductor
+  oReductor = redInst;
+  return true;
+}
 
 rv::VectorShape
 Reduction::getShape(int vectorWidth) {
-  auto & redInst = getReductor();
+  PHINode * headerPhi;
+  Instruction * reductor;
+  int64_t inc;
 
-  if (redInst.getOpcode() != Instruction::Add) {
-    errs() << redInst << "\n";
+  if (MatchStridePattern(*this, headerPhi, reductor, inc)) {
+    // TODO infer alignment from phi init argument
+    return VectorShape::strided(inc, inc * vectorWidth);
+  } else {
     return VectorShape::varying();
   }
-
-  auto *inConst = dyn_cast<ConstantInt>(&getReducibleValue());
-
-  if (!inConst) {
-    return VectorShape::varying();
-  }
-  errs() << *inConst << "\n";
-
-  auto constInc = inConst->getSExtValue();
-
-  return VectorShape::strided(constInc, constInc * vectorWidth);
 }
 
 
@@ -137,27 +221,7 @@ ReductionAnalysis::~ReductionAnalysis() {
 }
 
 
-Constant *
-ReductionAnalysis::inferNeutralElement(Instruction & reductInst) {
-  auto * reductTy = reductInst.getType();
-  switch(reductInst.getOpcode()) {
-    case Instruction::Add:
-    case Instruction::Sub:
-    case Instruction::FAdd:
-    case Instruction::FSub:
-      return Constant::getNullValue(reductTy);
-
-    case Instruction::Mul:
-      return ConstantInt::getSigned(reductTy, 1);
-    case Instruction::FMul:
-      return ConstantFP::get(reductTy, 1.0);
-
-    default:
-      IF_DEBUG_RED { errs() << "red: Unknown neutral element for " << reductInst << "\n"; }
-      return nullptr;
-  };
-}
-
+#if 0
 Reduction*
 ReductionAnalysis::tryInferReduction(PHINode & headerPhi) {
 // phi must be loop carried
@@ -222,14 +286,9 @@ ReductionAnalysis::requestNode(PHINode & chainPhi, Instruction & inst) {
     return *it->second;
   }
 }
+#endif
 
-static RedKind JoinKinds(RedKind A, RedKind B) {
-  if (A == RedKind::Bot) return B;
-  if (B == RedKind::Bot) return A;
-  if (A != B) return RedKind::Top;
-  return A;
-}
-
+#if 0
 void
 ReductionAnalysis::visitHeaderPhi(RedNode & phiNode, NodeStack & nodeStack) {
   auto & BB = *phiNode.recPhi.getParent();
@@ -302,49 +361,145 @@ ReductionAnalysis::visitHeaderPhi(RedNode & phiNode, NodeStack & nodeStack) {
   abort(); // TODO implement
 }
 
-void
+voidt
 ReductionAnalysis::visitInputNode(RedNode & phiNode, NodeStack & nodeStack) {
   abort(); // TODO implement
 }
+#endif
 
-typedef std::pair<Instruction*, Reduction*> RedElem;
-typedef std::vector<RedElem> NodeStack;
+bool
+ReductionAnalysis::addToGroup(Reduction & redGroup, Instruction & inst) {
+  bool added = redGroup.add(inst);
+  if (added) {
+    assert(!reductMap.count(&inst) && "overwriting a mapping!!");
+    reductMap[&inst] = &redGroup;
+  }
+}
 
 void
-ReductionAnalysis::analyze(Loop & loop) {
-  for (auto * childLoop : loop) analyze(*childLoop);
-
-  NodeStack nodeStack;
-  for (auto & inst : *loop.getHeader()) {
-    auto * phi = dyn_cast<PHINode>(&inst);
-    if (!phi) break;
-
-    auto * node = new Reduction(loop, phi);
-    reductMap[phi] = node;
-    nodeStack.emplace_back(phi, node);
+ReductionAnalysis::foldIntoGroup(Reduction & destGroup, Reduction & srcGroup) {
+  for (auto * inst : srcGroup.elements) {
+    destGroup.add(*inst);
+    reductMap[inst] = &destGroup;
+  }
+  if (destGroup.levelLoop == srcGroup.levelLoop || !srcGroup.levelLoop) {
+    return;
+  } else if (!destGroup.levelLoop || srcGroup.levelLoop->contains(destGroup.levelLoop)) {
+    destGroup.levelLoop = srcGroup.levelLoop;
+    return;
   }
 
-  // TODO run work list algorithm
-  while (!nodeStack.empty()) {
-    auto * node = nodeStack.back();
-    nodeStack.pop_back();
-
-    if (node->isHeaderPhi()) {
-      visitHeaderPhi(*node, nodeStack);
-    } else {
-      visitInputNode(*node, nodeStack);
-    }
+  if (destGroup.levelLoop->contains(srcGroup.levelLoop)) {
+    return;
   }
+
+  // neither loop contains the other -> do not follow this leed
+  abort();
+}
+
+bool
+ReductionAnalysis::isHeaderPhi(Instruction & inst, Loop & loop) const {
+  if (!isa<PHINode>(inst)) return false;
+  return loopInfo.getLoopFor(inst.getParent()) == &loop;
 }
 
 void
 ReductionAnalysis::analyze() {
-  for (auto * loop : loopInfo) {
-    analyze(*loop);
+// init work list (loop header phis for now)
+  std::vector<Loop*> loopStack;
+  for (auto * l : loopInfo) {
+    loopStack.push_back(l);
+  }
+
+  typedef std::vector<Instruction*> NodeStack;
+  NodeStack nodeStack;
+  while (!loopStack.empty()) {
+    auto * loop = loopStack.back();
+    loopStack.pop_back();
+
+    // bootstrap with header phis
+    for (auto & inst : *loop->getHeader()) {
+      auto * phi = dyn_cast<PHINode>(&inst);
+      if (!phi) break;
+
+      auto * node = new Reduction(*loop, *phi);
+      reductMap[phi] = node;
+      nodeStack.emplace_back(phi, node);
+    }
+
+    for (Loop * childLoop : *loop) {
+      loopStack.push_back(childLoop);
+    }
+  }
+
+
+// work list
+  while (!nodeStack.empty()) {
+    auto * inst = nodeStack.back();
+    nodeStack.pop_back();
+
+    auto & redGroup = *getReductionInfo(*inst);
+    auto chainKind = redGroup.kind;
+
+    for (Value * opVal : inst->operands()) {
+      // uint opIdx = itUse.getOperandNo();
+      auto * opInst = dyn_cast<Instruction>(opVal);
+      if (!opInst) {
+        IF_DEBUG_RED { errs() << "non-inst op: " << *opVal << "\n"; }
+      }
+
+      // check if we are about to merge a chain
+      auto * opGroup = getReductionInfo(*opInst);
+      auto userRedKind = InferRedKind(*inst);
+
+      // check whether this user is loop-carried
+      auto *opLoop = loopInfo.getLoopFor(opInst->getParent());
+      if (!opLoop || opLoop->contains(redGroup.levelLoop)) {
+        IF_DEBUG_RED { errs() << "outside operand " << *opInst << ". skip.\n"; }
+        continue;
+      }
+
+      IF_DEBUG_RED { errs() << "inspecting: " << *opInst << " ..\n\t"; }
+
+      // otw the operation needs to be attached to one of the chains
+      if (!opGroup) {
+         auto commonKind = JoinKinds(userRedKind, chainKind);
+        // first visit -> add to group
+        addToGroup(redGroup, *opInst);
+        // update chain properties
+        redGroup.kind = commonKind;
+        // loop level is preserved
+
+      } else if (opGroup == &redGroup) {
+        // we reached the header phi of this group -> keep
+        if (opGroup->levelLoop && isHeaderPhi(*opInst, *opGroup->levelLoop)) {
+          IF_DEBUG_RED { errs() << "reached header phi. keep.\n"; }
+        } else if (userRedKind != RedKind::Bot) {
+          // we reach this reduction operation on multiple operand position -> can not privatize
+          redGroup.kind = RedKind::Top;
+          IF_DEBUG_RED { errs() << "multiple paths to operation: -> top\n"; }
+        }
+        continue; // user already inspected
+
+      } else if (opGroup != &redGroup) {
+        // TODO allow recurrences and multilevel reductions with compatible operations
+        IF_DEBUG_RED { errs() << "used in incopatible nested reduction ->top.\n"; }
+
+        // otw, we are receiving multiple reduction inputs
+        foldIntoGroup(redGroup, *opGroup);
+        redGroup.kind = RedKind::Top;
+        delete opGroup;
+
+        continue; // already inspected
+      }
+
+      // inspect all users of this instruction
+      nodeStack.push_back(opInst);
+    }
   }
 }
 
-RedNode *
+Reduction *
 ReductionAnalysis::getReductionInfo(Instruction & inst) const {
   auto itReduct = reductMap.find(&inst);
   if (itReduct == reductMap.end()) {
@@ -356,46 +511,43 @@ ReductionAnalysis::getReductionInfo(Instruction & inst) const {
 
 void
 ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) {
-  abort(); // TODO implement
-#if 0
-  std::vector<std::pair<Instruction*, RedNode*>> cloneVec;
+  std::vector<std::pair<Instruction*, Reduction*>> updateVec;
+  std::map<Reduction*, Reduction*> copyMap;
 
   // check for cloned phis and register new reductions for them
   for (auto itRed : reductMap) {
     auto it = cloneMap.find(itRed.first);
+
+    // instruction wasn't cloned
     if (it == cloneMap.end()) {
       continue;
     }
 
-    // both reductors and phis are in this map -> only remap when we see the phi
-    auto * clonedPhi = dyn_cast<PHINode>(cloneMap[itRed.first]);
-    if (!clonedPhi) continue; // skip reductor mappings
+    // there is a clonedInst
+    auto * clonedInst = cast<Instruction>(cloneMap[it->first]);
+    assert(!reductMap.count(clonedInst) && "instruction already mapped!");
 
-    auto & origRed = *itRed.second;
-    auto * clonedReductor = cast<Instruction>(cloneMap[&origRed.reductorInst]);
+    // request a cloned Reduction info object
+    auto * origRed = itRed.second;
+    auto itCopy = copyMap.find(origRed);
+    Reduction * targetRed = nullptr;
+    if (itCopy != copyMap.end()) {
+      targetRed = itCopy->second;
+    } else {
+      Loop * clonedLoop = LI.getLoopFor(cast<BasicBlock>(cloneMap[origRed->levelLoop->getHeader()]));
+      assert(clonedLoop && "cloned loop not mapped!");
+      targetRed = new Reduction(*clonedLoop, origRed->kind);
+    }
 
-    assert(clonedPhi && clonedReductor);
-
-    auto * clonedLoop = LI.getLoopFor(cast<BasicBlock>(cloneMap[origRed.redLoop.getHeader()]));
-
-    auto * clonedRed = new Reduction(
-        origRed.neutralElem,
-        *clonedReductor,
-        *clonedLoop,
-        *clonedPhi,
-        origRed.initInputIndex,
-        origRed.loopInputIndex
-      );
-
-    cloneVec.emplace_back(clonedPhi, clonedRed);
-    cloneVec.emplace_back(clonedReductor, clonedRed);
+    // transfer node to targetRed (this is a defered addToGroup)
+    targetRed->elements.insert(clonedInst);
+    updateVec.emplace_back(clonedInst, targetRed);
   }
 
   // modify map after traversal
-  for (auto it : cloneVec) {
+  for (auto it : updateVec) {
     reductMap[it.first] = it.second;
   }
-#endif
 }
 
 
