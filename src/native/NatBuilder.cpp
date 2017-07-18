@@ -1968,45 +1968,41 @@ NatBuilder::repairOutsideUses(Instruction & scaChainInst, std::function<Value& (
 }
 
 void
-NatBuilder::materializeStridedReduction(Reduction & red) {
-  IF_DEBUG { errs() << "Fixing strided reduction "; red.dump(); errs() << "\n"; }
+NatBuilder::materializeStridePattern(rv::StridePattern & sp) {
+  IF_DEBUG { errs() << "Fixing strided reduction "; sp.dump(); errs() << "\n"; }
 
   // widen stride to full vectorWidth
   int vectorWidth = vectorizationInfo.getVectorWidth();
 
-  StridePattern pat;
-  bool ok = red.matchStridedPattern(pat); (void) ok;
-  assert(ok);
-
-  auto redShape = pat.getShape(vectorWidth);
+  auto redShape = sp.getShape(vectorWidth);
   if (redShape.isUniform()) return;
 
   assert(redShape.hasStridedShape());
 
 // vectorize the reduction itself (loop internal uses)
-  auto & vecPhi = *cast<PHINode>(getScalarValue(pat.phi, 0));
-  auto & vecReductor = *cast<Instruction>(getScalarValue(pat.reductor, 0));
+  auto & vecPhi = *cast<PHINode>(getScalarValue(sp.phi, 0));
+  auto & vecReductor = *cast<Instruction>(getScalarValue(sp.reductor, 0));
 
   // create an adjusted reductor (full SIMD stride)
   auto * clonedReductor = cast<Instruction>(vecReductor.clone());
   int vecStride = vectorWidth * redShape.getStride();
-  auto & vecConst = *ConstantInt::getSigned(pat.phi->getType(), vecStride);
+  auto & vecConst = *ConstantInt::getSigned(sp.phi->getType(), vecStride);
 
   // FIXME rematerialize reductor instead (currently unsount wrt to sub)
-  int constIdx = isa<Constant>(pat.reductor->getOperand(0)) ? 0 : 1;
+  int constIdx = isa<Constant>(sp.reductor->getOperand(0)) ? 0 : 1;
   clonedReductor->setOperand(constIdx, &vecConst);
   clonedReductor->insertAfter(&vecReductor);
 
   // remap phi operands
-  int loopOpIdx = pat.latchIdx;
-  int initOpIdx = pat.loopInitIdx;
+  int loopOpIdx = sp.latchIdx;
+  int initOpIdx = sp.loopInitIdx;
 
   // attach reduced inputs to phi
-  vecPhi.addIncoming(pat.phi->getIncomingValue(initOpIdx), pat.phi->getIncomingBlock(initOpIdx));
-  auto * vecLatch = cast<BasicBlock>(getVectorValue(pat.phi->getIncomingBlock(loopOpIdx)));
+  vecPhi.addIncoming(sp.phi->getIncomingValue(initOpIdx), sp.phi->getIncomingBlock(initOpIdx));
+  auto * vecLatch = cast<BasicBlock>(getVectorValue(sp.phi->getIncomingBlock(loopOpIdx)));
   vecPhi.addIncoming(clonedReductor, vecLatch);
 
-  repairOutsideUses(*pat.phi,
+  repairOutsideUses(*sp.phi,
                     [&](Value& usedVal, BasicBlock& userBlock) ->Value& {
                       // otw, replace with reduced value
                       int64_t amount = (vectorWidth - 1) * redShape.getStride();
@@ -2018,7 +2014,7 @@ NatBuilder::materializeStridedReduction(Reduction & red) {
                     }
   );
 
-  repairOutsideUses(*pat.reductor,
+  repairOutsideUses(*sp.reductor,
                     [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
                       // otw, replace with reduced value
                       int64_t amount = (vectorWidth - 1) * redShape.getStride();
@@ -2088,6 +2084,7 @@ void NatBuilder::addValuesToPHINodes() {
     bool replicate = shape.isVarying() && (scalType->isVectorTy() || scalType->isStructTy());
     unsigned loopEnd = replicate ? vectorWidth() : 1;
 
+    auto *sp = reda.getStrideInfo(*scalPhi);
     auto *red = reda.getReductionInfo(*scalPhi);
 
     bool isVectorLoopHeader = region && &region->getRegionEntry() == scalPhi->getParent();
@@ -2095,9 +2092,9 @@ void NatBuilder::addValuesToPHINodes() {
       errs() << "loopHead: " << isVectorLoopHeader << ": shape " << shape.str() << "red: "; if (red) red->dump(); errs() << "\n";
     }
 
-    if (isVectorLoopHeader && shape.hasStridedShape() && red) {
-      IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
-      materializeStridedReduction(*red);
+    if (isVectorLoopHeader && shape.hasStridedShape() && sp) {
+      IF_DEBUG_NAT { errs() << "-- materializing "; sp->dump(); errs() << "\n"; }
+      materializeStridePattern(*sp);
 
     } else if (isVectorLoopHeader && shape.isVarying() && red) {
       // reduction phi handling

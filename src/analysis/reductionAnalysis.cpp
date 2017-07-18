@@ -13,6 +13,7 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/IRBuilder.h>
 
+
 #include "rvConfig.h"
 #include "rv/vectorShape.h"
 
@@ -27,10 +28,13 @@ using namespace llvm;
 namespace rv {
 
 RedKind JoinKinds(RedKind A, RedKind B) {
+  // default bottom rules
   if (A == RedKind::Bot) return B;
   if (B == RedKind::Bot) return A;
+
+  // fallback rule
   if (A != B) return RedKind::Top;
-  return A;
+  return A; // A == B
 }
 
 
@@ -101,6 +105,11 @@ GetNeutralElement(RedKind redKind, Type & chainTy) {
   }
 }
 
+// struct StridePattern
+void
+StridePattern::dump() const {
+  errs() << "StridePattern { phi = " << *phi << ", redInst = " << *reductor << " shape(w=4): " << getShape(4).str() << "\n";
+}
 
 
 
@@ -125,12 +134,19 @@ Reduction::print(raw_ostream & out) const {
    out << "}\n";
 }
 
+#if 0
 bool
 Reduction::matchStridedPattern(StridePattern & pat) const {
-  abort(); // TODO implement
 
-  if (kind != RedKind::Add) return false;
-  if (elements.size() != 2) return false;
+// #define RESON(M) { if (reason) *reason=M; }
+#ifdef RV_DEBUG
+#define REASON(M) { outs() << M << "\n"; }
+#else
+#define REASON(M) {}
+#endif
+
+  if (kind != RedKind::Add) { REASON("not an Add reduction") return false; }
+  if (elements.size() != 2) { REASON("not two elements") return false; }
 
   auto it = elements.begin();
   auto * firstInst = *it++;
@@ -139,9 +155,7 @@ Reduction::matchStridedPattern(StridePattern & pat) const {
   // match one phi node and one instruction (TODO allow strided recurrences)
   auto * headerPhi = isa<PHINode>(firstInst) ? cast<PHINode>(firstInst) : dyn_cast<PHINode>(secInst);
   Instruction * redInst = isa<PHINode>(firstInst) ? secInst : firstInst;
-  if (!headerPhi || !redInst) return false;
-
-  // oHeaderPhi = headerPhi;
+  if (!headerPhi || !redInst) { REASON("could not match header phi or reductor") return false; }
 
 // match reductor operand position
   int latchIdx = headerPhi->getIncomingValue(0) == redInst ? 0 : 1;
@@ -155,6 +169,7 @@ Reduction::matchStridedPattern(StridePattern & pat) const {
   } else if (oc == Instruction::Sub || oc == Instruction::FSub) {
     sign = -1;
   } else {
+    REASON("unrecognized opcode")
     return false;
   }
 
@@ -164,6 +179,7 @@ Reduction::matchStridedPattern(StridePattern & pat) const {
 
   // at least one op needs to be constant
   if (!firstConst && !secConst) {
+    REASON("neither reductor operand is a constant")
     return false;
   }
 
@@ -172,6 +188,7 @@ Reduction::matchStridedPattern(StridePattern & pat) const {
   if (auto * intIncrement = dyn_cast<ConstantInt>(incConst)) {
     inc =  sign * intIncrement->getSExtValue();
   } else if (auto * fpInc = dyn_cast<ConstantFP>(incConst)) {
+    REASON("TODO implement floating point strides (fast math)")
     return false; // TODO allow natural number fp increments in fast-math
   }
 
@@ -187,20 +204,9 @@ Reduction::matchStridedPattern(StridePattern & pat) const {
   // };
   pat = StridePattern{this, loopInitIdx, latchIdx, headerPhi, redInst, inc};
   return true;
-
+#undef SET_MSG
 }
-
-rv::VectorShape
-Reduction::getShape(int vectorWidth) const {
-  StridePattern pat;
-  if (matchStridedPattern(pat)) {
-    // TODO infer alignment from phi init argument
-    return VectorShape::strided(pat.inc, pat.inc * vectorWidth);
-  } else {
-    return VectorShape::varying();
-  }
-}
-
+#endif
 
 
 
@@ -222,9 +228,14 @@ ReductionAnalysis::~ReductionAnalysis() {
 }
 
 
-#if 0
-Reduction*
-ReductionAnalysis::tryInferReduction(PHINode & headerPhi) {
+StridePattern*
+ReductionAnalysis::tryMatchStridePattern(PHINode & headerPhi) {
+#ifdef RV_DEBUG
+#define REASON(M) { outs() << M << "\n"; }
+#else
+#define REASON(M) {}
+#endif
+
 // phi must be loop carried
   auto * reductLoop = loopInfo.getLoopFor(headerPhi.getParent());
   if (!reductLoop) {
@@ -246,36 +257,74 @@ ReductionAnalysis::tryInferReduction(PHINode & headerPhi) {
   }
 
 // loop carried input must be a instruction (carrying out the reduction)
-  auto * reductInput = dyn_cast<Instruction>(headerPhi.getIncomingValue(loopIndex));
-  if (!reductInput) {
+  auto * redInst = dyn_cast<Instruction>(headerPhi.getIncomingValue(loopIndex));
+  if (!redInst) {
     IF_DEBUG_RED { errs() << "red: loop carried valus is not an instruction " << headerPhi.getName() << "\n"; }
     return nullptr;
   }
 
-//
-  auto * neutralElem = inferNeutralElement(*reductInput);
-  if (!neutralElem) {
-    IF_DEBUG_RED { errs() << "red: neutral element for reduction unknown " << headerPhi.getName() << "\n"; }
+  // match opCode
+  auto oc = redInst->getOpcode();
+  int64_t sign = 0;
+  if (oc == Instruction::Add || oc == Instruction::FAdd) {
+    sign = 1;
+  } else if (oc == Instruction::Sub || oc == Instruction::FSub) {
+    sign = -1;
+  } else {
+    REASON("unrecognized opcode")
     return nullptr;
   }
 
+// parse constant (oInc)
+  Constant* firstConst = dyn_cast<Constant>(redInst->getOperand(0));
+  Constant* secConst = dyn_cast<Constant>(redInst->getOperand(1));
+
+  // at least one op needs to be constant
+  if (!firstConst && !secConst) {
+    REASON("neither reductor operand is a constant")
+    return nullptr;
+  }
+
+// the header phi must be used directly (TODO allow Trunc/SExt/ZExt) by the reductor
+  int phiIdx = firstConst == redInst->getOperand(0) ? 1 : 0;
+  if (redInst->getOperand(phiIdx) != &headerPhi) {
+    REASON("increment does not use phi node direcly")
+    return nullptr;
+  }
+
+// is the increment constant a valid stride?
+  Constant * incConst = firstConst ? firstConst : secConst;
+  int64_t inc;
+  if (auto * intIncrement = dyn_cast<ConstantInt>(incConst)) {
+    inc =  sign * intIncrement->getSExtValue();
+  } else if (auto * fpInc = dyn_cast<ConstantFP>(incConst)) {
+    REASON("TODO implement floating point strides (fast math)")
+    return nullptr; // TODO allow natural number fp increments in fast-math
+  }
+
+// match.
   IF_DEBUG_RED { errs() << "red: recognized: "; }
 
-  auto *red = new
-    Reduction(
-        *neutralElem,
-        *reductInput,
-        *reductLoop,
-        headerPhi,
+  auto *sp = new
+    StridePattern{
         initIndex,
-        loopIndex
-    );
+        loopIndex,
+        &headerPhi,
+        redInst,
+        inc
+    };
 
-  IF_DEBUG_RED { red->dump(); }
+  stridePatternMap[&headerPhi] = sp;
+  stridePatternMap[redInst] = sp;
 
-  return red;
+  IF_DEBUG_RED { sp->dump(); }
+
+  return sp;
+
+#undef REASON
 }
 
+#if 0
 RedNode &
 ReductionAnalysis::requestNode(PHINode & chainPhi, Instruction & inst) {
   auto it = reductMap.find(&inst);
@@ -424,6 +473,9 @@ ReductionAnalysis::analyze() {
       auto * phi = dyn_cast<PHINode>(&inst);
       if (!phi) break;
 
+      // try to match a known recurrence pattern
+      tryMatchStridePattern(*phi);
+
       auto * node = new Reduction(*loop, *phi);
       reductMap[phi] = node;
       nodeStack.push_back(phi);
@@ -434,8 +486,7 @@ ReductionAnalysis::analyze() {
     }
   }
 
-
-// work list
+// work list for general value reduction
   while (!nodeStack.empty()) {
     auto * inst = nodeStack.back();
     nodeStack.pop_back();
@@ -448,15 +499,23 @@ ReductionAnalysis::analyze() {
       auto * opInst = dyn_cast<Instruction>(opVal);
       if (!opInst) {
         IF_DEBUG_RED { errs() << "non-inst op: " << *opVal << "\n"; }
+        continue;
+      }
+
+      // check whether this node has a stride pattern
+      if (canReconstructInductively(*opInst)) {
+        IF_DEBUG_RED { errs() << "inductive operand " << *opInst << ". skip.\n"; }
+        continue;
       }
 
       // check if we are about to merge a chain
       auto * opGroup = getReductionInfo(*opInst);
-      auto userRedKind = InferRedKind(*inst);
+      auto userRedKind = InferRedKind(*opInst);
 
       // check whether this user is loop-carried
       auto *opLoop = loopInfo.getLoopFor(opInst->getParent());
-      if (!opLoop || opLoop->contains(redGroup.levelLoop)) {
+      if (!opLoop || // clear outside user
+          (opLoop != redGroup.levelLoop && opLoop->contains(redGroup.levelLoop))) { // loop above levelLoop
         IF_DEBUG_RED { errs() << "outside operand " << *opInst << ". skip.\n"; }
         continue;
       }
@@ -471,6 +530,7 @@ ReductionAnalysis::analyze() {
         // update chain properties
         redGroup.kind = commonKind;
         // loop level is preserved
+        IF_DEBUG_RED { errs() << "added (old: " << to_string(chainKind) << " joined: " << to_string(userRedKind) << " => new: " << to_string(commonKind) << ").\n"; }
 
       } else if (opGroup == &redGroup) {
         // we reached the header phi of this group -> keep
@@ -485,6 +545,7 @@ ReductionAnalysis::analyze() {
 
       } else if (opGroup != &redGroup) {
         // TODO allow recurrences and multilevel reductions with compatible operations
+
         IF_DEBUG_RED { errs() << "used in incopatible nested reduction ->top.\n"; }
 
         // otw, we are receiving multiple reduction inputs
@@ -498,6 +559,16 @@ ReductionAnalysis::analyze() {
       // inspect all users of this instruction
       nodeStack.push_back(opInst);
     }
+  }
+}
+
+StridePattern *
+ReductionAnalysis::getStrideInfo(Instruction & inst) const {
+  auto itSP = stridePatternMap.find(&inst);
+  if (itSP == stridePatternMap.end()) {
+    return nullptr;
+  } else {
+    return itSP->second;
   }
 }
 
@@ -539,6 +610,7 @@ ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) 
       Loop * clonedLoop = LI.getLoopFor(cast<BasicBlock>(cloneMap[origRed->levelLoop->getHeader()]));
       assert(clonedLoop && "cloned loop not mapped!");
       targetRed = new Reduction(*clonedLoop, origRed->kind);
+      copyMap[origRed] = targetRed;
     }
 
     // transfer node to targetRed (this is a defered addToGroup)
@@ -550,6 +622,30 @@ ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) 
   for (auto it : updateVec) {
     reductMap[it.first] = it.second;
   }
+}
+
+void
+ReductionAnalysis::print(raw_ostream & out) const {
+  out << "-- Recurrence Analysis --\n";
+
+  out << "Induction recurrences:\n";
+  {
+    std::set<StridePattern*> seen;
+    for (auto it : stridePatternMap) {
+      if (!seen.insert(it.second).second) continue;
+      it.second->dump();
+    }
+  }
+
+  out << "General reductions\n";
+  {
+    std::set<Reduction*> seen;
+    for (auto it : reductMap) {
+      if (!seen.insert(it.second).second) continue;
+      it.second->dump();
+    }
+  }
+  out << "-- End of Recurrence Analysis --\n";
 }
 
 

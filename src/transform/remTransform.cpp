@@ -53,23 +53,23 @@ class
 BranchCondition {
   CmpInst & cmp;
   int cmpReductIdx;
-  Reduction & red;
+  StridePattern & sp;
   VectorShape redShape;
 
 public:
 
-  BranchCondition(llvm::CmpInst & _cmp, int _cmpReductIdx, Reduction & _red, int vectorWidth)
+  BranchCondition(llvm::CmpInst & _cmp, int _cmpReductIdx, StridePattern & _sp, int vectorWidth)
   : cmp(_cmp)
   , cmpReductIdx(_cmpReductIdx)
-  , red(_red)
-  , redShape(_red.getShape(vectorWidth))
+  , sp(_sp)
+  , redShape(sp.getShape(vectorWidth))
   {}
 
   // return a branch condition object if this condition can be transformed
   static BranchCondition *
   analyze(llvm::CmpInst & cmp, int vectorWidth, ReductionAnalysis & reda, Loop & loop) {
     int reductIdx = -1;
-    Reduction * red = nullptr;
+    StridePattern * red = nullptr;
 
     for (size_t i = 0; i < cmp.getNumOperands(); ++i) {
       auto * opVal = cmp.getOperand(i);
@@ -80,7 +80,7 @@ public:
       // loop invariant operand
       if (!loop.contains(inst->getParent())) continue;
 
-      auto * valRed = reda.getReductionInfo(*inst);
+      auto * valRed = reda.getStrideInfo(*inst);
       if (!valRed) {
         // loop carried operand is not part of a recognized reduction -> abort
         return nullptr;
@@ -122,10 +122,8 @@ public:
     }
 
   // iteration interval test
-    StridePattern pat;
-    red.matchStridedPattern(pat);
-    bool nswFlag = pat.reductor->hasNoSignedWrap();
-    bool nuwFlag = pat.reductor->hasNoUnsignedWrap();
+    bool nswFlag = sp.reductor->hasNoSignedWrap();
+    bool nuwFlag = sp.reductor->hasNoUnsignedWrap();
 
     // lift the predicate form NE/EQ to LT/GT
     // the exit is taken on (%v == %n) send to exit if %V >= %n (if posStride)
@@ -138,7 +136,7 @@ public:
         adjustedPred  = (exitOnTrue ^ posStride) ? CmpInst::ICMP_SGE : CmpInst::ICMP_SLT;
       } else {
         assert(nuwFlag && "can not extrapolate wrapping exit conditions");
-        assert(pat.reductor->hasNoUnsignedWrap());
+        assert(sp.reductor->hasNoUnsignedWrap());
         adjustedPred  = (exitOnTrue ^ posStride) ? CmpInst::ICMP_UGE : CmpInst::ICMP_ULT;
       }
 
@@ -620,14 +618,12 @@ struct LoopTransformer {
     for (auto & Inst : *ScalarL.getHeader()) {
       auto * phi = dyn_cast<PHINode>(&Inst);
       if (!phi) break;
-      auto * red = reda.getReductionInfo(*phi);
       auto & vecPhi = LookUp(vecValMap, *phi);
       headerPhis[phi] = &vecPhi;
 
-      StridePattern pat;
-      bool strided = red->matchStridedPattern(pat);
-      if (strided) {
-        reductors[pat.reductor] = &vecPhi;
+      auto * sp = reda.getStrideInfo(*phi);
+      if (sp) {
+        reductors[sp->reductor] = &vecPhi;
       }
     }
 
@@ -689,11 +685,10 @@ struct LoopTransformer {
     for (auto & Inst : *ScalarL.getHeader()) {
       auto * phi = dyn_cast<PHINode>(&Inst);
       if (!phi) break;
-      auto * red = reda.getReductionInfo(*phi);
-      StridePattern pat;
-      if (red->matchStridedPattern(pat)) {
-        auto & reductor = *pat.reductor;
-        auto redShape = pat.getShape(vectorWidth);
+      auto * pat = reda.getStrideInfo(*phi);
+      if (pat) {
+        auto & reductor = *pat->reductor;
+        auto redShape = pat->getShape(vectorWidth);
         valShapes[phi] = redShape;
         reductors[&reductor] = phi;
       }
@@ -778,7 +773,7 @@ struct LoopTransformer {
              if (!ScalarL.contains(inst.getParent())) return &inst;
 
              // if we hit a reduction/induction value replace it with its vector version
-             if (isa<PHINode>(inst) || reda.getReductionInfo(inst)) {
+             if (isa<PHINode>(inst) || reda.getStrideInfo(inst) || reda.getReductionInfo(inst)) {
                auto * loopVal = &LookUp(vecValMap, inst);
                auto * lcssaPhi = PHINode::Create(loopVal->getType(), 1, inst.getName().str() + ".lscca", &*vecToScalarExit->begin());
                lcssaPhi->addIncoming(loopVal, &vecExiting);
@@ -931,7 +926,7 @@ RemainderTransform::canTransformLoop(llvm::Loop & L) {
     auto * phi = dyn_cast<PHINode>(&Inst);
     if (!phi) break;
 
-    if (!reda.getReductionInfo(*phi)) {
+    if (!(reda.getReductionInfo(*phi)) || reda.getStrideInfo(*phi)) {
       Report() << "loopVecPass remTrans: unsupported header PHI " << *phi << "\n";
       return false;
     }

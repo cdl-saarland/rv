@@ -28,6 +28,7 @@ namespace rv {
   class Region;
   class ReductionAnalysis;
   class Reduction;
+  class StridePattern;
 }
 
 namespace native {
@@ -65,7 +66,7 @@ namespace native {
     void materializeVaryingReduction(rv::Reduction & red);
 
     // fixup the
-    void materializeStridedReduction(rv::Reduction & red);
+    void materializeStridePattern(rv::StridePattern & sp);
 
     llvm::Value& materializeVectorReduce(llvm::IRBuilder<> & builder, llvm::Value & phiInitVal, llvm::Value & vecVal, llvm::Instruction & reduceOp);
 

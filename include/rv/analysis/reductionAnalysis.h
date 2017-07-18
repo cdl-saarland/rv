@@ -40,10 +40,8 @@ llvm::Constant& GetNeutralElement(RedKind redKind, llvm::Type & chainType);
 // try to infer the reduction kind of the operator implemented by inst (this ignores the operands of instruction)
 RedKind InferRedKind(llvm::Instruction & inst);
 
-struct Reduction; // forward
+// stride recurrence
 struct StridePattern {
-  const Reduction * red;
-
   int loopInitIdx;
   int latchIdx;
   llvm::PHINode * phi;
@@ -51,12 +49,15 @@ struct StridePattern {
   llvm::Instruction * reductor;
   int64_t inc; // increment value (already accounts to sign change by Instruction::Sub)
 
-  VectorShape getShape(int vectorWidth) {
+  VectorShape getShape(int vectorWidth) const {
     return VectorShape::strided(inc, vectorWidth * inc); // TODO fix alignment
   }
+
+  void dump() const;
 };
 
 
+// general reduction pattern
 struct Reduction {
   // all users outside of @levelLoop may reduce any of the instructions in @elements using a @kind reduction
   llvm::Loop * levelLoop;
@@ -79,13 +80,16 @@ struct Reduction {
     elements.insert(&_seedElem);
   }
 
+#if 0
+  // TODO move somewhere else
   // checks whether this value dependence chain can be privatized
   // - all reductors receive other elements of this reduction on one input only
   // - only reducible reduction elements are being used (atm the header phi latch input)
   // - all uses of reduction elements are either elements themselves or live outside of @levelLoop
   bool canPrivatize() const { false; } // TODO implement
-  VectorShape getShape(int vectorWidth) const; // infer a suitable vector shape
-  bool matchStridedPattern(StridePattern & pat) const;
+#endif
+
+  VectorShape getShape(int vectorWidth) const { return VectorShape::varying(); } // infer a suitable vector shape
 
   // shorthands
   bool contains(llvm::Instruction & elem) const { return elements.find(&elem) != elements.end(); }
@@ -99,6 +103,7 @@ struct Reduction {
 rv::VectorShape InferShape(Reduction & red);
 
 class ReductionAnalysis {
+  std::map<llvm::Instruction*, StridePattern*> stridePatternMap;
   std::map<llvm::Instruction*, Reduction*> reductMap;
 
   const llvm::LoopInfo & loopInfo;
@@ -111,6 +116,14 @@ class ReductionAnalysis {
   void foldIntoGroup(Reduction & destGroup, Reduction & srcGroup);
 
   bool isHeaderPhi(llvm::Instruction & inst, llvm::Loop & loop) const;
+
+  // check whether this instruction has a general stride pattern
+  StridePattern * tryMatchStridePattern(llvm::PHINode & headerPhi);
+
+
+  // returns true if the value of this instruction can be recomputed even if loop iterations execute in parallel/or SIMD fashing
+  bool canReconstructInductively(llvm::Instruction & inst) const { return getStrideInfo(inst); }
+
 public:
   ReductionAnalysis(llvm::Function & _func, const llvm::LoopInfo & _loopInfo);
   ~ReductionAnalysis();
@@ -120,8 +133,14 @@ public:
   // create reduction for the clones as well
   void updateForClones(llvm::LoopInfo & LI, llvm::ValueToValueMapTy & cloneMap);
 
-  // look up a reduction by its constituent
+  // look up a (general) reduction by its constituent
   Reduction * getReductionInfo(llvm::Instruction & inst) const;
+
+  // look up the specific stride pattern for inst
+  StridePattern * getStrideInfo(llvm::Instruction & inst) const;
+
+  // print reduction result
+  void print(llvm::raw_ostream & out) const;
 };
 
 

@@ -165,7 +165,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     const bool useImpreciseFunctions = true;
     addSleefMappings(config, platformInfo, useImpreciseFunctions);
 
-#define IF_DEBUG if (false)
+#define IF_DEBUG if (true)
 
 // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable
@@ -178,6 +178,9 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     if (!redInfo) {
       errs() << "\n\tskip: non-reduction phi in vector loop header " << preparedLoop->getName() << "\n";
+      fail();
+    } else if (redInfo->kind == rv::RedKind::Top) {
+      errs() << "\n\tskip: unsupported recurrence pattern in vector loop header " << preparedLoop->getName() << "\n";
       fail();
     }
 
@@ -513,9 +516,11 @@ int main(int argc, char** argv)
 
     bool runNormalize = reader.hasOption("-normalize");
 
+    bool runRed = reader.hasOption("-red");
+
     if (!hasFile) {
         std::cerr << "Not all arguments specified -wfv/-loopvec) "
-                  << "-i MODULE [-k KERNELNAME] [-target TARGET_DECL]"
+                  << "-i MODULE [-k KERNELNAME] [-target TARGET_DECL] [-normalize] [-red]"
                   << "[-o OUTPUT_LL] [-w 8] [--lower]\n";
         return -1;
     }
@@ -551,6 +556,20 @@ int main(int argc, char** argv)
       }
 
       finish = true;
+    }
+
+    if (runRed) {
+      outs() << "-- Reduction Analysis output --\n";
+      for (auto & func : *mod) {
+        DominatorTree DT;
+        DT.recalculate(func);
+        LoopInfo LI;
+        LI.analyze(DT);
+        rv::ReductionAnalysis reda(func, LI);
+        reda.analyze();
+        reda.print(outs());
+        finish = true;
+      }
     }
 
 
