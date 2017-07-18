@@ -1848,6 +1848,8 @@ IsPower2(int x) {
 
 Value&
 NatBuilder::materializeVectorReduce(IRBuilder<> & builder, Value & initVal, Value & vecVal, Instruction & reductOp) {
+  abort(); // TODO implement
+#if 0
   uint vecWidth = vecVal.getType()->getVectorNumElements();
 
   auto * intTy = Type::getInt32Ty(builder.getContext());
@@ -1899,6 +1901,7 @@ NatBuilder::materializeVectorReduce(IRBuilder<> & builder, Value & initVal, Valu
 
     return *accu;
   }
+#endif
 }
 
 void
@@ -1975,19 +1978,19 @@ NatBuilder::materializeStridedReduction(Reduction & red) {
   bool ok = red.matchStridedPattern(pat); (void) ok;
   assert(ok);
 
-  auto redShape = pat.getShape(vectorWidth):
+  auto redShape = pat.getShape(vectorWidth);
   if (redShape.isUniform()) return;
 
   assert(redShape.hasStridedShape());
 
 // vectorize the reduction itself (loop internal uses)
-  auto & vecPhi = *cast<PHINode>(getScalarValue(&pat.phi, 0));
-  auto & vecReductor = *cast<Instruction>(getScalarValue(&pat.reductor, 0));
+  auto & vecPhi = *cast<PHINode>(getScalarValue(pat.phi, 0));
+  auto & vecReductor = *cast<Instruction>(getScalarValue(pat.reductor, 0));
 
   // create an adjusted reductor (full SIMD stride)
   auto * clonedReductor = cast<Instruction>(vecReductor.clone());
   int vecStride = vectorWidth * redShape.getStride();
-  auto & vecConst = *ConstantInt::getSigned(pat.phi.getType(), vecStride);
+  auto & vecConst = *ConstantInt::getSigned(pat.phi->getType(), vecStride);
 
   // FIXME rematerialize reductor instead (currently unsount wrt to sub)
   int constIdx = isa<Constant>(pat.reductor->getOperand(0)) ? 0 : 1;
@@ -1999,11 +2002,11 @@ NatBuilder::materializeStridedReduction(Reduction & red) {
   int initOpIdx = pat.loopInitIdx;
 
   // attach reduced inputs to phi
-  vecPhi.addIncoming(&pat.phi.getIncomingValue(initOpIdx), pat.phi.getIncomingBlock(initOpIdx));
-  auto * vecLatch = cast<BasicBlock>(getVectorValue(pat.phi.getIncomingBlock(loopOpIdx)));
+  vecPhi.addIncoming(pat.phi->getIncomingValue(initOpIdx), pat.phi->getIncomingBlock(initOpIdx));
+  auto * vecLatch = cast<BasicBlock>(getVectorValue(pat.phi->getIncomingBlock(loopOpIdx)));
   vecPhi.addIncoming(clonedReductor, vecLatch);
 
-  repairOutsideUses(pat.phi,
+  repairOutsideUses(*pat.phi,
                     [&](Value& usedVal, BasicBlock& userBlock) ->Value& {
                       // otw, replace with reduced value
                       int64_t amount = (vectorWidth - 1) * redShape.getStride();
@@ -2015,7 +2018,7 @@ NatBuilder::materializeStridedReduction(Reduction & red) {
                     }
   );
 
-  repairOutsideUses(pat.reductor,
+  repairOutsideUses(*pat.reductor,
                     [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
                       // otw, replace with reduced value
                       int64_t amount = (vectorWidth - 1) * redShape.getStride();
@@ -2030,6 +2033,8 @@ NatBuilder::materializeStridedReduction(Reduction & red) {
 
 void
 NatBuilder::materializeVaryingReduction(Reduction & red) {
+  abort(); // TODO implement
+#if 0
   const int vectorWidth = vectorizationInfo.getVectorWidth();
   auto * vecPhi = cast<PHINode>(getVectorValue(&red.phi));
   auto redShape = vectorizationInfo.getVectorShape(red.getReductor());
@@ -2066,6 +2071,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red) {
                       abort();
                     }
   );
+#endif
 }
 
 void NatBuilder::addValuesToPHINodes() {
