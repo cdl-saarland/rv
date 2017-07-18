@@ -173,20 +173,26 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     auto * phi = dyn_cast<PHINode>(&inst);
     if (!phi) continue;
 
-    rv::Reduction * redInfo = reductionAnalysis.getReductionInfo(*phi);
     IF_DEBUG { errs() << "loopVecPass: header phi  " << *phi << " : "; }
 
-    if (!redInfo) {
-      errs() << "\n\tskip: non-reduction phi in vector loop header " << preparedLoop->getName() << "\n";
-      fail();
-    } else if (redInfo->kind == rv::RedKind::Top) {
-      errs() << "\n\tskip: unsupported recurrence pattern in vector loop header " << preparedLoop->getName() << "\n";
-      fail();
+    rv::StridePattern * pat = reductionAnalysis.getStrideInfo(*phi);
+    rv::VectorShape phiShape;
+    if (pat) {
+      IF_DEBUG { pat->dump(); }
+      phiShape = pat->getShape(vectorWidth);
+
+    } else {
+      rv::Reduction * redInfo = reductionAnalysis.getReductionInfo(*phi);
+
+      if (!redInfo) {
+        errs() << "\n\tskip: unrecognized phi use in vector loop " << preparedLoop->getName() << "\n";
+        fail();
+      } else {
+        IF_DEBUG { redInfo->dump(); }
+        phiShape = redInfo->getShape(vectorWidth);
+      }
     }
 
-    rv::VectorShape phiShape = redInfo->getShape(vectorWidth);
-
-    IF_DEBUG { redInfo->dump(); }
     IF_DEBUG { errs() << "header phi " << phi->getName() << " has shape " << phiShape.str() << "\n"; }
 
     vecInfo.setVectorShape(*phi, phiShape);

@@ -206,17 +206,24 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     auto * phi = dyn_cast<PHINode>(&inst);
     if (!phi) continue;
 
-    rv::Reduction * redInfo = reda->getReductionInfo(*phi);
-    IF_DEBUG { errs() << "loopVecPass: header phi  " << *phi << " : "; }
+    rv::StridePattern * pat = reda->getStrideInfo(*phi);
+    VectorShape phiShape;
+    if (pat) {
+      IF_DEBUG { pat->dump(); }
+      phiShape = pat->getShape(VectorWidth);
+    } else {
+      rv::Reduction * redInfo = reda->getReductionInfo(*phi);
+      IF_DEBUG { errs() << "loopVecPass: header phi  " << *phi << " : "; }
 
-    if (!redInfo) {
-      errs() << "\n\tskip: non-reduction phi in vector loop header " << L.getName() << "\n";
-      return false;
+      if (!redInfo) {
+        errs() << "\n\tskip: unrecognized phi use in vector loop " << L.getName() << "\n";
+        return false;
+      } else {
+        IF_DEBUG { redInfo->dump(); }
+        phiShape = redInfo->getShape(VectorWidth);
+      }
     }
 
-    rv::VectorShape phiShape = redInfo->getShape(VectorWidth);
-
-    IF_DEBUG{ redInfo->dump(); }
     IF_DEBUG { errs() << "header phi " << phi->getName() << " has shape " << phiShape.str() << "\n"; }
 
     vecInfo.setVectorShape(*phi, phiShape);

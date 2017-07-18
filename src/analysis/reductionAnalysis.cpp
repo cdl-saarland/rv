@@ -218,7 +218,13 @@ ReductionAnalysis::ReductionAnalysis(Function & _func, const LoopInfo & _loopInf
 {}
 
 ReductionAnalysis::~ReductionAnalysis() {
-  SmallPtrSet<Reduction*, 16> seen;
+  SmallPtrSet<void*, 32> seen;
+
+  for (auto itSP : stridePatternMap) {
+    if (seen.insert(itSP.second).second) {
+      delete itSP.second;
+    }
+  }
 
   for (auto itRed : reductMap) {
     if (seen.insert(itRed.second).second) {
@@ -661,9 +667,36 @@ ReductionAnalysis::getReductionInfo(Instruction & inst) const {
 
 void
 ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) {
-  std::vector<std::pair<Instruction*, Reduction*>> updateVec;
-  std::map<Reduction*, Reduction*> copyMap;
+// clone stride patterns
+  std::vector<StridePattern*> spUpdateVec;
+  for (auto itSP : stridePatternMap) {
+    auto * sp = itSP.second;
 
+    auto * clonedReduct = cast<Instruction>(cloneMap[sp->reductor]);
+    if (!clonedReduct) continue;
+
+    auto * clonedPhi = cast<PHINode>(cloneMap[sp->phi]);
+    assert(clonedPhi);
+
+    auto *clonedSP = new
+      StridePattern{
+          sp->loopInitIdx,
+          sp->latchIdx,
+          clonedPhi,
+          clonedReduct,
+          sp->inc
+    };
+    spUpdateVec.push_back(clonedSP);
+  }
+
+  for (auto * sp : spUpdateVec) {
+    stridePatternMap[sp->phi] = sp;
+    stridePatternMap[sp->reductor] = sp;
+  }
+
+// clone complex reduction patterns
+  std::map<Reduction*, Reduction*> copyMap;
+  std::vector<std::pair<Instruction*, Reduction*>> updateVec;
   // check for cloned phis and register new reductions for them
   for (auto itRed : reductMap) {
     auto it = cloneMap.find(itRed.first);
