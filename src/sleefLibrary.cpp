@@ -101,7 +101,7 @@ namespace rv {
 #ifdef RV_ENABLE_BUILTINS
     if (config.useAVX2) {
       const VecDesc VecFuncs[] = {
-          {"ldexpf", "xldexpf_avx2", 8},
+//        {"ldexpf", "xldexpf_avx2", 8},
           {"ilogbf", "xilogbf_avx2", 8},
           {"fmaf", "xfmaf_avx2", 8},
           {"fabsf", "xfabsf_avx2", 8},
@@ -152,8 +152,8 @@ namespace rv {
 
       if (useImpreciseFunctions) {
         const VecDesc ImprecVecFuncs[] = {
-            {"sinf", "xsinf_avx2", 8},
-            {"cosf", "xcosf_avx2", 8},
+//          {"sinf", "xsinf_avx2", 8},
+//          {"cosf", "xcosf_avx2", 8},
             {"tanf", "xtanf_avx2", 8},
             {"asinf", "xasinf_avx2", 8},
             {"acosf", "xacosf_avx2", 8},
@@ -181,8 +181,8 @@ namespace rv {
             {"erff", "xerff_u1_avx2", 8},
             {"erfcf", "xerfcf_u15_avx2", 8},
 
-            {"sin", "xsin_avx2", 4},
-            {"cos", "xcos_avx2", 4},
+//          {"sin", "xsin_avx2", 4},
+//          {"cos", "xcos_avx2", 4},
             {"tan", "xtan_avx2", 4},
             {"asin", "xasin_avx2", 4},
             {"acos", "xacos_avx2", 4},
@@ -233,7 +233,7 @@ namespace rv {
 
     if (config.useAVX) {
       const VecDesc VecFuncs[] = {
-          {"ldexpf", "xldexpf_avx", 8},
+//        {"ldexpf", "xldexpf_avx", 8},
           {"ilogbf", "xilogbf_avx", 8},
           {"fmaf", "xfmaf_avx", 8},
           {"fabsf", "xfabsf_avx", 8},
@@ -252,7 +252,7 @@ namespace rv {
           {"fmodf", "xfmodf_avx", 8},
           {"modff", "xmodff_avx", 8},
 
-          {"ldexp", "xldexp_avx", 4},
+//        {"ldexp", "xldexp_avx", 4},
           {"ilogb", "xilogb_avx", 4},
           {"fma", "xfma_avx", 4},
           {"fabs", "xfabs_avx", 4},
@@ -284,8 +284,8 @@ namespace rv {
 
       if (useImpreciseFunctions) {
         const VecDesc ImprecVecFuncs[] = {
-            {"sinf", "xsinf_avx", 8},
-            {"cosf", "xcosf_avx", 8},
+//          {"sinf", "xsinf_avx", 8},
+//          {"cosf", "xcosf_avx", 8},
             {"tanf", "xtanf_avx", 8},
             {"asinf", "xasinf_avx", 8},
             {"acosf", "xacosf_avx", 8},
@@ -313,8 +313,8 @@ namespace rv {
             {"erff", "xerff_u1_avx", 8},
             {"erfcf", "xerfcf_u15_avx", 8},
 
-            {"sin", "xsin_avx", 4},
-            {"cos", "xcos_avx", 4},
+//          {"sin", "xsin_avx", 4},
+//          {"cos", "xcos_avx", 4},
             {"tan", "xtan_avx", 4},
             {"asin", "xasin_avx", 4},
             {"acos", "xacos_avx", 4},
@@ -365,7 +365,7 @@ namespace rv {
 
     if (config.useSSE || config.useAVX || config.useAVX2) {
       const VecDesc VecFuncs[] = {
-          {"ldexpf", "xldexpf_sse2", 4},
+//        {"ldexpf", "xldexpf_sse2", 4},
           {"ilogbf", "xilogbf_sse2", 4},
           {"fmaf", "xfmaf_sse2", 4},
           {"fabsf", "xfabsf_sse2", 4},
@@ -384,7 +384,7 @@ namespace rv {
           {"fmodf", "xfmodf_sse2", 4},
           {"modff", "xmodff_sse2", 4},
 
-          {"ldexp", "xldexp_sse2", 2},
+//        {"ldexp", "xldexp_sse2", 2},
           {"ilogb", "xilogb_sse2", 2},
           {"fma", "xfma_sse2", 2},
           {"fabs", "xfabs_sse2", 2},
@@ -416,8 +416,8 @@ namespace rv {
 
       if (useImpreciseFunctions) {
         const VecDesc ImprecVecFuncs[] = {
-            {"sinf", "xsinf_sse2", 4},
-            {"cosf", "xcosf_sse2", 4},
+//          {"sinf", "xsinf_sse2", 4},
+//          {"cosf", "xcosf_sse2", 4},
             {"tanf", "xtanf_sse2", 4},
             {"asinf", "xasinf_sse2", 4},
             {"acosf", "xacosf_sse2", 4},
@@ -445,8 +445,8 @@ namespace rv {
             {"erff", "xerff_u1_sse2", 4},
             {"erfcf", "xerfcf_u15_sse2", 4},
 
-            {"sin", "xsin_sse2", 2},
-            {"cos", "xcos_sse2", 2},
+//          {"sin", "xsin_sse2", 2},
+//          {"cos", "xcos_sse2", 2},
             {"tan", "xtan_sse2", 2},
             {"asin", "xasin_sse2", 2},
             {"acos", "xacos_sse2", 2},
