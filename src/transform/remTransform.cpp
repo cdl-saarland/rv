@@ -122,8 +122,10 @@ public:
     }
 
   // iteration interval test
-    bool nswFlag = red.getReductor().hasNoSignedWrap();
-    bool nuwFlag = red.getReductor().hasNoUnsignedWrap();
+    StridePattern pat;
+    red.matchStridedPattern(pat);
+    bool nswFlag = pat.reductor->hasNoSignedWrap();
+    bool nuwFlag = pat.reductor->hasNoUnsignedWrap();
 
     // lift the predicate form NE/EQ to LT/GT
     // the exit is taken on (%v == %n) send to exit if %V >= %n (if posStride)
@@ -136,7 +138,7 @@ public:
         adjustedPred  = (exitOnTrue ^ posStride) ? CmpInst::ICMP_SGE : CmpInst::ICMP_SLT;
       } else {
         assert(nuwFlag && "can not extrapolate wrapping exit conditions");
-        assert(red.getReductor().hasNoUnsignedWrap());
+        assert(pat.reductor->hasNoUnsignedWrap());
         adjustedPred  = (exitOnTrue ^ posStride) ? CmpInst::ICMP_UGE : CmpInst::ICMP_ULT;
       }
 
@@ -538,7 +540,8 @@ struct LoopTransformer {
       // when coming from the vectorGuard -> use the old initial values
       // when coming from the vecToScalarExit -> use the reduced scalar values from the vector loop
       auto & vecPhi = LookUp(vecValMap, scalarPhi);
-      auto & vectorLiveOut = reda.getReductionInfo(vecPhi)->getReductor();
+      auto * latchVal = vecPhi.getIncomingValue(1 - preHeaderIdx);
+      auto & vectorLiveOut = cast<Instruction>(*latchVal);
 
       auto &scaGuardPhi = *scaGuardBuilder.CreatePHI(scalarPhi.getType(), 2, phiName + ".scaGuard");
       scaGuardPhi.addIncoming(&vectorLiveOut, vecToScalarExit);
@@ -620,7 +623,12 @@ struct LoopTransformer {
       auto * red = reda.getReductionInfo(*phi);
       auto & vecPhi = LookUp(vecValMap, *phi);
       headerPhis[phi] = &vecPhi;
-      reductors[&red->getReductor()] = &vecPhi;
+
+      StridePattern pat;
+      bool strided = red->matchStridedPattern(pat);
+      if (strided) {
+        reductors[pat.reductor] = &vecPhi;
+      }
     }
 
     // replicate the vector loop exit condition
@@ -682,10 +690,13 @@ struct LoopTransformer {
       auto * phi = dyn_cast<PHINode>(&Inst);
       if (!phi) break;
       auto * red = reda.getReductionInfo(*phi);
-      auto & reductor = red->getReductor();
-      auto redShape = red->getShape(vectorWidth);
-      valShapes[phi] = redShape;
-      reductors[&reductor] = phi;
+      StridePattern pat;
+      if (red->matchStridedPattern(pat)) {
+        auto & reductor = *pat.reductor;
+        auto redShape = pat.getShape(vectorWidth);
+        valShapes[phi] = redShape;
+        reductors[&reductor] = phi;
+      }
     }
 
     // replicate the scalar loop exit condition
@@ -754,16 +765,6 @@ struct LoopTransformer {
 
     IRBuilder<> builder(vecToScalarExit, vecToScalarExit->getTerminator()->getIterator());
 
-    // maps scalar reductors to their phi nodes
-    std::set<Value*> reductors;
-    for (auto & inst : *ScalarL.getHeader()) {
-      auto * scaPhi = dyn_cast<PHINode>(&inst);
-      if (!scaPhi) break;
-
-      auto & reductor = reda.getReductionInfo(*scaPhi)->getReductor();
-      reductors.insert(&reductor);
-    }
-
     auto & vecExitBr = *cast<BranchInst>(vecToScalarExit->getTerminator());
 
     if (tripAlign % vectorWidth != 0) {
@@ -777,7 +778,7 @@ struct LoopTransformer {
              if (!ScalarL.contains(inst.getParent())) return &inst;
 
              // if we hit a reduction/induction value replace it with its vector version
-             if (isa<PHINode>(inst) || reductors.count(&inst)) {
+             if (isa<PHINode>(inst) || reda.getReductionInfo(inst)) {
                auto * loopVal = &LookUp(vecValMap, inst);
                auto * lcssaPhi = PHINode::Create(loopVal->getType(), 1, inst.getName().str() + ".lscca", &*vecToScalarExit->begin());
                lcssaPhi->addIncoming(loopVal, &vecExiting);

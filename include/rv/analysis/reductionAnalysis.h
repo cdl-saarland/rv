@@ -9,7 +9,13 @@
 
 #include "rv/vectorShape.h"
 
+#include <set>
 #include <map>
+
+namespace llvm {
+  class Constant;
+  class Loop;
+}
 
 namespace rv {
 
@@ -21,7 +27,7 @@ enum class RedKind : int32_t {
   Mul = 2,
   And = 3,
   Or = 4
-}
+};
 
 // join operator
 RedKind JoinKinds(RedKind A, RedKind B);
@@ -29,34 +35,43 @@ RedKind JoinKinds(RedKind A, RedKind B);
 const char* to_string(RedKind red);
 
 // get the neutral element for this reduction kind and data type
-Constant& GetNeutralElement(RedKind redKind, Type & chainType);
+llvm::Constant& GetNeutralElement(RedKind redKind, llvm::Type & chainType);
 
 // try to infer the reduction kind of the operator implemented by inst (this ignores the operands of instruction)
-RedKind InferRedKind(Instruction & inst);
+RedKind InferRedKind(llvm::Instruction & inst);
 
-// materialize a single instance of firstArg [[RedKind~OpCode]] secondArg
-Instruction& CreateReduce(IRBuilder<> & builder, Value & firstArg, Value & secondArg);
+struct Reduction; // forward
+struct StridePattern {
+  const Reduction * red;
 
-// reduce the vector @vectorVal to a scalar value (using redKind)
-Value & CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vectorVal);
+  int loopInitIdx;
+  int latchIdx;
+  llvm::PHINode * phi;
 
+  llvm::Instruction * reductor;
+  int64_t inc; // increment value (already accounts to sign change by Instruction::Sub)
+
+  VectorShape getShape(int vectorWidth) {
+    return VectorShape::strided(inc, vectorWidth * inc); // TODO fix alignment
+  }
+};
 
 
 struct Reduction {
   // all users outside of @levelLoop may reduce any of the instructions in @elements using a @kind reduction
-  Loop * levelLoop;
+  llvm::Loop * levelLoop;
   // the kind of reduction pattern
   RedKind kind;
   // the instructions that make up this reduction pattern
-  std::set<Instruction*> elements;
+  std::set<llvm::Instruction*> elements;
 
-  Reduction(Loop & _levelLoop, RedKind _kind)
+  Reduction(llvm::Loop & _levelLoop, RedKind _kind)
   : levelLoop(&_levelLoop)
   , kind(_kind)
   {}
 
 
-  Reduction(Loop & _levelLoop, Instruction & _seedElem)
+  Reduction(llvm::Loop & _levelLoop, llvm::Instruction & _seedElem)
   : levelLoop(&_levelLoop)
   , kind(RedKind::Bot)
   , elements()
@@ -69,29 +84,27 @@ struct Reduction {
   // - only reducible reduction elements are being used (atm the header phi latch input)
   // - all uses of reduction elements are either elements themselves or live outside of @levelLoop
   bool canPrivatize() const { false; } // TODO implement
-  VectorShape getShape(int vectorWidth); // infer a suitable vector shape
+  VectorShape getShape(int vectorWidth) const; // infer a suitable vector shape
+  bool matchStridedPattern(StridePattern & pat) const;
 
   // shorthands
-  bool contains(const Instruction & elem) const { return elements.count(&elem); }
-  bool add(Instruction & elem) { return elements.insert(&elem).second; }
+  bool contains(llvm::Instruction & elem) const { return elements.find(&elem) != elements.end(); }
+  bool add(llvm::Instruction & elem) { return elements.insert(&elem).second; }
 
   void dump() const;
   void print(llvm::raw_ostream & out) const;
 };
 
 // infer the shape of a reduction
-static rv::VectorShape InferShape(Reduction & red);
+rv::VectorShape InferShape(Reduction & red);
 
 class ReductionAnalysis {
   std::map<llvm::Instruction*, Reduction*> reductMap;
 
   const llvm::LoopInfo & loopInfo;
 
-  // void analyze(llvm::Loop & loop);
-  // Reduction* tryInferReduction(llvm::PHINode & headerPhi);
-
   // adds the unseen instruction @inst to @redGroup in all mappings
-  bool addToGroup(Reduction & redGroup, Instruction & inst);
+  bool addToGroup(Reduction & redGroup, llvm::Instruction & inst);
 
   // this moves all elements of @srcGropu into @destGroup and replaces all instructions mappings
   // srcGroup is disconnected from all maps after this operation and can be deleted

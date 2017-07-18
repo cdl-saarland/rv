@@ -1,4 +1,4 @@
-//===- reductionAnalysis.cpp ----------------*- C++ -*-===//
+//*/===- reductionAnalysis.cpp ----------------*- C++ -*-===//
 //
 //                     The Region Vectorizer
 //
@@ -79,18 +79,6 @@ InferRedKind(Instruction & inst) {
   abort();
 }
 
-// materialize a single instance of firstArg [[RedKind~OpCode]] secondArg
-Instruction&
-CreateReduce(IRBuilder<> & builder, Value & firstArg, Value & secondArg) {
-  abort();
-}
-
-// reduce the vector @vectorVal to a scalar value (using redKind)
-Value &
-CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vectorVal) {
-  abort();
-}
-
 Constant&
 GetNeutralElement(RedKind redKind, Type & chainTy) {
   switch(redKind) {
@@ -102,10 +90,10 @@ GetNeutralElement(RedKind redKind, Type & chainTy) {
       return *ConstantInt::getAllOnesValue(&chainTy);
 
     case RedKind::Add:
-      return chainType.isFloatTy() ? ConstantFP::get(&chainTy, 0.0) : ConstantInt::getNullValue(&chainTy);
+      return *(chainTy.isFloatTy() ? ConstantFP::get(&chainTy, 0.0) : ConstantInt::getNullValue(&chainTy));
 
     case RedKind::Mul:
-      return chainType.isFloatTy() ? ConstantFP::get(&chainTy, 1.0) : ConstantInt::get(&chainTy, 1, false);
+      return *(chainTy.isFloatTy() ? ConstantFP::get(&chainTy, 1.0) : ConstantInt::get(&chainTy, 1, false));
 
     default:
       IF_DEBUG_RED { errs() << "red: Unknown neutral element for " << to_string(redKind) << "\n"; }
@@ -132,27 +120,32 @@ Reduction::print(raw_ostream & out) const {
 
    out << "Reduction { levelLoop = " << loopName << " redKind " << to_string(kind) << " elems:\n";
    for (const Instruction * elem : elements) {
-     out << "- " << elem->print(out); out << "\n";
+     out << "- " << *elem << "\n";
    }
    out << "}\n";
 }
 
-static  bool
-MatchStridePattern(Reduction & red, PHINode* & oHeaderPhi, Instruction* & oReductor, int64_t & oInc) {
+bool
+Reduction::matchStridedPattern(StridePattern & pat) const {
+  abort(); // TODO implement
 
-  if (red.kind != RedKind::Add) return false;
-  if (red.elements.size() != 2) return false;
+  if (kind != RedKind::Add) return false;
+  if (elements.size() != 2) return false;
 
-  auto it = red.elements.begin();
+  auto it = elements.begin();
   auto * firstInst = *it++;
   auto * secInst =  *it;
 
   // match one phi node and one instruction (TODO allow strided recurrences)
-  auto * headerPhi = isa<PHINode>(firstInst) ? cast<PHINode>(firstInst) : dyn_cast<PHINode>(&secInst);
-  Instruction * redInst = isa<PHINode>(firstInst) ? &secInst : &firstInst;
+  auto * headerPhi = isa<PHINode>(firstInst) ? cast<PHINode>(firstInst) : dyn_cast<PHINode>(secInst);
+  Instruction * redInst = isa<PHINode>(firstInst) ? secInst : firstInst;
   if (!headerPhi || !redInst) return false;
 
-  oHeaderPhi = headerPhi;
+  // oHeaderPhi = headerPhi;
+
+// match reductor operand position
+  int latchIdx = headerPhi->getIncomingValue(0) == redInst ? 0 : 1;
+  int loopInitIdx = 1 - latchIdx;
 
   // match opCode
   auto oc = redInst->getOpcode();
@@ -175,26 +168,34 @@ MatchStridePattern(Reduction & red, PHINode* & oHeaderPhi, Instruction* & oReduc
   }
 
   Constant * incConst = firstConst ? firstConst : secConst;
+  int64_t inc;
   if (auto * intIncrement = dyn_cast<ConstantInt>(incConst)) {
-    oInc =  sign * intIncrement->getSExtValue();
+    inc =  sign * intIncrement->getSExtValue();
   } else if (auto * fpInc = dyn_cast<ConstantFP>(incConst)) {
     return false; // TODO allow natural number fp increments in fast-math
   }
 
-  // decompose the reductor
-  oReductor = redInst;
+  // struct StridePattern {
+  //   Reduction & red;
+  //
+  //   int loopInitIdx;
+  //   int latchIdx;
+  //   PHINode & phi;
+  //
+  //   Instruction & reductor;
+  //   int64_t inc; // increment value (already accounts to sign change by Instruction::Sub)
+  // };
+  pat = StridePattern{this, loopInitIdx, latchIdx, headerPhi, redInst, inc};
   return true;
+
 }
 
 rv::VectorShape
-Reduction::getShape(int vectorWidth) {
-  PHINode * headerPhi;
-  Instruction * reductor;
-  int64_t inc;
-
-  if (MatchStridePattern(*this, headerPhi, reductor, inc)) {
+Reduction::getShape(int vectorWidth) const {
+  StridePattern pat;
+  if (matchStridedPattern(pat)) {
     // TODO infer alignment from phi init argument
-    return VectorShape::strided(inc, inc * vectorWidth);
+    return VectorShape::strided(pat.inc, pat.inc * vectorWidth);
   } else {
     return VectorShape::varying();
   }
@@ -374,6 +375,7 @@ ReductionAnalysis::addToGroup(Reduction & redGroup, Instruction & inst) {
     assert(!reductMap.count(&inst) && "overwriting a mapping!!");
     reductMap[&inst] = &redGroup;
   }
+  return added;
 }
 
 void
@@ -424,7 +426,7 @@ ReductionAnalysis::analyze() {
 
       auto * node = new Reduction(*loop, *phi);
       reductMap[phi] = node;
-      nodeStack.emplace_back(phi, node);
+      nodeStack.push_back(phi);
     }
 
     for (Loop * childLoop : *loop) {

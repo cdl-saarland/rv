@@ -20,7 +20,7 @@
 #include "NatBuilder.h"
 #include "Utils.h"
 
-
+#include "rv/transform/redTools.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/region/Region.h"
 
@@ -1968,40 +1968,42 @@ void
 NatBuilder::materializeStridedReduction(Reduction & red) {
   IF_DEBUG { errs() << "Fixing strided reduction "; red.dump(); errs() << "\n"; }
 
-  auto redShape = vectorizationInfo.getVectorShape(red.getReductor());
+  // widen stride to full vectorWidth
+  int vectorWidth = vectorizationInfo.getVectorWidth();
 
+  StridePattern pat;
+  bool ok = red.matchStridedPattern(pat); (void) ok;
+  assert(ok);
+
+  auto redShape = pat.getShape(vectorWidth):
   if (redShape.isUniform()) return;
 
   assert(redShape.hasStridedShape());
 
-  auto & scalarConst = cast<ConstantInt>(red.getReducibleValue());
-
-  // widen stride to full vectorWidth
-  int vectorWidth = vectorizationInfo.getVectorWidth();
-
-  // FIXME need to maintain old stride for users in this iteration
-
 // vectorize the reduction itself (loop internal uses)
-  auto & vecPhi = *cast<PHINode>(getScalarValue(&red.phi, 0));
-  auto & vecReductor = *cast<Instruction>(getScalarValue(&red.getReductor(), 0));
+  auto & vecPhi = *cast<PHINode>(getScalarValue(&pat.phi, 0));
+  auto & vecReductor = *cast<Instruction>(getScalarValue(&pat.reductor, 0));
 
   // create an adjusted reductor (full SIMD stride)
   auto * clonedReductor = cast<Instruction>(vecReductor.clone());
   int vecStride = vectorWidth * redShape.getStride();
-  auto & vecConst = *ConstantInt::getSigned(scalarConst.getType(), vecStride);
-  clonedReductor->replaceUsesOfWith(&scalarConst, &vecConst);
+  auto & vecConst = *ConstantInt::getSigned(pat.phi.getType(), vecStride);
+
+  // FIXME rematerialize reductor instead (currently unsount wrt to sub)
+  int constIdx = isa<Constant>(pat.reductor->getOperand(0)) ? 0 : 1;
+  clonedReductor->setOperand(constIdx, &vecConst);
   clonedReductor->insertAfter(&vecReductor);
 
   // remap phi operands
-  int loopOpIdx = red.loopInputIndex;
-  int initOpIdx = red.initInputIndex;
+  int loopOpIdx = pat.latchIdx;
+  int initOpIdx = pat.loopInitIdx;
 
   // attach reduced inputs to phi
-  vecPhi.addIncoming(&red.getInitValue(), red.phi.getIncomingBlock(initOpIdx));
-  auto * vecLatch = cast<BasicBlock>(getVectorValue(red.phi.getIncomingBlock(loopOpIdx)));
+  vecPhi.addIncoming(&pat.phi.getIncomingValue(initOpIdx), pat.phi.getIncomingBlock(initOpIdx));
+  auto * vecLatch = cast<BasicBlock>(getVectorValue(pat.phi.getIncomingBlock(loopOpIdx)));
   vecPhi.addIncoming(clonedReductor, vecLatch);
 
-  repairOutsideUses(red.phi,
+  repairOutsideUses(pat.phi,
                     [&](Value& usedVal, BasicBlock& userBlock) ->Value& {
                       // otw, replace with reduced value
                       int64_t amount = (vectorWidth - 1) * redShape.getStride();
@@ -2013,7 +2015,7 @@ NatBuilder::materializeStridedReduction(Reduction & red) {
                     }
   );
 
-  repairOutsideUses(red.getReductor(),
+  repairOutsideUses(pat.reductor,
                     [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
                       // otw, replace with reduced value
                       int64_t amount = (vectorWidth - 1) * redShape.getStride();
