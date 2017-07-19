@@ -218,6 +218,11 @@ ReductionAnalysis::ReductionAnalysis(Function & _func, const LoopInfo & _loopInf
 {}
 
 ReductionAnalysis::~ReductionAnalysis() {
+  clear();
+}
+
+void
+ReductionAnalysis::clear() {
   SmallPtrSet<void*, 32> seen;
 
   for (auto itSP : stridePatternMap) {
@@ -225,12 +230,14 @@ ReductionAnalysis::~ReductionAnalysis() {
       delete itSP.second;
     }
   }
+  stridePatternMap.clear();
 
   for (auto itRed : reductMap) {
     if (seen.insert(itRed.second).second) {
       delete itRed.second;
     }
   }
+  reductMap.clear();
 }
 
 
@@ -522,6 +529,8 @@ ClassifyReduction(Reduction & red) {
 
 void
 ReductionAnalysis::analyze() {
+  clear();
+
 // init work list (loop header phis for now)
   std::vector<Loop*> loopStack;
   for (auto * l : loopInfo) {
@@ -663,6 +672,8 @@ ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) 
   for (auto itSP : stridePatternMap) {
     auto * sp = itSP.second;
 
+    if (!cloneMap.count(sp->reductor)) continue;
+
     auto * clonedReduct = cast<Instruction>(cloneMap[sp->reductor]);
     if (!clonedReduct) continue;
 
@@ -708,8 +719,12 @@ ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) 
     if (itCopy != copyMap.end()) {
       targetRed = itCopy->second;
     } else {
-      Loop * clonedLoop = LI.getLoopFor(cast<BasicBlock>(cloneMap[origRed->levelLoop->getHeader()]));
-      assert(clonedLoop && "cloned loop not mapped!");
+      auto clonedHeader = cloneMap[origRed->levelLoop->getHeader()];
+      assert(clonedHeader); // FIXME this must not break
+#if 0
+      if (!clonedHeader) IF_DEBUG_RED { errs() << "red: warning: levelLoop was not cloned. Keeping original levelLoop!\n"; }
+#endif
+      Loop * clonedLoop = clonedHeader ? LI.getLoopFor(cast<BasicBlock>(clonedHeader)) : origRed->levelLoop;
       targetRed = new Reduction(*clonedLoop, origRed->kind);
       copyMap[origRed] = targetRed;
     }

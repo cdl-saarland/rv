@@ -921,7 +921,7 @@ RemainderTransform::canTransformLoop(llvm::Loop & L) {
     return false;
   }
 
-  reda.print(errs());
+  reda.print(errs()); // FIXME debug output
 
   // only attempt loops with recognized reduction patterns
   for (auto & Inst : *L.getHeader()) {
@@ -963,10 +963,13 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
   LoopCloner::LoopCloneInfo cloneInfo = loopCloner.CloneLoop(L, cloneMap);
   auto & clonedLoop = cloneInfo.clonedLoop;
 
-  reda.updateForClones(LI, cloneMap);
+  // reda.updateForClones(LI, cloneMap);
 
 // embed the cloned loop
   LoopTransformer loopTrans(F, DT, PDT, LI, reda, uniOverrides, *branchCond, L, clonedLoop, cloneMap, vectorWidth, tripAlign);
+
+  // rebuild reduction information
+  reda.analyze();
 
   IF_DEBUG F.dump();
 

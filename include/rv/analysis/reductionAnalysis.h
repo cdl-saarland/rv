@@ -124,6 +124,8 @@ class ReductionAnalysis {
   // returns true if the value of this instruction can be recomputed even if loop iterations execute in parallel/or SIMD fashing
   bool canReconstructInductively(llvm::Instruction & inst) const { return getStrideInfo(inst); }
 
+  // reset internal state
+  void clear();
 public:
   ReductionAnalysis(llvm::Function & _func, const llvm::LoopInfo & _loopInfo);
   ~ReductionAnalysis();
