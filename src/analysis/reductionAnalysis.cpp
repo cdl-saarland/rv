@@ -237,7 +237,7 @@ ReductionAnalysis::~ReductionAnalysis() {
 StridePattern*
 ReductionAnalysis::tryMatchStridePattern(PHINode & headerPhi) {
 #ifdef RV_DEBUG
-#define REASON(M) { outs() << M << "\n"; }
+#define REASON(M) { outs() << "no stride pattern: " << M << "\n"; }
 #else
 #define REASON(M) {}
 #endif
@@ -563,7 +563,6 @@ ReductionAnalysis::analyze() {
     nodeStack.pop_back();
 
     auto & redGroup = *getReductionInfo(*inst);
-    auto chainKind = redGroup.kind;
 
     for (Value * opVal : inst->operands()) {
       // uint opIdx = itUse.getOperandNo();
@@ -581,7 +580,6 @@ ReductionAnalysis::analyze() {
 
       // check if we are about to merge a chain
       auto * opGroup = getReductionInfo(*opInst);
-      auto userRedKind = InferRedKind(*opInst);
 
       // check whether this user is loop-carried
       auto *opLoop = loopInfo.getLoopFor(opInst->getParent());
@@ -595,22 +593,15 @@ ReductionAnalysis::analyze() {
 
       // otw the operation needs to be attached to one of the chains
       if (!opGroup) {
-         auto commonKind = JoinKinds(userRedKind, chainKind);
         // first visit -> add to group
         addToGroup(redGroup, *opInst);
-        // update chain properties
-        redGroup.kind = commonKind;
         // loop level is preserved
-        IF_DEBUG_RED { errs() << "added (old: " << to_string(chainKind) << " joined: " << to_string(userRedKind) << " => new: " << to_string(commonKind) << ").\n"; }
+        IF_DEBUG_RED { errs() << "added.\n"; }
 
       } else if (opGroup == &redGroup) {
         // we reached the header phi of this group -> keep
         if (opGroup->levelLoop && isHeaderPhi(*opInst, *opGroup->levelLoop)) {
           IF_DEBUG_RED { errs() << "reached header phi. keep.\n"; }
-        } else if (userRedKind != RedKind::Bot) {
-          // we reach this reduction operation on multiple operand position -> can not privatize
-          redGroup.kind = RedKind::Top;
-          IF_DEBUG_RED { errs() << "multiple paths to operation: -> top\n"; }
         }
         continue; // user already inspected
 
