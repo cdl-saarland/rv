@@ -89,7 +89,7 @@ struct Reduction {
   bool canPrivatize() const { false; } // TODO implement
 #endif
 
-  VectorShape getShape(int vectorWidth) const { return VectorShape::varying(); } // infer a suitable vector shape
+  VectorShape getShape(int vectorWidth) const { return kind == RedKind::Bot ? VectorShape::undef() : VectorShape::varying(); } // infer a suitable vector shape
 
   // shorthands
   bool contains(llvm::Instruction & elem) const { return elements.find(&elem) != elements.end(); }
