@@ -550,13 +550,14 @@ FindIDom(const T & inBlocks, DominatorTree & dt) {
   return dt.getNode(commonDomBlock);
 }
 
+typedef SmallVector<BasicBlock*, 4> SuperBlockVec;
 class SuperInput {
 public:
-  SmallVector<BasicBlock*, 4> inBlocks; // original predecessors that reach this remaining predecessor
+  SuperBlockVec inBlocks; // original predecessors that reach this remaining predecessor
   BasicBlock * predBlock; // remaining predecessor in linear CFG
   BasicBlock * blendBlock; // block used for select materialization
 
-  SuperInput(SmallVector<BasicBlock*, 4> && _inBlocks, BasicBlock & _predBlock)
+  SuperInput(SuperBlockVec && _inBlocks, BasicBlock & _predBlock)
   : inBlocks(_inBlocks)
   , predBlock(&_predBlock)
   , blendBlock(nullptr)
@@ -591,6 +592,28 @@ public:
   }
 };
 
+static
+Loop*
+GetCommonLoop(LoopInfo & li, SuperBlockVec & blocks) {
+  Loop * loop = nullptr;
+  bool firstRound = true;
+  for (auto * block : blocks) {
+    if (firstRound) {
+      loop = li.getLoopFor(block);
+      firstRound = false;
+    } else {
+      auto * candLoop = li.getLoopFor(block);
+      // wind up the loop tree until a common ancestro of @loop and @candLoop is found
+      while (candLoop && candLoop != loop && !candLoop->contains(loop)) {
+          candLoop = candLoop->getParentLoop();
+      }
+      loop = candLoop;
+    }
+  }
+
+  return loop;
+}
+
 /// \brief create a super input value for this phi node
 Value *
 Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
@@ -609,6 +632,10 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     auto & joinBlock = *phi.getParent();
     auto superBlockName = joinBlock.getName() + ".s";
     superInput.blendBlock = BasicBlock::Create(phi.getContext(), superBlockName, phi.getParent()->getParent(), phi.getParent());
+    auto * blockLoop = GetCommonLoop(li, blocks); // FIXME this does not apply to loop header inputs..
+    if (blockLoop) {
+      blockLoop->addBasicBlockToLoop(superInput.blendBlock, li);
+    }
   }
 
   // make sure the default definition is dominating
@@ -716,7 +743,7 @@ Linearizer::foldPhis(BasicBlock & block) {
     auto & predReachingBlocks = getReachingBlocks(getIndex(*predBlock));
 
     // all inputs that are incoming on this edge after folding
-    SmallVector<BasicBlock*, 4> superposedInBlocks;
+    SuperBlockVec superposedInBlocks;
 
     for (size_t i = 0; i < phi.getNumIncomingValues(); ++i) {
       auto * inBlock = phi.getIncomingBlock(i);
@@ -820,7 +847,7 @@ Linearizer::processLoop(int headId, Loop * loop) {
     ++numUniformLoops;
     if (headRelay) {
       // forward header reaching blocks to loop exits
-      SmallVector<BasicBlock*, 4> exitBlocks;
+      SuperBlockVec exitBlocks;
       loop->getExitBlocks(exitBlocks);
       for (auto * exitBlock : exitBlocks) {
         IF_DEBUG_LIN { errs() << "- merging head reaching&chain into exit " << exitBlock->getName();  dumpRelayChain(headRelay->id); errs() << "\n"; }
