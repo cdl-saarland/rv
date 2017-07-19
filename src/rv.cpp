@@ -192,6 +192,11 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
 {
     auto & scalarFn = vecInfo.getScalarFunction();
 
+    IF_DEBUG {
+      errs() << "VA before analysis:\n";
+      vecInfo.dump();
+    }
+
     // determines value and control shapes
     VectorizationAnalysis vea(config, platInfo, vecInfo, cdg, dfg, loopInfo);
     vea.analyze(scalarFn);
