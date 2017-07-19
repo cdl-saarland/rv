@@ -1887,7 +1887,8 @@ NatBuilder::repairOutsideUses(Instruction & scaChainInst, std::function<Value& (
       reducedVal = &repairFunc(*vecUsed, *userBlock);
       assert(&reducedVal);
       IF_DEBUG errs() << "\t reduced: " << *reducedVal << "\n";
-      fixMap[userInst.getParent()] = reducedVal;
+      auto * redInst = cast<Instruction>(reducedVal);
+      fixMap[redInst->getParent()] = redInst;
     }
 
     if (isLcssaPhi) {

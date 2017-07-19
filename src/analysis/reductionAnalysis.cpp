@@ -108,7 +108,7 @@ GetNeutralElement(RedKind redKind, Type & chainTy) {
 // struct StridePattern
 void
 StridePattern::dump() const {
-  errs() << "StridePattern { phi = " << *phi << ", redInst = " << *reductor << " shape(w=4): " << getShape(4).str() << "\n";
+  errs() << "StridePattern { phi = " << *phi << ", redInst = " << *reductor << " }\n";
 }
 
 
@@ -738,7 +738,7 @@ void
 ReductionAnalysis::print(raw_ostream & out) const {
   out << "-- Recurrence Analysis --\n";
 
-  out << "Induction recurrences:\n";
+  out << "# Induction recurrences:\n";
   {
     std::set<StridePattern*> seen;
     for (auto it : stridePatternMap) {
@@ -747,7 +747,7 @@ ReductionAnalysis::print(raw_ostream & out) const {
     }
   }
 
-  out << "General reductions\n";
+  out << "# General reductions\n";
   {
     std::set<Reduction*> seen;
     for (auto it : reductMap) {
