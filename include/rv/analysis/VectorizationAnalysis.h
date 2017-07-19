@@ -130,7 +130,7 @@ private:
   // - Any alloca used by this value if it is not of uniform shape
   void addDependentValuesToWL(const llvm::Value* V);
 
-  VectorShape joinOperands(const llvm::Instruction& I);
+  VectorShape joinIncomingValues(const llvm::PHINode& phi);
 
   // Returns true iff all operands currently have a computed shape
   // This is essentially a negated check for bottom

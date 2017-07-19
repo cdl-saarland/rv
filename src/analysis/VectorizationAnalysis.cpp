@@ -144,7 +144,10 @@ void VectorizationAnalysis::collectOverrides(const Function& F) {
 
   IF_DEBUG_VA {
     for (auto& pair : overrides) {
-      errs() << "Override for: " << *pair.first << ", shape: " << pair.second << "\n";
+      auto * inst = dyn_cast<Instruction>(pair.first);
+      if (inst && mVecinfo.inRegion(*inst)) {
+        errs() << "Override for: " << *pair.first << ", shape: " << pair.second << "\n";
+      }
     }
   };
 }
@@ -337,9 +340,11 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
   }
 }
 
-VectorShape VectorizationAnalysis::joinOperands(const Instruction& I) {
+VectorShape VectorizationAnalysis::joinIncomingValues(const PHINode& phi) {
   VectorShape Join = VectorShape::undef();
-  for (const auto& op : I.operands()) Join = VectorShape::join(Join, getShape(op));
+  for (size_t i = 0; i < phi.getNumIncomingValues(); ++i) {
+    Join = VectorShape::join(Join, getShape(phi.getIncomingValue(i)));
+  }
   return Join;
 }
 
@@ -365,7 +370,7 @@ VectorShape VectorizationAnalysis::computePHIShape(const PHINode & phi) {
      // TODO infer greatest common alignment
      return VectorShape::varying();
    } else {
-     return joinOperands(phi);
+     return joinIncomingValues(phi);
    }
 }
 
@@ -389,6 +394,7 @@ void VectorizationAnalysis::compute(const Function& F) {
     if (isa<PHINode>(I)) {
       // allow incomplete inputs for PHI nodes
       New = computePHIShape(cast<PHINode>(*I));
+      if (!New.isDefined()) pushMissingOperands(I);
     } else if (pushMissingOperands(I)) {
       // If any operand is bottom put them in the work list.
       continue;
@@ -426,6 +432,8 @@ void VectorizationAnalysis::compute(const Function& F) {
         New.setAlignment(1);
       }
     }
+
+    IF_DEBUG_VA { errs() << "\t computed: " << New.str() << "\n"; }
 
     // if no output shape could be computed, skip.
     if (!New.isDefined()) continue;
