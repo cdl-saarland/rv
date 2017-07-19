@@ -63,7 +63,7 @@ namespace native {
     void repairOutsideUses(llvm::Instruction & scaChainInst, std::function<llvm::Value& (llvm::Value &,llvm::BasicBlock &)> repairFunc);
 
     // generate reduction code (after all other instructions have been vectorized)
-    void materializeVaryingReduction(rv::Reduction & red);
+    void materializeVaryingReduction(rv::Reduction & red, llvm::PHINode & scaPhi);
 
     // fixup the
     void materializeStridePattern(rv::StridePattern & sp);

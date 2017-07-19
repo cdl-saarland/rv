@@ -1840,70 +1840,6 @@ Value *NatBuilder::maskInactiveLanes(Value *const value, const BasicBlock* const
   }
 }
 
-static
-bool
-IsPower2(int x) {
-  return x && !(x & (x - 1));
-}
-
-Value&
-NatBuilder::materializeVectorReduce(IRBuilder<> & builder, Value & initVal, Value & vecVal, Instruction & reductOp) {
-  abort(); // TODO implement
-#if 0
-  uint vecWidth = vecVal.getType()->getVectorNumElements();
-
-  auto * intTy = Type::getInt32Ty(builder.getContext());
-
-  // TODO from LLVM >= 5.0 use reduction intrinsics
-  if (IsPower2(vectorizationInfo.getVectorWidth())) {
-    auto * accu = &vecVal;
-    for (size_t range = vecWidth / 2; range >= 1; range /= 2) {
-      // create a permutation vector
-      std::vector<Constant*> shuffleVec;
-      shuffleVec.reserve(vecWidth);
-
-      // 4 5 6 7 * * * *
-      // 2 3 * * * * * *
-      // 1 * * * * * * *
-      for (size_t i = 0; i < range; ++i) {
-        shuffleVec.push_back(ConstantInt::getSigned(intTy, range + i));
-      }
-      // fill up with undef elements
-      while (shuffleVec.size() < vecWidth) shuffleVec.push_back( UndefValue::get(intTy) );
-
-      // fold
-      auto * mask = ConstantVector::get(shuffleVec);
-      auto * folded = builder.CreateShuffleVector(accu, UndefValue::get(vecVal.getType()), mask, "fold");
-
-      // Create reduction
-      auto *reduce = reductOp.clone();
-      reduce->mutateType(vecVal.getType());
-      reduce->setOperand(0, accu);
-      reduce->setOperand(1, folded);
-      builder.Insert(reduce, "reduce");
-
-      accu = reduce;
-    }
-
-    return *builder.CreateExtractElement(accu, ConstantInt::getNullValue(intTy), "reduce_last");
-
-  } else {
-    Value * accu = &initVal;
-    for (size_t i = 0; i < vectorizationInfo.getVectorWidth(); ++i) {
-      auto * laneVal = builder.CreateExtractElement(&vecVal, i, "red_ext");
-
-      Instruction * copy = reductOp.clone();
-      copy->setOperand(0, accu);
-      copy->setOperand(1, laneVal);
-      builder.Insert(copy, "red");
-      accu = copy;
-    }
-
-    return *accu;
-  }
-#endif
-}
-
 void
 NatBuilder::repairOutsideUses(Instruction & scaChainInst, std::function<Value& (Value &,BasicBlock &)> repairFunc) {
   std::map<BasicBlock*, Value*> fixMap;
@@ -2028,46 +1964,55 @@ NatBuilder::materializeStridePattern(rv::StridePattern & sp) {
 }
 
 void
-NatBuilder::materializeVaryingReduction(Reduction & red) {
-  abort(); // TODO implement
-#if 0
+NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
+  assert(red.kind != RedKind::Top);
+
   const int vectorWidth = vectorizationInfo.getVectorWidth();
-  auto * vecPhi = cast<PHINode>(getVectorValue(&red.phi));
-  auto redShape = vectorizationInfo.getVectorShape(red.getReductor());
+  auto * vecPhi = cast<PHINode>(getVectorValue(&scaPhi));
+  auto redShape = red.getShape(vectorWidth);
   assert(redShape.isVarying());
 
 // construct new (vectorized) initial value
-  Value * vecNeutral = ConstantVector::getSplat(vectorWidth, &red.neutralElem);
+  // TODO generalize to multi phi reductions
+  Value * vecNeutral = ConstantVector::getSplat(vectorWidth, &GetNeutralElement(red.kind, *scaPhi.getType()));
 
-  BasicBlock * vecInitInputBlock = red.phi.getIncomingBlock(red.initInputIndex);
-  BasicBlock * vecLoopInputBlock = cast<BasicBlock>(getVectorValue(red.phi.getIncomingBlock(red.loopInputIndex)));
+  auto * inAtZero = dyn_cast<Instruction>(scaPhi.getIncomingValue(0));
+  int latchIdx = (inAtZero && red.contains(*inAtZero)) ? 0 : 1;
+  int initIdx = 1 - latchIdx;
+
+  Instruction * scaLatchInst = cast<Instruction>(scaPhi.getIncomingValue(latchIdx));
+
+  Value * vecInitInputVal = scaPhi.getIncomingValue(initIdx);
+  BasicBlock * vecInitInputBlock = scaPhi.getIncomingBlock(initIdx);
+  BasicBlock * vecLoopInputBlock = cast<BasicBlock>(getVectorValue(scaPhi.getIncomingBlock(latchIdx)));
 
 // attach inputs (neutral elem and reduction inst)
   vecPhi->addIncoming(vecNeutral, vecInitInputBlock);
-  vecPhi->addIncoming(getVectorValue(&red.getReductor()), vecLoopInputBlock);
-
-  auto & reductInst = red.getReductor();
-  auto & vecReductInst = *cast<Instruction>(getVectorValue(&reductInst));
+  auto * vecLatchInst = cast<Instruction>(getVectorValue(scaLatchInst));
+  vecPhi->addIncoming(vecLatchInst, vecLoopInputBlock);
 
 // reduce reduction phi for outside users
-  repairOutsideUses(red.getReductor(),
+  repairOutsideUses(*scaLatchInst,
                     [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
                       // otw, replace with reduced value
                       auto * insertPt = userBlock.getFirstNonPHI();
                       IRBuilder<> builder(&userBlock, insertPt->getIterator());
-                      auto & reducedVector = materializeVectorReduce(builder, red.getInitValue(), vecReductInst, reductInst);
+                      auto & reducedVector = CreateVectorReduce(builder, red.kind, *vecLatchInst, vecInitInputVal);
                       return reducedVector;
                     }
   );
 
   // TODO reduction in case of leaking varying phis
-  repairOutsideUses(red.phi,
-                    [&](Value & usedVal, BasicBlock&) ->Value& {
-                      errs() << "can not restore outside uses of reduction phis\n";
-                      abort();
-                    }
-  );
-#endif
+  for (auto * elem : red.elements) {
+    if (elem == scaLatchInst) continue; // already reduced that onw
+
+    repairOutsideUses(*elem,
+                      [&](Value & usedVal, BasicBlock&) ->Value& {
+                        errs() << "TODO restore outside uses of any other instruction then the latch update\n";
+                        abort();
+                      }
+    );
+  }
 }
 
 void NatBuilder::addValuesToPHINodes() {
@@ -2099,7 +2044,7 @@ void NatBuilder::addValuesToPHINodes() {
     } else if (isVectorLoopHeader && shape.isVarying() && red) {
       // reduction phi handling
       IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
-      materializeVaryingReduction(*red);
+      materializeVaryingReduction(*red, *scalPhi);
 
     } else {
       // default phi handling
