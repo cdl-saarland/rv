@@ -170,7 +170,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   const Function *func = vectorizationInfo.getMapping().scalarFn;
   Function *vecFunc = vectorizationInfo.getMapping().vectorFn;
 
-  IF_DEBUG {
+  IF_DEBUG_NAT {
     errs() << "-- Status before vector codegen --\n";
     vectorizationInfo.dump();
     reda.dump();
@@ -2055,7 +2055,7 @@ void NatBuilder::addValuesToPHINodes() {
     auto *red = reda.getReductionInfo(*scalPhi);
 
     bool isVectorLoopHeader = region && &region->getRegionEntry() == scalPhi->getParent();
-    IF_DEBUG {
+    IF_DEBUG_NAT {
       errs() << "loopHead: " << isVectorLoopHeader << ": shape " << shape.str() << "red: "; if (red) red->dump(); errs() << "\n";
     }
 

@@ -82,11 +82,13 @@ public:
 
       auto * valRed = reda.getStrideInfo(*inst);
       if (!valRed) {
+        Report() << "reda: is not an inductive stride " << *inst << "\n";
         // loop carried operand is not part of a recognized reduction -> abort
         return nullptr;
       }
 
       if (reductIdx > -1) {
+        Report() << "reda: both cmp operands are loop carried " << *inst << "\n";
         return nullptr; // multiple loop carried values enter this cmp -> abort
       }
 
@@ -94,7 +96,10 @@ public:
       red = valRed;
     }
 
-    if (!red) return nullptr;
+    if (!red) {
+      Report() << "reda: branch condition does not operate on inductive strides " << cmp << "\n";
+      return nullptr;
+    }
 
     return new BranchCondition(cmp, reductIdx, *red, vectorWidth);
   }
@@ -894,10 +899,16 @@ RemainderTransform::analyzeExitCondition(llvm::Loop & L, int vectorWidth) {
 
   // loop exit conditions constraints
   auto * exitingBr = dyn_cast<BranchInst>(loopExiting->getTerminator());
-  if (!exitingBr) return nullptr;
+  if (!exitingBr) {
+    Report() << "remTrans: exiting terminator is not a branch: " << *loopExiting->getTerminator() << "\n";
+    return nullptr;
+  }
 
   auto * exitingCmp = dyn_cast<CmpInst>(exitingBr->getCondition());
-  if (!exitingCmp) return nullptr;
+  if (!exitingCmp) {
+    Report() << "remTrans: loop exit condition is not a compare: " << *exitingBr->getCondition() << "\n";
+    return nullptr;
+  }
 
   return BranchCondition::analyze(*exitingCmp, vectorWidth, reda, L);
 }
@@ -920,8 +931,6 @@ RemainderTransform::canTransformLoop(llvm::Loop & L) {
     Report() << "remTrans: only support latch exit loops\n";
     return false;
   }
-
-  reda.print(errs()); // FIXME debug output
 
   // only attempt loops with recognized reduction patterns
   for (auto & Inst : *L.getHeader()) {
@@ -949,10 +958,12 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
   if (!branchCond) {
     Report() << "remTrans: can not handle loop exit condition\n";
     L.print(outs());
+#if 0
     for (auto * BB : L.blocks()) {
         outs() << "\n";
         outs() << *BB;
       }
+#endif
 
     return nullptr;
   }

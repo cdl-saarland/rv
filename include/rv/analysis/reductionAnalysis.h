@@ -53,6 +53,7 @@ struct StridePattern {
     return VectorShape::strided(inc, vectorWidth * inc); // TODO fix alignment
   }
 
+  void print(llvm::raw_ostream & out) const;
   void dump() const;
 };
 
