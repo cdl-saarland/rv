@@ -49,16 +49,16 @@ struct IterValue {
   {}
 };
 
-static Instruction*
-UnwindCasts(Instruction*inst) {
-  auto * castInst = dyn_cast<CastInst>(inst);
+static Value*
+UnwindCasts(Value* val) {
+  auto * castInst = dyn_cast<CastInst>(val);
 
   while (castInst) {
-     inst = cast<Instruction>(castInst->getOperand(0));
-     castInst = dyn_cast<CastInst>(inst);
+     val = castInst->getOperand(0);
+     castInst = dyn_cast<CastInst>(val);
   }
 
-  return inst;
+  return val;
 }
 
 class
@@ -90,7 +90,9 @@ public:
       if (!inst) continue;
 
       // step through sext and the like
-      inst = UnwindCasts(inst);
+      auto * baseVal = UnwindCasts(inst);
+      inst = dyn_cast<Instruction>(baseVal);
+      if (!inst) continue;
 
       // loop invariant operand
       if (!loop.contains(inst->getParent())) continue;
