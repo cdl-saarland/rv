@@ -171,8 +171,9 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   Function *vecFunc = vectorizationInfo.getMapping().vectorFn;
 
   IF_DEBUG {
-    errs() << "VA before vector codegen\n";
+    errs() << "-- Status before vector codegen --\n";
     vectorizationInfo.dump();
+    reda.dump();
   }
 
   // map arguments first
@@ -1965,8 +1966,28 @@ NatBuilder::materializeStridePattern(rv::StridePattern & sp) {
 }
 
 void
+NatBuilder::materializeRecurrence(Reduction & red, PHINode & scaPhi) {
+  auto * inAtZero = dyn_cast<Instruction>(scaPhi.getIncomingValue(0));
+  int latchIdx = (inAtZero && vectorizationInfo.inRegion(*inAtZero)) ? 0 : 1;
+
+  Instruction * scaLatchInst = cast<Instruction>(scaPhi.getIncomingValue(latchIdx));
+  Instruction * vecLatchInst = cast<Instruction>(getVectorValue(scaLatchInst));
+
+// reduce reduction phi for outside users
+  repairOutsideUses(*scaLatchInst,
+                    [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
+                      // otw, replace with reduced value
+                      auto * insertPt = userBlock.getFirstNonPHI();
+                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                      auto & extracted = CreateExtract(builder, *vecLatchInst, -1);
+                      return extracted;
+                    }
+  );
+}
+
+void
 NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
-  assert(red.kind != RedKind::Top);
+  assert((red.kind != RedKind::Top) && (red.kind != RedKind::Bot));
 
   const int vectorWidth = vectorizationInfo.getVectorWidth();
   auto * vecPhi = cast<PHINode>(getVectorValue(&scaPhi));
@@ -1978,7 +1999,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
   Value * vecNeutral = ConstantVector::getSplat(vectorWidth, &GetNeutralElement(red.kind, *scaPhi.getType()));
 
   auto * inAtZero = dyn_cast<Instruction>(scaPhi.getIncomingValue(0));
-  int latchIdx = (inAtZero && red.contains(*inAtZero)) ? 0 : 1;
+  int latchIdx = (inAtZero && vectorizationInfo.inRegion(*inAtZero)) ? 0 : 1;
   int initIdx = 1 - latchIdx;
 
   Instruction * scaLatchInst = cast<Instruction>(scaPhi.getIncomingValue(latchIdx));
@@ -2042,7 +2063,7 @@ void NatBuilder::addValuesToPHINodes() {
       IF_DEBUG_NAT { errs() << "-- materializing "; sp->dump(); errs() << "\n"; }
       materializeStridePattern(*sp);
 
-    } else if (isVectorLoopHeader && shape.isVarying() && red) {
+    } else if (isVectorLoopHeader && shape.isVarying() && red && red->kind != RedKind::Bot) {
       // reduction phi handling
       IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
       materializeVaryingReduction(*red, *scalPhi);
@@ -2061,6 +2082,11 @@ void NatBuilder::addValuesToPHINodes() {
                                                        : requestVectorValue(scalPhi->getIncomingValue(i));
           phi->addIncoming(val, incVecBlock);
         }
+      }
+
+      // patch up external recurrences
+      if (isVectorLoopHeader && red && red->kind == RedKind::Bot) {
+        materializeRecurrence(*red, *scalPhi);
       }
     }
   }

@@ -102,5 +102,19 @@ CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vecVal, Value
   }
 }
 
+Value &
+CreateExtract(IRBuilder<> & builder, Value & vecVal, int laneOffset) {
+  auto * vecTy = dyn_cast<VectorType>(vecVal.getType());
+  if (!vecTy) {
+    return vecVal; //uniform value
+  }
+
+  const int vectorWidth = vecTy->getNumElements();
+  int laneIdx = laneOffset >= 0 ? laneOffset : vectorWidth + laneOffset;
+  assert(laneIdx >= 0 && laneIdx < vectorWidth);
+
+  return *builder.CreateExtractElement(&vecVal, laneIdx, vecVal.getName().str() + ".ex." + std::to_string(laneIdx));
+}
+
 
 }
