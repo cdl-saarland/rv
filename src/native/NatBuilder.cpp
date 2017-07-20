@@ -2366,7 +2366,8 @@ bool NatBuilder::isPseudointerleaved(Instruction *inst, Value *addr, int byteSiz
   }
 
   int stride = addrShape.getStride() / byteSize;
-  return stride <= (int) vectorWidth() - 1; // need at least two elements per vector
+  // FIXME current implementation breaks for negative strides
+  return stride > 0 && stride <= (int) vectorWidth() - 1; // need at least two elements per vector
 }
 
 void NatBuilder::visitMemInstructions() {
