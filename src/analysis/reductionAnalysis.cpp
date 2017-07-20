@@ -53,13 +53,23 @@ to_string(RedKind red) {
 }
 
 // try to infer the reduction kind of the operator implemented by inst
-RedKind
-InferRedKind(Instruction & inst) {
+static RedKind
+InferRedKind(Instruction & inst, Reduction & red) {
   switch (inst.getOpcode()) {
   // actually operations folding a reduction input into the chian
     case Instruction::FAdd:
     case Instruction::Add:
       return RedKind::Add;
+
+    case Instruction::FSub:
+    case Instruction::Sub: {
+      auto * rhsInst = dyn_cast<Instruction>(inst.getOperand(1));
+      if (rhsInst && red.contains(*rhsInst)) {
+        return RedKind::Top; // TODO Sub reductions
+      } else {
+        return RedKind::Add;
+      }
+    }
 
     case Instruction::FMul:
     case Instruction::Mul:
@@ -440,6 +450,19 @@ ReductionAnalysis::addToGroup(Reduction & redGroup, Instruction & inst) {
   return added;
 }
 
+bool
+ReductionAnalysis::changeGroup(Reduction & redGroup, Instruction & inst) {
+  auto itRed = reductMap.find(&inst);
+  if (itRed != reductMap.end()) {
+    if (itRed->second == &redGroup) return false; // unchanged
+
+    itRed->second->erase(inst);
+    reductMap.erase(itRed);
+  }
+
+  return addToGroup(redGroup, inst);
+}
+
 void
 ReductionAnalysis::foldIntoGroup(Reduction & destGroup, Reduction & srcGroup) {
   for (auto * inst : srcGroup.elements) {
@@ -469,16 +492,24 @@ ReductionAnalysis::isHeaderPhi(Instruction & inst, Loop & loop) const {
 
 typedef std::vector<Instruction*> NodeStack;
 
-static void
-FilterForwardUses(Reduction & red, PHINode & seed) {
+Reduction*
+ReductionAnalysis::filterForwardUses(Reduction & red, PHINode & seed) {
   NodeStack stack;
   stack.push_back(&seed);
   std::set<Instruction*> seen;
 
+  Reduction * finalRed = new Reduction(*red.levelLoop, RedKind::Bot);
+
   while (!stack.empty()) {
     auto * inst = stack.back();
     stack.pop_back();
-    if (!seen.insert(inst).second) continue; // already visited
+
+    if (!red.contains(*inst)) {
+      continue;
+    }
+
+    // move inst to the new SCC
+    if (!changeGroup(*finalRed, *inst)) continue; // already visited
 
     for (auto & itUse : inst->uses()) {
       auto * userInst = cast<Instruction>(itUse.getUser());
@@ -486,23 +517,14 @@ FilterForwardUses(Reduction & red, PHINode & seed) {
     }
   }
 
-  // filter out unseen elements
-  decltype(seen)::iterator it = red.elements.begin(), itEnd = red.elements.end();
-  for (; it != itEnd; ) {
-    auto * inst = *it;
-    if (!seen.count(inst)) {
-      it = red.elements.erase(it);
-    } else {
-      ++it;
-    }
-  }
+  return finalRed;
 }
 
 static RedKind
 ClassifyReduction(Reduction & red) {
   RedKind kind = RedKind::Bot;
   for (auto * inst : red.elements) {
-    auto nodeKind = InferRedKind(*inst);
+    auto nodeKind = InferRedKind(*inst, red);
 
     if (nodeKind != RedKind::Bot) {
       // verify that there is exactly one incoming operand from the chain
@@ -537,6 +559,7 @@ ReductionAnalysis::analyze() {
     loopStack.push_back(l);
   }
 
+  std::set<Reduction*> backwardReds;
   std::vector<PHINode*> seedNodes;
   NodeStack nodeStack;
   while (!loopStack.empty()) {
@@ -557,6 +580,7 @@ ReductionAnalysis::analyze() {
       seedNodes.push_back(phi);
 
       auto * node = new Reduction(*loop, *phi);
+      backwardReds.insert(node);
       reductMap[phi] = node;
       nodeStack.push_back(phi);
     }
@@ -621,7 +645,7 @@ ReductionAnalysis::analyze() {
 
         // otw, we are receiving multiple reduction inputs
         foldIntoGroup(redGroup, *opGroup);
-        redGroup.kind = RedKind::Top;
+        backwardReds.erase(opGroup);
         delete opGroup;
 
         continue; // already inspected
@@ -632,16 +656,31 @@ ReductionAnalysis::analyze() {
     }
   }
 
-// general reductions (forward scan)
-  std::set<Reduction*> seen;
+// filter out SCCs starting from phi nodes
   for (auto * phi : seedNodes) {
+    IF_DEBUG_RED { errs() << "red, forward: Building SCC from seed phi " << *phi << "\n"; }
+
     auto * red = getReductionInfo(*phi);
     assert(red);
-    if (!seen.insert(red).second) continue;
-    FilterForwardUses(*red, *phi);
 
-    // TODO classify reduction set after filtering
-    red->kind = ClassifyReduction(*red);
+    // this phi nodes has already been added to a proper reduction SCC (skip)
+    if (!backwardReds.count(red)) {
+      IF_DEBUG_RED { errs() << "\talready part of newly formed reduction SCC.\n"; }
+      continue;
+    }
+
+    // build a new SCC that contains phi
+    auto * finalRed = filterForwardUses(*red, *phi);
+
+    // classify reduction set after filtering
+    finalRed->kind = ClassifyReduction(*finalRed);
+  }
+
+// free temporary SCCs
+  for (auto * oldRed : backwardReds) {
+    if (oldRed->elements.empty()) {
+      delete oldRed;
+    }
   }
 }
 
@@ -739,6 +778,9 @@ ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) 
     reductMap[it.first] = it.second;
   }
 }
+
+void
+ReductionAnalysis::dump() const { print(errs()); }
 
 void
 ReductionAnalysis::print(raw_ostream & out) const {

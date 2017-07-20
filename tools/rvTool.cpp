@@ -195,7 +195,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     IF_DEBUG { errs() << "header phi " << phi->getName() << " has shape " << phiShape.str() << "\n"; }
 
-    vecInfo.setVectorShape(*phi, phiShape);
+    if (phiShape.isDefined()) { vecInfo.setVectorShape(*phi, phiShape); }
   }
 
   // set uniform overrides

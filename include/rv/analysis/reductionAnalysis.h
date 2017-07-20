@@ -94,6 +94,7 @@ struct Reduction {
   // shorthands
   bool contains(llvm::Instruction & elem) const { return elements.find(&elem) != elements.end(); }
   bool add(llvm::Instruction & elem) { return elements.insert(&elem).second; }
+  void erase(llvm::Instruction & elem) { elements.erase(&elem); }
 
   void dump() const;
   void print(llvm::raw_ostream & out) const;
@@ -110,6 +111,7 @@ class ReductionAnalysis {
 
   // adds the unseen instruction @inst to @redGroup in all mappings
   bool addToGroup(Reduction & redGroup, llvm::Instruction & inst);
+  bool changeGroup(Reduction & redGroup, llvm::Instruction & inst);
 
   // this moves all elements of @srcGropu into @destGroup and replaces all instructions mappings
   // srcGroup is disconnected from all maps after this operation and can be deleted
@@ -123,6 +125,8 @@ class ReductionAnalysis {
 
   // returns true if the value of this instruction can be recomputed even if loop iterations execute in parallel/or SIMD fashing
   bool canReconstructInductively(llvm::Instruction & inst) const { return getStrideInfo(inst); }
+
+  Reduction* filterForwardUses(Reduction & red, llvm::PHINode & seed);
 
   // reset internal state
   void clear();
@@ -143,6 +147,7 @@ public:
 
   // print reduction result
   void print(llvm::raw_ostream & out) const;
+  void dump() const;
 };
 
 
