@@ -49,6 +49,18 @@ struct IterValue {
   {}
 };
 
+static Instruction*
+UnwindCasts(Instruction*inst) {
+  auto * castInst = dyn_cast<CastInst>(inst);
+
+  while (castInst) {
+     inst = cast<Instruction>(castInst->getOperand(0));
+     castInst = dyn_cast<CastInst>(inst);
+  }
+
+  return inst;
+}
+
 class
 BranchCondition {
   CmpInst & cmp;
@@ -76,6 +88,9 @@ public:
       auto * inst = dyn_cast<Instruction>(opVal);
 
       if (!inst) continue;
+
+      // step through sext and the like
+      inst = UnwindCasts(inst);
 
       // loop invariant operand
       if (!loop.contains(inst->getParent())) continue;
