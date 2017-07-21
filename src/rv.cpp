@@ -90,8 +90,8 @@ VectorizerInterface::addIntrinsics() {
             &func,
             0, // no specific vector width
             -1, //
-            VectorShape::varying(),
-            {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
+            VectorShape::undef(),
+            {VectorShape::undef(), VectorShape::uni(), VectorShape::uni()}
           );
           platInfo.addSIMDMapping(mapping);
         } else if (func.getName() == "rv_ballot") {
@@ -340,7 +340,7 @@ static void lowerIntrinsicCall(CallInst* call) {
 
 void
 lowerIntrinsics(Module & mod) {
-  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_ballot", "rv_align"};
+  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_ballot", "rv_align"};
   for (int i = 0, n = sizeof(names) / sizeof(names[0]); i < n; i++) {
     auto func = mod.getFunction(names[i]);
     if (!func) continue;
