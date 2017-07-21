@@ -27,6 +27,9 @@ namespace native {
     unsigned size() const { return topIdx; }
     std::vector<const llvm::SCEV *>::iterator begin() { return elements.begin(); }
     std::vector<const llvm::SCEV *>::iterator end() { return elements.end(); }
+
+    void print(llvm::raw_ostream &) const;
+    void dump() const;
   };
 
   class MemoryAccessGrouper {
@@ -36,6 +39,12 @@ namespace native {
 
   public:
     std::vector<MemoryGroup> memoryGroups;
+
+    // relaxed diffing
+    bool getConstantDiff(const llvm::SCEV * A, const llvm::SCEV * B, int64_t & oDelta);
+
+    // relaxed equality check
+    bool equals(const llvm::SCEV * A, const llvm::SCEV * B);
 
     MemoryAccessGrouper(llvm::ScalarEvolution &SE, unsigned laneByteSize);
     const llvm::SCEV *add(llvm::Value *addrVal);

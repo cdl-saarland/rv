@@ -20,11 +20,49 @@
 #define IF_DEBUG_ME if (false)
 #endif
 
+
+// use selects for mask arithmetic
+// #define RV_BLEND_MASKS
+
 using namespace llvm;
 
 namespace rv {
 
+static
+Value&
+CreateAnd(IRBuilder<> & builder, Value & lhs, Value & rhs, const Twine & name=Twine()) {
+#ifdef RV_BLEND_MASKS
+  auto * falseMask = ConstantInt::getFalse(lhs.getContext());
+  return *builder.CreateSelect(&lhs, &rhs, falseMask, name);
+#else
+  return *builder.CreateAnd(&lhs, &rhs, name);
+#endif
+}
 
+static
+Value&
+CreateOr(IRBuilder<> & builder, Value & lhs, Value & rhs, const Twine & name=Twine()) {
+#ifdef RV_BLEND_MASKS
+  auto * trueMask = ConstantInt::getTrue(lhs.getContext());
+  return *builder.CreateSelect(&lhs, trueMask, &rhs, name);
+#else
+  return *builder.CreateOr(&lhs, &rhs, name);
+#endif
+}
+
+static
+Value&
+CreateNot(IRBuilder<> & builder, Value & val, const Twine & name=Twine()) {
+#ifdef RV_BLEND_MASKS
+  auto * sel = dyn_cast<SelectInst>(&val);
+  if (sel) {
+    return *builder.CreateSelect(sel->getCondition(), sel->getFalseValue(), sel->getTrueValue(), name);
+  }
+  // otw use default codepath
+#endif
+
+return *builder.CreateNot(&val, name);
+}
 
 MaskExpander::MaskExpander(VectorizationInfo & _vecInfo, const DominatorTree & _domTree, const llvm::PostDominatorTree & _postDomTree, const llvm::LoopInfo & _loopInfo)
 : vecInfo(_vecInfo)
@@ -106,10 +144,10 @@ MaskExpander::requestBranchMask(TerminatorInst & term, int succIdx, IRBuilder<> 
 
     assert(succIdx == 1);
 
-    auto * negCond = builder.CreateNot(condVal, "neg." + condVal->getName());
-    if (!isa<Constant>(*negCond)) vecInfo.setVectorShape(*negCond, vecInfo.getVectorShape(*condVal));
-    setBranchMask(sourceBlock, succIdx, *negCond);
-    return *negCond;
+    auto & negCond = CreateNot(builder, *condVal, "neg." + condVal->getName());
+    if (!isa<Constant>(negCond)) vecInfo.setVectorShape(negCond, vecInfo.getVectorShape(*condVal));
+    setBranchMask(sourceBlock, succIdx, negCond);
+    return negCond;
 
   } else if (isa<SwitchInst>(term)) {
     auto & switchTerm = cast<SwitchInst>(term);
@@ -128,12 +166,12 @@ MaskExpander::requestBranchMask(TerminatorInst & term, int succIdx, IRBuilder<> 
         auto & caseCmp = requestBranchMask(switchTerm, i, builder);
         if (!joinedMask) joinedMask = &caseCmp;
         else {
-          joinedMask = builder.CreateOr(joinedMask, &caseCmp, "orcase_" + std::to_string(i));
+          joinedMask = &CreateOr(builder, *joinedMask, caseCmp, "orcase_" + std::to_string(i));
           vecInfo.setVectorShape(*joinedMask, valShape);
         }
       }
 
-      auto & defaultMask = *builder.CreateNot(joinedMask);
+      auto & defaultMask = CreateNot(builder, *joinedMask);
       vecInfo.setVectorShape(defaultMask, valShape);
       setBranchMask(sourceBlock, succIdx, defaultMask);
       return defaultMask;
@@ -186,7 +224,7 @@ MaskExpander::requestEdgeMask(TerminatorInst & term, int succIdx) {
   if (isa<Constant>(blockMask)) {
     edgeMask = &branchPred;
   } else {
-    edgeMask = builder.CreateAnd(&blockMask, &branchPred, "edge_" + BB.getName().str() + "." + std::to_string(succIdx));
+    edgeMask = &CreateAnd(builder, blockMask, branchPred, "edge_" + BB.getName().str() + "." + std::to_string(succIdx));
     auto maskShape = vecInfo.getVectorShape(blockMask);
     auto branchShape = vecInfo.getVectorShape(branchPred);
     vecInfo.setVectorShape(*edgeMask, VectorShape::join(maskShape, branchShape));
@@ -379,7 +417,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
     auto divShape = vecInfo.getVectorShape(*orVec[i]);
     maskShape = VectorShape::join(maskShape, divShape);
 
-    blockMask = builder.CreateOr(blockMask, orVec[i]);
+    blockMask = &CreateOr(builder, *blockMask, *orVec[i]);
     vecInfo.setVectorShape(*blockMask, maskShape);
   }
 
@@ -533,7 +571,7 @@ MaskExpander::requestLoopMasks(Loop & loop) {
 
     // update the exit mask phi for this exit (inside loop)
     IRBuilder<> builder(&exitingBlock, exitingTerm.getIterator());
-    auto * trackerUpdate = builder.CreateOr(&exitTakenMask, &trackerPhi, updateTrackerName);
+    auto * trackerUpdate = &CreateOr(builder, exitTakenMask, trackerPhi, updateTrackerName);
     vecInfo.setVectorShape(*trackerUpdate, exitTakenShape);
     assert(domTree.dominates(&exitingBlock, &latchBlock) && "TODO implement exit mask repair");
 
