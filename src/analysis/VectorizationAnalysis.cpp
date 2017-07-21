@@ -840,6 +840,9 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
         return castOpShape;
       }
 
+      // Uniform values stay uniform
+      if (castOpShape.isUniform()) return castOpShape;
+
       // BC from fp<->int/ptr is incomatible -> default to varying shape
       return VectorShape::varying();
     }
