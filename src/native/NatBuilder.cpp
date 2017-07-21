@@ -324,6 +324,8 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         vectorizeReductionCall(call, true);
       else if (callee && callee->getName() == "rv_extract")
         vectorizeExtractCall(call);
+      else if (callee && callee->getName() == "rv_insert")
+        vectorizeInsertCall(call);
       else if (callee && callee->getName() == "rv_ballot")
         vectorizeBallotCall(call);
       else if (callee && callee->getName() == "rv_align")
@@ -558,6 +560,31 @@ NatBuilder::vectorizeExtractCall(CallInst *rvCall) {
 
   auto * laneVal = builder.CreateExtractElement(vecVal, laneId, "rv_ext");
   mapScalarValue(rvCall, laneVal);
+}
+
+void
+NatBuilder::vectorizeInsertCall(CallInst *rvCall) {
+  ++numRVIntrinsics;
+
+  assert(rvCall->getNumArgOperands() == 3 && "expected 3 arguments for rv_insert(vec, laneId, value)");
+
+  Value *vecArg  = rvCall->getArgOperand(0);
+  assert(getVectorShape(*rvCall->getArgOperand(2)).isUniform());
+  Value *elemVal = requestScalarValue(rvCall->getArgOperand(2));
+
+// uniform arg
+  if (getVectorShape(*vecArg).isUniform()) {
+    mapScalarValue(rvCall, elemVal);
+    return;
+  }
+
+// non-uniform arg
+  auto * vecVal = requestVectorValue(vecArg);
+  assert(getVectorShape(*rvCall->getArgOperand(1)).isUniform());
+  auto * laneId = requestScalarValue(rvCall->getArgOperand(1));
+
+  auto * insertVal = builder.CreateInsertElement(vecVal, elemVal, laneId, "rv_ext");
+  mapVectorValue(rvCall, insertVal);
 }
 
 void

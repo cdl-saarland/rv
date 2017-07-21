@@ -84,6 +84,16 @@ VectorizerInterface::addIntrinsics() {
             {VectorShape::varying(), VectorShape::uni()}
           );
           platInfo.addSIMDMapping(mapping);
+        } else if (func.getName() == "rv_insert") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::varying(),
+            {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
+          );
+          platInfo.addSIMDMapping(mapping);
         } else if (func.getName() == "rv_ballot") {
           VectorMapping mapping(
             &func,
@@ -315,6 +325,10 @@ static void lowerIntrinsicCall(CallInst* call) {
       callee->getName() == "rv_align") {
     lowerIntrinsicCall(call, [] (const CallInst* call) {
       return call->getOperand(0);
+    });
+  } else if (callee->getName() == "rv_insert") {
+    lowerIntrinsicCall(call, [] (const CallInst* call) {
+      return call->getOperand(2);
     });
   } else if (callee->getName() == "rv_ballot") {
     lowerIntrinsicCall(call, [] (CallInst* call) {
