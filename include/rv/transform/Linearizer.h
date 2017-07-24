@@ -131,6 +131,8 @@ namespace rv {
     RelayNode & createRelay(int headId, RelayNode * tail) {
       auto & head = relays[headId].head;
 
+      assert(!relays[headId].block && "overwriting exiting relay block!");
+
       auto * relayBlock = llvm::BasicBlock::Create(context, "relay_" + head.getName(), &func);
       relays[headId].enable(*relayBlock, tail);
       return relays[headId];

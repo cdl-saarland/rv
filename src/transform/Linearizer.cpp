@@ -852,8 +852,17 @@ Linearizer::processLoop(int headId, Loop * loop) {
       for (auto * exitBlock : exitBlocks) {
         IF_DEBUG_LIN { errs() << "- merging head reaching&chain into exit " << exitBlock->getName();  dumpRelayChain(headRelay->id); errs() << "\n"; }
         int exitId = getIndex(*exitBlock);
-        auto & exitRelay = createRelay(exitId, headRelay->next);
-        mergeInReaching(exitRelay, *headRelay);
+        RelayNode * exitRelay = getRelay(exitId);
+        if (!exitRelay) {
+          exitRelay = &createRelay(exitId, headRelay->next);
+        } else {
+          if (headRelay->next) {
+            int nextId = headRelay->next->id;
+            addTargetToRelay(exitRelay, nextId);
+          }
+        }
+
+        mergeInReaching(*exitRelay, *headRelay);
         // if (headRelay->next) addTargetToRelay(&exitRelay, headRelay->next->id); // FIXME
         IF_DEBUG_LIN { errs() << "\tafter merge: " << exitBlock->getName();  dumpRelayChain(getIndex(*exitBlock)); errs() << "\n"; }
       }
