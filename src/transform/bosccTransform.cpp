@@ -155,11 +155,16 @@ transformBranch(BranchInst & branch, int succIdx) {
 
 size_t
 getDomRegionValue(BasicBlock & entry, BasicBlock & subBlock, SmallSet<BasicBlock*, 32> & seenBlocks) {
-  if (&entry != &subBlock && !domTree.dominates(&entry, &subBlock)) return 0; // not in our dominance region
-  if (!seenBlocks.insert(&entry).second) return 0; // already factores in
+  // errs() << "DOM SCORE entry=" << entry.getName() << " subBlock " << subBlock.getName() << "\n";
+  if (&entry != &subBlock && !domTree.dominates(&entry, &subBlock)) {
+    // errs() << "\t not dominated!\n";
+    return 0; // not in our dominance region
+  }
+  if (!seenBlocks.insert(&subBlock).second) return 0; // already factores in
 
   // compute own score
   size_t score = getBlockScore(subBlock);
+  // errs() << "\t score(" << subBlock.getName() << ") = " << score << "\n";
 
   // compute score of other (dominated) reachable blocks in the region
   auto * termInst = subBlock.getTerminator();
@@ -228,11 +233,17 @@ GetNumPredecessors(BasicBlock & block) {
   return numPred;
 }
 
-static int
-GetValue(const char * name, int defVal) {
+template<typename N>
+static N
+GetValue(const char * name, N defVal) {
   auto * text = getenv(name);
   if (!text) return defVal;
-  else return atoi(text);
+  else {
+    std::stringstream ss(text);
+    N res;
+    ss << res;
+    return res;
+  }
 }
 // 0  : do not BOSCC
 // -1 : boscc onTrue
@@ -284,13 +295,13 @@ bosccHeuristic(BranchInst & branch, double & regProb, size_t & regScore, const R
     onFalseScore = getDomRegionScore(*onFalseBlock);
   }
 
-  const double maxRatio = 0.26;
-  const size_t minScore = GetValue("BOSCC_LIMIT", 8);
+  const double maxRatio = GetValue<double>("BOSC_T", 0.26);
+  const size_t minScore = GetValue<size_t>("BOSCC_LIMIT", 8);
 
   errs() << "score " << onTrueBlock->getName() << "   " << onTrueScore << "\nscore  " << onFalseBlock->getName() << "   " << onFalseScore << "\n";
 
 // otw try to skip the bigger dominated part
-  if (onTrueLegal && (trueRatio < maxRatio && trueRatio <= falseRatio) && onTrueScore >= minScore)
+  if (onTrueLegal && (trueRatio < maxRatio && trueRatio <= falseRatio) && onTrueScore >= minScore && onTrueScore >= onFalseScore)
   {
     regProb = trueRatio;
     regScore = onTrueScore;
