@@ -24,6 +24,7 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/IPO/AlwaysInliner.h"
 
 #include "rv/transform/loopExitCanonicalizer.h"
 
@@ -60,11 +61,15 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
   }
 
   if (rvLoopVecEnabled) {
-    PM.add(rv::createCNSPass());
+    // PM.add(rv::createCNSPass());
     PM.add(createLoopSimplifyPass());
     PM.add(createLCSSAPass());
     PM.add(createLoopExitCanonicalizerPass());
     PM.add(rv::createLoopVectorizerPass());
+
+    // post rv cleanup
+    PM.add(createAlwaysInlinerLegacyPass());
+    PM.add(createInstructionCombiningPass());
     PM.add(createAggressiveDCEPass());
   }
 }
