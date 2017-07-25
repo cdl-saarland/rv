@@ -377,7 +377,8 @@ void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst,
 
   // check for division. opcodes for divisions are (in order) UDiv, SDiv, FDiv. only care if non-trivial mask
   auto opCode = scalInst->getOpcode();
-  bool isDivision = (opCode >= BinaryOperator::UDiv) && (opCode <= BinaryOperator::FDiv) && !isa<Constant>(vectorizationInfo.getPredicate(*scalInst->getParent()));
+  auto * pred = vectorizationInfo.getPredicate(*scalInst->getParent());
+  bool isPredicatedDiv = (opCode >= BinaryOperator::UDiv) && (opCode <= BinaryOperator::FDiv) && (pred && !isa<Constant>(pred));
 
   unsigned e = isa<CallInst>(scalInst) ? inst->getNumOperands() - 1 : inst->getNumOperands();
   for (unsigned i = 0; i < e; ++i) {
@@ -386,7 +387,7 @@ void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst,
                                                                                                             laneIdx);
 
     // only have to deal with the 2nd operand
-    if (config.useSafeDivisors && (isDivision && i > 0)) {
+    if (config.useSafeDivisors && (isPredicatedDiv && i > 0)) {
       // create a select between mappedOp and neutral element vector (1)
       Value *neutralVec = vectorizedInst ? getConstantVector(vectorWidth(), op->getType(), 1)
                                          : (op->getType()->isFloatingPointTy() ? ConstantFP::get(op->getType(), 1)
