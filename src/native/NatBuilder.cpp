@@ -2083,15 +2083,33 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
                     }
   );
 
-  // TODO reduction in case of leaking varying phis
-  for (auto * elem : red.elements) {
-    if (elem == scaLatchInst) continue; // already reduced that onw
 
+  // construct a 1...10 mask
+  std::vector<Constant*> selElems;
+  for (size_t i = 1; i < vectorWidth; ++i) {
+    selElems.push_back(ConstantInt::getTrue(vecPhi->getContext()));
+  }
+  selElems.push_back(ConstantInt::getFalse(vecPhi->getContext()));
+  auto * selMask = ConstantVector::get(selElems); // 1...10
+
+  // create reduced outside views for external users
+  for (auto * elem : red.elements) {
+    if (elem == scaLatchInst) continue; // already reduced that one
+    if (!vectorizationInfo.inRegion(*cast<Instruction>(elem))) continue;
+
+    auto& vecElem = *cast<Instruction>(getVectorValue(elem));
+
+    // reduce outside uses on demand
     repairOutsideUses(*elem,
-                      [&](Value & usedVal, BasicBlock&) ->Value& {
-                        errs() << "TODO restore outside uses of any other instruction then the latch update\n";
-                        abort();
-                      }
+                      [&](Value & usedVal, BasicBlock& userBlock) ->Value& {
+
+                      auto * insertPt = userBlock.getFirstNonPHI();
+                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                      // reduce all end-of-iteration values and request value of last iteration
+                      auto & foldVec = *builder.CreateSelect(selMask, vecLatchInst, &vecElem, ".red");
+                      auto & reducedVector = CreateVectorReduce(builder, red.kind, foldVec, vecInitInputVal);
+                      return reducedVector;
+                    }
     );
   }
 }
