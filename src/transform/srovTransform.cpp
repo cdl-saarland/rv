@@ -106,11 +106,12 @@ repairPhis() {
     for (size_t i = 0; i < oldPhi->getNumIncomingValues(); ++i) {
       auto * oldIncoming = oldPhi->getIncomingValue(i);
 
+      ValVec inRepl = requestReplicate(*oldIncoming);
+
       // for every replicated slot
       for (size_t j = 0; j < phiRepls.size(); ++j) {
-        auto & inRepl = *requestLaneReplicate(*oldIncoming, j);
         auto & replPhi = cast<PHINode>(*phiRepls[j]);
-        replPhi.addIncoming(&inRepl, oldPhi->getIncomingBlock(i));
+        replPhi.addIncoming(inRepl[j], oldPhi->getIncomingBlock(i));
       }
     }
   }
@@ -169,8 +170,7 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
   } else if (insertInst) {
     return canReplicate(*insertInst->getAggregateOperand(), checkedSet);
   } else if (isa<ExtractValueInst>(val)) {
-    IF_DEBUG_SROV { errs() << "srov: recursive replication not supported!\n"; }
-    return false;
+    return true;
   } else if (isa<LoadInst>(val) || isa<StoreInst>(val)) {
     return true;
   }
@@ -193,8 +193,12 @@ repairExternalUses(Instruction & inst) {
     auto * extractInst = dyn_cast<ExtractValueInst>(userInst);
 
     if (extractInst) {
-      int extractOff = extractInst->getIndices()[0];
-      extractInst->replaceAllUsesWith(requestLaneReplicate(*extractInst, extractOff));
+      ValVec aggRepl = requestReplicate(*extractInst);
+
+      assert((GetNumReplicates(*extractInst->getType()) == 1) && "re-aggregation for non-replicated users not yet implemented");
+      auto * elemVal = aggRepl[0];
+
+      extractInst->replaceAllUsesWith(elemVal);
       continue;
     }
 
@@ -242,86 +246,115 @@ getLaneReplType(Type & type, int i) {
   return *type.getStructElementType(i);
 }
 
-TypeVec
-replicateType(Type & type) {
-  TypeVec tyReplVec;
-  auto & structTy = cast<StructType>(type);
-  for (size_t i = 0; i < structTy.getNumElements(); ++i) {
-    tyReplVec.push_back(&getLaneReplType(structTy, i));
-  }
-  return tyReplVec;
+template<typename T>
+static
+void
+Append(std::vector<T> & dest, const std::vector<T> & src) {
+  for (auto e : src) dest.push_back(e);
 }
 
-Value*
-requestLaneReplicate(Value & val, int i) {
-// if this is a known replicated value reuse that one
-  if (replMap.hasReplicate(val)) {
-    return replMap.getReplVec(val)[i];
-  }
-
-  IF_DEBUG_SROV { errs() << "requestLaneReplicate(" << val << ")\n"; }
-
-  auto * insertInst = dyn_cast<InsertValueInst>(&val);
-  auto * extractInst = dyn_cast<ExtractValueInst>(&val);
-  auto * constVal = dyn_cast<Constant>(&val);
-
-// insertInst: if this is a matching insert return it, otw recursively descend into aggregate operand
-  if (insertInst) {
-    auto * intoVal = insertInst->getAggregateOperand();
-    auto * elemVal = insertInst->getOperand(1);
-    int32_t structOffset = insertInst->getIndices()[0];
-
-    // we found our aggregate
-    if (structOffset == i) {
-      return elemVal;
-    } else {
-      // descend into other insertVals
-      return requestLaneReplicate(*intoVal, i);
+void
+replicateType(Type & type, TypeVec & oTypes) {
+  auto * structTy = dyn_cast<StructType>(&type);
+  auto * arrTy = dyn_cast<ArrayType>(&type);
+  if (structTy) {
+    size_t numElems = structTy->getNumElements();
+    oTypes.reserve(oTypes.size() + numElems);
+    for (size_t i = 0; i < numElems; ++i) {
+      replicateType(*structTy->getStructElementType(i), oTypes);
     }
+  } else if (arrTy) {
+    TypeVec elemTyVec;
+    auto * elemTy = arrTy->getElementType();
+    replicateType(*elemTy, elemTyVec);
+    size_t numElems = arrTy->getNumElements();
+    oTypes.reserve(oTypes.size() + elemTyVec.size() * numElems);
 
-// extractInst: forward to the scalar replicate
-  } else if (extractInst) {
-    auto * extractFrom = extractInst->getOperand(0);
-    return requestLaneReplicate(*extractFrom, i);
+    for (size_t i = 0; i < numElems; ++i) {
+      Append(oTypes, elemTyVec);
+    }
+  } else {
+    oTypes.push_back(&type);
+  }
+}
 
-  } else if (constVal) {
-    auto & replTy = getLaneReplType(*constVal->getType(), i);
-    if (isa<UndefValue>(constVal)) return UndefValue::get(&replTy);
-    else if (constVal->isNullValue()) return Constant::getNullValue(&replTy);
-    else return constVal->getOperand(i);
+static
+const Type&
+GetAggregateOperand(const Type & type, size_t i) {
+  auto * structTy = dyn_cast<StructType>(&type);
+  auto * arrTy = dyn_cast<ArrayType>(&type);
+  if (structTy) {
+    return *structTy->getElementType(i);
+  } else if (arrTy) {
+    return *arrTy->getElementType();
+  } else {
+    abort();
+  }
+}
+
+static
+size_t
+GetElementOffset(const Type & aggType, ArrayRef<uint> indices) {
+  if (indices.size() == 0) {
+    return 0;
   }
 
-// Otw: request a replication of @val and pick the replicate at this position
-  requestReplicate(val);
-  return replMap.getReplVec(val)[i];
+  size_t offset = 0;
+  size_t aggOffset = indices.front();
+  auto tailIndices = indices.drop_front(1);
+
+  for (size_t i = 0; i < aggOffset; ++i) {
+    offset += GetNumReplicates(GetAggregateOperand(aggType, i));
+  }
+
+  offset += GetElementOffset(GetAggregateOperand(aggType, aggOffset), tailIndices);
+  return offset;
 }
+
+// returns the number of scalar values that can represent this type
+// return 0 if such a representation does not exist
+static
+size_t
+GetNumReplicates(const Type & type) {
+  // scalar value
+  if (type.isIntegerTy() || type.isFloatingPointTy()) return 1;
+
+  // for now only structs
+  if (!type.isStructTy() && !type.isArrayTy()) { return 0; }
+
+  auto * structTy = dyn_cast<const StructType>(&type);
+  auto * arrTy = dyn_cast<const ArrayType>(&type);
+
+// check if this struct is composed entirely of int/bool or fp types
+  int flatSize = 0;
+
+  if (structTy) {
+    // aggregate flattened element sizes
+    for (size_t i = 0; i < structTy->getNumElements(); ++i) {
+      auto & elemTy = *structTy->getElementType(i);
+      auto flatElemSize = GetNumReplicates(elemTy);
+      if (flatElemSize == 0) return 0; // can not replicate element
+      flatSize += flatElemSize;
+    }
+  } else if (arrTy) {
+    auto & elemTy = *arrTy->getArrayElementType();
+    auto flatElemSize = GetNumReplicates(elemTy);
+    if (flatElemSize == 0) return 0;
+    flatSize = flatElemSize * arrTy->getArrayNumElements();
+  }
+
+// passed all tests
+  return flatSize;
+}
+
 
 ValVec
-requestReplicate(Value & val) {
-  if (replMap.hasReplicate(val)) {
-    return replMap.getReplVec(val);
-  }
-
-  IF_DEBUG_SROV { errs() << "requestReplicate(" << val << ")\n"; }
-
-
-  TypeVec replTyVec = replicateType(*val.getType());
+requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
   ValVec replVec;
 
-  auto * undef = dyn_cast<UndefValue>(&val);
-  if (undef) {
-    for (size_t i = 0; i < replTyVec.size(); ++i) {
-      replVec.push_back(UndefValue::get(replTyVec[i]));
-    }
-    replMap.addReplicate(val, replVec);
-    return replVec;
-  }
-
-  auto * phi = dyn_cast<PHINode>(&val);
-  auto * inst = dyn_cast<Instruction>(&val);
-  assert(inst && "non replicatable value");
-  IRBuilder<> builder(inst->getParent(), inst->getIterator());
-  std::string oldInstName = inst->getName().str();
+  auto * phi = dyn_cast<PHINode>(&inst);
+  IRBuilder<> builder(inst.getParent(), inst.getIterator());
+  std::string oldInstName = inst.getName().str();
 
 // phi replication logic (attach inputs later)
   if (phi) {
@@ -343,7 +376,7 @@ requestReplicate(Value & val) {
       auto * inVal = phi->getIncomingValue(i);
 
       // descend into non-trivial operand instructions
-      if (isa<Instruction>(inVal) && !isa<InsertValueInst>(inVal)) {
+      if (isa<Instruction>(inVal)) {// && !isa<InsertValueInst>(inVal)) {
         requestReplicate(*inVal);
       }
     }
@@ -353,8 +386,8 @@ requestReplicate(Value & val) {
 // generic instruction replication
   } else if (isa<StoreInst>(inst) || isa<LoadInst>(inst)) {
     auto * intTy = Type::getInt32Ty(builder.getContext());
-    auto * load = dyn_cast<LoadInst>(inst);
-    auto * store = dyn_cast<StoreInst>(inst);
+    auto * load = dyn_cast<LoadInst>(&inst);
+    auto * store = dyn_cast<StoreInst>(&inst);
     auto * ptr = load ? load->getPointerOperand() : store->getPointerOperand();
     VectorShape ptrShape = vecInfo.getVectorShape(*ptr);
 
@@ -372,26 +405,47 @@ requestReplicate(Value & val) {
     }
 
   } else if (isa<SelectInst>(inst)) {
-    auto * selectInst = cast<SelectInst>(inst);
-    auto * selMask = selectInst->getOperand(0);
-    auto * selTrue = selectInst->getOperand(1);
-    auto * selFalse = selectInst->getOperand(2);
+    auto & selectInst = cast<SelectInst>(inst);
+    auto & selMask = *selectInst.getOperand(0);
+    auto & selTrue = *selectInst.getOperand(1);
+    auto & selFalse = *selectInst.getOperand(2);
+
+    auto replTrueVec = requestReplicate(selTrue);
+    auto replFalseVec = requestReplicate(selFalse);
 
     for (size_t i = 0; i < replTyVec.size(); ++i) {
       std::stringstream ss;
       ss << oldInstName << ".repl." << i;
-
-      auto * replTrue = requestLaneReplicate(*selTrue, i);
-      auto * replFalse = requestLaneReplicate(*selFalse, i);
-
-      auto * replSelect = builder.CreateSelect(selMask, replTrue, replFalse, ss.str());
+      auto * replSelect = builder.CreateSelect(&selMask, replTrueVec[i], replFalseVec[i], ss.str());
       replVec.push_back(replSelect);
       IF_DEBUG_SROV { errs() << "\t" << i << " : " << *replSelect << "\n"; }
     }
 
   } else if (isa<InsertValueInst>(inst)) {
-    for (size_t i = 0; i < replTyVec.size(); ++i) {
-      replVec.push_back(requestLaneReplicate(*inst, i));
+    auto & insertInst = cast<InsertValueInst>(inst);
+    auto & aggVal = *insertInst.getAggregateOperand();
+    auto & elemVal = *insertInst.getOperand(1);
+    replVec = requestReplicate(aggVal);
+    ValVec elemRepl = requestReplicate(elemVal);
+
+    size_t elemStart = GetElementOffset(*aggVal.getType(), insertInst.getIndices());
+
+    assert((elemStart + elemRepl.size() <= replVec.size()) && "out of bounds");
+    for (size_t i = 0; i < elemRepl.size(); ++i) {
+      replVec[elemStart + i] = elemRepl[i];
+    }
+
+  } else if (isa<ExtractValueInst>(inst)) {
+    auto & extInst = cast<ExtractValueInst>(inst);
+    auto & aggVal = *extInst.getAggregateOperand();
+    size_t start = GetElementOffset(*aggVal.getType(), extInst.getIndices());
+
+    size_t numRepls = GetNumReplicates(*extInst.getType());
+    ValVec aggRepl = requestReplicate(aggVal);
+
+    assert((start + numRepls <= aggRepl.size()) && "OOB");
+    for (size_t i = 0; i < numRepls; ++i) {
+      replVec.push_back(aggRepl[start + i]);
     }
   } else {
     assert(false && "un-replicatable operation");
@@ -400,34 +454,63 @@ requestReplicate(Value & val) {
 
 // register replcate
   assert(!replVec.empty());
-  replMap.addReplicate(val, replVec);
+  replMap.addReplicate(inst, replVec);
 
   return replVec;
 }
 
-// returns the number of scalar values that can represent this type
-// return 0 if such a representation does not exist
-int
-getNumReplicates(Type & type) {
-  // for now only structs
-  if (!type.isStructTy()) { return 0; }
 
-  auto & structTy = cast<StructType>(type);
-
-// check if this struct is composed entirely of int/bool or fp types
-#if 0
-  for (size_t i = 0; i < structTy.getNumElements(); ++i) {
-    auto & elemTy = *structTy.getElementType(i);
-    if (!elemTy.isIntegerTy() && !elemTy.isFloatingPointTy()) {
-      return 0;
-    }
+ValVec
+requestReplicate(Value & val) {
+  if (replMap.hasReplicate(val)) {
+    return replMap.getReplVec(val);
   }
-#endif
 
-// passed all tests
-  // we will need a scalar replica for each elemnt
-  return structTy.getNumElements();
+  TypeVec replTyVec;
+  replicateType(*val.getType(), replTyVec);
+  IF_DEBUG_SROV { errs() << "requestReplicate(" << val << ", elems=" << replTyVec.size() <<" )\n"; }
+
+  ValVec replVec;
+
+  assert(replTyVec.size() >= 1 && "un-replictable type");
+
+// replication of atoms (unless this is an extract)
+  if ((replTyVec.size() == 1) && !isa<ExtractValueInst>(val)) {
+    replVec.push_back(&val);
+    return replVec;
+  }
+
+// replication of undef
+  auto * undef = dyn_cast<UndefValue>(&val);
+  if (undef) {
+    for (size_t i = 0; i < replTyVec.size(); ++i) {
+      replVec.push_back(UndefValue::get(replTyVec[i]));
+    }
+    replMap.addReplicate(val, replVec);
+    return replVec;
+  }
+
+// replication of constant aggregates
+  auto * constVal = dyn_cast<Constant>(&val);
+  if (constVal) {
+    for (size_t i = 0; i < constVal->getNumOperands(); ++i) {
+      ValVec elemRepl = requestReplicate(*constVal->getOperand(i));
+      Append(replVec, elemRepl);
+    }
+
+    replMap.addReplicate(val, replVec);
+    return replVec;
+  }
+
+// replication of instructions
+  auto * inst = dyn_cast<Instruction>(&val);
+  if (inst) {
+    return requestInstructionReplicate(*inst, replTyVec);
+  } else {
+    abort(); // unsupported IR object
+  }
 }
+
 
 bool
 run() {
@@ -454,7 +537,7 @@ run() {
 
       auto & extractedVal = *I.getOperand(0);
 
-      int numScalarRepls = getNumReplicates(*extractedVal.getType());
+      int numScalarRepls = GetNumReplicates(*extractedVal.getType());
       if (numScalarRepls == 0) {
        IF_DEBUG_SROV { errs() << "SROV: can not replicate extractval operand: " << extractedVal << "). skipping..\n"; }
         continue;
