@@ -583,7 +583,7 @@ NatBuilder::vectorizeInsertCall(CallInst *rvCall) {
   assert(getVectorShape(*rvCall->getArgOperand(1)).isUniform());
   auto * laneId = requestScalarValue(rvCall->getArgOperand(1));
 
-  auto * insertVal = builder.CreateInsertElement(vecVal, elemVal, laneId, "rv_ext");
+  auto * insertVal = builder.CreateInsertElement(vecVal, elemVal, laneId, "rv_ins");
   mapVectorValue(rvCall, insertVal);
 }
 

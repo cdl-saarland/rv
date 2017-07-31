@@ -90,8 +90,8 @@ VectorizerInterface::addIntrinsics() {
             &func,
             0, // no specific vector width
             -1, //
-            VectorShape::undef(),
-            {VectorShape::undef(), VectorShape::uni(), VectorShape::uni()}
+            VectorShape::varying(),
+            {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
           );
           platInfo.addSIMDMapping(mapping);
         } else if (func.getName() == "rv_ballot") {
