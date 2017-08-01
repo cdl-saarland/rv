@@ -2069,8 +2069,17 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
 
 // attach inputs (neutral elem and reduction inst)
   vecPhi->addIncoming(vecNeutral, vecInitInputBlock);
+
+// add latch update
   auto * vecLatchInst = cast<Instruction>(getVectorValue(scaLatchInst));
-  vecPhi->addIncoming(vecLatchInst, vecLoopInputBlock);
+  vecPhi->replaceAllUsesWith(vecNeutral);
+  auto itVecLatch = vecLatchInst->getIterator();
+  ++itVecLatch;
+  IRBuilder<> builder(vecLatchInst->getParent(), itVecLatch);
+  auto & latchUpdate = CreateReductInst(builder, red.kind, *vecPhi, *vecLatchInst);
+
+// attach latch input
+  vecPhi->addIncoming(&latchUpdate, vecLoopInputBlock);
 
 // reduce reduction phi for outside users
   repairOutsideUses(*scaLatchInst,
@@ -2078,7 +2087,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
                       // otw, replace with reduced value
                       auto * insertPt = userBlock.getFirstNonPHI();
                       IRBuilder<> builder(&userBlock, insertPt->getIterator());
-                      auto & reducedVector = CreateVectorReduce(builder, red.kind, *vecLatchInst, vecInitInputVal);
+                      auto & reducedVector = CreateVectorReduce(builder, red.kind, latchUpdate, vecInitInputVal);
                       return reducedVector;
                     }
   );
@@ -2106,7 +2115,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
                       auto * insertPt = userBlock.getFirstNonPHI();
                       IRBuilder<> builder(&userBlock, insertPt->getIterator());
                       // reduce all end-of-iteration values and request value of last iteration
-                      auto & foldVec = *builder.CreateSelect(selMask, vecLatchInst, &vecElem, ".red");
+                      auto & foldVec = *builder.CreateSelect(selMask, &latchUpdate, &vecElem, ".red");
                       auto & reducedVector = CreateVectorReduce(builder, red.kind, foldVec, vecInitInputVal);
                       return reducedVector;
                     }
