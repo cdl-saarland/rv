@@ -347,6 +347,23 @@ GetNumReplicates(const Type & type) {
   return flatSize;
 }
 
+void flattenedLoad(IRBuilder<> & builder, Value * ptr, ValVec & replVec) {
+  auto ptrShape = vecInfo.getVectorShape(*ptr);
+  auto * ptrElemTy = ptr->getType()->getPointerElementType();
+  if (ptrElemTy->isStructTy()) {
+    auto * intTy = Type::getInt32Ty(builder.getContext());
+    size_t n = ptrElemTy->getStructNumElements();
+    for (size_t i = 0; i < n; i++) {
+      // load every member
+      auto * elemGep = builder.CreateGEP(ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
+      vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
+      flattenedLoad(builder, elemGep, replVec);
+    }
+  } else {
+    // not a structure, just perform a normal load
+    replVec.push_back(builder.CreateLoad(ptr));
+  }
+}
 
 ValVec
 requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
@@ -385,24 +402,11 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
     return replVec;
 // generic instruction replication
   } else if (isa<StoreInst>(inst) || isa<LoadInst>(inst)) {
-    auto * intTy = Type::getInt32Ty(builder.getContext());
     auto * load = dyn_cast<LoadInst>(&inst);
     auto * store = dyn_cast<StoreInst>(&inst);
-    auto * ptr = load ? load->getPointerOperand() : store->getPointerOperand();
-    VectorShape ptrShape = vecInfo.getVectorShape(*ptr);
 
-    for (size_t i = 0; i < replTyVec.size(); ++i) {
-      auto * elemGep = builder.CreateGEP(ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
-      vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
-      Value * replInst = nullptr;
-      if (load) {
-        replInst = builder.CreateLoad(elemGep);
-      } else if (store) {
-        assert(false && "not implemented!");
-        // replInst = builder.CreateStore(
-      }
-      replVec.push_back(replInst);
-    }
+    if (load) flattenedLoad(builder, load->getPointerOperand(), replVec);
+    if (store) assert(false && "not implemented!");
 
   } else if (isa<SelectInst>(inst)) {
     auto & selectInst = cast<SelectInst>(inst);
