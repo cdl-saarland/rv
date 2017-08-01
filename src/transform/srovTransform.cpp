@@ -347,9 +347,10 @@ GetNumReplicates(const Type & type) {
   return flatSize;
 }
 
-void flattenedLoad(IRBuilder<> & builder, Value * ptr, ValVec & replVec) {
+size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, size_t flatIdx, LoadInst * load, StoreInst * store) {
   auto ptrShape = vecInfo.getVectorShape(*ptr);
   auto * ptrElemTy = ptr->getType()->getPointerElementType();
+
   if (ptrElemTy->isStructTy()) {
     auto * intTy = Type::getInt32Ty(builder.getContext());
     size_t n = ptrElemTy->getStructNumElements();
@@ -357,11 +358,22 @@ void flattenedLoad(IRBuilder<> & builder, Value * ptr, ValVec & replVec) {
       // load every member
       auto * elemGep = builder.CreateGEP(ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
       vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
-      flattenedLoad(builder, elemGep, replVec);
+      flatIdx += flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
     }
+    return flatIdx;
   } else {
-    // not a structure, just perform a normal load
-    replVec.push_back(builder.CreateLoad(ptr));
+    // not a structure, just perform a normal load/store
+    if (load) {
+      // for a load, replVec will be filled with the loaded data
+      assert(replVec.size() == flatIdx);
+      replVec.push_back(builder.CreateLoad(ptr, load->isVolatile()));
+    }
+    if (store) {
+      // for a store, replVec contains the replicated data to store
+      assert(replVec.size() > flatIdx);
+      builder.CreateStore(replVec[flatIdx], ptr, store->isVolatile());
+    }
+    return flatIdx + 1;
   }
 }
 
@@ -404,10 +416,9 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
   } else if (isa<StoreInst>(inst) || isa<LoadInst>(inst)) {
     auto * load = dyn_cast<LoadInst>(&inst);
     auto * store = dyn_cast<StoreInst>(&inst);
-
-    if (load) flattenedLoad(builder, load->getPointerOperand(), replVec);
-    if (store) assert(false && "not implemented!");
-
+    auto * ptr = load ? load->getPointerOperand() : store->getPointerOperand();
+    if (store) replVec = requestReplicate(*store->getValueOperand());
+    flattenedLoadStore(builder, ptr, replVec, 0, load, store);
   } else if (isa<SelectInst>(inst)) {
     auto & selectInst = cast<SelectInst>(inst);
     auto & selMask = *selectInst.getOperand(0);
