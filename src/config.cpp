@@ -15,7 +15,7 @@ Config::Config()
 , useScatterGatherIntrinsics(true)
 , enableMaskedMove(true)
 , enableInterleaved(false)
-, enablePseudoInterleaved(true)
+, enablePseudoInterleaved(false)
 , cropPseudoInterleaved(false)
 , useSafeDivisors(true)
 
