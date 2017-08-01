@@ -340,6 +340,16 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
   }
 }
 
+static
+bool
+HasSideEffects(const Function & func) {
+  if (func.hasFnAttribute(Attribute::ReadOnly) || func.hasFnAttribute(Attribute::ReadNone)) {
+    return false;
+  }
+
+  return true;
+}
+
 VectorShape VectorizationAnalysis::joinIncomingValues(const PHINode& phi) {
   VectorShape Join = VectorShape::undef();
   for (size_t i = 0; i < phi.getNumIncomingValues(); ++i) {
@@ -591,8 +601,8 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
       // No mapping -> assume most unprecise, varying
       auto found = mFuncinfo.find(callee);
       if (found == mFuncinfo.end()) {
-        // TODO check if this function has side effects
-        break;
+        if (HasSideEffects(*callee)) return VectorShape::varying();
+        else break; // default transformer
       }
 
       const VectorMapping* mapping = found->second;
