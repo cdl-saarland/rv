@@ -1864,7 +1864,10 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
   assert(cast<VectorType>(vector->getType())->getElementType()->isIntegerTy(1) &&
          "vector elements must have i1 type!");
 
-  Constant *simdFalseConst = ConstantInt::get(vector->getContext(), APInt::getMinValue(vectorWidth() * 32));
+  const int laneBits = 32;
+  auto * intLaneTy = Type::getIntNTy(vector->getContext(), laneBits);
+
+  Constant *simdFalseConst = ConstantInt::get(vector->getContext(), APInt::getMinValue(vectorWidth() * laneBits));
   if (isRv_all)
     vector = builder.CreateNot(vector, "rvall_cond_not");
 
@@ -1879,9 +1882,9 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
 
   } else {
     // idiomatic x86 ptest pattern
-    Type *i32VecType = VectorType::get(i32Ty, vectorWidth());
-    Type *intSIMDType = Type::getIntNTy(vector->getContext(), vectorWidth() * 32);
-    Value *zext = builder.CreateSExt(vector, i32VecType, "ptest_zext");
+    Type *intVecType = VectorType::get(intLaneTy, vectorWidth());
+    Type *intSIMDType = Type::getIntNTy(vector->getContext(), vectorWidth() * laneBits);
+    Value *zext = builder.CreateSExt(vector, intVecType, "ptest_zext");
     Value *bc = builder.CreateBitCast(zext, intSIMDType, "ptest_bc");
     ptest = builder.CreateICmpNE(bc, simdFalseConst, "ptest_comp");
   }
@@ -2073,14 +2076,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
 
 // add latch update
   auto * vecLatchInst = cast<Instruction>(getVectorValue(scaLatchInst));
-  vecPhi->replaceAllUsesWith(vecNeutral);
-  auto itVecLatch = vecLatchInst->getIterator();
-  ++itVecLatch;
-  IRBuilder<> builder(vecLatchInst->getParent(), itVecLatch);
-  auto & latchUpdate = CreateReductInst(builder, red.kind, *vecPhi, *vecLatchInst);
-
-// attach latch input
-  vecPhi->addIncoming(&latchUpdate, vecLoopInputBlock);
+  vecPhi->addIncoming(vecLatchInst, vecLoopInputBlock);
 
 // reduce reduction phi for outside users
   repairOutsideUses(*scaLatchInst,
@@ -2088,7 +2084,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
                       // otw, replace with reduced value
                       auto * insertPt = userBlock.getFirstNonPHI();
                       IRBuilder<> builder(&userBlock, insertPt->getIterator());
-                      auto & reducedVector = CreateVectorReduce(builder, red.kind, latchUpdate, vecInitInputVal);
+                      auto & reducedVector = CreateVectorReduce(builder, red.kind, *vecLatchInst, vecInitInputVal);
                       return reducedVector;
                     }
   );
@@ -2116,7 +2112,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
                       auto * insertPt = userBlock.getFirstNonPHI();
                       IRBuilder<> builder(&userBlock, insertPt->getIterator());
                       // reduce all end-of-iteration values and request value of last iteration
-                      auto & foldVec = *builder.CreateSelect(selMask, &latchUpdate, &vecElem, ".red");
+                      auto & foldVec = *builder.CreateSelect(selMask, vecLatchInst, &vecElem, ".red");
                       auto & reducedVector = CreateVectorReduce(builder, red.kind, foldVec, vecInitInputVal);
                       return reducedVector;
                     }
