@@ -52,6 +52,7 @@ add_rv_library(RV
   transform/loopExitCanonicalizer.cpp
   transform/maskExpander.cpp
   transform/redTools.cpp
+  transform/redOpt.cpp
   transform/remTransform.cpp
   transform/srovTransform.cpp
   transform/structOpt.cpp

@@ -36,6 +36,7 @@
 #include "rv/transform/srovTransform.h"
 #include "rv/transform/irPolisher.h"
 #include "rv/transform/bosccTransform.h"
+#include "rv/transform/redOpt.h"
 
 #include "native/NatBuilder.h"
 
@@ -243,25 +244,30 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 
     postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
     domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-#if 0
-    // FIXME we must not verify LI because rv-LoopVec deliberatly breaks it
-    IF_DEBUG loopInfo.verify(domTree);
-#endif
 
     // insert BOSCC branches if desired
     if (config.enableHeuristicBOSCC) {
       BOSCCTransform bosccTrans(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo, pbInfo);
       bosccTrans.run();
     }
-
-    // expand all remaining masks in the region
+    // expand masks after BOSCC
     maskEx.expandRegionMasks();
 
+    postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
 
     IF_DEBUG {
       errs() << "--- VecInfo before Linearizer ---\n";
       vecInfo.dump();
     }
+
+    // FIXME use external reduction analysis result (if available)
+    ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
+    reda.analyze();
+
+    // optimize reduction data flow
+    ReductionOptimization redOpt(vecInfo, reda, domTree);
+    redOpt.run();
 
     // partially linearize acyclic control in the region
     Linearizer linearizer(vecInfo, maskEx, domTree, loopInfo);
@@ -277,8 +283,7 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 
 // flag is set if the env var holds a string that starts on a non-'0' char
 bool
-VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &domTree, const LoopInfo & loopInfo, ScalarEvolution & SE, MemoryDependenceResults & MDR, ValueToValueMapTy * vecInstMap)
-{
+VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTree, LoopInfo & loopInfo, ScalarEvolution & SE, MemoryDependenceResults & MDR, ValueToValueMapTy * vecInstMap) {
   // transform allocas from Array-of-struct into Struct-of-vector where possibe
   if (config.enableStructOpt) {
     StructOpt sopt(vecInfo, platInfo.getDataLayout());
@@ -311,6 +316,11 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, const DominatorTree &
   }
 
   IF_DEBUG verifyFunction(vecInfo.getVectorFunction());
+
+#if 1
+  errs() << "VECTORIZED FUNCTION:\n";
+  vecInfo.getVectorFunction().dump();
+#endif
 
   return true;
 }
