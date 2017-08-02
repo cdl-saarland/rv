@@ -172,6 +172,17 @@ createMergeBlock(BranchInst & branch, int succIdx) {
   BlockMap mergeBlocks;
   BlockSet seenBlocks;
   rec_createMergeBlock(bosccEntry, bosccEntry, mergePhis, mergeBlocks, seenBlocks);
+
+  // simplify merge phis
+  for (auto itPhi : mergePhis) {
+    auto * phi = itPhi.second;
+    if (phi->getNumIncomingValues() == 1) {
+      vecInfo.dropVectorShape(*phi);
+      phi->replaceAllUsesWith(phi->getIncomingValue(0));
+      phi->eraseFromParent();
+    }
+  }
+  mergePhis.clear();
 }
 
 
