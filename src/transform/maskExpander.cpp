@@ -66,6 +66,21 @@ MaskExpander::getPredecessorEdges(const TerminatorInst & termInst, const  BasicB
   }
 }
 
+static Value*
+MatchMaskIntrinsic(Value & condVal) {
+  auto * call = dyn_cast<CallInst>(&condVal);
+  if (!call) return nullptr;
+
+  auto * callee = dyn_cast<Function>(call->getCalledValue());
+  if (!callee) return nullptr;
+
+  if (callee->getName() == "rv_any") {
+    return call->getArgOperand(0);
+  }
+
+  return nullptr;
+}
+
 Value &
 MaskExpander::requestBranchMask(TerminatorInst & term, int succIdx, IRBuilder<> & builder) {
   auto & sourceBlock = *term.getParent();
@@ -77,6 +92,14 @@ MaskExpander::requestBranchMask(TerminatorInst & term, int succIdx, IRBuilder<> 
     assert(isa<BranchInst>(term) && "TODO implement switches");
     auto & branch = cast<BranchInst>(term);
     auto * condVal = branch.isConditional() ? branch.getCondition() : trueConst;
+
+    // look through rv_any calls
+    Value * actualCond = MatchMaskIntrinsic(*condVal);
+    if (actualCond) {
+      errs() << "maskEx: recovered mask condition " << *actualCond <<" from " << *condVal << "\n";
+      condVal = actualCond;
+    }
+
     if (succIdx == 0) {
       return *condVal;
     }
