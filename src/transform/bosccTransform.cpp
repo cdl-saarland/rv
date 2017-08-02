@@ -32,13 +32,16 @@
 using namespace rv;
 using namespace llvm;
 
-#if 1
+#if 0
 #define IF_DEBUG_BOSCC IF_DEBUG
 #else
-#define IF_DEBUG_BOSCC if (false)
+#define IF_DEBUG_BOSCC if (true)
 #endif
 
-typedef std::map<BasicBlock*,double> RatioMap;
+using RatioMap =  std::map<BasicBlock*,double>;
+using BlockSet = std::set<const BasicBlock*>;
+using PHIMap = std::map<const PHINode*, PHINode*>;
+using BlockMap = std::map<const BasicBlock*, BasicBlock*>;
 
 struct Impl {
   VectorizationInfo & vecInfo;
@@ -50,6 +53,8 @@ struct Impl {
   Module & mod;
   BranchProbabilityInfo *pbInfo;
 
+  // BOSCC region exit blocks (containing merge phis)
+  BlockSet bosccExitBlocks;
 
 Impl(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo,  MaskExpander & _maskEx, DominatorTree & _domTree, PostDominatorTree & _postDomTree, LoopInfo & _loopInfo, BranchProbabilityInfo * _pbInfo)
 : vecInfo(_vecInfo)
@@ -60,12 +65,115 @@ Impl(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo,  MaskExpander & _ma
 , loopInfo(_loopInfo)
 , mod(*vecInfo.getScalarFunction().getParent())
 , pbInfo(_pbInfo)
+, bosccExitBlocks()
 {}
 
 Function &
 requestMaskIntrinsic(std::string name) {
   return *platInfo.requestMaskReductionFunc("rv_any");
 }
+
+
+// mergePhis: map original phis to BOSCC region exit merge phis
+// mergeBlocks: map blocks containing original phis to BOSCC exit blocks
+// bosccEntry: entryBlock to the bosccRegion (invariant)
+// block: current block whose exit edges are under inspection
+// seenBlocks: already inspected blocks
+void
+rec_createMergeBlock(BasicBlock & bosccEntry, BasicBlock & block, PHIMap & mergePhis, BlockMap & mergeBlocks, BlockSet & seenBlocks) {
+  if (!seenBlocks.insert(&block).second) return; // already went down this path
+
+  auto & term = *block.getTerminator();
+  for (size_t i = 0; i < term.getNumSuccessors(); ++i) {
+    auto & succ = *term.getSuccessor(i);
+
+    if (!domTree.dominates(&bosccEntry, &succ)) {
+      errs() << "BOSCC EXIT " << bosccEntry.getName() << "  to  " << succ.getName() << "\n";
+      // we reached a merge path (boscced control region merges with non-boscced control)
+      for (auto & inst : succ) {
+        auto * phi = dyn_cast<PHINode>(&inst);
+        if (!phi) break;
+
+        // request a merge phis node (in a dedicated BOSCC exit block)
+        auto itPhi = mergePhis.find(phi);
+        PHINode * mergePhi = nullptr;
+        bool newMergeBlock = false;
+        BasicBlock * mergeBlock = nullptr;
+        if (itPhi != mergePhis.end()) {
+          mergePhi = itPhi->second;
+          mergeBlock = mergePhi->getParent();
+        } else {
+          // is there already a merge block?
+          auto itBlock = mergeBlocks.find(&succ);
+          if (itBlock != mergeBlocks.end()) {
+            mergeBlock = itBlock->second;
+          } else {
+            newMergeBlock = true;
+            mergeBlock = BasicBlock::Create(block.getContext(), bosccEntry.getName() + ".bsc_exit", block.getParent(), &succ);
+            bosccExitBlocks.insert(mergeBlock);
+            mergeBlocks[&succ] = mergeBlock;
+
+            auto * loop = loopInfo.getLoopFor(&succ);
+            if (loop) {
+              loop->addBasicBlockToLoop(mergeBlock, loopInfo);
+              // TODO domTree, postDomTree
+            }
+
+            // embed merge block
+            auto & brInst = *BranchInst::Create(&succ, mergeBlock);
+            vecInfo.setVectorShape(brInst, VectorShape::uni());
+          }
+
+          // create a new merge phi
+          mergePhi = PHINode::Create(phi->getType(), 4, phi->getName() + ".bsc_merge", &*mergeBlock->getFirstInsertionPt());
+          vecInfo.setVectorShape(*mergePhi, vecInfo.getVectorShape(*phi)); // TODO this is an overapproximation
+          phi->addIncoming(mergePhi, mergeBlock);
+          mergePhis[phi] = mergePhi;
+        }
+
+        // rereoute incoming value through merge phi
+        int idx = phi->getBasicBlockIndex(&block);
+        auto * inVal = phi->getIncomingValue(idx);
+
+        mergePhi->addIncoming(inVal, &block);
+        term.setSuccessor(i, mergePhi->getParent());
+        phi->removeIncomingValue(idx, false);
+
+        if (newMergeBlock) {
+          domTree.addNewBlock(mergeBlock, &block);
+
+        } else {
+          // join in new reaching edge from @entry to @medgeBlock
+          auto * mergeNode = domTree.getNode(mergeBlock);
+          auto * mergeIDomNode = mergeNode->getIDom();
+          BasicBlock * oldDom = nullptr;
+          if (mergeIDomNode) {
+            oldDom = mergeIDomNode->getBlock();
+          } else {
+            oldDom = &block;
+          }
+
+          auto * newIDom = domTree.findNearestCommonDominator(oldDom, &block);
+          domTree.changeImmediateDominator(mergeNode, domTree.getNode(newIDom));
+        }
+      }
+    } else {
+      errs() << "BOSCC block " << block.getName() << "  below entry  " << bosccEntry.getName() << "\n";
+      // still inside the region -> descend
+      rec_createMergeBlock(bosccEntry, succ, mergePhis, mergeBlocks, seenBlocks);
+    }
+  }
+}
+
+void
+createMergeBlock(BranchInst & branch, int succIdx) {
+  auto & bosccEntry = *branch.getSuccessor(succIdx);
+  PHIMap mergePhis;
+  BlockMap mergeBlocks;
+  BlockSet seenBlocks;
+  rec_createMergeBlock(bosccEntry, bosccEntry, mergePhis, mergeBlocks, seenBlocks);
+}
+
 
 void
 transformBranch(BranchInst & branch, int succIdx) {
@@ -82,10 +190,13 @@ transformBranch(BranchInst & branch, int succIdx) {
 
   assert(domTree.dominates(branch.getParent(), succBlock) && "can only BOSCC over dominated parts for now");
 
+  auto it = branch.getParent()->getIterator();
+  it++;
+  auto * insertBlock = &*it;
 // create a BOSCC condition block
   std::stringstream blockName;
   blockName << succBlock->getName().str() << "_boscc";
-  auto * bosccBlock = BasicBlock::Create(context, blockName.str(), &vecInfo.getScalarFunction());
+  auto * bosccBlock = BasicBlock::Create(context, blockName.str(), &vecInfo.getScalarFunction(), insertBlock);
 
 // embed block in loopInfo
   auto * loop = loopInfo.getLoopFor(branch.getParent());
@@ -241,7 +352,7 @@ GetValue(const char * name, N defVal) {
   else {
     std::stringstream ss(text);
     N res;
-    ss << res;
+    ss >> res;
     return res;
   }
 }
@@ -266,6 +377,9 @@ bosccHeuristic(BranchInst & branch, double & regProb, size_t & regScore, const R
   if (onFalseLoop && onFalseLoop->getHeader() == onTrueBlock) return 0;
   if (maskEx.getBlockMask(*branch.getParent())) return 0; // FIXME this is a workaround transformed divergent loops (we may end up invalidating masks)
   // FIXME in divLoopTrans: use predicate futures where possible
+
+  // do not speculate across BOSCC exits
+  if (bosccExitBlocks.count(onTrueBlock) || bosccExitBlocks.count(onFalseBlock)) return 0;
 
   assert(dispMap.count(onTrueBlock));
   double trueRatio = dispMap.at(onTrueBlock);
@@ -295,20 +409,29 @@ bosccHeuristic(BranchInst & branch, double & regProb, size_t & regScore, const R
     onFalseScore = getDomRegionScore(*onFalseBlock);
   }
 
-  const double maxRatio = GetValue<double>("BOSC_T", 0.26);
-  const size_t minScore = GetValue<size_t>("BOSCC_LIMIT", 8);
+  const double maxRatio = GetValue<double>("BOSCC_T", 0.14);
+  const size_t minScore = GetValue<size_t>("BOSCC_LIMIT", 17);
 
-  errs() << "score " << onTrueBlock->getName() << "   " << onTrueScore << "\nscore  " << onFalseBlock->getName() << "   " << onFalseScore << "\n";
+  errs() << "BOSCC_T " << maxRatio << " BOSCC_LIMIT " << minScore << "\n";
+
+  if (falseRatio < 0.06) onFalseLegal = false; // DEBUG HACK
+  if (trueRatio < 0.06) onTrueLegal = false; // DEBUG HACK
+
+  errs() << "score (" << onTrueLegal << ") " << onTrueBlock->getName() << "   " << onTrueScore << "\nscore  (" << onFalseLegal << ") " << onFalseBlock->getName() << "   " << onFalseScore << "\n";
+
+  bool onTrueBeneficial = onTrueScore >= minScore && trueRatio < maxRatio;
+  bool onFalseBeneficial = onFalseScore >= minScore && falseRatio < maxRatio;
+
+  bool couldBosccFalse = onFalseBeneficial && onFalseLegal;
+  bool couldBosccTrue = onTrueBeneficial && onTrueLegal;
 
 // otw try to skip the bigger dominated part
-  if (onTrueLegal && (trueRatio < maxRatio && trueRatio <= falseRatio) && onTrueScore >= minScore && onTrueScore >= onFalseScore)
-  {
+  // TODO could also give precedence by region size
+  if (couldBosccTrue && (!couldBosccFalse || trueRatio < falseRatio)) {
     regProb = trueRatio;
     regScore = onTrueScore;
     return -1;
-  }
-  else if (onFalseLegal && (falseRatio < maxRatio && falseRatio <= trueRatio) && onFalseScore >= minScore)
-  {
+  } else if (couldBosccFalse) {
     regProb = falseRatio;
     regScore = onFalseScore;
     return 1;
@@ -335,7 +458,7 @@ GetEdgeProb(BasicBlock & start, BasicBlock & end) {
   return 1.0 / start.getTerminator()->getNumSuccessors();
 }
 
-#if 1
+#if 0
 #define IF_DEBUG_DISP if (false)
 #else
 #define IF_DEBUG_DISP if (true)
@@ -453,6 +576,10 @@ run() {
     ++numBosccBranches;
 
     Report() << "boscc: skip succ " << branchInst->getSuccessor(succIdx)->getName() << " of block " << branchInst->getParent()->getName() << "  dispProb: " << format("%1.4f", regProb) << ", score: " << regScore << "\n";
+
+    // pull out all incoming values in the going-to-be-BOSCCed region into their own phi nodes in a dedicated block (if the boscc branch is taken these blens will be skipped)
+    createMergeBlock(*branchInst, succIdx);
+
     transformBranch(*branchInst, succIdx);
   }
 
@@ -462,6 +589,11 @@ run() {
   postDomTree.recalculate(vecInfo.getScalarFunction());
 
   domTree.verifyDomTree();
+
+#if 1
+  errs() << "--- FUNCTION AFTER BOSCC ---:\n";
+  vecInfo.getScalarFunction().dump();
+#endif
 
   return false;
 }
