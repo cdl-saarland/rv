@@ -24,7 +24,6 @@ ReductionOptimization::optimize(PHINode & phi, Reduction & red) {
   if (phi.getNumUses() == 1) return false; // only one user -> nothing to optimize here
 
   auto & neutral = GetNeutralElement(red.kind, *phi.getType());
-  phi.replaceAllUsesWith(&neutral);
 
   auto * inAtZero = dyn_cast<Instruction>(phi.getIncomingValue(0));
   int latchIdx = (inAtZero && vecInfo.inRegion(*inAtZero)) ? 0 : 1;
@@ -32,13 +31,44 @@ ReductionOptimization::optimize(PHINode & phi, Reduction & red) {
   auto * latchInst = dyn_cast<Instruction>(phi.getIncomingValue(latchIdx));
   assert(latchInst && "recurrence was annotated as reduction!");
 
+  errs() << "Optimizing reduction phi " << phi << ":\n";
+
+// replace all phi uses inside region with the neutral element (these are all starts of reduction chains)
+  for (auto itUse = phi.use_begin(); itUse != phi.use_end(); ) {
+    int opIdx = itUse->getOperandNo();
+    auto * user = itUse->getUser();
+    itUse++;
+
+    auto * userInst = dyn_cast<Instruction>(user);
+    if (!userInst) continue;
+    if (!vecInfo.inRegion(*userInst)){
+      errs() << "Preserving exernal user: \n";
+      continue;  // preserve outside uses
+    }
+
+    errs() << "Remapping user to neutral : " << *userInst << "\n";
+    userInst->setOperand(opIdx, &neutral);
+    errs() << "\t mapped: " << *userInst << "\n";
+  }
+
+// fold accumulator into latch update after chains have been merged
   auto itLatch = latchInst->getIterator();
   ++itLatch;
 
-  // fold accumulator into latch update after chains have been merged
   IRBuilder<> builder(latchInst->getParent(), itLatch);
   auto & latchUpdate = CreateReductInst(builder, red.kind, phi, *latchInst);
   vecInfo.setVectorShape(latchUpdate, phiShape);
+
+  // redirect external users of the old latch value to use the latch update instead
+  for (auto itUse = latchInst->use_begin(); itUse != latchInst->use_end(); ) {
+    auto * inst = cast<Instruction>(itUse->getUser());
+    int opIdx = itUse->getOperandNo();
+    itUse++;
+
+    if (vecInfo.inRegion(*inst)) continue;
+    inst->setOperand(opIdx, &latchUpdate);
+    itUse = latchInst->use_begin();
+  }
 
   // use the late latch update instead
   phi.setIncomingValue(latchIdx, &latchUpdate);

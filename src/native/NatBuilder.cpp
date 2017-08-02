@@ -2109,12 +2109,16 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
     repairOutsideUses(*elem,
                       [&](Value & usedVal, BasicBlock& userBlock) ->Value& {
 
+                      abort(); // TODO implement
+                      // this code is broken: we still need to add the accumulator to the last lane
+#if 0
                       auto * insertPt = userBlock.getFirstNonPHI();
                       IRBuilder<> builder(&userBlock, insertPt->getIterator());
                       // reduce all end-of-iteration values and request value of last iteration
                       auto & foldVec = *builder.CreateSelect(selMask, vecLatchInst, &vecElem, ".red");
                       auto & reducedVector = CreateVectorReduce(builder, red.kind, foldVec, vecInitInputVal);
                       return reducedVector;
+#endif
                     }
     );
   }
