@@ -52,12 +52,12 @@ def profileTest(profileMode, numSamples, func):
   return resList[len(resList) // 2]
 
 
-def wholeFunctionVectorize(srcFile, argMappings):
+def wholeFunctionVectorize(srcFile, argMappings, width):
   baseName = path.basename(srcFile).split(".")[0]
   destFile = "build/" + baseName + ".wfv.ll"
   logPrefix =  "logs/"  + baseName + ".wfv"
   scalarName = "foo"
-  ret = runWFV(srcFile, destFile, scalarName, argMappings, logPrefix)
+  ret = runWFV(srcFile, destFile, scalarName, argMappings, width, logPrefix)
   return destFile if ret == 0 else None
 
 def outerLoopVectorize(srcFile, loopDesc, width):
@@ -71,14 +71,17 @@ def outerLoopVectorize(srcFile, loopDesc, width):
 def executeWFVTest(scalarLL, options, profileMode):
   sigInfo = options.split(",")
 
+  width = 8
   for option in sigInfo:
     opSplit = option.split(":")
     if opSplit[0].strip() == "LaunchCode":
       launchCode = opSplit[1].strip()
     elif opSplit[0].strip() == "Shapes":
       shapes = opSplit[1].strip()
+    elif opSplit[0].strip() == "Width":
+      width = int(opSplit[1].strip())
 
-  testBC = wholeFunctionVectorize(scalarLL, shapes)
+  testBC = wholeFunctionVectorize(scalarLL, shapes, width)
   if testBC:
     result = profileTest(profileMode, numSamples, lambda: runWFVTest(testBC, launchCode, profileMode))
     if profileMode:
