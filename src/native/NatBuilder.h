@@ -99,6 +99,7 @@ namespace native {
     void vectorizeReductionCall(llvm::CallInst *rvCall, bool isRv_all);
     void vectorizeExtractCall(llvm::CallInst *rvCall);
     void vectorizeInsertCall(llvm::CallInst *rvCall);
+    void vectorizeShuffleCall(llvm::CallInst *rvCall);
     void vectorizeBallotCall(llvm::CallInst *rvCall);
     void vectorizeAlignCall(llvm::CallInst *rvCall);
 

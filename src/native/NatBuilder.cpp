@@ -326,6 +326,8 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         vectorizeExtractCall(call);
       else if (callee && callee->getName() == "rv_insert")
         vectorizeInsertCall(call);
+      else if (callee && callee->getName() == "rv_shuffle")
+        vectorizeShuffleCall(call);
       else if (callee && callee->getName() == "rv_ballot")
         vectorizeBallotCall(call);
       else if (callee && callee->getName() == "rv_align")
@@ -585,6 +587,36 @@ NatBuilder::vectorizeInsertCall(CallInst *rvCall) {
 
   auto * insertVal = builder.CreateInsertElement(vecVal, elemVal, laneId, "rv_ins");
   mapVectorValue(rvCall, insertVal);
+}
+
+void
+NatBuilder::vectorizeShuffleCall(CallInst *rvCall) {
+  ++numRVIntrinsics;
+
+  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_shuffle(vec, shift)");
+
+  Value *vecArg = rvCall->getArgOperand(0);
+
+// uniform arg
+  if (getVectorShape(*vecArg).isUniform()) {
+    auto * uniVal = requestScalarValue(vecArg);
+    mapScalarValue(rvCall, uniVal);
+    return;
+  }
+
+// non-uniform arg
+  auto * vecVal = requestVectorValue(vecArg);
+  assert(getVectorShape(*rvCall->getArgOperand(1)).isUniform());
+  auto shiftVal = cast<ConstantInt>(rvCall->getArgOperand(1))->getZExtValue();
+
+  // build shuffle indices
+  SmallVector<uint32_t, 32> shflIds(vectorWidth());
+  for (size_t i = 0; i < vectorWidth(); i++) {
+    shflIds[i] = (i + shiftVal) % vectorWidth();
+  }
+
+  auto * shflVal = builder.CreateShuffleVector(vecVal, vecVal, shflIds, "rv_shfl");
+  mapVectorValue(rvCall, shflVal);
 }
 
 void

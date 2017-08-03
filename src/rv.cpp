@@ -94,6 +94,16 @@ VectorizerInterface::addIntrinsics() {
             {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
           );
           platInfo.addSIMDMapping(mapping);
+        } else if (func.getName() == "rv_shuffle") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::varying(),
+            {VectorShape::varying(), VectorShape::uni()}
+          );
+          platInfo.addSIMDMapping(mapping);
         } else if (func.getName() == "rv_ballot") {
           VectorMapping mapping(
             &func,
@@ -322,6 +332,7 @@ static void lowerIntrinsicCall(CallInst* call) {
   if (callee->getName() == "rv_any" ||
       callee->getName() == "rv_all" ||
       callee->getName() == "rv_extract" ||
+      callee->getName() == "rv_shuffle" ||
       callee->getName() == "rv_align") {
     lowerIntrinsicCall(call, [] (const CallInst* call) {
       return call->getOperand(0);
@@ -340,7 +351,7 @@ static void lowerIntrinsicCall(CallInst* call) {
 
 void
 lowerIntrinsics(Module & mod) {
-  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_ballot", "rv_align"};
+  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_shuffle", "rv_ballot", "rv_align"};
   for (int i = 0, n = sizeof(names) / sizeof(names[0]); i < n; i++) {
     auto func = mod.getFunction(names[i]);
     if (!func) continue;
