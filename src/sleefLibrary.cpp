@@ -35,6 +35,14 @@ extern const size_t avx_dp_BufferLen;
 
 extern const unsigned char * sse_dp_Buffer;
 extern const size_t sse_dp_BufferLen;
+
+extern const unsigned char * avx_extras_Buffer;
+extern const size_t avx_extras_BufferLen;
+#else
+
+static const unsigned char * avx_extras_Buffer = nullptr;
+static const size_t avx_extras_BufferLen = 0L;
+
 #endif
 
 #ifdef RV_ENABLE_CRT
@@ -90,7 +98,8 @@ namespace rv {
 #endif
 
   static Module const *sleefModules[3 * 2];
-  static Module* scalarModule;
+  static Module* scalarModule; // scalar implementations to be inlined
+  static Module* extrasModule; // rv extra functions (vrand, ..)
 
   bool addSleefMappings(const Config & config,
                         PlatformInfo &platformInfo,
@@ -146,7 +155,10 @@ namespace rv {
           {"llvm.fabs.f64", "xfabs_avx2", 4},
           {"llvm.copysign.f64", "xcopysign_avx2", 4},
           {"llvm.minnum.f64", "xfmin_avx2", 4},
-          {"llvm.maxnum.f64", "xfmax_avx2", 4}
+          {"llvm.maxnum.f64", "xfmax_avx2", 4},
+
+        // extras
+          {"drand48", "avx_vrand_d4_extra", 4}
       };
       platformInfo.addVectorizableFunctions(VecFuncs);
 
@@ -597,11 +609,20 @@ namespace rv {
     else if (vecFuncName.count("sse")) isa = SLEEF_SSE;
     else return nullptr;
 
+    // query the extra module
+    if (avx_extras_Buffer && vecFuncName.count("_extra")) {
+      if (!extrasModule) extrasModule = createModuleFromBuffer(reinterpret_cast<const char*>(avx_extras_Buffer), avx_extras_BufferLen, context);
+      Function *vecFunc = extrasModule->getFunction(vecFuncName);
+      assert(vecFunc && "mapped extra function not found in module!");
+      return cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
+    }
+
+    // Otw, look in SLEEF module
     auto modIndex = sleefModuleIndex(isa, doublePrecision);
     auto& mod = sleefModules[modIndex];
     if (!mod) mod = createModuleFromBuffer(reinterpret_cast<const char*>(sleefModuleBuffers[modIndex]), sleefModuleBufferLens[modIndex], context);
     Function *vecFunc = mod->getFunction(sleefName);
-    assert(vecFunc);
+    assert(vecFunc && "mapped SLEEF function not found in module!");
     return cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
   }
 }
