@@ -597,11 +597,17 @@ namespace rv {
       return *Intrinsic::getDeclaration(&cloneInto, func.getIntrinsicID(), overloadedTypes);
     }
 
+    // eg already migrated
+    auto * existingFn = cloneInto.getFunction(func.getName());
+    if (existingFn) {
+      return *existingFn;
+    }
+
     // create function in new module, create the argument mapping, clone function into new function body, return
     Function & clonedFn = *Function::Create(func.getFunctionType(), Function::LinkageTypes::ExternalLinkage,
                                           name, &cloneInto);
     // external decl
-    if (func.isDeclaration()) return func;
+    if (func.isDeclaration()) return clonedFn;
 
     ValueToValueMapTy VMap;
     auto CI = clonedFn.arg_begin();
@@ -610,28 +616,15 @@ namespace rv {
       carg->setName(arg->getName());
       VMap[arg] = carg;
     }
-    // need to map calls as well
+    // remap constants
     for (auto I = inst_begin(func), E = inst_end(func); I != E; ++I) {
       for (size_t i = 0; i < I->getNumOperands(); ++i) {
-        auto * usedGlobal = dyn_cast<GlobalValue>(I->getOperand(i));
-        if (!usedGlobal) continue;
+        auto * usedConstant = dyn_cast<Constant>(I->getOperand(i));
+        if (!usedConstant) continue;
 
-        auto & clonedGlobal = cloneGlobalIntoModule(*usedGlobal, cloneInto);
-        VMap[usedGlobal] = &clonedGlobal;
+        auto & clonedConstant = cloneConstant(*usedConstant, cloneInto);
+        VMap[usedConstant] = &clonedConstant;
       }
-
-#if 0
-      // subsumed by cloneGlobalIntoModule
-      // migrate calls
-      if (!isa<CallInst>(&*I)) continue;
-      CallInst *callInst = cast<CallInst>(&*I);
-      Function *callee = callInst->getCalledFunction();
-      Function *clonedCallee;
-      clonedCallee = cloneInto->getFunction(callee->getName());
-
-      if (!clonedCallee) clonedCallee = cloneFunctionIntoModule(callee, cloneInto, callee->getName());
-      VMap[callee] = clonedCallee;
-#endif
     }
 
     SmallVector<ReturnInst *, 1> Returns; // unused
