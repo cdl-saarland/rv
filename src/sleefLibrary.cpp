@@ -12,6 +12,8 @@
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/IR/InstIterator.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/Module.h>
 
 #include "utils/rvTools.h"
 
@@ -513,12 +515,66 @@ namespace rv {
 #endif
   }
 
-  Function *cloneFunctionIntoModule(Function *func, Module *cloneInto, StringRef name) {
-    if (func->isIntrinsic()) {
+  // forward decls
+  GlobalValue & cloneGlobalIntoModule(GlobalValue &gv, Module &cloneInto);
+  Constant & cloneConstant(Constant& constVal, Module & cloneInto);
+  Function &cloneFunctionIntoModule(Function &func, Module &cloneInto, StringRef name);
+
+
+  Constant & cloneConstant(Constant& constVal, Module & cloneInto) {
+    if (isa<GlobalValue>(constVal)) {
+      return cloneGlobalIntoModule(cast<GlobalValue>(constVal), cloneInto);
+    }
+    auto * expr = dyn_cast<ConstantExpr>(&constVal);
+    if (!expr) return constVal;
+
+    // descend into operands and replicate
+    const ConstantExpr & constExpr = *expr;
+
+    SmallVector<Constant*, 4> clonedOps;
+    for (size_t i = 0; i < constExpr.getNumOperands(); ++i) {
+      const Constant & cloned = cloneConstant(*constExpr.getOperand(i), cloneInto);
+      clonedOps.push_back(const_cast<Constant*>(&cloned));
+    }
+
+    return *constExpr.getWithOperands(clonedOps);
+  }
+
+  GlobalValue & cloneGlobalIntoModule(GlobalValue &gv, Module &cloneInto) {
+    if (isa<Function>(gv)) {
+      auto & func = cast<Function>(gv);
+      return cloneFunctionIntoModule(func, cloneInto, func.getName());
+
+    } else {
+      assert(isa<GlobalVariable>(gv));
+      auto & global = cast<GlobalVariable>(gv);
+      auto * clonedGv = cloneInto.getGlobalVariable(global.getName());
+      if (clonedGv) return *clonedGv;
+
+      // clone initializer (could depend on other constants)
+      auto * initConst = const_cast<Constant*>(global.getInitializer());
+      Constant * clonedInitConst = initConst;
+      if (initConst) {
+        clonedInitConst = &cloneConstant(*initConst, cloneInto);
+      }
+
+      auto * clonedGlobal = cast<GlobalVariable>(cloneInto.getOrInsertGlobal(global.getName(), global.getValueType()));
+      clonedGlobal->setInitializer(clonedInitConst);
+      clonedGlobal->setThreadLocalMode(global.getThreadLocalMode());
+      // TODO set alignment, attributes, ...
+      return *clonedGlobal;
+    }
+
+    // unsupported global value
+    abort();
+  }
+
+  Function &cloneFunctionIntoModule(Function &func, Module &cloneInto, StringRef name) {
+    if (func.isIntrinsic()) {
 
       // decode ambiguous type arguments
-      auto id = func->getIntrinsicID();
-      auto * funcTy = func->getFunctionType();
+      auto id = func.getIntrinsicID();
+      auto * funcTy = func.getFunctionType();
       SmallVector<Intrinsic::IITDescriptor, 4> paramDescs;
       Intrinsic::getIntrinsicInfoTableEntries(id, paramDescs);
       SmallVector<Type*,4> overloadedTypes;
@@ -538,24 +594,35 @@ namespace rv {
         }
       }
 
-      return Intrinsic::getDeclaration(cloneInto, func->getIntrinsicID(), overloadedTypes);
+      return *Intrinsic::getDeclaration(&cloneInto, func.getIntrinsicID(), overloadedTypes);
     }
 
     // create function in new module, create the argument mapping, clone function into new function body, return
-    Function *clonedFn = Function::Create(func->getFunctionType(), Function::LinkageTypes::ExternalLinkage,
-                                          name, cloneInto);
+    Function & clonedFn = *Function::Create(func.getFunctionType(), Function::LinkageTypes::ExternalLinkage,
+                                          name, &cloneInto);
     // external decl
-    if (func->isDeclaration()) return func;
+    if (func.isDeclaration()) return func;
 
     ValueToValueMapTy VMap;
-    auto CI = clonedFn->arg_begin();
-    for (auto I = func->arg_begin(), E = func->arg_end(); I != E; ++I, ++CI) {
+    auto CI = clonedFn.arg_begin();
+    for (auto I = func.arg_begin(), E = func.arg_end(); I != E; ++I, ++CI) {
       Argument *arg = &*I, *carg = &*CI;
       carg->setName(arg->getName());
       VMap[arg] = carg;
     }
     // need to map calls as well
     for (auto I = inst_begin(func), E = inst_end(func); I != E; ++I) {
+      for (size_t i = 0; i < I->getNumOperands(); ++i) {
+        auto * usedGlobal = dyn_cast<GlobalValue>(I->getOperand(i));
+        if (!usedGlobal) continue;
+
+        auto & clonedGlobal = cloneGlobalIntoModule(*usedGlobal, cloneInto);
+        VMap[usedGlobal] = &clonedGlobal;
+      }
+
+#if 0
+      // subsumed by cloneGlobalIntoModule
+      // migrate calls
       if (!isa<CallInst>(&*I)) continue;
       CallInst *callInst = cast<CallInst>(&*I);
       Function *callee = callInst->getCalledFunction();
@@ -564,11 +631,12 @@ namespace rv {
 
       if (!clonedCallee) clonedCallee = cloneFunctionIntoModule(callee, cloneInto, callee->getName());
       VMap[callee] = clonedCallee;
+#endif
     }
 
     SmallVector<ReturnInst *, 1> Returns; // unused
 
-    CloneFunctionInto(clonedFn, func, VMap, false, Returns);
+    CloneFunctionInto(&clonedFn, &func, VMap, false, Returns);
     return clonedFn;
   }
 
@@ -583,7 +651,7 @@ namespace rv {
 
     auto * scalarFn = scalarModule->getFunction(funcName);
     if (!scalarFn) return nullptr;
-    return cloneFunctionIntoModule(scalarFn, &insertInto, funcName);
+    return &cloneFunctionIntoModule(*scalarFn, insertInto, funcName);
 #else
     return nullptr; // compiler-rt not available as bc module
 #endif
@@ -611,10 +679,10 @@ namespace rv {
 
     // query the extra module
     if (avx_extras_Buffer && vecFuncName.count("_extra")) {
-      if (!extrasModule) extrasModule = createModuleFromBuffer(reinterpret_cast<const char*>(avx_extras_Buffer), avx_extras_BufferLen, context);
+      if (!extrasModule) extrasModule = createModuleFromBuffer(reinterpret_cast<const char*>(&avx_extras_Buffer), avx_extras_BufferLen, context);
       Function *vecFunc = extrasModule->getFunction(vecFuncName);
       assert(vecFunc && "mapped extra function not found in module!");
-      return cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
+      return &cloneFunctionIntoModule(*vecFunc, *insertInto, vecFuncName);
     }
 
     // Otw, look in SLEEF module
@@ -623,6 +691,6 @@ namespace rv {
     if (!mod) mod = createModuleFromBuffer(reinterpret_cast<const char*>(sleefModuleBuffers[modIndex]), sleefModuleBufferLens[modIndex], context);
     Function *vecFunc = mod->getFunction(sleefName);
     assert(vecFunc && "mapped SLEEF function not found in module!");
-    return cloneFunctionIntoModule(vecFunc, insertInto, vecFuncName);
+    return &cloneFunctionIntoModule(*vecFunc, *insertInto, vecFuncName);
   }
 }
