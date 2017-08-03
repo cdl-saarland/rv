@@ -603,7 +603,10 @@ int main(int argc, char** argv)
       if (reader.readOption<std::string>("-s", shapeText))
       {
           std::stringstream shapestream(shapeText);
-          readList<LISTSEPERATOR>(shapestream, argShapes, decodeShape);
+          // allow functions without arguments
+          if (shapestream.peek() != 'r') {
+            readList<LISTSEPERATOR>(shapestream, argShapes, decodeShape);
+          }
 
           // fail on excessive specification
           if (argShapes.size() > scalarFn->getArgumentList().size())
