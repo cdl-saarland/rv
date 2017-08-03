@@ -366,12 +366,15 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
     if (load) {
       // for a load, replVec will be filled with the loaded data
       assert(replVec.size() == flatIdx);
-      replVec.push_back(builder.CreateLoad(ptr, load->isVolatile()));
+      auto * flatLoad = builder.CreateLoad(ptr, load->isVolatile());
+      vecInfo.setVectorShape(*flatLoad, vecInfo.getVectorShape(*load));
+      replVec.push_back(flatLoad);
     }
     if (store) {
       // for a store, replVec contains the replicated data to store
       assert(replVec.size() > flatIdx);
-      builder.CreateStore(replVec[flatIdx], ptr, store->isVolatile());
+      auto * flatStore = builder.CreateStore(replVec[flatIdx], ptr, store->isVolatile());
+      vecInfo.setVectorShape(*flatStore, vecInfo.getVectorShape(*store));
     }
     return flatIdx + 1;
   }
