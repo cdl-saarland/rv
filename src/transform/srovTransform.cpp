@@ -178,9 +178,33 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
   return false;
 }
 
+Value * reaggregateInstruction(IRBuilder<> & builder, const ValVec & replVec, Type * aggTy, const VectorShape & vecShape, size_t & index) {
+  if (aggTy->isStructTy()) {
+    size_t n = aggTy->getStructNumElements();
+    Value * aggVal = UndefValue::get(aggTy);
+    vecInfo.setVectorShape(*aggVal, vecShape);
+    for (size_t i = 0; i < n; i++) {
+      auto elemVal = reaggregateInstruction(builder, replVec, aggTy->getStructElementType(i), vecShape, index);
+      aggVal = builder.CreateInsertValue(aggVal, elemVal, i);
+      vecInfo.setVectorShape(*aggVal, vecShape);
+    }
+    return aggVal;
+  } else {
+    return replVec[index++];
+  }
+}
+
 // re-aggregate @inst for external users of that value
 void
 repairExternalUses(Instruction & inst) {
+  // no need to re-aggregate instructions with only one replicate
+  auto replVec = replMap.getReplVec(inst);
+  if (replVec.size() == 1) {
+    inst.replaceAllUsesWith(replVec[0]);
+    return;
+  }
+
+  IRBuilder<> builder(inst.getParent(), inst.getIterator());
 
   for (auto itUse = inst.use_begin(); itUse != inst.use_end(); ) {
     auto & use = *itUse++;
@@ -202,10 +226,9 @@ repairExternalUses(Instruction & inst) {
       continue;
     }
 
-    // TODO re-aggregate if need be
-    errs() << "CAN NOT RE-aggregate " << *userInst << "\n";
-    assert(false && "re-aggregation not yet implemented");
-    abort();
+    size_t startIndex = 0;
+    auto * aggVal = reaggregateInstruction(builder, replVec, inst.getType(), vecInfo.getVectorShape(inst), startIndex);
+    inst.replaceAllUsesWith(aggVal);
   }
 }
 
