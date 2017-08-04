@@ -1450,6 +1450,12 @@ Linearizer::fixSSA() {
           SSAUpdater ssaUpdater(&phiVec);
           ssaUpdater.Initialize(inInst->getType(), "_prom");
           ssaUpdater.AddAvailableValue(&defBlock, inInst);
+
+          // kill recurring definitions in the loop header by forcing Undef
+          auto * defLoop = li.getLoopFor(&defBlock);
+          if (defLoop && defLoop->getHeader() != &defBlock) {
+            ssaUpdater.AddAvailableValue(defLoop->getHeader(), UndefValue::get(inInst->getType()));
+          }
           auto & fixedDef = *ssaUpdater.GetValueAtEndOfBlock(inBlock);
           for (auto * phi : phiVec) vecInfo.setVectorShape(*phi, inShape);
 
@@ -1482,6 +1488,12 @@ Linearizer::fixSSA() {
           SSAUpdater ssaUpdater(&phiVec);
           ssaUpdater.Initialize(opInst->getType(), "_prom");
           ssaUpdater.AddAvailableValue(opInst->getParent(), opInst);
+
+          // kill recurring definitions in the loop header by forcing Undef
+          auto * defLoop = li.getLoopFor(opInst->getParent());
+          if (defLoop && defLoop->getHeader() != opInst->getParent()) {
+            ssaUpdater.AddAvailableValue(defLoop->getHeader(), UndefValue::get(opInst->getType()));
+          }
           auto & promotedDef = *ssaUpdater.GetValueAtEndOfBlock(&block);
           for (auto * phi : phiVec) vecInfo.setVectorShape(*phi, opShape);
 
