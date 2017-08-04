@@ -7,9 +7,16 @@
 #include "rv/transform/redTools.h"
 #include "report.h"
 
+#include "rvConfig.h"
+
 using namespace llvm;
 using namespace rv;
 
+#if 1
+#define IF_DEBUG_REDOPT IF_DEBUG
+#else
+#define IF_DEBUG_REPORT if (true)
+#endif
 
 ReductionOptimization::ReductionOptimization(VectorizationInfo & _vecInfo, ReductionAnalysis & _reda, DominatorTree & _dt)
 : vecInfo(_vecInfo)
@@ -31,7 +38,7 @@ ReductionOptimization::optimize(PHINode & phi, Reduction & red) {
   auto * latchInst = dyn_cast<Instruction>(phi.getIncomingValue(latchIdx));
   assert(latchInst && "recurrence was annotated as reduction!");
 
-  errs() << "Optimizing reduction phi " << phi << ":\n";
+  IF_DEBUG_REDOPT { errs() << "Optimizing reduction phi " << phi << ":\n"; }
 
 // replace all phi uses inside region with the neutral element (these are all starts of reduction chains)
   for (auto itUse = phi.use_begin(); itUse != phi.use_end(); ) {
@@ -46,9 +53,9 @@ ReductionOptimization::optimize(PHINode & phi, Reduction & red) {
       continue;  // preserve outside uses
     }
 
-    errs() << "Remapping user to neutral : " << *userInst << "\n";
+    IF_DEBUG_REDOPT { errs() << "Remapping user to neutral : " << *userInst << "\n"; }
     userInst->setOperand(opIdx, &neutral);
-    errs() << "\t mapped: " << *userInst << "\n";
+    IF_DEBUG_REDOPT { errs() << "\t mapped: " << *userInst << "\n"; }
   }
 
 // fold accumulator into latch update after chains have been merged

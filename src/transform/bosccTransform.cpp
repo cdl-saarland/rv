@@ -466,8 +466,8 @@ GetEdgeProb(BasicBlock & start, BasicBlock & end) {
   return 1.0 / start.getTerminator()->getNumSuccessors();
 }
 
-#if 0
-#define IF_DEBUG_DISP if (false)
+#if 1
+#define IF_DEBUG_DISP IF_DEBUG_BOSCC
 #else
 #define IF_DEBUG_DISP if (true)
 #endif

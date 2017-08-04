@@ -48,30 +48,29 @@ bool DumpStatistics(std::string &file) {
 }
 
 void NatBuilder::printStatistics() {
-  Report() << "naTIVE Statistics Report\n";
-
   // memory statistics
-  Report() << "Memory\n";
-  Report() << "Varying: " << numMaskedScatter << "/" << numMaskedGather << "/" << numScatter << "/" << numGather << " masked/scatters/gathers\n";
-  Report() << "Pseudo-Interleaved: " << numPseudoMaskedLoads << "/" << numPseudoMaskedStores << "/" << numPseudoLoads << "/" << numPseudoStores << " masked/loads/stores\n";
-  Report() << "Interleaved: " << numInterMaskedLoads << "/" << numInterMaskedStores << "/" << numInterLoads << "/" << numInterStores << " masked/loads/stores\n";
-  Report() << "Contiguous Memory: " << numContMaskedLoads << "/" << numContMaskedStores << "/" << numContLoads << "/" << numContStores << " masked/loads/stores\n";
-  Report() << "Uniform Memory: " << numUniMaskedLoads << "/" << numUniMaskedStores << "/" << numUniLoads << "/" << numUniStores << " masked/loads/stores\n";
-  Report() << "\n";
+  Report() << "nat memory:\n"
+           << "\tscatter/gather: " << numScatter << "/" << numGather << ", masked " << numMaskedScatter << "/" << numMaskedGather << "\n"
+           << "\tpsi loads/stores: " << numPseudoLoads << "/" << numPseudoStores << ". masked " << numPseudoMaskedLoads << "/" << numPseudoMaskedStores << "\n"
+           << "\tinter load/store: " << numInterLoads << "/" << numInterStores << ", masked " << numInterMaskedLoads << "/" << numInterMaskedStores << "\n"
+           << "\tcons load/store: " << numContLoads << "/" << numContStores << ", masked " <<  numContMaskedLoads << "/" << numContMaskedStores << "\n"
+           << "\tuni load/store: " << numUniLoads << "/" << numUniStores << ", masked " << numUniMaskedLoads << "/" << numUniMaskedStores << "\n";
 
+#if 0
   // lazy statistics
   Report() << "GEPs/BCs\n";
   Report() << "GEPs: " << numVecGEPs << "/" << numScalGEPs << "/" << numInterGEPs << " vec/scal/inter\n";
   Report() << "BCs: " << numVecBCs << "/" << numScalBCs << " vec/scal\n";
   Report() << "\n";
+#endif
 
   // call statistics
-  Report() << "Function Calls\n";
-  Report() << "Vectorized: " << numVecCalls << "/" << numSemiCalls << " fully/semi\n";
-  Report() << "Replicated: " << numFallCalls << "/" << numCascadeCalls << " replicated/cascaded\n";
-  Report() << "RV Intrinsics: " << numRVIntrinsics << " intrinsics\n";
-  Report() << "\n";
+  Report() << "nat calls:\n"
+           << "\tVectorized: " << numVecCalls << "/" << numSemiCalls << " fully/semi\n"
+           << "\tReplicated: " << numFallCalls << "/" << numCascadeCalls << " replicated/cascaded\n"
+           << "\tRV Intrinsics: " << numRVIntrinsics << " intrinsics\n";
 
+#if 0
   // general statistics
   Report() << "Everything else\n";
   Report() << "Scalarized: " << numScalarized << " instructions\n";
@@ -79,6 +78,7 @@ void NatBuilder::printStatistics() {
   Report() << "Replicated: " << numFallbacked << " instructions\n";
   Report() << "Lazy Instructions: " << numLazy << " instructions\n";
   Report() << "\n";
+#endif
 
   std::string fileName;
   if (!DumpStatistics(fileName))
