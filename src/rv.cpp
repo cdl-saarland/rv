@@ -317,11 +317,6 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTre
 
   IF_DEBUG verifyFunction(vecInfo.getVectorFunction());
 
-#if 1
-  errs() << "VECTORIZED FUNCTION:\n";
-  vecInfo.getVectorFunction().dump();
-#endif
-
   return true;
 }
 

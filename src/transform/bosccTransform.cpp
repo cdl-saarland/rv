@@ -32,7 +32,7 @@
 using namespace rv;
 using namespace llvm;
 
-#if 0
+#if 1
 #define IF_DEBUG_BOSCC IF_DEBUG
 #else
 #define IF_DEBUG_BOSCC if (true)
@@ -88,7 +88,7 @@ rec_createMergeBlock(BasicBlock & bosccEntry, BasicBlock & block, PHIMap & merge
     auto & succ = *term.getSuccessor(i);
 
     if (!domTree.dominates(&bosccEntry, &succ)) {
-      errs() << "BOSCC EXIT " << bosccEntry.getName() << "  to  " << succ.getName() << "\n";
+      IF_DEBUG_BOSCC errs() << "BOSCC EXIT " << bosccEntry.getName() << "  to  " << succ.getName() << "\n";
       // we reached a merge path (boscced control region merges with non-boscced control)
       for (auto & inst : succ) {
         auto * phi = dyn_cast<PHINode>(&inst);
@@ -158,7 +158,7 @@ rec_createMergeBlock(BasicBlock & bosccEntry, BasicBlock & block, PHIMap & merge
         }
       }
     } else {
-      errs() << "BOSCC block " << block.getName() << "  below entry  " << bosccEntry.getName() << "\n";
+      IF_DEBUG_BOSCC errs() << "BOSCC block " << block.getName() << "  below entry  " << bosccEntry.getName() << "\n";
       // still inside the region -> descend
       rec_createMergeBlock(bosccEntry, succ, mergePhis, mergeBlocks, seenBlocks);
     }
@@ -277,16 +277,13 @@ transformBranch(BranchInst & branch, int succIdx) {
 
 size_t
 getDomRegionValue(BasicBlock & entry, BasicBlock & subBlock, SmallSet<BasicBlock*, 32> & seenBlocks) {
-  // errs() << "DOM SCORE entry=" << entry.getName() << " subBlock " << subBlock.getName() << "\n";
   if (&entry != &subBlock && !domTree.dominates(&entry, &subBlock)) {
-    // errs() << "\t not dominated!\n";
     return 0; // not in our dominance region
   }
   if (!seenBlocks.insert(&subBlock).second) return 0; // already factores in
 
   // compute own score
   size_t score = getBlockScore(subBlock);
-  // errs() << "\t score(" << subBlock.getName() << ") = " << score << "\n";
 
   // compute score of other (dominated) reachable blocks in the region
   auto * termInst = subBlock.getTerminator();
@@ -423,12 +420,12 @@ bosccHeuristic(BranchInst & branch, double & regProb, size_t & regScore, const R
   const double maxRatio = GetValue<double>("BOSCC_T", 0.14);
   const size_t minScore = GetValue<size_t>("BOSCC_LIMIT", 17);
 
-  errs() << "BOSCC_T " << maxRatio << " BOSCC_LIMIT " << minScore << "\n";
+  IF_DEBUG_BOSCC { errs() << "BOSCC_T " << maxRatio << " BOSCC_LIMIT " << minScore << "\n"; }
 
   if (falseRatio < 0.06) onFalseLegal = false; // DEBUG HACK
   if (trueRatio < 0.06) onTrueLegal = false; // DEBUG HACK
 
-  errs() << "score (" << onTrueLegal << ") " << onTrueBlock->getName() << "   " << onTrueScore << "\nscore  (" << onFalseLegal << ") " << onFalseBlock->getName() << "   " << onFalseScore << "\n";
+  IF_DEBUG_BOSCC { errs() << "score (" << onTrueLegal << ") " << onTrueBlock->getName() << "   " << onTrueScore << "\nscore  (" << onFalseLegal << ") " << onFalseBlock->getName() << "   " << onFalseScore << "\n"; }
 
   bool onTrueBeneficial = onTrueScore >= minScore && trueRatio < maxRatio;
   bool onFalseBeneficial = onFalseScore >= minScore && falseRatio < maxRatio;
@@ -601,10 +598,10 @@ run() {
 
   domTree.verifyDomTree();
 
-#if 1
-  errs() << "--- FUNCTION AFTER BOSCC ---:\n";
-  vecInfo.getScalarFunction().dump();
-#endif
+  IF_DEBUG_BOSCC {
+    errs() << "--- FUNCTION AFTER BOSCC ---:\n";
+    vecInfo.getScalarFunction().dump();
+  }
 
   return false;
 }
