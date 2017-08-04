@@ -99,285 +99,9 @@ namespace rv {
   };
 #endif
 
-  static Module const *sleefModules[3 * 2];
-  static Module* scalarModule; // scalar implementations to be inlined
-  static Module* extrasModule; // rv extra functions (vrand, ..)
-
-  bool addSleefMappings(const Config & config,
-                        PlatformInfo &platformInfo,
-                        bool useImpreciseFunctions) {
-    if (!config.useSLEEF)
-      return false;
-
-#ifdef RV_ENABLE_BUILTINS
-    if (config.useAVX2) {
-      const VecDesc VecFuncs[] = {
-//        {"ldexpf", "xldexpf_avx2", 8},
-          {"ilogbf", "xilogbf_avx2", 8},
-          {"fmaf", "xfmaf_avx2", 8},
-          {"fabsf", "xfabsf_avx2", 8},
-          {"copysignf", "xcopysignf_avx2", 8},
-          {"fmaxf", "xfmaxf_avx2", 8},
-          {"fminf", "xfminf_avx2", 8},
-          {"fdimf", "xfdimf_avx2", 8},
-          {"truncf", "xtruncf_avx2", 8},
-          {"floorf", "xfloorf_avx2", 8},
-          {"ceilf", "xceilf_avx2", 8},
-          {"roundf", "xroundf_avx2", 8},
-          {"rintf", "xrintf_avx2", 8},
-          {"nextafterf", "xnextafterf_avx2", 8},
-          {"frfrexpf", "xfrfrexpf_avx2", 8},
-          {"expfrexpf", "xexpfrexpf_avx2", 8},
-          {"fmodf", "xfmodf_avx2", 8},
-          {"modff", "xmodff_avx2", 8},
-
-//        {"ldexp", "xldexp_avx2", 4},
-          {"ilogb", "xilogb_avx2", 4},
-          {"fma", "xfma_avx2", 4},
-          {"fabs", "xfabs_avx2", 4},
-          {"copysign", "xcopysign_avx2", 4},
-          {"fmax", "xfmax_avx2", 4},
-          {"fmin", "xfmin_avx2", 4},
-          {"fdim", "xfdim_avx2", 4},
-          {"trunc", "xtrunc_avx2", 4},
-          {"floor", "xfloor_avx2", 4},
-          {"ceil", "xceil_avx2", 4},
-          {"round", "xround_avx2", 4},
-          {"rint", "xrint_avx2", 4},
-          {"nextafter", "xnextafter_avx2", 4},
-          {"frfrexp", "xfrfrexp_avx2", 4},
-          {"expfrexp", "xexpfrexp_avx2", 4},
-          {"fmod", "xfmod_avx2", 4},
-          {"modf", "xmodf_avx2", 4},
-
-          {"llvm.fabs.f32", "xfabsf_avx2", 8},
-          {"llvm.copysign.f32", "xcopysignf_avx2", 8},
-          {"llvm.minnum.f32", "xfminf_avx2", 8},
-          {"llvm.maxnum.f32", "xfmaxf_avx2", 8},
-          {"llvm.fabs.f64", "xfabs_avx2", 4},
-          {"llvm.copysign.f64", "xcopysign_avx2", 4},
-          {"llvm.minnum.f64", "xfmin_avx2", 4},
-          {"llvm.maxnum.f64", "xfmax_avx2", 4},
-
-        // extras
-          {"drand48", "avx_vrand_d4_extra", 4}
-      };
-      platformInfo.addVectorizableFunctions(VecFuncs);
-
-      if (useImpreciseFunctions) {
-        const VecDesc ImprecVecFuncs[] = {
-//          {"sinf", "xsinf_avx2", 8},
-//          {"cosf", "xcosf_avx2", 8},
-            {"tanf", "xtanf_avx2", 8},
-            {"asinf", "xasinf_avx2", 8},
-            {"acosf", "xacosf_avx2", 8},
-            {"atanf", "xatanf_avx2", 8},
-            {"atan2f", "xatan2f_avx2", 8},
-            {"logf", "xlogf_avx2", 8},
-            {"cbrtf", "xcbrtf_avx2", 8},
-            {"expf", "xexpf_avx2", 8},
-            {"powf", "xpowf_avx2", 8},
-            {"sinhf", "xsinhf_avx2", 8},
-            {"coshf", "xcoshf_avx2", 8},
-            {"tanhf", "xtanhf_avx2", 8},
-            {"asinhf", "xasinhf_avx2", 8},
-            {"acoshf", "xacoshf_avx2", 8},
-            {"atanhf", "xatanhf_avx2", 8},
-            {"exp2f", "xexp2f_avx2", 8},
-            {"exp10f", "xexp10f_avx2", 8},
-            {"expm1f", "xexpm1f_avx2", 8},
-            {"log10f", "xlog10f_avx2", 8},
-            {"log1pf", "xlog1pf_avx2", 8},
-            {"sqrtf", "xsqrtf_u05_avx2", 8},
-            {"hypotf", "xhypotf_u05_avx2", 8},
-            {"lgammaf", "xlgammaf_u1_avx2", 8},
-            {"tgammaf", "xtgammaf_u1_avx2", 8},
-            {"erff", "xerff_u1_avx2", 8},
-            {"erfcf", "xerfcf_u15_avx2", 8},
-
-//          {"sin", "xsin_avx2", 4},
-//          {"cos", "xcos_avx2", 4},
-            {"tan", "xtan_avx2", 4},
-            {"asin", "xasin_avx2", 4},
-            {"acos", "xacos_avx2", 4},
-            {"atan", "xatan_avx2", 4},
-            {"atan2", "xatan2_avx2", 4},
-            {"log", "xlog_avx2", 4},
-            {"cbrt", "xcbrt_avx2", 4},
-            {"exp", "xexp_avx2", 4},
-            {"pow", "xpow_avx2", 4},
-            {"sinh", "xsinh_avx2", 4},
-            {"cosh", "xcosh_avx2", 4},
-            {"tanh", "xtanh_avx2", 4},
-            {"asinh", "xasinh_avx2", 4},
-            {"acosh", "xacosh_avx2", 4},
-            {"atanh", "xatanh_avx2", 4},
-            {"exp2", "xexp2_avx2", 4},
-            {"exp10", "xexp10_avx2", 4},
-            {"expm1", "xexpm1_avx2", 4},
-            {"log10", "xlog10_avx2", 4},
-            {"log1p", "xlog1p_avx2", 4},
-            {"sqrt", "xsqrt_u05_avx2", 4},
-            {"hypot", "xhypot_u05_avx2", 4},
-            {"lgamma", "xlgamma_u1_avx2", 4},
-            {"tgamma", "xtgamma_u1_avx2", 4},
-            {"erf", "xerf_u1_avx2", 4},
-            {"erfc", "xerfc_u15_avx2", 4},
-
-            {"llvm.sin.f32", "xsinf_avx2", 8},
-            {"llvm.cos.f32", "xcosf_avx2", 8},
-            {"llvm.log.f32", "xlogf_avx2", 8},
-            {"llvm.exp.f32", "xexpf_avx2", 8},
-            {"llvm.pow.f32", "xpowf_avx2", 8},
-            {"llvm.sqrt.f32", "xsqrtf_u05_avx2", 8},
-            {"llvm.exp2.f32", "xexp2f_avx2", 8},
-            {"llvm.log10.f32", "xlog10f_avx2", 8},
-            {"llvm.sin.f64", "xsin_avx2", 4},
-            {"llvm.cos.f64", "xcos_avx2", 4},
-            {"llvm.log.f64", "xlog_avx2", 4},
-            {"llvm.exp.f64", "xexp_avx2", 4},
-            {"llvm.pow.f64", "xpow_avx2", 4},
-            {"llvm.sqrt.f64", "xsqrt_u05_avx2", 4},
-            {"llvm.exp2.f64", "xexp2_avx2", 4},
-            {"llvm.log10.f64", "xlog10_avx2", 4}
-        };
-        platformInfo.addVectorizableFunctions(ImprecVecFuncs);
-      }
-    }
-
-    if (config.useAVX) {
-      const VecDesc VecFuncs[] = {
-//        {"ldexpf", "xldexpf_avx", 8},
-          {"ilogbf", "xilogbf_avx", 8},
-          {"fmaf", "xfmaf_avx", 8},
-          {"fabsf", "xfabsf_avx", 8},
-          {"copysignf", "xcopysignf_avx", 8},
-          {"fmaxf", "xfmaxf_avx", 8},
-          {"fminf", "xfminf_avx", 8},
-          {"fdimf", "xfdimf_avx", 8},
-          {"truncf", "xtruncf_avx", 8},
-          {"floorf", "xfloorf_avx", 8},
-          {"ceilf", "xceilf_avx", 8},
-          {"roundf", "xroundf_avx", 8},
-          {"rintf", "xrintf_avx", 8},
-          {"nextafterf", "xnextafterf_avx", 8},
-          {"frfrexpf", "xfrfrexpf_avx", 8},
-          {"expfrexpf", "xexpfrexpf_avx", 8},
-          {"fmodf", "xfmodf_avx", 8},
-          {"modff", "xmodff_avx", 8},
-
-//        {"ldexp", "xldexp_avx", 4},
-          {"ilogb", "xilogb_avx", 4},
-          {"fma", "xfma_avx", 4},
-          {"fabs", "xfabs_avx", 4},
-          {"copysign", "xcopysign_avx", 4},
-          {"fmax", "xfmax_avx", 4},
-          {"fmin", "xfmin_avx", 4},
-          {"fdim", "xfdim_avx", 4},
-          {"trunc", "xtrunc_avx", 4},
-          {"floor", "xfloor_avx", 4},
-          {"ceil", "xceil_avx", 4},
-          {"round", "xround_avx", 4},
-          {"rint", "xrint_avx", 4},
-          {"nextafter", "xnextafter_avx", 4},
-          {"frfrexp", "xfrfrexp_avx", 4},
-          {"expfrexp", "xexpfrexp_avx", 4},
-          {"fmod", "xfmod_avx", 4},
-          {"modf", "xmodf_avx", 4},
-
-          {"llvm.fabs.f32", "xfabsf_avx", 8},
-          {"llvm.copysign.f32", "xcopysignf_avx", 8},
-          {"llvm.minnum.f32", "xfminf_avx", 8},
-          {"llvm.maxnum.f32", "xfmaxf_avx", 8},
-          {"llvm.fabs.f64", "xfabs_avx", 4},
-          {"llvm.copysign.f64", "xcopysign_avx", 4},
-          {"llvm.minnum.f64", "xfmin_avx", 4},
-          {"llvm.maxnum.f64", "xfmax_avx", 4}
-      };
-      platformInfo.addVectorizableFunctions(VecFuncs);
-
-      if (useImpreciseFunctions) {
-        const VecDesc ImprecVecFuncs[] = {
-//          {"sinf", "xsinf_avx", 8},
-//          {"cosf", "xcosf_avx", 8},
-            {"tanf", "xtanf_avx", 8},
-            {"asinf", "xasinf_avx", 8},
-            {"acosf", "xacosf_avx", 8},
-            {"atanf", "xatanf_avx", 8},
-            {"atan2f", "xatan2f_avx", 8},
-            {"logf", "xlogf_avx", 8},
-            {"cbrtf", "xcbrtf_avx", 8},
-            {"expf", "xexpf_avx", 8},
-            {"powf", "xpowf_avx", 8},
-            {"sinhf", "xsinhf_avx", 8},
-            {"coshf", "xcoshf_avx", 8},
-            {"tanhf", "xtanhf_avx", 8},
-            {"asinhf", "xasinhf_avx", 8},
-            {"acoshf", "xacoshf_avx", 8},
-            {"atanhf", "xatanhf_avx", 8},
-            {"exp2f", "xexp2f_avx", 8},
-            {"exp10f", "xexp10f_avx", 8},
-            {"expm1f", "xexpm1f_avx", 8},
-            {"log10f", "xlog10f_avx", 8},
-            {"log1pf", "xlog1pf_avx", 8},
-            {"sqrtf", "xsqrtf_u05_avx", 8},
-            {"hypotf", "xhypotf_u05_avx", 8},
-            {"lgammaf", "xlgammaf_u1_avx", 8},
-            {"tgammaf", "xtgammaf_u1_avx", 8},
-            {"erff", "xerff_u1_avx", 8},
-            {"erfcf", "xerfcf_u15_avx", 8},
-
-//          {"sin", "xsin_avx", 4},
-//          {"cos", "xcos_avx", 4},
-            {"tan", "xtan_avx", 4},
-            {"asin", "xasin_avx", 4},
-            {"acos", "xacos_avx", 4},
-            {"atan", "xatan_avx", 4},
-            {"atan2", "xatan2_avx", 4},
-            {"log", "xlog_avx", 4},
-            {"cbrt", "xcbrt_avx", 4},
-            {"exp", "xexp_avx", 4},
-            {"pow", "xpow_avx", 4},
-            {"sinh", "xsinh_avx", 4},
-            {"cosh", "xcosh_avx", 4},
-            {"tanh", "xtanh_avx", 4},
-            {"asinh", "xasinh_avx", 4},
-            {"acosh", "xacosh_avx", 4},
-            {"atanh", "xatanh_avx", 4},
-            {"exp2", "xexp2_avx", 4},
-            {"exp10", "xexp10_avx", 4},
-            {"expm1", "xexpm1_avx", 4},
-            {"log10", "xlog10_avx", 4},
-            {"log1p", "xlog1p_avx", 4},
-            {"sqrt", "xsqrt_u05_avx", 4},
-            {"hypot", "xhypot_u05_avx", 4},
-            {"lgamma", "xlgamma_u1_avx", 4},
-            {"tgamma", "xtgamma_u1_avx", 4},
-            {"erf", "xerf_u1_avx", 4},
-            {"erfc", "xerfc_u15_avx", 4},
-
-            {"llvm.sin.f32", "xsinf_avx", 8},
-            {"llvm.cos.f32", "xcosf_avx", 8},
-            {"llvm.log.f32", "xlogf_avx", 8},
-            {"llvm.exp.f32", "xexpf_avx", 8},
-            {"llvm.pow.f32", "xpowf_avx", 8},
-            {"llvm.sqrt.f32", "xsqrtf_u05_avx", 8},
-            {"llvm.exp2.f32", "xexp2f_avx", 8},
-            {"llvm.log10.f32", "xlog10f_avx", 8},
-            {"llvm.sin.f64", "xsin_avx", 4},
-            {"llvm.cos.f64", "xcos_avx", 4},
-            {"llvm.log.f64", "xlog_avx", 4},
-            {"llvm.exp.f64", "xexp_avx", 4},
-            {"llvm.pow.f64", "xpow_avx", 4},
-            {"llvm.sqrt.f64", "xsqrt_u05_avx", 4},
-            {"llvm.exp2.f64", "xexp2_avx", 4},
-            {"llvm.log10.f64", "xlog10_avx", 4}
-        };
-        platformInfo.addVectorizableFunctions(ImprecVecFuncs);
-      }
-    }
-
-    if (config.useSSE || config.useAVX || config.useAVX2) {
+static
+void
+AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
       const VecDesc VecFuncs[] = {
 //        {"ldexpf", "xldexpf_sse2", 4},
           {"ilogbf", "xilogbf_sse2", 4},
@@ -426,9 +150,9 @@ namespace rv {
           {"llvm.fmin.f64", "xfmin_sse", 2},
           {"llvm.fmax.f64", "xfmax_sse", 2}
       };
-      platformInfo.addVectorizableFunctions(VecFuncs);
+      platInfo.addVectorizableFunctions(VecFuncs, true);
 
-      if (useImpreciseFunctions) {
+      if (allowImprecise) {
         const VecDesc ImprecVecFuncs[] = {
 //          {"sinf", "xsinf_sse2", 4},
 //          {"cosf", "xcosf_sse2", 4},
@@ -505,9 +229,313 @@ namespace rv {
             {"llvm.exp2.f64", "xexp2_sse", 2},
             {"llvm.log10.f64", "xlog10_sse", 2}
         };
-        platformInfo.addVectorizableFunctions(ImprecVecFuncs);
+        platInfo.addVectorizableFunctions(ImprecVecFuncs, true);
       }
+}
+
+static
+void
+AddMappings_AVX(PlatformInfo & platInfo, bool allowImprecise) {
+      const VecDesc VecFuncs[] = {
+//        {"ldexpf", "xldexpf_avx", 8},
+          {"ilogbf", "xilogbf_avx", 8},
+          {"fmaf", "xfmaf_avx", 8},
+          {"fabsf", "xfabsf_avx", 8},
+          {"copysignf", "xcopysignf_avx", 8},
+          {"fmaxf", "xfmaxf_avx", 8},
+          {"fminf", "xfminf_avx", 8},
+          {"fdimf", "xfdimf_avx", 8},
+          {"truncf", "xtruncf_avx", 8},
+          {"floorf", "xfloorf_avx", 8},
+          {"ceilf", "xceilf_avx", 8},
+          {"roundf", "xroundf_avx", 8},
+          {"rintf", "xrintf_avx", 8},
+          {"nextafterf", "xnextafterf_avx", 8},
+          {"frfrexpf", "xfrfrexpf_avx", 8},
+          {"expfrexpf", "xexpfrexpf_avx", 8},
+          {"fmodf", "xfmodf_avx", 8},
+          {"modff", "xmodff_avx", 8},
+
+//        {"ldexp", "xldexp_avx", 4},
+          {"ilogb", "xilogb_avx", 4},
+          {"fma", "xfma_avx", 4},
+          {"fabs", "xfabs_avx", 4},
+          {"copysign", "xcopysign_avx", 4},
+          {"fmax", "xfmax_avx", 4},
+          {"fmin", "xfmin_avx", 4},
+          {"fdim", "xfdim_avx", 4},
+          {"trunc", "xtrunc_avx", 4},
+          {"floor", "xfloor_avx", 4},
+          {"ceil", "xceil_avx", 4},
+          {"round", "xround_avx", 4},
+          {"rint", "xrint_avx", 4},
+          {"nextafter", "xnextafter_avx", 4},
+          {"frfrexp", "xfrfrexp_avx", 4},
+          {"expfrexp", "xexpfrexp_avx", 4},
+          {"fmod", "xfmod_avx", 4},
+          {"modf", "xmodf_avx", 4},
+
+          {"llvm.fabs.f32", "xfabsf_avx", 8},
+          {"llvm.copysign.f32", "xcopysignf_avx", 8},
+          {"llvm.minnum.f32", "xfminf_avx", 8},
+          {"llvm.maxnum.f32", "xfmaxf_avx", 8},
+          {"llvm.fabs.f64", "xfabs_avx", 4},
+          {"llvm.copysign.f64", "xcopysign_avx", 4},
+          {"llvm.minnum.f64", "xfmin_avx", 4},
+          {"llvm.maxnum.f64", "xfmax_avx", 4}
+      };
+      platInfo.addVectorizableFunctions(VecFuncs, true);
+
+      if (allowImprecise) {
+        const VecDesc ImprecVecFuncs[] = {
+//          {"sinf", "xsinf_avx", 8},
+//          {"cosf", "xcosf_avx", 8},
+            {"tanf", "xtanf_avx", 8},
+            {"asinf", "xasinf_avx", 8},
+            {"acosf", "xacosf_avx", 8},
+            {"atanf", "xatanf_avx", 8},
+            {"atan2f", "xatan2f_avx", 8},
+            {"logf", "xlogf_avx", 8},
+            {"cbrtf", "xcbrtf_avx", 8},
+            {"expf", "xexpf_avx", 8},
+            {"powf", "xpowf_avx", 8},
+            {"sinhf", "xsinhf_avx", 8},
+            {"coshf", "xcoshf_avx", 8},
+            {"tanhf", "xtanhf_avx", 8},
+            {"asinhf", "xasinhf_avx", 8},
+            {"acoshf", "xacoshf_avx", 8},
+            {"atanhf", "xatanhf_avx", 8},
+            {"exp2f", "xexp2f_avx", 8},
+            {"exp10f", "xexp10f_avx", 8},
+            {"expm1f", "xexpm1f_avx", 8},
+            {"log10f", "xlog10f_avx", 8},
+            {"log1pf", "xlog1pf_avx", 8},
+            {"sqrtf", "xsqrtf_u05_avx", 8},
+            {"hypotf", "xhypotf_u05_avx", 8},
+            {"lgammaf", "xlgammaf_u1_avx", 8},
+            {"tgammaf", "xtgammaf_u1_avx", 8},
+            {"erff", "xerff_u1_avx", 8},
+            {"erfcf", "xerfcf_u15_avx", 8},
+
+//          {"sin", "xsin_avx", 4},
+//          {"cos", "xcos_avx", 4},
+            {"tan", "xtan_avx", 4},
+            {"asin", "xasin_avx", 4},
+            {"acos", "xacos_avx", 4},
+            {"atan", "xatan_avx", 4},
+            {"atan2", "xatan2_avx", 4},
+            {"log", "xlog_avx", 4},
+            {"cbrt", "xcbrt_avx", 4},
+            {"exp", "xexp_avx", 4},
+            {"pow", "xpow_avx", 4},
+            {"sinh", "xsinh_avx", 4},
+            {"cosh", "xcosh_avx", 4},
+            {"tanh", "xtanh_avx", 4},
+            {"asinh", "xasinh_avx", 4},
+            {"acosh", "xacosh_avx", 4},
+            {"atanh", "xatanh_avx", 4},
+            {"exp2", "xexp2_avx", 4},
+            {"exp10", "xexp10_avx", 4},
+            {"expm1", "xexpm1_avx", 4},
+            {"log10", "xlog10_avx", 4},
+            {"log1p", "xlog1p_avx", 4},
+            {"sqrt", "xsqrt_u05_avx", 4},
+            {"hypot", "xhypot_u05_avx", 4},
+            {"lgamma", "xlgamma_u1_avx", 4},
+            {"tgamma", "xtgamma_u1_avx", 4},
+            {"erf", "xerf_u1_avx", 4},
+            {"erfc", "xerfc_u15_avx", 4},
+
+            {"llvm.sin.f32", "xsinf_avx", 8},
+            {"llvm.cos.f32", "xcosf_avx", 8},
+            {"llvm.log.f32", "xlogf_avx", 8},
+            {"llvm.exp.f32", "xexpf_avx", 8},
+            {"llvm.pow.f32", "xpowf_avx", 8},
+            {"llvm.sqrt.f32", "xsqrtf_u05_avx", 8},
+            {"llvm.exp2.f32", "xexp2f_avx", 8},
+            {"llvm.log10.f32", "xlog10f_avx", 8},
+            {"llvm.sin.f64", "xsin_avx", 4},
+            {"llvm.cos.f64", "xcos_avx", 4},
+            {"llvm.log.f64", "xlog_avx", 4},
+            {"llvm.exp.f64", "xexp_avx", 4},
+            {"llvm.pow.f64", "xpow_avx", 4},
+            {"llvm.sqrt.f64", "xsqrt_u05_avx", 4},
+            {"llvm.exp2.f64", "xexp2_avx", 4},
+            {"llvm.log10.f64", "xlog10_avx", 4}
+        };
+        platInfo.addVectorizableFunctions(ImprecVecFuncs, true);
+      }
+}
+
+
+static
+void
+AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
+      const VecDesc VecFuncs[] = {
+//        {"ldexpf", "xldexpf_avx2", 8},
+          {"ilogbf", "xilogbf_avx2", 8},
+          {"fmaf", "xfmaf_avx2", 8},
+          {"fabsf", "xfabsf_avx2", 8},
+          {"copysignf", "xcopysignf_avx2", 8},
+          {"fmaxf", "xfmaxf_avx2", 8},
+          {"fminf", "xfminf_avx2", 8},
+          {"fdimf", "xfdimf_avx2", 8},
+          {"truncf", "xtruncf_avx2", 8},
+          {"floorf", "xfloorf_avx2", 8},
+          {"ceilf", "xceilf_avx2", 8},
+          {"roundf", "xroundf_avx2", 8},
+          {"rintf", "xrintf_avx2", 8},
+          {"nextafterf", "xnextafterf_avx2", 8},
+          {"frfrexpf", "xfrfrexpf_avx2", 8},
+          {"expfrexpf", "xexpfrexpf_avx2", 8},
+          {"fmodf", "xfmodf_avx2", 8},
+          {"modff", "xmodff_avx2", 8},
+
+//        {"ldexp", "xldexp_avx2", 4},
+          {"ilogb", "xilogb_avx2", 4},
+          {"fma", "xfma_avx2", 4},
+          {"fabs", "xfabs_avx2", 4},
+          {"copysign", "xcopysign_avx2", 4},
+          {"fmax", "xfmax_avx2", 4},
+          {"fmin", "xfmin_avx2", 4},
+          {"fdim", "xfdim_avx2", 4},
+          {"trunc", "xtrunc_avx2", 4},
+          {"floor", "xfloor_avx2", 4},
+          {"ceil", "xceil_avx2", 4},
+          {"round", "xround_avx2", 4},
+          {"rint", "xrint_avx2", 4},
+          {"nextafter", "xnextafter_avx2", 4},
+          {"frfrexp", "xfrfrexp_avx2", 4},
+          {"expfrexp", "xexpfrexp_avx2", 4},
+          {"fmod", "xfmod_avx2", 4},
+          {"modf", "xmodf_avx2", 4},
+
+          {"llvm.fabs.f32", "xfabsf_avx2", 8},
+          {"llvm.copysign.f32", "xcopysignf_avx2", 8},
+          {"llvm.minnum.f32", "xfminf_avx2", 8},
+          {"llvm.maxnum.f32", "xfmaxf_avx2", 8},
+          {"llvm.fabs.f64", "xfabs_avx2", 4},
+          {"llvm.copysign.f64", "xcopysign_avx2", 4},
+          {"llvm.minnum.f64", "xfmin_avx2", 4},
+          {"llvm.maxnum.f64", "xfmax_avx2", 4},
+
+        // extras
+          {"drand48", "avx_vrand_d4_extra", 4}
+      };
+      platInfo.addVectorizableFunctions(VecFuncs, true);
+
+
+
+
+
+
+      if (allowImprecise) {
+        const VecDesc ImprecVecFuncs[] = {
+//          {"sinf", "xsinf_avx2", 8},
+//          {"cosf", "xcosf_avx2", 8},
+            {"tanf", "xtanf_avx2", 8},
+            {"asinf", "xasinf_avx2", 8},
+            {"acosf", "xacosf_avx2", 8},
+            {"atanf", "xatanf_avx2", 8},
+            {"atan2f", "xatan2f_avx2", 8},
+            {"logf", "xlogf_avx2", 8},
+            {"cbrtf", "xcbrtf_avx2", 8},
+            {"expf", "xexpf_avx2", 8},
+            {"powf", "xpowf_avx2", 8},
+            {"sinhf", "xsinhf_avx2", 8},
+            {"coshf", "xcoshf_avx2", 8},
+            {"tanhf", "xtanhf_avx2", 8},
+            {"asinhf", "xasinhf_avx2", 8},
+            {"acoshf", "xacoshf_avx2", 8},
+            {"atanhf", "xatanhf_avx2", 8},
+            {"exp2f", "xexp2f_avx2", 8},
+            {"exp10f", "xexp10f_avx2", 8},
+            {"expm1f", "xexpm1f_avx2", 8},
+            {"log10f", "xlog10f_avx2", 8},
+            {"log1pf", "xlog1pf_avx2", 8},
+            {"sqrtf", "xsqrtf_u05_avx2", 8},
+            {"hypotf", "xhypotf_u05_avx2", 8},
+            {"lgammaf", "xlgammaf_u1_avx2", 8},
+            {"tgammaf", "xtgammaf_u1_avx2", 8},
+            {"erff", "xerff_u1_avx2", 8},
+            {"erfcf", "xerfcf_u15_avx2", 8},
+
+//          {"sin", "xsin_avx2", 4},
+//          {"cos", "xcos_avx2", 4},
+            {"tan", "xtan_avx2", 4},
+            {"asin", "xasin_avx2", 4},
+            {"acos", "xacos_avx2", 4},
+            {"atan", "xatan_avx2", 4},
+            {"atan2", "xatan2_avx2", 4},
+            {"log", "xlog_avx2", 4},
+            {"cbrt", "xcbrt_avx2", 4},
+            {"exp", "xexp_avx2", 4},
+            {"pow", "xpow_avx2", 4},
+            {"sinh", "xsinh_avx2", 4},
+            {"cosh", "xcosh_avx2", 4},
+            {"tanh", "xtanh_avx2", 4},
+            {"asinh", "xasinh_avx2", 4},
+            {"acosh", "xacosh_avx2", 4},
+            {"atanh", "xatanh_avx2", 4},
+            {"exp2", "xexp2_avx2", 4},
+            {"exp10", "xexp10_avx2", 4},
+            {"expm1", "xexpm1_avx2", 4},
+            {"log10", "xlog10_avx2", 4},
+            {"log1p", "xlog1p_avx2", 4},
+            {"sqrt", "xsqrt_u05_avx2", 4},
+            {"hypot", "xhypot_u05_avx2", 4},
+            {"lgamma", "xlgamma_u1_avx2", 4},
+            {"tgamma", "xtgamma_u1_avx2", 4},
+            {"erf", "xerf_u1_avx2", 4},
+            {"erfc", "xerfc_u15_avx2", 4},
+
+            {"llvm.sin.f32", "xsinf_avx2", 8},
+            {"llvm.cos.f32", "xcosf_avx2", 8},
+            {"llvm.log.f32", "xlogf_avx2", 8},
+            {"llvm.exp.f32", "xexpf_avx2", 8},
+            {"llvm.pow.f32", "xpowf_avx2", 8},
+            {"llvm.sqrt.f32", "xsqrtf_u05_avx2", 8},
+            {"llvm.exp2.f32", "xexp2f_avx2", 8},
+            {"llvm.log10.f32", "xlog10f_avx2", 8},
+            {"llvm.sin.f64", "xsin_avx2", 4},
+            {"llvm.cos.f64", "xcos_avx2", 4},
+            {"llvm.log.f64", "xlog_avx2", 4},
+            {"llvm.exp.f64", "xexp_avx2", 4},
+            {"llvm.pow.f64", "xpow_avx2", 4},
+            {"llvm.sqrt.f64", "xsqrt_u05_avx2", 4},
+            {"llvm.exp2.f64", "xexp2_avx2", 4},
+            {"llvm.log10.f64", "xlog10_avx2", 4}
+        };
+        platInfo.addVectorizableFunctions(ImprecVecFuncs, true);
+      }
+}
+
+  static Module const *sleefModules[3 * 2];
+  static Module* scalarModule; // scalar implementations to be inlined
+  static Module* extrasModule; // rv extra functions (vrand, ..)
+
+  bool addSleefMappings(const Config & config,
+                        PlatformInfo &platInfo,
+                        bool allowImprecise) {
+    if (!config.useSLEEF)
+      return false;
+
+#ifdef RV_ENABLE_BUILTINS
+    if (config.useSSE || config.useAVX || config.useAVX2) {
+      AddMappings_SSE(platInfo, allowImprecise);
     }
+
+    if (config.useAVX) {
+      AddMappings_AVX(platInfo, allowImprecise);
+    }
+
+    if (config.useAVX2) {
+      AddMappings_AVX2(platInfo, allowImprecise);
+    }
+
+    // TODO AVX512
+    // TODO NEON
+
     return config.useAVX || config.useAVX2 || config.useSSE;
 
 #else

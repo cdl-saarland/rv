@@ -53,20 +53,13 @@ TargetTransformInfo *PlatformInfo::getTTI() { return mTTI; }
 
 TargetLibraryInfo *PlatformInfo::getTLI() { return mTLI; }
 
-static bool compareByScalarFnName(const VecDesc &LHS, const VecDesc &RHS) {
-  return std::strncmp(LHS.scalarFnName, RHS.scalarFnName,
-                      std::strlen(RHS.scalarFnName)) < 0;
-}
-
 static bool compareWithScalarFnName(const VecDesc &LHS, StringRef S) {
   return std::strncmp(LHS.scalarFnName, S.data(), S.size()) < 0;
 }
 
-void PlatformInfo::addVectorizableFunctions(ArrayRef<VecDesc> funcs) {
-  commonVectorMappings.insert(commonVectorMappings.end(), funcs.begin(),
-                              funcs.end());
-  std::sort(commonVectorMappings.begin(), commonVectorMappings.end(),
-            compareByScalarFnName);
+void PlatformInfo::addVectorizableFunctions(ArrayRef<VecDesc> funcs, bool givePrecedence) {
+  auto itInsert = givePrecedence ? commonVectorMappings.begin() : commonVectorMappings.end();
+  commonVectorMappings.insert(itInsert, funcs.begin(), funcs.end());
 }
 
 bool PlatformInfo::isFunctionVectorizable(StringRef funcName,
@@ -80,6 +73,13 @@ StringRef PlatformInfo::getVectorizedFunction(StringRef funcName,
   if (funcName.empty())
     return funcName;
 
+  // query custom mappings with precedence
+  std::string funcNameStr = funcName.str();
+  for (const auto & vd : commonVectorMappings) {
+     if (vd.scalarFnName == funcNameStr && vd.vectorWidth == vectorWidth) return vd.vectorFnName;
+  };
+
+  // query TLI
   StringRef tliFnName = mTLI->getVectorizedFunction(funcName, vectorWidth);
   if (!tliFnName.empty()) {
     if (isInTLI)
@@ -87,15 +87,7 @@ StringRef PlatformInfo::getVectorizedFunction(StringRef funcName,
     return tliFnName;
   }
 
-  auto I =
-      std::lower_bound(commonVectorMappings.begin(), commonVectorMappings.end(),
-                       funcName, compareWithScalarFnName);
-  while (I != commonVectorMappings.end() &&
-         StringRef(I->scalarFnName) == funcName) {
-    if (I->vectorWidth == vectorWidth)
-      return I->vectorFnName;
-    ++I;
-  }
+  // no mapping
   return StringRef();
 }
 

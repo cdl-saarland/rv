@@ -17,7 +17,8 @@ struct VecDesc {
   unsigned vectorWidth;
 };
 
-typedef std::map<const llvm::Function *, const VectorMapping *> VectorFuncMap;
+using VectorFuncMap = std::map<const llvm::Function *, const VectorMapping *>;
+using VecDescVector = std::vector<VecDesc>;
 
 class PlatformInfo {
 public:
@@ -37,7 +38,10 @@ public:
   llvm::TargetTransformInfo *getTTI();
   llvm::TargetLibraryInfo *getTLI();
 
-  void addVectorizableFunctions(llvm::ArrayRef<VecDesc> funcs);
+  // add a batch of SIMD function mappings to this platform
+  // these will be used during code generation
+  // if @givePrecedence is true prefer these new mappings over existing ones (the opposite if !givePrecedence)
+  void addVectorizableFunctions(llvm::ArrayRef<VecDesc> funcs, bool givePrecedence);
   bool isFunctionVectorizable(llvm::StringRef funcName, unsigned vectorWidth);
 
   llvm::StringRef getVectorizedFunction(llvm::StringRef func,
@@ -74,7 +78,7 @@ private:
   llvm::TargetTransformInfo *mTTI;
   llvm::TargetLibraryInfo *mTLI;
   VectorFuncMap funcMappings;
-  std::vector<VecDesc> commonVectorMappings;
+  VecDescVector commonVectorMappings;
 };
 }
 
