@@ -599,7 +599,7 @@ namespace rv {
 
     // eg already migrated
     auto * existingFn = cloneInto.getFunction(func.getName());
-    if (existingFn) {
+    if (existingFn && (func.isDeclaration() == existingFn->isDeclaration())) {
       return *existingFn;
     }
 

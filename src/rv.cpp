@@ -178,14 +178,13 @@ VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, LoopInfo & l
       auto itStart = callee->use_begin();
       auto itEnd = callee->use_end();
       for (auto itUse = itStart; itUse != itEnd; ) {
-        auto & caller = cast<CallInst>(*itUse->getUser());
-        if (!vecInfo.inRegion(*caller.getParent())) {
-          itUse++;
-          continue;
-        }
-        callSites.push_back(&caller);
-        caller.setCalledFunction(implFunc);
-        itUse = callee->use_begin();
+        auto & userInst = *itUse->getUser();
+        itUse++;
+        auto * caller = dyn_cast<CallInst>(&userInst);
+        if (!caller) continue;
+        if (!vecInfo.inRegion(*caller->getParent())) continue;
+        callSites.push_back(caller);
+        caller->setCalledFunction(implFunc);
       }
     }
   }
