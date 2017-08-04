@@ -614,6 +614,7 @@ NatBuilder::vectorizeShuffleCall(CallInst *rvCall) {
   SmallVector<uint32_t, 32> shflIds(vectorWidth());
   for (size_t i = 0; i < vectorWidth(); i++) {
     shflIds[i] = (i + shiftVal) % vectorWidth();
+    if (shflIds[i] < 0) shflIds[i] += vectorWidth();
   }
 
   auto * shflVal = builder.CreateShuffleVector(vecVal, vecVal, shflIds, "rv_shfl");
