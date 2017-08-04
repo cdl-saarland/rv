@@ -331,8 +331,15 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     newInst = replaceSelectInst(builder, select, bitWidth);
   } else if (auto castInst = dyn_cast<CastInst>(inst)) {
     auto destTy = castInst->getDestTy();
-    auto newOp = getConditionFromMask(builder, getMaskForValueOrInst(builder, inst->getOperand(0), bitWidth));
-    newInst = builder.CreateCast(castInst->getOpcode(), newOp, destTy);
+    auto newOp = getMaskForValueOrInst(builder, inst->getOperand(0), bitWidth);
+    if (newOp->getType() == destTy && castInst->getOpcode() == Instruction::CastOps::SExt) {
+      // For sign extension casts, there is no need to perform any
+      // cast if the operand is already of the destination type
+      newInst = newOp;
+    } else {
+      // General case: re-create a vector of booleans, and create a cast on top of it
+      newInst = builder.CreateCast(castInst->getOpcode(), getConditionFromMask(builder, newOp), destTy);
+    }
   } else if (auto storeInst = dyn_cast<StoreInst>(inst)) {
     auto value = storeInst->getOperand(0);
     auto valueMask = getMaskForValueOrInst(builder, value, bitWidth);
