@@ -233,7 +233,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     if (!linearizeOk) fail("linearization failed.");
 #endif
 
-    const DominatorTree domTreeNew(*vecInfo.getMapping()
+    DominatorTree domTreeNew(*vecInfo.getMapping()
                                            .scalarFn); // Control conversion does not preserve the domTree so we have to rebuild it for now
     bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew, loopInfo, SE, MDR, nullptr);
     if (!vectorizeOk) fail("vector code generation failed");
@@ -410,7 +410,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
 #endif
 
     // Control conversion does not preserve the domTree so we have to rebuild it for now
-    const DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn);
+    DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn);
     bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew, loopInfo, SE, MDR, nullptr);
     if (!vectorizeOk) fail("vector code generation failed.");
 

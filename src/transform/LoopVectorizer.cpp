@@ -279,7 +279,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   vectorizer->linearize(vecInfo, cdg, dfg, *LI, *PDT, *DT, PB);
 
 
-  const DominatorTree domTreeNew(
+  DominatorTree domTreeNew(
       *vecInfo.getMapping().scalarFn); // Control conversion does not preserve
                                        // the domTree so we have to rebuild it
                                        // for now

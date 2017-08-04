@@ -79,8 +79,8 @@ public:
     //
     bool
     vectorize(VectorizationInfo &vecInfo,
-              const llvm::DominatorTree &domTree,
-              const llvm::LoopInfo & loopInfo,
+              llvm::DominatorTree &domTree,
+              llvm::LoopInfo & loopInfo,
               llvm::ScalarEvolution & SE,
               llvm::MemoryDependenceResults & MDR,
               llvm::ValueToValueMapTy * vecInstMap);
