@@ -64,7 +64,7 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
     // PM.add(rv::createCNSPass());
     PM.add(createLoopSimplifyPass());
     PM.add(createLCSSAPass());
-    PM.add(createLoopExitCanonicalizerPass());
+    // PM.add(createLoopExitCanonicalizerPass()); //FIXME
     PM.add(rv::createLoopVectorizerPass());
 
     // post rv cleanup
