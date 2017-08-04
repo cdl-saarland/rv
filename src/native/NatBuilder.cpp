@@ -2031,6 +2031,7 @@ NatBuilder::materializeStridePattern(rv::StridePattern & sp) {
 
 void
 NatBuilder::materializeRecurrence(Reduction & red, PHINode & scaPhi) {
+  abort(); // TODO implement properly
   auto * inAtZero = dyn_cast<Instruction>(scaPhi.getIncomingValue(0));
   int latchIdx = (inAtZero && vectorizationInfo.inRegion(*inAtZero)) ? 0 : 1;
 
@@ -2066,16 +2067,20 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
   int latchIdx = (inAtZero && vectorizationInfo.inRegion(*inAtZero)) ? 0 : 1;
   int initIdx = 1 - latchIdx;
 
-  Instruction * scaLatchInst = cast<Instruction>(scaPhi.getIncomingValue(latchIdx));
-
-  Value * vecInitInputVal = scaPhi.getIncomingValue(initIdx);
   BasicBlock * vecInitInputBlock = scaPhi.getIncomingBlock(initIdx);
   BasicBlock * vecLoopInputBlock = cast<BasicBlock>(getVectorValue(scaPhi.getIncomingBlock(latchIdx)));
 
+// materialize initial input (insert init value into last lane)
+  Value * scaInitValue = scaPhi.getIncomingValue(initIdx);
+  IRBuilder<> phBuilder(vecInitInputBlock, vecInitInputBlock->getTerminator()->getIterator());
+  auto * intTy = Type::getInt32Ty(scaPhi.getContext());
+  auto * vecInitVal = phBuilder.CreateInsertElement(vecNeutral, scaInitValue, ConstantInt::get(intTy, vectorWidth - 1, false));
+
 // attach inputs (neutral elem and reduction inst)
-  vecPhi->addIncoming(vecNeutral, vecInitInputBlock);
+  vecPhi->addIncoming(vecInitVal, vecInitInputBlock);
 
 // add latch update
+  Instruction * scaLatchInst = cast<Instruction>(scaPhi.getIncomingValue(latchIdx));
   auto * vecLatchInst = cast<Instruction>(getVectorValue(scaLatchInst));
   vecPhi->addIncoming(vecLatchInst, vecLoopInputBlock);
 
@@ -2085,7 +2090,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
                       // otw, replace with reduced value
                       auto * insertPt = userBlock.getFirstNonPHI();
                       IRBuilder<> builder(&userBlock, insertPt->getIterator());
-                      auto & reducedVector = CreateVectorReduce(builder, red.kind, *vecLatchInst, vecInitInputVal);
+                      auto & reducedVector = CreateVectorReduce(builder, red.kind, *vecLatchInst);
                       return reducedVector;
                     }
   );
@@ -2109,17 +2114,12 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
     // reduce outside uses on demand
     repairOutsideUses(*elem,
                       [&](Value & usedVal, BasicBlock& userBlock) ->Value& {
-
-                      abort(); // TODO implement
-                      // this code is broken: we still need to add the accumulator to the last lane
-#if 0
                       auto * insertPt = userBlock.getFirstNonPHI();
                       IRBuilder<> builder(&userBlock, insertPt->getIterator());
                       // reduce all end-of-iteration values and request value of last iteration
                       auto & foldVec = *builder.CreateSelect(selMask, vecLatchInst, &vecElem, ".red");
-                      auto & reducedVector = CreateVectorReduce(builder, red.kind, foldVec, vecInitInputVal);
+                      auto & reducedVector = CreateVectorReduce(builder, red.kind, foldVec);
                       return reducedVector;
-#endif
                     }
     );
   }
@@ -2156,6 +2156,11 @@ void NatBuilder::addValuesToPHINodes() {
       IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
       materializeVaryingReduction(*red, *scalPhi);
 
+    } else if (isVectorLoopHeader && red && red->kind == RedKind::Bot) {
+      // reduction phi handling
+      IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
+      materializeRecurrence(*red, *scalPhi);
+
     } else {
       // default phi handling
       for (unsigned lane = 0; lane < loopEnd; ++lane) {
@@ -2170,11 +2175,6 @@ void NatBuilder::addValuesToPHINodes() {
                                                        : requestVectorValue(scalPhi->getIncomingValue(i));
           phi->addIncoming(val, incVecBlock);
         }
-      }
-
-      // patch up external recurrences
-      if (isVectorLoopHeader && red && red->kind == RedKind::Bot) {
-        materializeRecurrence(*red, *scalPhi);
       }
     }
   }
