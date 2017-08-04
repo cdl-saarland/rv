@@ -996,8 +996,8 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
 // embed the cloned loop
   LoopTransformer loopTrans(F, DT, PDT, LI, reda, uniOverrides, *branchCond, L, clonedLoop, cloneMap, vectorWidth, tripAlign);
 
-  // rebuild reduction information
-  reda.analyze();
+  // rebuild reduction information for cloned loop
+  reda.analyze(clonedLoop);
 
   IF_DEBUG F.dump();
 

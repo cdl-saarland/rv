@@ -19,6 +19,9 @@ namespace llvm {
 
 namespace rv {
 
+using InstSet = std::set<llvm::Instruction*>;
+
+
 // reduction-kind lattice
 enum class RedKind : int32_t {
   Top = -1, // not a recognized reduction
@@ -57,7 +60,6 @@ struct StridePattern {
   void dump() const;
 };
 
-
 // general reduction pattern
 struct Reduction {
   // all users outside of @levelLoop may reduce any of the instructions in @elements using a @kind reduction
@@ -65,7 +67,13 @@ struct Reduction {
   // the kind of reduction pattern
   RedKind kind;
   // the instructions that make up this reduction pattern
-  std::set<llvm::Instruction*> elements;
+  InstSet elements;
+
+  Reduction(InstSet _elements)
+  : levelLoop(nullptr)
+  , kind(RedKind::Bot)
+  , elements(_elements)
+  {}
 
   Reduction(llvm::Loop & _levelLoop, RedKind _kind)
   : levelLoop(&_levelLoop)
@@ -127,18 +135,14 @@ class ReductionAnalysis {
   // returns true if the value of this instruction can be recomputed even if loop iterations execute in parallel/or SIMD fashing
   bool canReconstructInductively(llvm::Instruction & inst) const { return getStrideInfo(inst); }
 
-  Reduction* filterForwardUses(Reduction & red, llvm::PHINode & seed);
-
   // reset internal state
   void clear();
 public:
   ReductionAnalysis(llvm::Function & _func, const llvm::LoopInfo & _loopInfo);
   ~ReductionAnalysis();
 
-  void analyze();
-
-  // create reduction for the clones as well
-  void updateForClones(llvm::LoopInfo & LI, llvm::ValueToValueMapTy & cloneMap);
+  // analyze all recurrence patterns inside @hostLoop
+  void analyze(llvm::Loop & hostLoop);
 
   // look up a (general) reduction by its constituent
   Reduction * getReductionInfo(llvm::Instruction & inst) const;

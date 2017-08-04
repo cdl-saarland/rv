@@ -17,10 +17,10 @@
 #include "rvConfig.h"
 #include "rv/vectorShape.h"
 
-#if 1
+#if 0
 #define IF_DEBUG_RED IF_DEBUG
 #else
-#define IF_DEBUG_RED if (false)
+#define IF_DEBUG_RED if (true)
 #endif
 
 using namespace llvm;
@@ -145,80 +145,6 @@ Reduction::print(raw_ostream & out) const {
    }
    out << "}\n";
 }
-
-#if 0
-bool
-Reduction::matchStridedPattern(StridePattern & pat) const {
-
-// #define RESON(M) { if (reason) *reason=M; }
-#ifdef RV_DEBUG
-#define REASON(M) { outs() << M << "\n"; }
-#else
-#define REASON(M) {}
-#endif
-
-  if (kind != RedKind::Add) { REASON("not an Add reduction") return false; }
-  if (elements.size() != 2) { REASON("not two elements") return false; }
-
-  auto it = elements.begin();
-  auto * firstInst = *it++;
-  auto * secInst =  *it;
-
-  // match one phi node and one instruction (TODO allow strided recurrences)
-  auto * headerPhi = isa<PHINode>(firstInst) ? cast<PHINode>(firstInst) : dyn_cast<PHINode>(secInst);
-  Instruction * redInst = isa<PHINode>(firstInst) ? secInst : firstInst;
-  if (!headerPhi || !redInst) { REASON("could not match header phi or reductor") return false; }
-
-// match reductor operand position
-  int latchIdx = headerPhi->getIncomingValue(0) == redInst ? 0 : 1;
-  int loopInitIdx = 1 - latchIdx;
-
-  // match opCode
-  auto oc = redInst->getOpcode();
-  int64_t sign = 0;
-  if (oc == Instruction::Add || oc == Instruction::FAdd) {
-    sign = 1;
-  } else if (oc == Instruction::Sub || oc == Instruction::FSub) {
-    sign = -1;
-  } else {
-    REASON("unrecognized opcode")
-    return false;
-  }
-
-// parse constant (oInc)
-  Constant* firstConst = dyn_cast<Constant>(redInst->getOperand(0));
-  Constant* secConst = dyn_cast<Constant>(redInst->getOperand(1));
-
-  // at least one op needs to be constant
-  if (!firstConst && !secConst) {
-    REASON("neither reductor operand is a constant")
-    return false;
-  }
-
-  Constant * incConst = firstConst ? firstConst : secConst;
-  int64_t inc;
-  if (auto * intIncrement = dyn_cast<ConstantInt>(incConst)) {
-    inc =  sign * intIncrement->getSExtValue();
-  } else if (auto * fpInc = dyn_cast<ConstantFP>(incConst)) {
-    REASON("TODO implement floating point strides (fast math)")
-    return false; // TODO allow natural number fp increments in fast-math
-  }
-
-  // struct StridePattern {
-  //   Reduction & red;
-  //
-  //   int loopInitIdx;
-  //   int latchIdx;
-  //   PHINode & phi;
-  //
-  //   Instruction & reductor;
-  //   int64_t inc; // increment value (already accounts to sign change by Instruction::Sub)
-  // };
-  pat = StridePattern{this, loopInitIdx, latchIdx, headerPhi, redInst, inc};
-  return true;
-#undef SET_MSG
-}
-#endif
 
 
 
@@ -349,99 +275,6 @@ ReductionAnalysis::tryMatchStridePattern(PHINode & headerPhi) {
 #undef REASON
 }
 
-#if 0
-RedNode &
-ReductionAnalysis::requestNode(PHINode & chainPhi, Instruction & inst) {
-  auto it = reductMap.find(&inst);
-  if (it == reductMap.end()) {
-    auto * entry = new RedNode(inst, chainPhi, RedKind::Bot);
-    reductMap[&inst] = entry;
-    return *entry;
-  } else {
-    return *it->second;
-  }
-}
-#endif
-
-#if 0
-void
-ReductionAnalysis::visitHeaderPhi(RedNode & phiNode, NodeStack & nodeStack) {
-  auto & BB = *phiNode.recPhi.getParent();
-  auto * pLoop = loopInfo.getLoopFor(&BB);
-  assert(pLoop);
-
-  auto & headerPhi = phiNode.recPhi;
-  auto & loop = *pLoop;
-
-  for (size_t i = 0; i < headerPhi.getNumIncomingValues(); ++i) {
-
-    auto & inVal = *headerPhi.getIncomingValue(i);
-    auto * inInst = dyn_cast<Instruction>(&inVal);
-
-    // loop carried input input
-    if (inInst && loop.contains(inInst->getParent())) {
-      auto & inputLoop = *loopInfo.getLoopFor(inInst->getParent());
-      auto * inRed = getReductionInfo(*inInst);
-
-      // input from a nested loop (already analyzed)
-      if (&inputLoop != &loop) {
-        if (!inRed) {
-          // non-reduction input
-          continue;
-        } else {
-        // reduction has to be compatible (for now)
-          // TODO this is actually only the case if the reduction can not be completly reduced outside of that loop
-          auto joined = JoinKinds(phiNode.kind, inRed->kind);
-          updateKind(phiNode, joined);
-          continue;
-        }
-      }
-
-      if (inRed) {
-        auto & headerPhi = inRed->getHeaderPhi();
-
-        if (&headerPhi == inInst) {
-          // PHI recurrence
-          phiNode.kind = inRed->kind; // true?
-          continue;
-
-        } else {
-          auto instKind = inferKindFromInst(*inInst);
-          auto & instNode = requestNode(headerPhi, *inInst);
-
-          // chain in the local kind of this operation
-          auto joined = JoinKinds(instKind, phiNode.kind); // TODO define
-          phiNode.kind = joined;
-          instNode.kind = joined;
-
-          // if this kind is incompatible abort this reduction chain
-          if (joined == RedKind::Top) {
-            // TODO we need to taint the entire reduction chain
-          }
-
-          instNode.kind = phiNode.kind;
-          // uncharted input
-        }
-
-      } else {
-        // TODO this is an unmapped instruction
-      }
-
-    } else {
-      // the input is loop invariant
-      continue;
-    }
-  }
-
-  abort(); // TODO implement
-}
-
-voidt
-ReductionAnalysis::visitInputNode(RedNode & phiNode, NodeStack & nodeStack) {
-  abort(); // TODO implement
-}
-#endif
-
 bool
 ReductionAnalysis::addToGroup(Reduction & redGroup, Instruction & inst) {
   bool added = redGroup.add(inst);
@@ -492,35 +325,8 @@ ReductionAnalysis::isHeaderPhi(Instruction & inst, Loop & loop) const {
   return loopInfo.getLoopFor(inst.getParent()) == &loop;
 }
 
-typedef std::vector<Instruction*> NodeStack;
-
-Reduction*
-ReductionAnalysis::filterForwardUses(Reduction & red, PHINode & seed) {
-  NodeStack stack;
-  stack.push_back(&seed);
-  std::set<Instruction*> seen;
-
-  Reduction * finalRed = new Reduction(*red.levelLoop, RedKind::Bot);
-
-  while (!stack.empty()) {
-    auto * inst = stack.back();
-    stack.pop_back();
-
-    if (!red.contains(*inst)) {
-      continue;
-    }
-
-    // move inst to the new SCC
-    if (!changeGroup(*finalRed, *inst)) continue; // already visited
-
-    for (auto & itUse : inst->uses()) {
-      auto * userInst = cast<Instruction>(itUse.getUser());
-      stack.push_back(userInst);
-    }
-  }
-
-  return finalRed;
-}
+using InstInt = std::pair<Instruction*, int>;
+using NodeStack = std::vector<InstInt>;
 
 static RedKind
 ClassifyReduction(Reduction & red) {
@@ -552,16 +358,18 @@ ClassifyReduction(Reduction & red) {
 }
 
 void
-ReductionAnalysis::analyze() {
+ReductionAnalysis::analyze(Loop & hostLoop) {
   clear();
 
 // init work list (loop header phis for now)
   std::vector<Loop*> loopStack;
+  loopStack.push_back(&hostLoop);
+#if 0
   for (auto * l : loopInfo) {
     loopStack.push_back(l);
   }
+#endif
 
-  std::set<Reduction*> backwardReds;
   std::vector<PHINode*> seedNodes;
   NodeStack nodeStack;
   while (!loopStack.empty()) {
@@ -580,109 +388,86 @@ ReductionAnalysis::analyze() {
 
       // this phi node is not part of an inductive pattern
       seedNodes.push_back(phi);
-
-      auto * node = new Reduction(*loop, *phi);
-      backwardReds.insert(node);
-      reductMap[phi] = node;
-      nodeStack.push_back(phi);
-    }
-
-    for (Loop * childLoop : *loop) {
-      loopStack.push_back(childLoop);
     }
   }
 
-// work list for general value reduction (backward scan)
-  while (!nodeStack.empty()) {
-    auto * inst = nodeStack.back();
-    nodeStack.pop_back();
+  // scc scan
+  IF_DEBUG_RED { errs() << " -- reda: SCC scan --\n"; }
 
-    auto & redGroup = *getReductionInfo(*inst);
+  for (auto * seedPhi : seedNodes) {
+    std::set<Instruction*> visited;
+    InstSet elements;
 
-    for (Value * opVal : inst->operands()) {
-      // uint opIdx = itUse.getOperandNo();
-      auto * opInst = dyn_cast<Instruction>(opVal);
-      if (!opInst) {
-        IF_DEBUG_RED { errs() << "non-inst op: " << *opVal << "\n"; }
+    nodeStack.emplace_back(seedPhi, 0);
+    elements.insert(seedPhi);
+
+    if (getReductionInfo(*seedPhi) != nullptr) {
+      continue; // already part of some SCC
+    }
+    while (!nodeStack.empty()) {
+      auto node = nodeStack.back();
+
+      auto * inst = node.first;
+      int instIdx = nodeStack.size() - 1;
+      if (!visited.insert(inst).second) {
+        nodeStack.pop_back();
         continue;
       }
 
-      // check whether this node has a stride pattern
-      if (canReconstructInductively(*opInst)) {
-        IF_DEBUG_RED { errs() << "inductive operand " << *opInst << ". skip.\n"; }
-        continue;
-      }
+      IF_DEBUG_RED { errs() << "inspecting: " << *inst << " ..\n\t"; }
 
-      // check if we are about to merge a chain
-      auto * opGroup = getReductionInfo(*opInst);
-
-      // check whether this user is loop-carried
-      auto *opLoop = loopInfo.getLoopFor(opInst->getParent());
-      if (!opLoop || // clear outside user
-          (opLoop != redGroup.levelLoop && opLoop->contains(redGroup.levelLoop))) { // loop above levelLoop
-        IF_DEBUG_RED { errs() << "outside operand " << *opInst << ". skip.\n"; }
-        continue;
-      }
-
-      IF_DEBUG_RED { errs() << "inspecting: " << *opInst << " ..\n\t"; }
-
-      // otw the operation needs to be attached to one of the chains
-      if (!opGroup) {
-        // first visit -> add to group
-        addToGroup(redGroup, *opInst);
-        // loop level is preserved
-        IF_DEBUG_RED { errs() << "added.\n"; }
-
-      } else if (opGroup == &redGroup) {
-        // we reached the header phi of this group -> keep
-        if (opGroup->levelLoop && isHeaderPhi(*opInst, *opGroup->levelLoop)) {
-          IF_DEBUG_RED { errs() << "reached header phi. keep.\n"; }
+      for (Value * opVal : inst->operands()) {
+        // uint opIdx = itUse.getOperandNo();
+        auto * opInst = dyn_cast<Instruction>(opVal);
+        if (!opInst) {
+          IF_DEBUG_RED { errs() << "\tnon-inst op: " << *opVal << "\n"; }
+          continue;
         }
-        continue; // user already inspected
 
-      } else if (opGroup != &redGroup) {
-        // TODO allow recurrences and multilevel reductions with compatible operations
+        // outside of relevant scope
+        if (!hostLoop.contains(opInst->getParent())) {
+          IF_DEBUG_RED { errs() << "\tnot carried by hostLoop: " << *opVal << "\n"; }
+          continue;
+        }
 
-        IF_DEBUG_RED { errs() << "used in incopatible nested reduction ->top.\n"; }
+        // already part of some SCC
+        if (getReductionInfo(*opInst) != nullptr) {
+          IF_DEBUG_RED { errs() << "\talready part of an reduction: " << *opVal << "\n"; }
+          continue;
+        }
 
-        // otw, we are receiving multiple reduction inputs
-        foldIntoGroup(redGroup, *opGroup);
-        backwardReds.erase(opGroup);
-        delete opGroup;
+        // check whether this node has a stride pattern
+        if (canReconstructInductively(*opInst)) {
+          IF_DEBUG_RED { errs() << "\tinductive operand " << *opInst << ". skip.\n"; }
+          continue;
+        }
 
-        continue; // already inspected
+        if (elements.count(opInst)) {
+          IF_DEBUG_RED { errs() << "\tcycle!: " << *opInst << " ..\n\t"; }
+          // add all instructions that are on this path to the SCC
+          for (int p = instIdx; p > 0; ) {
+            auto pathNode = nodeStack[p];
+            elements.insert(pathNode.first);
+            p = pathNode.second;
+          }
+        } else {
+          // descend further into operands
+          nodeStack.emplace_back(opInst, instIdx);
+        }
       }
-
-      // inspect all users of this instruction
-      nodeStack.push_back(opInst);
-    }
-  }
-
-// filter out SCCs starting from phi nodes
-  for (auto * phi : seedNodes) {
-    IF_DEBUG_RED { errs() << "red, forward: Building SCC from seed phi " << *phi << "\n"; }
-
-    auto * red = getReductionInfo(*phi);
-    assert(red);
-
-    // this phi nodes has already been added to a proper reduction SCC (skip)
-    if (!backwardReds.count(red)) {
-      IF_DEBUG_RED { errs() << "\talready part of newly formed reduction SCC.\n"; }
-      continue;
     }
 
-    // build a new SCC that contains phi
-    auto * finalRed = filterForwardUses(*red, *phi);
+    // convert the SEE into a reduction object
+    auto * red = new Reduction(elements);
+    red->kind = ClassifyReduction(*red);
+    red->levelLoop = &hostLoop;
 
-    // classify reduction set after filtering
-    finalRed->kind = ClassifyReduction(*finalRed);
-  }
-
-// free temporary SCCs
-  for (auto * oldRed : backwardReds) {
-    if (oldRed->elements.empty()) {
-      delete oldRed;
+    // register with the analysis
+    for (auto * inst : red->elements) {
+      reductMap[inst] = red;
     }
+
+    red->dump();
   }
 }
 
@@ -703,81 +488,6 @@ ReductionAnalysis::getReductionInfo(Instruction & inst) const {
     return nullptr;
   } else {
     return itReduct->second;
-  }
-}
-
-void
-ReductionAnalysis::updateForClones(LoopInfo & LI, ValueToValueMapTy & cloneMap) {
-// clone stride patterns
-  std::vector<StridePattern*> spUpdateVec;
-  for (auto itSP : stridePatternMap) {
-    auto * sp = itSP.second;
-
-    if (!cloneMap.count(sp->reductor)) continue;
-
-    auto * clonedReduct = cast<Instruction>(cloneMap[sp->reductor]);
-    if (!clonedReduct) continue;
-
-    auto * clonedPhi = cast<PHINode>(cloneMap[sp->phi]);
-    assert(clonedPhi);
-
-    auto *clonedSP = new
-      StridePattern{
-          sp->loopInitIdx,
-          sp->latchIdx,
-          clonedPhi,
-          clonedReduct,
-          sp->inc
-    };
-    spUpdateVec.push_back(clonedSP);
-  }
-
-  for (auto * sp : spUpdateVec) {
-    stridePatternMap[sp->phi] = sp;
-    stridePatternMap[sp->reductor] = sp;
-  }
-
-// clone complex reduction patterns
-  std::map<Reduction*, Reduction*> copyMap;
-  std::vector<std::pair<Instruction*, Reduction*>> updateVec;
-  // check for cloned phis and register new reductions for them
-  for (auto itRed : reductMap) {
-    auto it = cloneMap.find(itRed.first);
-
-    // instruction wasn't cloned
-    if (it == cloneMap.end()) {
-      continue;
-    }
-
-    // there is a clonedInst
-    auto * clonedInst = cast<Instruction>(cloneMap[it->first]);
-    assert(!reductMap.count(clonedInst) && "instruction already mapped!");
-
-    // request a cloned Reduction info object
-    auto * origRed = itRed.second;
-    auto itCopy = copyMap.find(origRed);
-    Reduction * targetRed = nullptr;
-    if (itCopy != copyMap.end()) {
-      targetRed = itCopy->second;
-    } else {
-      auto clonedHeader = cloneMap[origRed->levelLoop->getHeader()];
-      assert(clonedHeader); // FIXME this must not break
-#if 0
-      if (!clonedHeader) IF_DEBUG_RED { errs() << "red: warning: levelLoop was not cloned. Keeping original levelLoop!\n"; }
-#endif
-      Loop * clonedLoop = clonedHeader ? LI.getLoopFor(cast<BasicBlock>(clonedHeader)) : origRed->levelLoop;
-      targetRed = new Reduction(*clonedLoop, origRed->kind);
-      copyMap[origRed] = targetRed;
-    }
-
-    // transfer node to targetRed (this is a defered addToGroup)
-    targetRed->elements.insert(clonedInst);
-    updateVec.emplace_back(clonedInst, targetRed);
-  }
-
-  // modify map after traversal
-  for (auto it : updateVec) {
-    reductMap[it.first] = it.second;
   }
 }
 

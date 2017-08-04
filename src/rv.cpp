@@ -263,7 +263,8 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 
     // FIXME use external reduction analysis result (if available)
     ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
-    reda.analyze();
+    auto * hostLoop = loopInfo.getLoopFor(&vecInfo.getEntry());
+    if (hostLoop) reda.analyze(*hostLoop);
 
     // optimize reduction data flow
     ReductionOptimization redOpt(vecInfo, reda, domTree);
@@ -300,8 +301,9 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTre
     Report() << "SROV opt disabled (RV_DISABLE_SROV != 0)\n";
   }
 
+  auto * hostLoop = loopInfo.getLoopFor(&vecInfo.getEntry());
   ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
-  reda.analyze();
+  if (hostLoop) reda.analyze(*hostLoop);
 
 // vectorize with native
   native::NatBuilder natBuilder(config, platInfo, vecInfo, domTree, MDR, SE, reda);

@@ -177,6 +177,12 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   Report() << "loopVecPass: Vectorize " << L.getName() << " with VW: " << VectorWidth << " , Dependence Distance: " << depDist
          << " and TripAlignment: " << tripAlign << "\n";
 
+
+// analyze the recurrsnce patterns of this loop
+  reda.reset(new ReductionAnalysis(*F, *LI));
+  reda->analyze(L);
+
+// match vector loop structure
   ValueSet uniOverrides;
   auto * PreparedLoop = transformToVectorizableLoop(L, VectorWidth, tripAlign, uniOverrides);
   if (!PreparedLoop) {
@@ -362,9 +368,6 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   bool useImpreciseFunctions = true;
   addSleefMappings(config, platInfo, useImpreciseFunctions);
   vectorizer.reset(new VectorizerInterface(platInfo, config));
-
-  reda.reset(new ReductionAnalysis(F, *LI));
-  reda->analyze();
 
 
   std::vector<Loop*> loops;

@@ -135,7 +135,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     rv::VectorMapping targetMapping(&parentFn, &parentFn, vectorWidth);
 
     rv::ReductionAnalysis reductionAnalysis(parentFn, loopInfo);
-    reductionAnalysis.analyze();
+    reductionAnalysis.analyze(loop);
 
     ValueSet uniOverrides;
     rv::RemainderTransform remTrans(parentFn, domTree, postDomTree, loopInfo, reductionAnalysis);
@@ -566,6 +566,7 @@ int main(int argc, char** argv)
       finish = true;
     }
 
+#if 0
     if (runRed) {
       outs() << "-- Reduction Analysis output --\n";
       for (auto & func : *mod) {
@@ -579,6 +580,7 @@ int main(int argc, char** argv)
         finish = true;
       }
     }
+#endif
 
 
 
