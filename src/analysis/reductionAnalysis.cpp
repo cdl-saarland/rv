@@ -17,7 +17,7 @@
 #include "rvConfig.h"
 #include "rv/vectorShape.h"
 
-#if 0
+#if -1
 #define IF_DEBUG_RED IF_DEBUG
 #else
 #define IF_DEBUG_RED if (true)

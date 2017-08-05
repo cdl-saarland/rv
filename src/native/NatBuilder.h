@@ -42,7 +42,7 @@ namespace native {
 
     rv::Config config;
     rv::PlatformInfo &platformInfo;
-    rv::VectorizationInfo &vectorizationInfo;
+    rv::VectorizationInfo &vecInfo;
     const llvm::DominatorTree &dominatorTree;
     llvm::MemoryDependenceResults & memDepRes;
     llvm::ScalarEvolution &SE;
@@ -74,7 +74,7 @@ namespace native {
     llvm::Value& materializeVectorReduce(llvm::IRBuilder<> & builder, llvm::Value & phiInitVal, llvm::Value & vecVal, llvm::Instruction & reduceOp);
 
   public:
-    NatBuilder(rv::Config config, rv::PlatformInfo &_platformInfo, rv::VectorizationInfo &_vectorizationInfo,
+    NatBuilder(rv::Config config, rv::PlatformInfo &_platformInfo, rv::VectorizationInfo &_vecInfo,
                const llvm::DominatorTree &_dominatorTree, llvm::MemoryDependenceResults &memDepRes,
                llvm::ScalarEvolution &_SE, rv::ReductionAnalysis & _reda);
 
