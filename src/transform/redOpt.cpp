@@ -63,6 +63,10 @@ ReductionOptimization::optimize(PHINode & phi, Reduction & red) {
   ++itLatch;
 
   IRBuilder<> builder(latchInst->getParent(), itLatch);
+  if (isa<PHINode>(latchInst)) {
+    builder.SetInsertPoint(&*latchInst->getParent()->getFirstInsertionPt());
+  }
+
   auto & latchUpdate = CreateReductInst(builder, red.kind, phi, *latchInst);
   vecInfo.setVectorShape(latchUpdate, phiShape);
 
@@ -95,6 +99,7 @@ ReductionOptimization::run() {
 
     auto * redInfo = reda.getReductionInfo(*phi);
     if (!redInfo) continue;
+    if (redInfo->kind == RedKind::Bot || redInfo->kind == RedKind::Top) continue; // not a recognized reduction
 
     // optimize this reduction header phi
     bool changedRed = optimize(*phi, *redInfo);
