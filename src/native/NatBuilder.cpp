@@ -27,7 +27,7 @@
 #include "rvConfig.h"
 #include "ShuffleBuilder.h"
 
-#define IF_DEBUG_NAT IF_DEBUG
+#define IF_DEBUG_NAT  if (true)
 
 using namespace native;
 using namespace llvm;
@@ -171,7 +171,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   Function *vecFunc = vecInfo.getMapping().vectorFn;
 
   IF_DEBUG_NAT {
-    errs() << "-- Status before vector codegen --\n";
+    errs() << "-- status before vector codegen --\n";
     vecInfo.dump();
     reda.dump();
   }
@@ -286,6 +286,14 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
     // TODO: LoopInfo (probably) keeps an asserting handle on the old loop
     //       header. Remove the old loop first!
     // oldBB->eraseFromParent();
+  }
+
+  IF_DEBUG_NAT {
+    errs() << "-- Vectorized IR: --\n";
+    for (auto *oldBB : oldBlocks) {
+      getVectorValue(oldBB)->dump();
+    }
+    errs() << "-- End of Vectorized IR: --\n";
   }
 }
 
@@ -492,7 +500,7 @@ void NatBuilder::fallbackVectorize(Instruction *const inst) {
     Instruction *cpInst = inst->clone();
     mapOperandsInto(inst, cpInst, false, lane);
     builder.Insert(cpInst, inst->getName());
-    if (notVectorTy || isAlloca) mapScalarValue(inst, cpInst, lane);
+    if (scalarize || notVectorTy || isAlloca) mapScalarValue(inst, cpInst, lane);
     if (resVec) resVec = builder.CreateInsertElement(resVec, cpInst, lane, "fallBackInsert");
   }
   if (resVec) mapVectorValue(inst, resVec);
@@ -895,6 +903,10 @@ void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx)
 }
 
 void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
+  if (keepScalar.count(inst)) {
+    return fallbackVectorize(inst);
+  }
+
   LoadInst *load = dyn_cast<LoadInst>(inst);
   StoreInst *store = dyn_cast<StoreInst>(inst);
 
@@ -1273,6 +1285,8 @@ void NatBuilder::addLazyInstruction(Instruction *const instr) {
 void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
   assert(!lazyInstructions.empty() && "no lazy instructions to generate!");
 
+  errs() << " --- reqLazy: " << upToInstruction->getName() << " --\n";
+
   Instruction *lazyInstr = lazyInstructions.front();
   lazyInstructions.pop_front();
 
@@ -1303,6 +1317,8 @@ void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
     lazyInstructions.pop_front();
   }
 
+  errs() << " --- DONE reqLazy: " << upToInstruction->getName() << " --\n";
+
   // if we reach this point this should be guaranteed:
   assert(lazyInstr == upToInstruction && "something went wrong during lazy generation!");
 
@@ -1321,6 +1337,15 @@ void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
     vectorizeMemoryInstruction(lazyInstr);
 }
 
+static
+void
+SetInsertBeforeTerm(IRBuilder<> & builder, BasicBlock & block) {
+  if (block.getTerminator())
+    builder.SetInsertPoint(block.getTerminator());
+  else
+    builder.SetInsertPoint(&block);
+}
+
 Value *NatBuilder::requestVectorValue(Value *const value) {
   if (isa<GetElementPtrInst>(value))
     return requestVectorGEP(cast<GetElementPtrInst>(value));
@@ -1335,21 +1360,35 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
       requestLazyInstructions(lazyMemInstr);
   }
 
+  // check if already mapped
   Value *vecValue = getVectorValue(value);
-  if (!vecValue) {
-    vecValue = getScalarValue(value);
-    // check shape for value. if there is one and it is contiguous, cast to vector and add <0,1,2,...,n-1>
-    VectorShape shape = getVectorShape(*value);
+  if (vecValue)  return vecValue;
 
+  auto oldIP = builder.GetInsertPoint();
+  auto oldIB = builder.GetInsertBlock();
+
+  auto shape = getVectorShape(*value);
+  if (shape.isVarying()) {
+    auto * vecTy = VectorType::get(value->getType(), vectorWidth());
+    Value * accu = UndefValue::get(vecTy);
+    auto * intTy = Type::getInt32Ty(builder.getContext());
+
+    for (size_t i = 0; i < vectorWidth(); ++i) {
+      auto * laneVal = getScalarValue(value, 0);
+      auto * laneInst = cast<Instruction>(laneVal);
+      SetInsertBeforeTerm(builder, *laneInst->getParent());
+      accu = builder.CreateInsertElement(accu, laneVal, ConstantInt::get(intTy, i, false), "_revec");
+    }
+    vecValue = accu;
+
+  } else {
+    vecValue = getScalarValue(value);
+
+    // check shape for value. if there is one and it is contiguous, cast to vector and add <0,1,2,...,n-1>
     Instruction *vecInst = dyn_cast<Instruction>(vecValue);
-    auto oldIP = builder.GetInsertPoint();
-    auto oldIB = builder.GetInsertBlock();
 
     if (vecInst) {
-      if (vecInst->getParent()->getTerminator())
-        builder.SetInsertPoint(vecInst->getParent()->getTerminator());
-      else
-        builder.SetInsertPoint(vecInst->getParent());
+      SetInsertBeforeTerm(builder, *vecInst->getParent());
 
     } else {
       // insert in header
@@ -1390,10 +1429,12 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
     }
 
     // if (vecInst)
-      builder.SetInsertPoint(oldIB, oldIP);
-
-    mapVectorValue(value, vecValue);
   }
+
+  // recover insertpoint
+  builder.SetInsertPoint(oldIB, oldIP);
+
+  mapVectorValue(value, vecValue);
   return vecValue;
 }
 
@@ -2194,13 +2235,13 @@ void NatBuilder::addValuesToPHINodes() {
       IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
       materializeVaryingReduction(*red, *scalPhi);
 
-    } else if (isVectorLoopHeader && red && red->kind == RedKind::Bot) {
+    } else if (isVectorLoopHeader && red && red->kind == RedKind::Bot && shape.isVarying()) {
       // reduction phi handling
       IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
       materializeRecurrence(*red, *scalPhi);
 
     } else {
-      // default phi handling
+      // default phi handling (includes fully uniform recurrences)
       for (unsigned lane = 0; lane < loopEnd; ++lane) {
         PHINode *phi = cast<PHINode>(
             !shape.isVarying() || replicate ? getScalarValue(scalPhi, lane) : getVectorValue(scalPhi));
@@ -2508,6 +2549,20 @@ void NatBuilder::visitMemInstructions() {
   for (inst_iterator I = inst_begin(scalarFn), E = inst_end(scalarFn); I != E; ++I) {
     Instruction *inst = &*I;
     GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(inst);
+
+#if 0
+    auto * instTy = inst->getType();
+    // force integer loads to scalar
+    if (isa<LoadInst>(inst) && inst->getType()->isIntegerTy()) {
+      keepScalar.insert(inst);
+    } else if (inst->getOpcode() == Instruction::Mul) {
+      // integer multiply
+      keepScalar.insert(inst);
+    } if (instTy->getPrimitiveSizeInBits() > 1 && instTy->isIntegerTy() && vecInfo.getVectorShape(*inst).isVarying()) {
+      // force all varying (non-bool) integer operations to scalar
+      keepScalar.insert(inst);
+    }
+#endif
 
     if (!gep) continue;
 
