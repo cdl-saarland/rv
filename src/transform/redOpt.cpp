@@ -28,7 +28,19 @@ bool
 ReductionOptimization::optimize(PHINode & phi, Reduction & red) {
   auto phiShape = vecInfo.getVectorShape(phi);
 
-  if (phi.getNumUses() == 1) return false; // only one user -> nothing to optimize here
+  size_t numAccuUses = 0;
+  for (auto & use : phi.uses()) {
+    auto *userInst = cast<Instruction>(use.getUser());
+    if (!userInst) continue;
+    if (isa<PHINode>(userInst) || isa<SelectInst>(userInst)) {
+      continue;
+    }
+    if (red.contains(*userInst)) {
+      ++numAccuUses;
+    }
+  }
+
+  if (numAccuUses <= 1) return false; // only one accumulation user -> nothing to optimize here
 
   auto & neutral = GetNeutralElement(red.kind, *phi.getType());
 
