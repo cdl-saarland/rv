@@ -616,13 +616,15 @@ NatBuilder::vectorizeShuffleCall(CallInst *rvCall) {
 // non-uniform arg
   auto * vecVal = requestVectorValue(vecArg);
   assert(getVectorShape(*rvCall->getArgOperand(1)).isUniform());
-  auto shiftVal = cast<ConstantInt>(rvCall->getArgOperand(1))->getZExtValue();
+  int64_t shiftVal = cast<ConstantInt>(rvCall->getArgOperand(1))->getSExtValue();
+  if (shiftVal < 0) {
+    shiftVal = vectorWidth() + shiftVal;
+  }
 
   // build shuffle indices
   SmallVector<uint32_t, 32> shflIds(vectorWidth());
   for (size_t i = 0; i < vectorWidth(); i++) {
     shflIds[i] = (i + shiftVal) % vectorWidth();
-    if (shflIds[i] < 0) shflIds[i] += vectorWidth();
   }
 
   auto * shflVal = builder.CreateShuffleVector(vecVal, vecVal, shflIds, "rv_shfl");
