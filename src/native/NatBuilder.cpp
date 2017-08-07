@@ -1294,8 +1294,11 @@ void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
 
   while (lazyInstr != upToInstruction) {
     // skip if already generated (only happens for interleaving)
-    if (getVectorValue(lazyInstr))
+    if (getVectorValue(lazyInstr)) {
+      lazyInstr = lazyInstructions.front();
+      lazyInstructions.pop_front();
       continue;
+    }
 
     assert(!getVectorValue(lazyInstr) && !getScalarValue(lazyInstr) && "instruction already generated!");
 

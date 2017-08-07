@@ -138,36 +138,39 @@ MemoryAccessGrouper::getConstantDiff(const llvm::SCEV * A, const llvm::SCEV * B,
   // match "(C + x_0+..+x_n)" with "(x_0+..+x_n)"
   if (aScTy == scAddExpr) {
     const auto * lhsAdd = cast<const SCEVAddExpr>(A);
-    const auto * lhsConst = dyn_cast<SCEVConstant>(lhsAdd->getOperand(0));
+    const auto * lhsLhsConst = dyn_cast<SCEVConstant>(lhsAdd->getOperand(0));
 
-    if (lhsConst) {
-      if (bScTy == scAddExpr) {
-        const auto * rhsAdd = cast<const SCEVAddExpr>(B);
-        // rhs has one more addition -> try flipping
-        if (lhsAdd->getNumOperands() + 1 == rhsAdd->getNumOperands()) {
-          int64_t flippedDiff;
-          bool ok = getConstantDiff(B, A, flippedDiff);
-          oDelta = -flippedDiff;
-          return ok;
+    if (bScTy == scAddExpr) {
+      const auto * rhsAdd = cast<const SCEVAddExpr>(B);
+      // lhs and rhs are both adds
+      if (rhsAdd) {
+        if (lhsLhsConst) {
+          // ops(lhs) + 1 > ops(rhs) -> fip
+          if (lhsAdd->getNumOperands() + 1 == rhsAdd->getNumOperands()) {
+            int64_t flippedDiff;
+            bool ok = getConstantDiff(B, A, flippedDiff);
+            oDelta = -flippedDiff;
+            return ok;
 
-        // otw lhs must be equal to rhs in excess of lhsConst
-        } else if (rhsAdd->getNumOperands() + 1 != lhsAdd->getNumOperands()) {
-          return false;
-        }
+          // ops(rhs) + 1 == ops(lhs)
+          } else if (lhsAdd->getNumOperands() == rhsAdd->getNumOperands() + 1) {
+            // lhs: C + x_1+..+x_n   , rhs: x'_1+..+x'_n
+            // check  that x_i == x'_i
+            IF_DEBUG_MG errs() << "multi ADD: " << *lhsAdd << "  " << *lhsAdd->getOperand(0) << "   " << *lhsAdd->getOperand(1) << "\n";
+            for (size_t i = 1; i < lhsAdd->getNumOperands(); ++i) {
+              if (!equals(lhsAdd->getOperand(i), rhsAdd->getOperand(i-1))) {
+                IF_DEBUG_MG errs() << "\tmismatch @ " << i << *lhsAdd->getOperand(i) << " VS " << *rhsAdd->getOperand(i-1) << "\n";
+                return false;
+              }
+            }
 
-        // check for equality
-        IF_DEBUG_MG errs() << "multi ADD: " << *lhsAdd << "  " << *lhsAdd->getOperand(0) << "   " << *lhsAdd->getOperand(1) << "\n";
-        for (size_t i = 1; i < lhsAdd->getNumOperands(); ++i) {
-          if (!equals(lhsAdd->getOperand(i), rhsAdd->getOperand(i-1))) {
-            IF_DEBUG_MG errs() << "\tmismatch @ " << i << *lhsAdd->getOperand(i) << " VS " << *rhsAdd->getOperand(i-1) << "\n";
-            return false;
+            oDelta = GetConstValue(*lhsLhsConst);
+            return true;
           }
         }
 
-        oDelta = GetConstValue(*lhsConst);
-        return true;
-
-      } else {
+      } else if (lhsLhsConst && lhsAdd->getNumOperands() == 2) {
+        // lhs: "C + X" and rhs is "X"
         IF_DEBUG_MG errs() << "Const ADD: " << *lhsAdd << "  " << *lhsAdd->getOperand(0) << "   " << *lhsAdd->getOperand(1) << "\n";
         const auto * lhsConst = dyn_cast<SCEVConstant>(lhsAdd->getOperand(0));
         if (equals(lhsAdd->getOperand(1), B)) {
@@ -203,18 +206,20 @@ MemoryAccessGrouper::getConstantDiff(const llvm::SCEV * A, const llvm::SCEV * B,
     case scAddExpr: {
       auto * aAdd = cast<SCEVAddExpr>(A);
       auto * bAdd = cast<SCEVAddExpr>(B);
-      int64_t lhsDiff, rhsDiff;
-      if (getConstantDiff(aAdd->getOperand(0), bAdd->getOperand(0), lhsDiff) &&
-          getConstantDiff(aAdd->getOperand(1), bAdd->getOperand(1), rhsDiff)) {
-          oDelta = lhsDiff + rhsDiff;
-          return true;
-      } else if (getConstantDiff(aAdd->getOperand(0), bAdd->getOperand(1), lhsDiff) &&
-                 getConstantDiff(aAdd->getOperand(1), bAdd->getOperand(0), rhsDiff)) {
-          oDelta = lhsDiff + rhsDiff;
-          return true;
-      }
 
-      return false;
+      if (aAdd->getNumOperands() != bAdd->getNumOperands()) return false;
+
+      // sum up constant differences of operands
+      int64_t sum = 0;
+      for (size_t i = 0; i < aAdd->getNumOperands(); ++i) {
+        int64_t opDiff;
+        if (!getConstantDiff(aAdd->getOperand(i), bAdd->getOperand(i), opDiff)) {
+            return false;
+        }
+        sum += opDiff;
+      }
+      oDelta = sum;
+      return true;
     }
 
   // match multiply by constants
