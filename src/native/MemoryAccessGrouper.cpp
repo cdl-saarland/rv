@@ -19,7 +19,7 @@
 const int64_t groupLimit = 64;
 
 using namespace llvm;
-using namespace native;
+using namespace rv;
 
 // MemoryGroup_BEGIN
 
@@ -143,40 +143,38 @@ MemoryAccessGrouper::getConstantDiff(const llvm::SCEV * A, const llvm::SCEV * B,
     if (bScTy == scAddExpr) {
       const auto * rhsAdd = cast<const SCEVAddExpr>(B);
       // lhs and rhs are both adds
-      if (rhsAdd) {
-        if (lhsLhsConst) {
-          // ops(lhs) + 1 > ops(rhs) -> fip
-          if (lhsAdd->getNumOperands() + 1 == rhsAdd->getNumOperands()) {
-            int64_t flippedDiff;
-            bool ok = getConstantDiff(B, A, flippedDiff);
-            oDelta = -flippedDiff;
-            return ok;
+      if (lhsLhsConst) {
+        // ops(lhs) + 1 > ops(rhs) -> fip
+        if (lhsAdd->getNumOperands() + 1 == rhsAdd->getNumOperands()) {
+          int64_t flippedDiff;
+          bool ok = getConstantDiff(B, A, flippedDiff);
+          oDelta = -flippedDiff;
+          return ok;
 
-          // ops(rhs) + 1 == ops(lhs)
-          } else if (lhsAdd->getNumOperands() == rhsAdd->getNumOperands() + 1) {
-            // lhs: C + x_1+..+x_n   , rhs: x'_1+..+x'_n
-            // check  that x_i == x'_i
-            IF_DEBUG_MG errs() << "multi ADD: " << *lhsAdd << "  " << *lhsAdd->getOperand(0) << "   " << *lhsAdd->getOperand(1) << "\n";
-            for (size_t i = 1; i < lhsAdd->getNumOperands(); ++i) {
-              if (!equals(lhsAdd->getOperand(i), rhsAdd->getOperand(i-1))) {
-                IF_DEBUG_MG errs() << "\tmismatch @ " << i << *lhsAdd->getOperand(i) << " VS " << *rhsAdd->getOperand(i-1) << "\n";
-                return false;
-              }
+        // ops(rhs) + 1 == ops(lhs)
+        } else if (lhsAdd->getNumOperands() == rhsAdd->getNumOperands() + 1) {
+          // lhs: C + x_1+..+x_n   , rhs: x'_1+..+x'_n
+          // check  that x_i == x'_i
+          IF_DEBUG_MG errs() << "multi ADD: " << *lhsAdd << "  " << *lhsAdd->getOperand(0) << "   " << *lhsAdd->getOperand(1) << "\n";
+          for (size_t i = 1; i < lhsAdd->getNumOperands(); ++i) {
+            if (!equals(lhsAdd->getOperand(i), rhsAdd->getOperand(i-1))) {
+              IF_DEBUG_MG errs() << "\tmismatch @ " << i << *lhsAdd->getOperand(i) << " VS " << *rhsAdd->getOperand(i-1) << "\n";
+              return false;
             }
-
-            oDelta = GetConstValue(*lhsLhsConst);
-            return true;
           }
-        }
 
-      } else if (lhsLhsConst && lhsAdd->getNumOperands() == 2) {
-        // lhs: "C + X" and rhs is "X"
-        IF_DEBUG_MG errs() << "Const ADD: " << *lhsAdd << "  " << *lhsAdd->getOperand(0) << "   " << *lhsAdd->getOperand(1) << "\n";
-        const auto * lhsConst = dyn_cast<SCEVConstant>(lhsAdd->getOperand(0));
-        if (equals(lhsAdd->getOperand(1), B)) {
-          oDelta = GetConstValue(*lhsConst);
+          oDelta = GetConstValue(*lhsLhsConst);
           return true;
         }
+      }
+    }
+
+    // lhs: "C + X" and rhs is "X"
+    if (lhsLhsConst && lhsAdd->getNumOperands() == 2) {
+      IF_DEBUG_MG errs() << "Const ADD: " << *lhsAdd << "  " << *lhsAdd->getOperand(0) << "   " << *lhsAdd->getOperand(1) << "\n";
+      if (equals(lhsAdd->getOperand(1), B)) {
+        oDelta = GetConstValue(*lhsLhsConst);
+        return true;
       }
     }
   }
@@ -233,6 +231,7 @@ MemoryAccessGrouper::getConstantDiff(const llvm::SCEV * A, const llvm::SCEV * B,
 
       int64_t mulDiff;
       if (!getConstantDiff(aMul->getOperand(1), bMul->getOperand(1), mulDiff)) {
+        IF_DEBUG_MG errs() << "mul, rhs not const!\n";
         return false;
       }
 

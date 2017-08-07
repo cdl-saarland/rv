@@ -13,7 +13,7 @@
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
 
-namespace native {
+namespace rv {
   class MemoryGroup {
     unsigned topIdx;
     std::vector<const llvm::SCEV *> elements;
