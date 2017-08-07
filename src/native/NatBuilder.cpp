@@ -1508,9 +1508,9 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
     auto * intTy = Type::getInt32Ty(builder.getContext());
 
     for (size_t i = 0; i < vectorWidth(); ++i) {
-      auto * laneVal = getScalarValue(value, 0);
-      auto * laneInst = cast<Instruction>(laneVal);
-      SetInsertBeforeTerm(builder, *laneInst->getParent());
+      auto * laneVal = getScalarValue(value, i);
+      auto * laneInst = dyn_cast<Instruction>(laneVal);
+      if (laneInst) SetInsertBeforeTerm(builder, *laneInst->getParent());
       accu = builder.CreateInsertElement(accu, laneVal, ConstantInt::get(intTy, i, false), "_revec");
     }
     vecValue = accu;
