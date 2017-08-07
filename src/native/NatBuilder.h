@@ -23,6 +23,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Transforms/Utils/ValueMapper.h>
+#include <llvm/ADT/SmallVector.h>
 
 namespace rv {
   class Region;
@@ -30,6 +31,8 @@ namespace rv {
   class Reduction;
   class StridePattern;
 }
+
+using ValVec = llvm::SmallVector<llvm::Value*, 16>;
 
 namespace native {
   typedef std::map<const llvm::Function *, const rv::VectorMapping *> VectorMappingMap;
@@ -72,6 +75,11 @@ namespace native {
     void materializeStridePattern(rv::StridePattern & sp);
 
     llvm::Value& materializeVectorReduce(llvm::IRBuilder<> & builder, llvm::Value & phiInitVal, llvm::Value & vecVal, llvm::Instruction & reduceOp);
+
+    // create a mask cascade at the current insertion point, call @genFunc in every cascaded block, if @packResult insert all values provided by @genFunc into
+    // an accumulator and return that (result size 1). If !@packResult return dominating definitions of the computed value
+    // @genFunc: first argument is an IRBuilder that inserts into a fresh mask-guarded block, second argument is the lane for which the instruction @inst should be scalarized
+    ValVec scalarizeCascaded(llvm::BasicBlock & srcBlock, llvm::Instruction & inst, bool packResult, std::function<llvm::Value*(llvm::IRBuilder<>&,size_t)> genFunc);
 
   public:
     NatBuilder(rv::Config config, rv::PlatformInfo &_platformInfo, rv::VectorizationInfo &_vecInfo,
@@ -119,7 +127,7 @@ namespace native {
     llvm::DenseMap<const llvm::Value *, llvm::Value *> vectorValueMap;
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
-    std::map<const llvm::Type *, MemoryAccessGrouper> grouperMap;
+    std::map<const llvm::Type *, rv::MemoryAccessGrouper> grouperMap;
     std::map<const llvm::Value *, PseudointerValueVector> pseudointerValueMap;
     std::vector<llvm::PHINode *> phiVector;
     std::deque<llvm::Instruction *> lazyInstructions;

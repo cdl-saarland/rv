@@ -376,6 +376,98 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
   }
 }
 
+ValVec
+NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool packResult, std::function<Value*(IRBuilder<>&,size_t)> genFunc) {
+   // check if we need cascade first
+   Value *predicate = vecInfo.getPredicate(srcBlock);
+   assert(predicate && "expected predicate!");
+
+   // packResult -> a single vector value
+   // !packResult -> results of all replicated elements
+   ValVec resultVec;
+
+   // if we need cascading, we need the vectorized predicate and the cascading blocks
+   std::vector<BasicBlock *> condBlocks;
+   std::vector<BasicBlock *> maskedBlocks;
+
+   // block cascade
+   BasicBlock *vecBlock = cast<BasicBlock>(getVectorValue(&srcBlock));
+   BasicBlock *resBlock = createCascadeBlocks(vecBlock->getParent(), vectorWidth(), condBlocks, maskedBlocks);
+   condBlocks.push_back(resBlock);
+
+
+   // branch to our entry block of the cascade
+   builder.CreateBr(condBlocks[0]);
+   builder.SetInsertPoint(condBlocks[0]);
+
+   // vector aggregate if packing was requested
+   auto * vecTy = packResult ? VectorType::get(inst.getType(), vectorWidth()) : nullptr;
+   Value * accu = packResult ? UndefValue::get(vecTy) : nullptr;
+
+   bool producesValue = !inst.getType()->isVoidTy();
+
+   // create <vector_width> scalar calls
+   for (size_t lane = 0; lane < vectorWidth(); ++lane) {
+     auto * condBlock = condBlocks[lane];     // the block with the if
+     auto * maskedBlock = maskedBlocks[lane]; // the guarded block (containing the scalarized instructino)
+     auto * nextBlock = condBlocks[lane + 1]; // next guard block
+
+     assert(builder.GetInsertBlock() == condBlock);
+
+     // guard if
+     Value *mask = requestScalarValue(predicate, lane, true); // do not map this value if it's fresh to avoid dominance violations
+     builder.CreateCondBr(mask, maskedBlock, nextBlock);
+
+   // materialize the scalarized block
+     builder.SetInsertPoint(maskedBlock);
+
+     // call user provided function to get a scalarized version of that instruction
+     auto * repl = genFunc(builder, lane);
+     auto * scaTy = repl->getType();
+
+    // insert value still in maskedBlock
+    Value * laneRes = nullptr;
+    Type * transferTy = nullptr;
+     if (producesValue) {
+         if (packResult) {
+           transferTy = vecTy;
+           laneRes = builder.CreateInsertElement(accu, repl, ConstantInt::get(i32Ty, lane),
+                                            "insert_lane_" + std::to_string(lane));
+         } else {
+           transferTy = scaTy;
+           laneRes = repl;
+         }
+     }
+
+    // set insert to next guard block
+     builder.CreateBr(nextBlock);
+     builder.SetInsertPoint(nextBlock);
+
+     Value * mappedLaneVal = laneRes; // object that should identify the produced value
+     if (producesValue) {
+       // get a dominating definition (PHINode)
+       PHINode *phi = builder.CreatePHI(transferTy, 2);
+
+       if (packResult) {
+          phi->addIncoming(accu, condBlock);
+          accu = phi;
+       } else {
+          phi->addIncoming(UndefValue::get(scaTy), condBlock);
+          mappedLaneVal = phi;
+       }
+       phi->addIncoming(laneRes, maskedBlock);
+     }
+     if (!packResult) resultVec.push_back(mappedLaneVal);
+   }
+
+   if (packResult) resultVec.push_back(accu);
+
+   // remap to tail block
+   mapVectorValue(inst.getParent(), resBlock);
+
+   return resultVec;
+}
+
 /* expects that builder has valid insertion point set */
 void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst, bool vectorizedInst,
                                  unsigned laneIdx) {
@@ -483,6 +575,17 @@ void NatBuilder::copyInstruction(Instruction *const inst, unsigned laneIdx) {
   ++numScalarized; // statistics
 }
 
+static
+bool
+NeedsGuarding(Instruction & inst) {
+  return isa<LoadInst>(inst) || isa<StoreInst>(inst);
+}
+
+static
+bool IsVectorizableTy(const Type & ty) {
+  return ty.isIntegerTy() || ty.isFloatingPointTy();
+}
+
 void NatBuilder::fallbackVectorize(Instruction *const inst) {
   // fallback for vectorizing varying instructions:
   // if !void: create result vector
@@ -494,16 +597,42 @@ void NatBuilder::fallbackVectorize(Instruction *const inst) {
   bool isAlloca = isa<AllocaInst>(inst);
   bool notVectorTy = type->isVoidTy() || !(type->isIntegerTy() || type->isFloatingPointTy() || type->isPointerTy());
   bool scalarize = keepScalar.count(inst) > 0;
-  Value *resVec = notVectorTy || scalarize ? nullptr : UndefValue::get(
-      getVectorType(inst->getType(), vectorWidth()));
-  for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
-    Instruction *cpInst = inst->clone();
-    mapOperandsInto(inst, cpInst, false, lane);
-    builder.Insert(cpInst, inst->getName());
-    if (scalarize || notVectorTy || isAlloca) mapScalarValue(inst, cpInst, lane);
-    if (resVec) resVec = builder.CreateInsertElement(resVec, cpInst, lane, "fallBackInsert");
+  Value *resVec = notVectorTy || scalarize ? nullptr : UndefValue::get(getVectorType(inst->getType(), vectorWidth()));
+
+  auto * mask = vecInfo.getPredicate(*inst->getParent());
+  bool nonTrivialMask = mask && !isa<Constant>(mask);
+
+  // scalarized operation with side effects in predicated context -> if cascade & scalarize
+  if (nonTrivialMask && NeedsGuarding(*inst)) {
+    bool packResult = IsVectorizableTy(*inst->getType());
+    ValVec resVec = scalarizeCascaded(*inst->getParent(), *inst, packResult,
+        [this,inst](IRBuilder<> & builder, size_t lane) -> Value* {
+          auto * cpInst = inst->clone();
+          mapOperandsInto(inst, cpInst, false, lane);
+          builder.Insert(cpInst, inst->getName());
+          return cpInst;
+        });
+
+    // register result
+    if (packResult) {
+      mapVectorValue(inst, resVec[0]);
+    } else {
+      for (size_t lane = 0; lane < vectorWidth(); ++lane) {
+        mapScalarValue(inst, resVec[lane]);
+      }
+    }
+
+  // mask is trivial -> scalarize
+  } else {
+    for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
+      Instruction *cpInst = inst->clone();
+      mapOperandsInto(inst, cpInst, false, lane);
+      builder.Insert(cpInst, inst->getName());
+      if (scalarize || notVectorTy || isAlloca) mapScalarValue(inst, cpInst, lane);
+      if (resVec) resVec = builder.CreateInsertElement(resVec, cpInst, lane, "fallBackInsert");
+    }
+    if (resVec) mapVectorValue(inst, resVec);
   }
-  if (resVec) mapVectorValue(inst, resVec);
 
   ++numFallbacked;
 }
@@ -1373,7 +1502,7 @@ Value *NatBuilder::requestVectorValue(Value *const value) {
   auto oldIB = builder.GetInsertBlock();
 
   auto shape = getVectorShape(*value);
-  if (shape.isVarying()) {
+  if (shape.isVarying()) { // !vecValue
     auto * vecTy = VectorType::get(value->getType(), vectorWidth());
     Value * accu = UndefValue::get(vecTy);
     auto * intTy = Type::getInt32Ty(builder.getContext());
