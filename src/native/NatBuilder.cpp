@@ -27,7 +27,7 @@
 #include "rvConfig.h"
 #include "ShuffleBuilder.h"
 
-#define IF_DEBUG_NAT  if (true)
+#define IF_DEBUG_NAT  IF_DEBUG
 
 using namespace native;
 using namespace llvm;
