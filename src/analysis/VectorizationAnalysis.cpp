@@ -608,10 +608,12 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
       const VectorMapping* mapping = found->second;
       const VectorShapeVec Arginfo = mapping->argShapes;
 
-      unsigned int i = 0;
-      for (auto& op : callee->operands()) {
-        const VectorShape& expected = Arginfo[i++];
-        const VectorShape& actual = getShape(op);
+      auto & call = *cast<CallInst>(I);
+      size_t numParams = call.getNumArgOperands();
+      for (size_t i = 0; i < numParams; ++i) {
+        auto& op = *call.getArgOperand(i);
+        const VectorShape& expected = Arginfo[i];
+        const VectorShape& actual = getShape(&op);
 
         // If the expected shape is more precise than the computed shape, return varying
         if (expected < actual)
