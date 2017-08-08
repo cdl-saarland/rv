@@ -77,15 +77,50 @@ Value *IRPolisher::mapIntrinsicCall(llvm::IRBuilder<>& builder, llvm::CallInst* 
   if (isReduceOr || isReduceAnd) {
     // Use the PTEST instruction for boolean reductions
     auto newArg = getMaskForValueOrInst(builder, callInst->getArgOperand(0), bitWidth);
+
     auto vecLen = newArg->getType()->getVectorNumElements();
     auto destTy = VectorType::get(builder.getIntNTy(64), bitWidth * vecLen / 64);
 
+    bool useNot = false;
+    Value * left = nullptr, * right = nullptr;
+    if (auto binOp = dyn_cast<BinaryOperator>(newArg)) {
+      if (binOp->getOpcode() == Instruction::And) {
+        // Fold PTEST(AND(x, y)) and PTEST(AND(NOT(x), y))
+        left = binOp->getOperand(0);
+        right = binOp->getOperand(1);
+
+        if (isReduceOr) {
+          if (BinaryOperator::isNot(left)) {
+            left = BinaryOperator::getNotArgument(left);
+            useNot = true;
+          }
+          if (!useNot && BinaryOperator::isNot(right)) {
+            right = BinaryOperator::getNotArgument(right);
+            std::swap(left, right);
+            useNot = true;
+          }
+        } else {
+          // AND reductions already use PTEST(NOT(x), NOT(x))
+          useNot = true;
+          right = builder.CreateNot(right);
+        }
+
+        left  = builder.CreateBitCast(left, destTy);
+        right = builder.CreateBitCast(right, destTy);
+      }
+    }
+
+    if (!left) {
+      left = right = builder.CreateBitCast(isReduceAnd ? builder.CreateNot(newArg) : newArg, destTy);
+    }
+
     auto isAVX = vecLen * bitWidth == 256;
-    auto id = isAVX ? Intrinsic::x86_avx_ptestz_256 : Intrinsic::x86_sse41_ptestz;
+    auto id = isAVX
+      ? (useNot ? Intrinsic::x86_avx_ptestc_256 : Intrinsic::x86_avx_ptestz_256)
+      : (useNot ? Intrinsic::x86_sse41_ptestc   : Intrinsic::x86_sse41_ptestz);
     auto func = Intrinsic::getDeclaration(callInst->getModule(), id);
 
-    auto castedArg = builder.CreateBitCast(isReduceAnd ? builder.CreateNot(newArg) : newArg, destTy);
-    auto ptestCall = builder.CreateCall(func, { castedArg, castedArg });
+    auto ptestCall = builder.CreateCall(func, { left, right });
     return isReduceOr
       ? builder.CreateICmpEQ(ptestCall, builder.getInt32(0))
       : builder.CreateICmpNE(ptestCall, builder.getInt32(0));
