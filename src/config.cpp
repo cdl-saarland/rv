@@ -29,6 +29,7 @@ Config::Config()
 , useSSE(false)
 , useAVX(false)
 , useAVX2(false)
+, useAVX512(false)
 , useNEON(false)
 , useSLEEF(false)
 {}
