@@ -147,10 +147,6 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     // configure RV
     rv::Config config;
-    config.useSSE = true;
-    config.useAVX = true;
-    config.useAVX2 = true;
-    config.useAVX512 = true;
     config.useSLEEF = true;
     config.print(outs());
 
@@ -335,10 +331,6 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
 
     // configure RV
     rv::Config config;
-    config.useSSE = true;
-    config.useAVX = true;
-    config.useAVX2 = true;
-    config.useAVX512 = true;
     config.useSLEEF = true;
     const bool useImpreciseFunctions = true;
     config.print(outs());
