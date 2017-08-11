@@ -362,7 +362,9 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   PlatformInfo platInfo(*F.getParent(), &tti, &tli);
 
   // TODO query target capabilities
+  config.useSSE = true;
   config.useAVX2 = true;
+  config.useAVX512 = true;
   config.useSLEEF = true;
 
   bool useImpreciseFunctions = true;
