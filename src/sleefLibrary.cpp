@@ -68,7 +68,7 @@ namespace rv {
   };
 
   inline int sleefModuleIndex(SleefISA isa, bool doublePrecision) {
-    return int(isa) + (doublePrecision ? 3 : 0);
+    return int(isa) + (doublePrecision ? 4 : 0);
   }
 
 #ifdef RV_ENABLE_BUILTINS
@@ -570,10 +570,10 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
           {"llvm.copysign.f32", "xcopysignf_avx512", 16},
           {"llvm.minnum.f32", "xfminf_avx512", 16},
           {"llvm.maxnum.f32", "xfmaxf_avx512", 16},
-          {"llvm.fabs.f68", "xfabs_avx512", 8},
-          {"llvm.copysign.f68", "xcopysign_avx512", 8},
-          {"llvm.minnum.f68", "xfmin_avx512", 8},
-          {"llvm.maxnum.f68", "xfmax_avx512", 8},
+          {"llvm.fabs.f64", "xfabs_avx512", 8},
+          {"llvm.copysign.f64", "xcopysign_avx512", 8},
+          {"llvm.minnum.f64", "xfmin_avx512", 8},
+          {"llvm.maxnum.f64", "xfmax_avx512", 8},
 
         // extras
           {"drand816", "avx_vrand_d8_extra", 8}
@@ -653,14 +653,14 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.sqrt.f32", "xsqrtf_u05_avx512", 16},
             {"llvm.exp2.f32", "xexp2f_avx512", 16},
             {"llvm.log10.f32", "xlog10f_avx512", 16},
-            {"llvm.sin.f68", "xsin_avx512", 8},
-            {"llvm.cos.f68", "xcos_avx512", 8},
-            {"llvm.log.f68", "xlog_avx512", 8},
-            {"llvm.exp.f68", "xexp_avx512", 8},
-            {"llvm.pow.f68", "xpow_avx512", 8},
-            {"llvm.sqrt.f68", "xsqrt_u05_avx512", 8},
-            {"llvm.exp2.f68", "xexp2_avx512", 8},
-            {"llvm.log10.f68", "xlog10_avx512", 8}
+            {"llvm.sin.f64", "xsin_avx512", 8},
+            {"llvm.cos.f64", "xcos_avx512", 8},
+            {"llvm.log.f64", "xlog_avx512", 8},
+            {"llvm.exp.f64", "xexp_avx512", 8},
+            {"llvm.pow.f64", "xpow_avx512", 8},
+            {"llvm.sqrt.f64", "xsqrt_u05_avx512", 8},
+            {"llvm.exp2.f64", "xexp2_avx512", 8},
+            {"llvm.log10.f64", "xlog10_avx512", 8}
         };
         platInfo.addVectorizableFunctions(ImprecVecFuncs, true);
       }
@@ -851,8 +851,8 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
     auto sleefName = vecFuncName.substr(0, vecFuncName.rfind('_'));
 
     SleefISA isa;
-    if (vecFuncName.count("avx512"))     isa = SLEEF_AVX512;
-    else if (vecFuncName.count("avx2"))     isa = SLEEF_AVX2;
+    if (vecFuncName.count("avx512")) isa = SLEEF_AVX512;
+    else if (vecFuncName.count("avx2")) isa = SLEEF_AVX2;
     else if (vecFuncName.count("avx")) isa = SLEEF_AVX;
     else if (vecFuncName.count("sse")) isa = SLEEF_SSE;
     else return nullptr;
