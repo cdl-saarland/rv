@@ -32,7 +32,25 @@ Config::Config()
 , useAVX512(false)
 , useNEON(false)
 , useSLEEF(false)
-{}
+{
+  char * rawArch = getenv("RV_ARCH");
+  if (!rawArch) return;
+
+  std::string arch = rawArch;
+  if (arch == "avx2") {
+    Report() << "RV_ARCH: configured for avx2!\n";
+    useAVX2 = true;
+    useSSE = true;
+  } else if (arch == "avx512") {
+    Report() << "RV_ARCH: configured for avx512!\n";
+    useAVX512 = true;
+    useAVX2 = true;
+    useSSE = true;
+  } else if (arch == "neon") {
+    Report() << "RV_ARCH: configured for neon!\n";
+    useNEON = true;
+  }
+}
 
 std::string
 rv::to_string(Config::VAMethod vam) {
@@ -70,7 +88,7 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
 
 static void
 printFeatureFlags(const Config & config, llvm::raw_ostream & out) {
-  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useNEON = " << config.useNEON << "\n";
+  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << "\n";
 }
 
 
