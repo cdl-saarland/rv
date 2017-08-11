@@ -25,10 +25,8 @@ clang_complete
 
 amd/*
 
+vecmath/sleef/**/rename*.h
 mkrename
-renameavx2.h
-renameavx.h
-renamesse2.h
 sleef.h
 
 *.csv

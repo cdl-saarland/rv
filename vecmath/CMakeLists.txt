@@ -25,6 +25,12 @@ SET ( EXTRAS_AVX_BC "${VECMATH_LIB_DIR}/avx_extras.bc" )
 SET ( EXTRAS_AVX_GENBC "${VECMATH_LIB_DIR}/avx_extras.gen.cpp" )
 
 # SLEEF bc build paths
+SET ( SLEEF_BC_AVX512_SP "${VECMATH_LIB_DIR}/avx512_sleef_sp.bc" )
+SET ( SLEEF_GENBC_AVX512_SP "${VECMATH_LIB_DIR}/avx512_sleef_sp.gen.cpp" )
+
+SET ( SLEEF_BC_AVX512_DP "${VECMATH_LIB_DIR}/avx512_sleef_dp.bc" )
+SET ( SLEEF_GENBC_AVX512_DP "${VECMATH_LIB_DIR}/avx512_sleef_dp.gen.cpp" )
+
 SET ( SLEEF_BC_AVX2_SP "${VECMATH_LIB_DIR}/avx2_sleef_sp.bc" )
 SET ( SLEEF_GENBC_AVX2_SP "${VECMATH_LIB_DIR}/avx2_sleef_sp.gen.cpp" )
 
@@ -46,7 +52,10 @@ SET ( SLEEF_GENBC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.gen.cpp" )
 SET ( SLEEF_BC_LIBS ${SLEEF_BC_AVX2_SP} ${SLEEF_BC_AVX_SP} ${SLEEF_BC_SSE_SP} ${SLEEF_BC_AVX2_DP} ${SLEEF_BC_AVX_DP} ${SLEEF_BC_SSE_DP} ${EXTRAS_AVX_BC} )
 
 
-SET ( RV_GENBC_SOURCES ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP} ${EXTRAS_AVX_GENBC} )
+SET( FLAGS_AVX2=-mavx2 )
+SET( FLAGS_AVX512 -mavx512f -mavx512dq -mavx512cd -mavx512bw -mavx512vl -march=skylake )
+
+SET ( RV_GENBC_SOURCES ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP} ${EXTRAS_AVX_GENBC}  ${SLEEF_GENBC_AVX512_SP} ${SLEEF_GENBC_AVX512_DP})
 IF (RV_ENABLE_CRT)
   SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${CRT_GENBC} )
 ENDIF()
@@ -70,9 +79,11 @@ IF (${RV_ENABLE_SLEEF})
     COMMAND ${RV_LIB_SLEEF_DIR}/mkrename sse2 2 4 > ${RV_LIB_SLEEF_DIR}/renamesse2.h
     COMMAND ${RV_LIB_SLEEF_DIR}/mkrename avx 4 8 > ${RV_LIB_SLEEF_DIR}/renameavx.h
     COMMAND ${RV_LIB_SLEEF_DIR}/mkrename avx2 4 8 > ${RV_LIB_SLEEF_DIR}/renameavx2.h
+    COMMAND ${RV_LIB_SLEEF_DIR}/mkrename avx512 8 16 > ${RV_LIB_SLEEF_DIR}/renameavx512.h
     COMMAND ${RV_LIB_SLEEF_DIR}/mkrename sse2 2 4 __m128d __m128 __m128i __m128i __SSE2__ >> ${RV_LIB_SLEEF_DIR}/sleef.h
     COMMAND ${RV_LIB_SLEEF_DIR}/mkrename avx 4 8 __m256d __m256 __m128i 'struct { __m128i x, y; }' __AVX__ >> ${RV_LIB_SLEEF_DIR}/sleef.h
     COMMAND ${RV_LIB_SLEEF_DIR}/mkrename avx2 4 8 __m256d __m256 __m128i __m256i __AVX2__ >> ${RV_LIB_SLEEF_DIR}/sleef.h
+    COMMAND ${RV_LIB_SLEEF_DIR}/mkrename avx512 8 16 __m512d __m512 __m128i __m512i __AVX512__ >> ${RV_LIB_SLEEF_DIR}/sleef.h
     COMMAND echo '\#undef IMPORT' >> ${RV_LIB_SLEEF_DIR}/sleef.h
     COMMAND echo '\#endif' >> ${RV_LIB_SLEEF_DIR}/sleef.h
     DEPENDS clang
@@ -80,7 +91,7 @@ IF (${RV_ENABLE_SLEEF})
   # add SLEEF bc generators as extra source
   ADD_CUSTOM_TARGET ( libsleef_x64 DEPENDS ${RV_GENBC_SOURCES} )
 
-  SET( RVLIB_BUILD_OPTS -O3 )
+  SET( RVLIB_BUILD_OPTS -O3 -I${RV_LIB_SLEEF_DIR}/../arch -I${RV_LIB_SLEEF_DIR}/../common)
   # extra libs
   ADD_CUSTOM_COMMAND (
     OUTPUT ${EXTRAS_AVX_GENBC}
@@ -91,6 +102,14 @@ IF (${RV_ENABLE_SLEEF})
   )
 
   # Sleef single precision
+  ADD_CUSTOM_COMMAND (
+    OUTPUT ${SLEEF_GENBC_AVX512_SP}
+    COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
+    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX512} -DENABLE_AVX512F=ON -ffp-contract=off -o ${SLEEF_BC_AVX512_SP}
+    COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_AVX512_SP} \"avx512_sp\" ${SLEEF_BC_AVX512_SP}
+    DEPENDS ${SLEEF_HEADERS}
+    DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c
+  )
   ADD_CUSTOM_COMMAND (
     OUTPUT ${SLEEF_GENBC_AVX2_SP}
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
@@ -115,12 +134,18 @@ IF (${RV_ENABLE_SLEEF})
   )
   # Sleef double precision
   ADD_CUSTOM_COMMAND (
+    OUTPUT ${SLEEF_GENBC_AVX512_DP}
+    COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
+    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX512} -DENABLE_AVX512F=ON -ffp-contract=off -o ${SLEEF_BC_AVX512_DP}
+    COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_AVX512_DP} \"avx512_dp\" ${SLEEF_BC_AVX512_DP}
+    DEPENDS ${SLEEF_HEADERS} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c
+  )
+  ADD_CUSTOM_COMMAND (
     OUTPUT ${SLEEF_GENBC_AVX2_DP}
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
     COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -mavx2 -mfma -DENABLE_AVX2=ON -ffp-contract=off -o ${SLEEF_BC_AVX2_DP}
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_AVX2_DP} \"avx2_dp\" ${SLEEF_BC_AVX2_DP}
     DEPENDS ${SLEEF_HEADERS} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c
-
   )
   ADD_CUSTOM_COMMAND (
     OUTPUT ${SLEEF_GENBC_AVX_DP}
