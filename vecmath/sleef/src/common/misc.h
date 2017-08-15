@@ -5,6 +5,9 @@
 
 //
 
+#ifndef __MISC_H__
+#define __MISC_H__
+
 #ifndef M_PI
 #define M_PI 3.141592653589793238462643383279502884
 #endif
@@ -86,11 +89,24 @@
 #define PI_Bf 0.0009670257568359375f
 #define PI_Cf 6.2771141529083251953e-07f
 #define PI_Df 1.2154201256553420762e-10f
-
 #define PI_XDf 1.2141754268668591976e-10f
 #define PI_XEf 1.2446743939339977025e-13f
-
 #define TRIGRANGEMAXf 1e+7 // 39000
+
+#define PI_A2f 3.1414794921875f
+#define PI_B2f 0.00011315941810607910156f
+#define PI_C2f 1.9841872589410058936e-09f
+#define TRIGRANGEMAX2f 125.0f
+
+#define PI_A3f 3.14154052734375f
+#define PI_B3f 5.212612450122833252e-05f
+#define PI_C3f 1.2154188766544393729e-10f
+#define PI_D3f 1.2246402351402674302e-16f
+#define PI_E3f 6.5640073364868052239e-22f
+#define TRIGRANGEMAX3f 5e+9f
+
+#define TRIGRANGEMAX4f 8e+6f
+
 #define SQRT_FLT_MAX 18446743523953729536.0
 
 #define L2Uf 0.693145751953125f
@@ -187,12 +203,13 @@ typedef struct {
 
 #elif defined(_MSC_VER)
 
-#include <math.h>
-#include <float.h>
-
-#define INLINE __inline
+#define INLINE __forceinline
 #define CONST
 #define EXPORT __declspec(dllexport)
+
+#if (defined(__GNUC__) || defined(__CLANG__)) && (defined(__i386__) || defined(__x86_64__))
+#include <x86intrin.h>
+#endif
 
 #define INFINITYf ((float)INFINITY)
 #define NANf ((float)NAN)
@@ -217,4 +234,18 @@ typedef struct {
 #endif
 #endif
 
+static INLINE CONST int isinff(float x) { return x == INFINITYf || x == -INFINITYf; }
+static INLINE CONST int isinfl(long double x) { return x == INFINITYl || x == -INFINITYl; }
+static INLINE CONST int isnanf(float x) { return x != x; }
+static INLINE CONST int isnanl(long double x) { return x != x; }
+
 #endif // defined(_MSC_VER)
+
+#ifdef __APPLE__
+static INLINE CONST int isinff(float x) { return x == INFINITYf || x == -INFINITYf; }
+static INLINE CONST int isinfl(long double x) { return x == INFINITYl || x == -INFINITYl; }
+static INLINE CONST int isnanf(float x) { return x != x; }
+static INLINE CONST int isnanl(long double x) { return x != x; }
+#endif
+
+#endif // #ifndef __MISC_H__

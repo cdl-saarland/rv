@@ -43,7 +43,9 @@ typedef __m512i vint2;
 
 //
 
+#ifndef __SLEEF_H__
 void Sleef_x86CpuID(int32_t out[4], uint32_t eax, uint32_t ecx);
+#endif
 
 static int cpuSupportsAVX512F() {
     int32_t reg[4];
@@ -254,8 +256,13 @@ static INLINE vfloat vgetexp_vf_vf(vfloat d) { return _mm512_getexp_ps(d); }
 static INLINE vdouble vgetmant_vd_vd(vdouble d) { return _mm512_getmant_pd(d, _MM_MANT_NORM_p75_1p5, _MM_MANT_SIGN_nan); }
 static INLINE vfloat vgetmant_vf_vf(vfloat d) { return _mm512_getmant_ps(d, _MM_MANT_NORM_p75_1p5, _MM_MANT_SIGN_nan); }
 
-#define vfixup_vd_vd_vd_vi2_i(A,B,C,IMM) _mm512_fixupimm_pd(A, B, C, IMM)
-#define vfixup_vf_vf_vf_vi2_i(A,B,C,IMM) _mm512_fixupimm_ps(A, B, C, IMM)
+#if defined(__clang__)
+#define vfixup_vd_vd_vd_vi2_i(a, b, c, imm) ({ _mm512_fixupimm_pd((a), (b), (c), (imm)); })
+#define vfixup_vf_vf_vf_vi2_i(a, b, c, imm) ({ _mm512_fixupimm_ps((a), (b), (c), (imm)); })
+#else
+static INLINE vdouble vfixup_vd_vd_vd_vi2_i(vdouble a, vdouble b, vint2 c, int imm) { return _mm512_fixupimm_pd(a, b, c, imm); }
+static INLINE vfloat vfixup_vf_vf_vf_vi2_i(vfloat a, vfloat b, vint2 c, int imm) { return _mm512_fixupimm_ps(a, b, c, imm); }
+#endif
 
 #if defined(_MSC_VER)
 // This function is needed when debugging on MSVC.
@@ -283,12 +290,14 @@ static INLINE vint vsel_vi_vo_vi_vi(vopmask m, vint x, vint y) {
 static INLINE vint2 vcast_vi2_vm(vmask vm) { return vm; }
 static INLINE vmask vcast_vm_vi2(vint2 vi) { return vi; }
 
-static INLINE vint2 vrint_vi2_vf(vfloat vf) { return vcast_vi2_vm((vmask)_mm512_cvtps_epi32(vf)); }
-static INLINE vint2 vtruncate_vi2_vf(vfloat vf) { return vcast_vi2_vm((vmask)_mm512_cvttps_epi32(vf)); }
 static INLINE vfloat vcast_vf_vi2(vint2 vi) { return _mm512_cvtepi32_ps((vmask)vcast_vm_vi2(vi)); }
 static INLINE vfloat vcast_vf_f(float f) { return _mm512_set1_ps(f); }
 static INLINE vint2 vcast_vi2_i(int i) { return _mm512_set1_epi32(i); }
+static INLINE vint2 vrint_vi2_vf(vfloat vf) { return vcast_vi2_vm((vmask)_mm512_cvtps_epi32(vf)); }
+static INLINE vint2 vtruncate_vi2_vf(vfloat vf) { return vcast_vi2_vm((vmask)_mm512_cvttps_epi32(vf)); }
 static INLINE vfloat vtruncate_vf_vf(vfloat vd) { return vcast_vf_vi2(vtruncate_vi2_vf(vd)); }
+static INLINE vfloat vrint_vf_vf(vfloat vd) { return vcast_vf_vi2(vrint_vi2_vf(vd)); }
+
 static INLINE vmask vreinterpret_vm_vf(vfloat vf) { return (vmask)vf; }
 static INLINE vfloat vreinterpret_vf_vm(vmask vm) { return (vfloat)vm; }
 
@@ -359,6 +368,20 @@ static INLINE vint2 vsel_vi2_vo_vi2_vi2(vopmask m, vint2 x, vint2 y) {
 
 static INLINE vfloat vsel_vf_vo_vf_vf(vopmask m, vfloat x, vfloat y) {
   return _mm512_mask_blend_ps(m, y, x);
+}
+
+// At this point, the following three functions are implemented in a generic way,
+// but I will try target-specific optimization later on.
+static INLINE CONST vfloat vsel_vf_vo_f_f(vopmask o, float v1, float v0) {
+  return vsel_vf_vo_vf_vf(o, vcast_vf_f(v1), vcast_vf_f(v0));
+}
+
+static INLINE vfloat vsel_vf_vo_vo_f_f_f(vopmask o0, vopmask o1, float d0, float d1, float d2) {
+  return vsel_vf_vo_vf_vf(o0, vcast_vf_f(d0), vsel_vf_vo_f_f(o1, d1, d2));
+}
+
+static INLINE vfloat vsel_vf_vo_vo_vo_f_f_f_f(vopmask o0, vopmask o1, vopmask o2, float d0, float d1, float d2, float d3) {
+  return vsel_vf_vo_vf_vf(o0, vcast_vf_f(d0), vsel_vf_vo_vf_vf(o1, vcast_vf_f(d1), vsel_vf_vo_f_f(o2, d2, d3)));
 }
 
 static INLINE vopmask visinf_vo_vf(vfloat d) { return veq_vo_vf_vf(vabs_vf_vf(d), vcast_vf_f(INFINITYf)); }

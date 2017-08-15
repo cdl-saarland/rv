@@ -12,8 +12,6 @@
 #include "misc.h"
 
 #if defined(__MINGW32__) || defined(__MINGW64__) || defined(_MSC_VER)
-#include <windows.h>
-#include <sys/types.h>
 #include <sys/timeb.h>
 
 EXPORT void *Sleef_malloc(size_t z) { return _aligned_malloc(z, 256); }
@@ -56,7 +54,7 @@ EXPORT void Sleef_x86CpuID(int32_t out[4], uint32_t eax, uint32_t ecx) {
   __cpuidex(out, eax, ecx);
 }
 #else
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
 EXPORT void Sleef_x86CpuID(int32_t out[4], uint32_t eax, uint32_t ecx) {
   uint32_t a, b, c, d;
   __asm__ __volatile__ ("cpuid" : "=a" (a), "=b" (b), "=c" (c), "=d" (d) : "a" (eax), "c"(ecx));

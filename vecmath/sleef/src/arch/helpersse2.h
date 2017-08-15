@@ -3,12 +3,6 @@
 //    (See accompanying file LICENSE.txt or copy at
 //          http://www.boost.org/LICENSE_1_0.txt)
 
-#if defined(_MSC_VER)
-#define __SSE2__
-#define __SSE3__
-#define __SSE4_1__
-#endif
-
 #if CONFIG == 2
 
 #if !defined(__SSE2__)
@@ -46,7 +40,6 @@
 #endif
 
 #include <stdint.h>
-
 #include "misc.h"
 
 typedef __m128i vmask;
@@ -60,7 +53,9 @@ typedef __m128i vint2;
 
 //
 
+#ifndef __SLEEF_H__
 void Sleef_x86CpuID(int32_t out[4], uint32_t eax, uint32_t ecx);
+#endif
 
 static int cpuSupportsSSE2() {
     int32_t reg[4];
@@ -154,19 +149,20 @@ static INLINE vint vcastu_vi_vi2(vint2 vi) { return _mm_shuffle_epi32(vi, 0x0d);
 
 #ifdef __SSE4_1__
 static INLINE vdouble vtruncate_vd_vd(vdouble vd) { return _mm_round_pd(vd, _MM_FROUND_TO_ZERO |_MM_FROUND_NO_EXC); }
-static INLINE vfloat vtruncate_vf_vf(vfloat vf) { return _mm_round_ps(vf, _MM_FROUND_TO_ZERO |_MM_FROUND_NO_EXC); }
 static INLINE vdouble vrint_vd_vd(vdouble vd) { return _mm_round_pd(vd, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC); }
+static INLINE vfloat vtruncate_vf_vf(vfloat vf) { return _mm_round_ps(vf, _MM_FROUND_TO_ZERO |_MM_FROUND_NO_EXC); }
+static INLINE vfloat vrint_vf_vf(vfloat vd) { return _mm_round_ps(vd, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC); }
+static INLINE vopmask veq64_vo_vm_vm(vmask x, vmask y) { return _mm_cmpeq_epi64(x, y); }
 #else
 static INLINE vdouble vtruncate_vd_vd(vdouble vd) { return vcast_vd_vi(vtruncate_vi_vd(vd)); }
 static INLINE vdouble vrint_vd_vd(vdouble vd) { return vcast_vd_vi(vrint_vi_vd(vd)); }
-#endif
-
-static INLINE vmask vcast_vm_i_i(int i0, int i1) { return _mm_set_epi32(i0, i1, i0, i1); }
-
 static INLINE vopmask veq64_vo_vm_vm(vmask x, vmask y) {
   vmask t = _mm_cmpeq_epi32(x, y);
   return vand_vm_vm_vm(t, _mm_shuffle_epi32(t, 0xb1));
 }
+#endif
+
+static INLINE vmask vcast_vm_i_i(int i0, int i1) { return _mm_set_epi32(i0, i1, i0, i1); }
 
 //
 
@@ -291,6 +287,7 @@ static INLINE vint2 vreinterpret_vi2_vf(vfloat vf) { return _mm_castps_si128(vf)
 
 #ifndef __SSE4_1__
 static INLINE vfloat vtruncate_vf_vf(vfloat vd) { return vcast_vf_vi2(vtruncate_vi2_vf(vd)); }
+static INLINE vfloat vrint_vf_vf(vfloat vf) { return vcast_vf_vi2(vrint_vi2_vf(vf)); }
 #endif
 
 static INLINE vfloat vadd_vf_vf_vf(vfloat x, vfloat y) { return _mm_add_ps(x, y); }
@@ -347,6 +344,18 @@ static INLINE vfloat vsel_vf_vo_vf_vf(vopmask mask, vfloat x, vfloat y) {
   return vreinterpret_vf_vm(vor_vm_vm_vm(vand_vm_vm_vm(mask, vreinterpret_vm_vf(x)), vandnot_vm_vm_vm(mask, vreinterpret_vm_vf(y))));
 }
 #endif
+
+static INLINE CONST vfloat vsel_vf_vo_f_f(vopmask o, float v1, float v0) {
+  return vsel_vf_vo_vf_vf(o, vcast_vf_f(v1), vcast_vf_f(v0));
+}
+
+static INLINE vfloat vsel_vf_vo_vo_f_f_f(vopmask o0, vopmask o1, float d0, float d1, float d2) {
+  return vsel_vf_vo_vf_vf(o0, vcast_vf_f(d0), vsel_vf_vo_f_f(o1, d1, d2));
+}
+
+static INLINE vfloat vsel_vf_vo_vo_vo_f_f_f_f(vopmask o0, vopmask o1, vopmask o2, float d0, float d1, float d2, float d3) {
+  return vsel_vf_vo_vf_vf(o0, vcast_vf_f(d0), vsel_vf_vo_vf_vf(o1, vcast_vf_f(d1), vsel_vf_vo_f_f(o2, d2, d3)));
+}
 
 static INLINE vopmask visinf_vo_vf(vfloat d) { return veq_vo_vf_vf(vabs_vf_vf(d), vcast_vf_f(INFINITYf)); }
 static INLINE vopmask vispinf_vo_vf(vfloat d) { return veq_vo_vf_vf(d, vcast_vf_f(INFINITYf)); }

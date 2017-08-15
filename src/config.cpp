@@ -31,6 +31,7 @@ Config::Config()
 , useAVX2(false)
 , useAVX512(false)
 , useNEON(false)
+, useADVSIMD(false)
 , useSLEEF(false)
 {
   char * rawArch = getenv("RV_ARCH");
@@ -46,9 +47,9 @@ Config::Config()
     useAVX512 = true;
     useAVX2 = true;
     useSSE = true;
-  } else if (arch == "neon") {
-    Report() << "RV_ARCH: configured for neon!\n";
-    useNEON = true;
+  } else if (arch == "advsimd") {
+    Report() << "RV_ARCH: configured for arm advsimd!\n";
+    useADVSIMD = true;
   }
 }
 
@@ -88,7 +89,7 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
 
 static void
 printFeatureFlags(const Config & config, llvm::raw_ostream & out) {
-  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << "\n";
+  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << ", useADVSIMD = " << config.useADVSIMD << "\n";
 }
 
 

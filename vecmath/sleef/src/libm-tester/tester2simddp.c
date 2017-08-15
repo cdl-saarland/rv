@@ -31,6 +31,14 @@ typedef Sleef___m128d_2 vdouble2;
 typedef Sleef___m128_2 vfloat2;
 #endif
 
+#ifdef ENABLE_SSE4
+#define CONFIG 4
+#include "helpersse2.h"
+#include "renamesse4.h"
+typedef Sleef___m128d_2 vdouble2;
+typedef Sleef___m128_2 vfloat2;
+#endif
+
 #ifdef ENABLE_AVX
 #define CONFIG 1
 #include "helperavx.h"
@@ -53,6 +61,14 @@ typedef Sleef___m256_2 vfloat2;
 #include "renameavx2.h"
 typedef Sleef___m256d_2 vdouble2;
 typedef Sleef___m256_2 vfloat2;
+#endif
+
+#ifdef ENABLE_AVX2128
+#define CONFIG 1
+#include "helperavx2_128.h"
+#include "renameavx2128.h"
+typedef Sleef___m128d_2 vdouble2;
+typedef Sleef___m128_2 vfloat2;
 #endif
 
 #ifdef ENABLE_AVX512F
@@ -184,7 +200,9 @@ double vget(vdouble v, int idx) {
 }
 
 int vgeti(vint v, int idx) {
-  return v[idx];
+  int a[VECTLENDP*2];
+  vstoreu_v_p_vi(a, v);
+  return a[idx];
 }
 
 int main(int argc,char **argv)
@@ -276,7 +294,7 @@ int main(int argc,char **argv)
       double u2 = countULP2dp(t = vget(xsinpi_u05(vd), e), frx);
 
       if (u2 != 0 && ((fabs(d) <= rangemax2 && u2 > 0.506) || fabs(t) > 1 || !isnumber(t))) {
-	printf(ISANAME " sinpi_u05 sin arg=%.20g ulp=%.20g\n", d, u2);
+	printf(ISANAME " sinpi_u05 arg=%.20g ulp=%.20g\n", d, u2);
 	fflush(stdout); ecnt++;
       }
     }
@@ -297,6 +315,13 @@ int main(int argc,char **argv)
 
       if (u1 != 0 && ((fabs(d) <= rangemax2 && u1 > 1.5) || fabs(t) > 1 || !isnumber(t))) {
 	printf(ISANAME " sincospi_u35 cos arg=%.20g ulp=%.20g\n", d, u1);
+	fflush(stdout); ecnt++;
+      }
+
+      double u2 = countULP2dp(t = vget(xcospi_u05(vd), e), frx);
+
+      if (u2 != 0 && ((fabs(d) <= rangemax2 && u2 > 0.506) || fabs(t) > 1 || !isnumber(t))) {
+	printf(ISANAME " cospi_u05 arg=%.20g ulp=%.20g\n", d, u2);
 	fflush(stdout); ecnt++;
       }
     }

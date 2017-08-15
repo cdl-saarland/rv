@@ -20,6 +20,8 @@
 #include <signal.h>
 #endif
 
+#include "misc.h"
+
 #define DENORMAL_DBL_MIN (4.9406564584124654418e-324)
 #define POSITIVE_INFINITY INFINITY
 #define NEGATIVE_INFINITY (-INFINITY)
@@ -178,7 +180,7 @@ double countULPdp(double d, mpfr_t c) {
   }
 
   double v = 0;
-  if (isinf(d) && !isinfl(mpfr_get_ld(c, GMP_RNDN))) {
+  if (isinf(d) && !isinf(mpfr_get_d(c, GMP_RNDN))) {
     d = copysign(DBL_MAX, c2);
     v = 1;
   }
@@ -186,7 +188,7 @@ double countULPdp(double d, mpfr_t c) {
   //
   
   int e;
-  frexpl(mpfr_get_ld(c, GMP_RNDN), &e);
+  frexp(mpfr_get_d(c, GMP_RNDN), &e);
   mpfr_set_ld(frb, fmaxl(ldexpl(1.0, e-53), DENORMAL_DBL_MIN), GMP_RNDN);
 
   mpfr_set_d(frd, d, GMP_RNDN);
@@ -226,7 +228,7 @@ double countULP2dp(double d, mpfr_t c) {
   }
 
   double v = 0;
-  if (isinf(d) && !isinfl(mpfr_get_ld(c, GMP_RNDN))) {
+  if (isinf(d) && !isinf(mpfr_get_d(c, GMP_RNDN))) {
     d = copysign(DBL_MAX, c2);
     v = 1;
   }
@@ -234,7 +236,7 @@ double countULP2dp(double d, mpfr_t c) {
   //
 
   int e;
-  frexpl(mpfr_get_ld(c, GMP_RNDN), &e);
+  frexp(mpfr_get_d(c, GMP_RNDN), &e);
   mpfr_set_ld(frb, fmaxl(ldexpl(1.0, e-53), DBL_MIN), GMP_RNDN);
 
   mpfr_set_d(frd, d, GMP_RNDN);
@@ -275,7 +277,7 @@ double countULPsp(float d, mpfr_t c) {
   }
 
   double v = 0;
-  if (isinf(d) && !isinfl(mpfr_get_ld(c, GMP_RNDN))) {
+  if (isinf(d) && !isinf(mpfr_get_d(c, GMP_RNDN))) {
     d = copysign(FLT_MAX, c2);
     v = 1;
   }
@@ -283,7 +285,7 @@ double countULPsp(float d, mpfr_t c) {
   //
 
   int e;
-  frexpl(mpfr_get_ld(c, GMP_RNDN), &e);
+  frexp(mpfr_get_d(c, GMP_RNDN), &e);
   mpfr_set_ld(frb, fmaxl(ldexpl(1.0, e-24), DENORMAL_FLT_MIN), GMP_RNDN);
 
   mpfr_set_d(frd, d, GMP_RNDN);
@@ -324,7 +326,7 @@ double countULP2sp(float d, mpfr_t c) {
   }
 
   double v = 0;
-  if (isinf(d) && !isinfl(mpfr_get_ld(c, GMP_RNDN))) {
+  if (isinf(d) && !isinf(mpfr_get_d(c, GMP_RNDN))) {
     d = copysign(FLT_MAX, c2);
     v = 1;
   }
@@ -332,7 +334,7 @@ double countULP2sp(float d, mpfr_t c) {
   //
   
   int e;
-  frexpl(mpfr_get_ld(c, GMP_RNDN), &e);
+  frexp(mpfr_get_d(c, GMP_RNDN), &e);
   mpfr_set_ld(frb, fmaxl(ldexpl(1.0, e-24), FLT_MIN), GMP_RNDN);
 
   mpfr_set_d(frd, d, GMP_RNDN);
