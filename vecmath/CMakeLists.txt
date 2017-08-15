@@ -98,7 +98,7 @@ IF (RV_ENABLE_ADVSIMD)
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
     COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_ADVSIMD} -DENABLE_ADVSIMD=ON -ffp-contract=off -o ${SLEEF_BC_ADVSIMD_DP}
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_ADVSIMD_DP} \"advsimd_dp\" ${SLEEF_BC_ADVSIMD_DP}
-    DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c
+    DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c
   )
   ADD_CUSTOM_COMMAND (
     OUTPUT ${SLEEF_GENBC_ADVSIMD_SP}
@@ -116,7 +116,7 @@ ENDIF()
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
     COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX512} -DENABLE_AVX512F=ON -ffp-contract=off -o ${SLEEF_BC_AVX512_SP}
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_AVX512_SP} \"avx512_sp\" ${SLEEF_BC_AVX512_SP}
-    DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c
+    DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c
   )
   ADD_CUSTOM_COMMAND (
     OUTPUT ${SLEEF_GENBC_AVX512_DP}
@@ -163,7 +163,6 @@ ENDIF()
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_SP} \"sse_sp\" ${SLEEF_BC_SSE_SP}
     DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c
   )
-  # Sleef double precision
   ADD_CUSTOM_COMMAND (
     OUTPUT ${SLEEF_GENBC_SSE_DP}
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
@@ -171,6 +170,7 @@ ENDIF()
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_DP} \"sse_dp\" ${SLEEF_BC_SSE_DP}
     DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c
   )
+
   IF (RV_ENABLE_CRT) 
     # compiler-rt runtime library
     ADD_CUSTOM_COMMAND (
