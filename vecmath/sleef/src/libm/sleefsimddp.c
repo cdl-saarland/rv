@@ -1834,45 +1834,45 @@ static INLINE CONST vdouble upper2(vdouble d) {
   return vreinterpret_vd_vm(vand_vm_vm_vm(vreinterpret_vm_vd(d), vcast_vm_i_i(0xffffffff, 0xfffffffe)));
 }
 
-EXPORT CONST vdouble xfabs(vdouble x) { return vabs_vd_vd(x); }
+EXPORT DOINLINE CONST vdouble xfabs(vdouble x) { return vabs_vd_vd(x); }
 
-EXPORT CONST vdouble xcopysign(vdouble x, vdouble y) { return vcopysign_vd_vd_vd(x, y); }
+EXPORT DOINLINE CONST vdouble xcopysign(vdouble x, vdouble y) { return vcopysign_vd_vd_vd(x, y); }
 
-EXPORT CONST vdouble xfmax(vdouble x, vdouble y) {
+EXPORT DOINLINE CONST vdouble xfmax(vdouble x, vdouble y) {
   return vsel_vd_vo_vd_vd(visnan_vo_vd(y), x, vsel_vd_vo_vd_vd(vgt_vo_vd_vd(x, y), x, y));
 }
 
-EXPORT CONST vdouble xfmin(vdouble x, vdouble y) {
+EXPORT DOINLINE CONST vdouble xfmin(vdouble x, vdouble y) {
   return vsel_vd_vo_vd_vd(visnan_vo_vd(y), x, vsel_vd_vo_vd_vd(vgt_vo_vd_vd(y, x), x, y));
 }
 
-EXPORT CONST vdouble xfdim(vdouble x, vdouble y) {
+EXPORT DOINLINE CONST vdouble xfdim(vdouble x, vdouble y) {
   vdouble ret = vsub_vd_vd_vd(x, y);
   ret = vsel_vd_vo_vd_vd(vor_vo_vo_vo(vlt_vo_vd_vd(ret, vcast_vd_d(0)), veq_vo_vd_vd(x, y)), vcast_vd_d(0), ret);
   return ret;
 }
 
-EXPORT CONST vdouble xtrunc(vdouble x) {
+EXPORT DOINLINE CONST vdouble xtrunc(vdouble x) {
   vdouble fr = vsub_vd_vd_vd(x, vmul_vd_vd_vd(vcast_vd_d(1LL << 31), vcast_vd_vi(vtruncate_vi_vd(vmul_vd_vd_vd(x, vcast_vd_d(1.0 / (1LL << 31)))))));
   fr = vsub_vd_vd_vd(fr, vcast_vd_vi(vtruncate_vi_vd(fr)));
   return vsel_vd_vo_vd_vd(vor_vo_vo_vo(visinf_vo_vd(x), vge_vo_vd_vd(vabs_vd_vd(x), vcast_vd_d(1LL << 52))), x, vcopysign_vd_vd_vd(vsub_vd_vd_vd(x, fr), x));
 }
 
-EXPORT CONST vdouble xfloor(vdouble x) {
+EXPORT DOINLINE CONST vdouble xfloor(vdouble x) {
   vdouble fr = vsub_vd_vd_vd(x, vmul_vd_vd_vd(vcast_vd_d(1LL << 31), vcast_vd_vi(vtruncate_vi_vd(vmul_vd_vd_vd(x, vcast_vd_d(1.0 / (1LL << 31)))))));
   fr = vsub_vd_vd_vd(fr, vcast_vd_vi(vtruncate_vi_vd(fr)));
   fr = vsel_vd_vo_vd_vd(vlt_vo_vd_vd(fr, vcast_vd_d(0)), vadd_vd_vd_vd(fr, vcast_vd_d(1.0)), fr);
   return vsel_vd_vo_vd_vd(vor_vo_vo_vo(visinf_vo_vd(x), vge_vo_vd_vd(vabs_vd_vd(x), vcast_vd_d(1LL << 52))), x, vcopysign_vd_vd_vd(vsub_vd_vd_vd(x, fr), x));
 }
 
-EXPORT CONST vdouble xceil(vdouble x) {
+EXPORT DOINLINE CONST vdouble xceil(vdouble x) {
   vdouble fr = vsub_vd_vd_vd(x, vmul_vd_vd_vd(vcast_vd_d(1LL << 31), vcast_vd_vi(vtruncate_vi_vd(vmul_vd_vd_vd(x, vcast_vd_d(1.0 / (1LL << 31)))))));
   fr = vsub_vd_vd_vd(fr, vcast_vd_vi(vtruncate_vi_vd(fr)));
   fr = vsel_vd_vo_vd_vd(vle_vo_vd_vd(fr, vcast_vd_d(0)), fr, vsub_vd_vd_vd(fr, vcast_vd_d(1.0)));
   return vsel_vd_vo_vd_vd(vor_vo_vo_vo(visinf_vo_vd(x), vge_vo_vd_vd(vabs_vd_vd(x), vcast_vd_d(1LL << 52))), x, vcopysign_vd_vd_vd(vsub_vd_vd_vd(x, fr), x));
 }
 
-EXPORT CONST vdouble xround(vdouble d) {
+EXPORT DOINLINE CONST vdouble xround(vdouble d) {
   vdouble x = vadd_vd_vd_vd(d, vcast_vd_d(0.5));
   vdouble fr = vsub_vd_vd_vd(x, vmul_vd_vd_vd(vcast_vd_d(1LL << 31), vcast_vd_vi(vtruncate_vi_vd(vmul_vd_vd_vd(x, vcast_vd_d(1.0 / (1LL << 31)))))));
   fr = vsub_vd_vd_vd(fr, vcast_vd_vi(vtruncate_vi_vd(fr)));
@@ -1882,7 +1882,7 @@ EXPORT CONST vdouble xround(vdouble d) {
   return vsel_vd_vo_vd_vd(vor_vo_vo_vo(visinf_vo_vd(d), vge_vo_vd_vd(vabs_vd_vd(d), vcast_vd_d(1LL << 52))), d, vcopysign_vd_vd_vd(vsub_vd_vd_vd(x, fr), d));
 }
 
-EXPORT CONST vdouble xrint(vdouble d) {
+EXPORT DOINLINE CONST vdouble xrint(vdouble d) {
   vdouble x = vadd_vd_vd_vd(d, vcast_vd_d(0.5));
   vdouble fr = vsub_vd_vd_vd(x, vmul_vd_vd_vd(vcast_vd_d(1LL << 31), vcast_vd_vi(vtruncate_vi_vd(vmul_vd_vd_vd(x, vcast_vd_d(1.0 / (1LL << 31)))))));
   vopmask isodd = vcast_vo64_vo32(veq_vo_vi_vi(vand_vi_vi_vi(vcast_vi_i(1), vtruncate_vi_vd(fr)), vcast_vi_i(1)));
@@ -1893,7 +1893,7 @@ EXPORT CONST vdouble xrint(vdouble d) {
   return ret;
 }
 
-EXPORT CONST vdouble xnextafter(vdouble x, vdouble y) {
+EXPORT DOINLINE CONST vdouble xnextafter(vdouble x, vdouble y) {
   x = vsel_vd_vo_vd_vd(veq_vo_vd_vd(x, vcast_vd_d(0)), vmulsign_vd_vd_vd(vcast_vd_d(0), y), x);
   vint2 t, xi2 = vreinterpret_vi2_vd(x);
   vopmask c = vxor_vo_vo_vo(vsignbit_vo_vd(x), vge_vo_vd_vd(y, x));
@@ -1924,7 +1924,7 @@ EXPORT CONST vdouble xnextafter(vdouble x, vdouble y) {
   return ret;
 }
 
-EXPORT CONST vdouble xfrfrexp(vdouble x) {
+EXPORT DOINLINE CONST vdouble xfrfrexp(vdouble x) {
   x = vsel_vd_vo_vd_vd(vlt_vo_vd_vd(vabs_vd_vd(x), vcast_vd_d(DBL_MIN)), vmul_vd_vd_vd(x, vcast_vd_d(1ULL << 63)), x);
 
   vmask xm = vreinterpret_vm_vd(x);
@@ -1939,7 +1939,7 @@ EXPORT CONST vdouble xfrfrexp(vdouble x) {
   return ret;
 }
 
-EXPORT CONST vint xexpfrexp(vdouble x) {
+EXPORT DOINLINE CONST vint xexpfrexp(vdouble x) {
   x = vsel_vd_vo_vd_vd(vlt_vo_vd_vd(vabs_vd_vd(x), vcast_vd_d(DBL_MIN)), vmul_vd_vd_vd(x, vcast_vd_d(1ULL << 63)), x);
 
   vint ret = vcastu_vi_vi2(vreinterpret_vi2_vd(x));
@@ -1950,7 +1950,7 @@ EXPORT CONST vint xexpfrexp(vdouble x) {
   return ret;
 }
 
-EXPORT CONST vdouble xfma(vdouble x, vdouble y, vdouble z) {
+EXPORT DOINLINE CONST vdouble xfma(vdouble x, vdouble y, vdouble z) {
   vdouble h2 = vadd_vd_vd_vd(vmul_vd_vd_vd(x, y), z), q = vcast_vd_d(1);
   vopmask o = vlt_vo_vd_vd(vabs_vd_vd(h2), vcast_vd_d(1e-300));
   {
@@ -1983,7 +1983,7 @@ EXPORT CONST vdouble xfma(vdouble x, vdouble y, vdouble z) {
   return vsel_vd_vo_vd_vd(o, h2, vmul_vd_vd_vd(ret, q));
 }
 
-EXPORT CONST __attribute__((always_inline)) vdouble xsqrt_u05(vdouble d) {
+EXPORT DOINLINE CONST __attribute__((always_inline)) vdouble xsqrt_u05(vdouble d) {
 #if defined(ENABLE_AVX) || defined(ENABLE_AVX2) || defined(ENABLE_AVX512) || defined(ENABLE_ADVSIMD)
   return vsqrt_vd_vd(d);
 #else
@@ -2041,7 +2041,7 @@ EXPORT CONST vdouble xhypot_u05(vdouble x, vdouble y) {
   return ret;
 }
 
-EXPORT CONST vdouble xhypot_u35(vdouble x, vdouble y) {
+EXPORT DOINLINE CONST vdouble xhypot_u35(vdouble x, vdouble y) {
   x = vabs_vd_vd(x);
   y = vabs_vd_vd(y);
   vdouble min = vmin_vd_vd_vd(x, y);
@@ -2057,7 +2057,7 @@ EXPORT CONST vdouble xhypot_u35(vdouble x, vdouble y) {
 }
 
 /* TODO AArch64: potential optimization by using `vfmad_lane_f64` */
-EXPORT CONST vdouble xfmod(vdouble x, vdouble y) {
+EXPORT DOINLINE CONST vdouble xfmod(vdouble x, vdouble y) {
   vdouble nu = vabs_vd_vd(x), de = vabs_vd_vd(y), s = vcast_vd_d(1);
   vopmask o = vlt_vo_vd_vd(de, vcast_vd_d(DBL_MIN));
   nu = vsel_vd_vo_vd_vd(o, vmul_vd_vd_vd(nu, vcast_vd_d(1ULL << 54)), nu);

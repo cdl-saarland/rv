@@ -248,4 +248,7 @@ static INLINE CONST int isnanf(float x) { return x != x; }
 static INLINE CONST int isnanl(long double x) { return x != x; }
 #endif
 
+// aggressive inlining option
+#define DOINLINE __attribute__((always_inline))
+
 #endif // #ifndef __MISC_H__
