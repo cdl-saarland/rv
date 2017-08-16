@@ -22,10 +22,21 @@
 
 using namespace llvm;
 
-#ifdef RV_ENABLE_BUILTINS
+#ifdef RV_ENABLE_ADVSIMD
 extern const unsigned char * advsimd_sp_Buffer;
 extern const size_t advsimd_sp_BufferLen;
 
+extern const unsigned char * advsimd_dp_Buffer;
+extern const size_t advsimd_dp_BufferLen;
+#else
+const unsigned char * advsimd_sp_Buffer = nullptr;
+const size_t advsimd_sp_BufferLen = 0;
+
+const unsigned char * advsimd_dp_Buffer = nullptr;
+const size_t advsimd_dp_BufferLen = 0;
+#endif
+
+#ifdef RV_ENABLE_X86
 extern const unsigned char * avx512_sp_Buffer;
 extern const size_t avx512_sp_BufferLen;
 
@@ -37,9 +48,6 @@ extern const size_t avx_sp_BufferLen;
 
 extern const unsigned char * sse_sp_Buffer;
 extern const size_t sse_sp_BufferLen;
-
-extern const unsigned char * advsimd_dp_Buffer;
-extern const size_t advsimd_dp_BufferLen;
 
 extern const unsigned char * avx512_dp_Buffer;
 extern const size_t avx512_dp_BufferLen;
@@ -55,11 +63,34 @@ extern const size_t sse_dp_BufferLen;
 
 extern const unsigned char * avx_extras_Buffer;
 extern const size_t avx_extras_BufferLen;
+
 #else
+const unsigned char * avx512_sp_Buffer = nullptr;
+const size_t avx512_sp_BufferLen = 0;
 
-static const unsigned char * avx_extras_Buffer = nullptr;
-static const size_t avx_extras_BufferLen = 0L;
+const unsigned char * avx2_sp_Buffer = nullptr;
+const size_t avx2_sp_BufferLen = 0;
 
+const unsigned char * avx_sp_Buffer = nullptr;
+const size_t avx_sp_BufferLen = 0;
+
+const unsigned char * sse_sp_Buffer = nullptr;
+const size_t sse_sp_BufferLen = 0;
+
+const unsigned char * avx512_dp_Buffer nullptr;
+const size_t avx512_dp_BufferLen = 0;
+
+const unsigned char * avx2_dp_Buffer = nullptr;
+const size_t avx2_dp_BufferLen = 0;
+
+const unsigned char * avx_dp_Buffer = nullptr;
+const size_t avx_dp_BufferLen = 0;
+
+const unsigned char * sse_dp_Buffer = nullptr;
+const size_t sse_dp_BufferLen = 0;
+
+const unsigned char * avx_extras_Buffer = nullptr;
+const size_t avx_extras_BufferLen = 0;
 #endif
 
 #ifdef RV_ENABLE_CRT
@@ -81,7 +112,6 @@ namespace rv {
     return int(isa) + (doublePrecision ? 5 : 0);
   }
 
-#ifdef RV_ENABLE_BUILTINS
   static const size_t sleefModuleBufferLens[] = {
       sse_sp_BufferLen,
       avx_sp_BufferLen,
@@ -109,25 +139,6 @@ namespace rv {
       &avx512_dp_Buffer,
       &advsimd_dp_Buffer,
   };
-
-#else // ! RV_ENABLE_SLEEF
-  static const size_t sleefModuleBufferLens[] = {
-    0,0,0,0,0,0,0,0,0,0
-  };
-
-  static const char** sleefModuleBuffers[] = {
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr
-  };
-#endif
 
 static
 void

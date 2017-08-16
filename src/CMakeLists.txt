@@ -5,6 +5,14 @@ if (MSVC_IDE OR XCODE)
   file(GLOB_RECURSE RV_HEADER_FILES "${RV_SOURCE_DIR}/include/rv/**/*.h")
 endif ()
 
+if (RV_ENABLE_X86)
+  add_definitions( "-DRV_ENABLE_X86" )
+ENDIF()
+
+if (RV_ENABLE_ADVSIMD)
+  add_definitions( "-DRV_ENABLE_ADVSIMD" )
+endif()
+
 if (RV_ENABLE_SLEEF) 
   add_definitions( "-DRV_ENABLE_BUILTINS" )
   if (RV_ENABLE_CRT)

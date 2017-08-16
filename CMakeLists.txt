@@ -95,6 +95,20 @@ OPTION(RV_ENABLE_CRT "Implement complex math functions using BC-compiler compile
 OPTION(RV_DEBUG "Enable verbose debug output and expensive internal checks." OFF)
 
 
+# check enabled targets
+IF (X86 IN_LIST LLVM_TARGETS_TO_BUILD)
+  SET(RV_ENABLE_X86 On)
+ELSE()
+  SET(RV_ENABLE_X86 Off)
+ENDIF()
+
+IF (AArch64 IN_LIST LLVM_TARGETS_TO_BUILD)
+  SET(RV_ENABLE_ADVSIMD On)
+ELSE()
+  SET(RV_ENABLE_ADVSIMD Off)
+ENDIF()
+
+
 set(RV_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(RV_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(RV_INCLUDE_DIR ${RV_SOURCE_DIR}/include PARENT_SCOPE)
