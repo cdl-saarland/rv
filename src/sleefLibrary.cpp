@@ -28,12 +28,19 @@ extern const size_t advsimd_sp_BufferLen;
 
 extern const unsigned char * advsimd_dp_Buffer;
 extern const size_t advsimd_dp_BufferLen;
+
+extern const unsigned char * advsimd_extras_Buffer;
+extern const size_t advsimd_extras_BufferLen;
+
 #else
 const unsigned char * advsimd_sp_Buffer = nullptr;
 const size_t advsimd_sp_BufferLen = 0;
 
 const unsigned char * advsimd_dp_Buffer = nullptr;
 const size_t advsimd_dp_BufferLen = 0;
+
+const unsigned char * advsimd_extras_Buffer = nullptr;
+const size_t advsimd_extras_BufferLen = 0;
 #endif
 
 #ifdef RV_ENABLE_X86
@@ -61,8 +68,11 @@ extern const size_t avx_dp_BufferLen;
 extern const unsigned char * sse_dp_Buffer;
 extern const size_t sse_dp_BufferLen;
 
-extern const unsigned char * avx_extras_Buffer;
-extern const size_t avx_extras_BufferLen;
+extern const unsigned char * avx2_extras_Buffer;
+extern const size_t avx2_extras_BufferLen;
+
+extern const unsigned char * avx512_extras_Buffer;
+extern const size_t avx512_extras_BufferLen;
 
 #else
 const unsigned char * avx512_sp_Buffer = nullptr;
@@ -89,8 +99,11 @@ const size_t avx_dp_BufferLen = 0;
 const unsigned char * sse_dp_Buffer = nullptr;
 const size_t sse_dp_BufferLen = 0;
 
-const unsigned char * avx_extras_Buffer = nullptr;
-const size_t avx_extras_BufferLen = 0;
+const unsigned char * avx2_extras_Buffer = nullptr;
+const size_t avx2_extras_BufferLen = 0;
+
+const unsigned char * avx512_extras_Buffer = nullptr;
+const size_t avx512_extras_BufferLen = 0;
 #endif
 
 #ifdef RV_ENABLE_CRT
@@ -111,6 +124,7 @@ namespace rv {
   inline int sleefModuleIndex(SleefISA isa, bool doublePrecision) {
     return int(isa) + (doublePrecision ? 5 : 0);
   }
+
 
   static const size_t sleefModuleBufferLens[] = {
       sse_sp_BufferLen,
@@ -140,6 +154,21 @@ namespace rv {
       &advsimd_dp_Buffer,
   };
 
+  static const size_t extraModuleBufferLens[] = {
+      0, // SSE
+      0, // AVX
+      avx2_extras_BufferLen,
+      avx512_extras_BufferLen,
+      advsimd_extras_BufferLen,
+  };
+
+  static const unsigned char** extraModuleBuffers[] = {
+      nullptr, // SSE
+      nullptr, // AVX
+      &avx2_extras_Buffer,
+      &avx512_extras_Buffer,
+      &advsimd_extras_Buffer,
+  };
 static
 void
 AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
@@ -461,7 +490,8 @@ AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
           {"llvm.maxnum.f64", "xfmax_avx2", 4},
 
         // extras
-          {"drand48", "avx_vrand_d4_extra", 4}
+          {"drand48", "vrand_extra_avx2", 4},
+          {"frand48", "vrandf_extra_avx2", 8}
       };
       platInfo.addVectorizableFunctions(VecFuncs, true);
 
@@ -603,7 +633,8 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
           {"llvm.maxnum.f64", "xfmax_avx512", 8},
 
         // extras
-          {"drand816", "avx_vrand_d8_extra", 8}
+          {"drand48", "vrand_extra_avx512", 8},
+          {"frand48", "vrandf_extra_avx512", 16}
       };
       platInfo.addVectorizableFunctions(VecFuncs, true);
 
@@ -745,7 +776,8 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
           {"llvm.maxnum.f64", "xfmax_advsimd", 8},
 
         // extras
-          {"drand84", "avx_vrand_d8_extra", 8}
+          {"drand48", "vrand_extra_advsimd", 2},
+          {"frand48", "vrand_extra_advsimd", 4}
       };
       platInfo.addVectorizableFunctions(VecFuncs, true);
 
@@ -836,8 +868,8 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
 }
 
   static Module const *sleefModules[5 * 2];
+  static Module const *extraModules[5 * 2];
   static Module* scalarModule; // scalar implementations to be inlined
-  static Module* extrasModule; // rv extra functions (vrand, ..)
 
   bool addSleefMappings(const Config & config,
                         PlatformInfo &platInfo,
@@ -1037,10 +1069,12 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
     else if (vecFuncName.count("advsimd")) isa = SLEEF_ADVSIMD;
     else return nullptr;
 
-    // query the extra module
-    if (avx_extras_Buffer && vecFuncName.count("_extra")) {
-      if (!extrasModule) extrasModule = createModuleFromBuffer(reinterpret_cast<const char*>(&avx_extras_Buffer), avx_extras_BufferLen, context);
-      Function *vecFunc = extrasModule->getFunction(vecFuncName);
+    bool isExtraFunc = vecFuncName.count("_extra");
+    if (isExtraFunc) {
+      int modIdx = (int) isa;
+      auto *& mod = extraModules[modIdx];
+      if (!mod) mod = createModuleFromBuffer(reinterpret_cast<const char*>(extraModuleBuffers[modIdx]), extraModuleBufferLens[modIdx], context);
+      Function *vecFunc = mod->getFunction(sleefName);
       assert(vecFunc && "mapped extra function not found in module!");
       return &cloneFunctionIntoModule(*vecFunc, *insertInto, vecFuncName);
     }
