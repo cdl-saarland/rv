@@ -66,16 +66,17 @@ unsigned getAlignment(const Constant* c) {
 
 namespace rv {
 
+// undef shape
 VectorShape::VectorShape()
     : stride(0), hasConstantStride(false), alignment(0), defined(false) {}
 
 VectorShape::VectorShape(uint _alignment)
-    : stride(0), hasConstantStride(false), alignment(_alignment),
+    : stride(0), hasConstantStride(false), alignment(std::max<uint>(1, _alignment)),
       defined(true) {}
 
 // constant stride constructor
-VectorShape::VectorShape(int _stride, unsigned _alignment)
-    : stride(_stride), hasConstantStride(true), alignment(_alignment),
+VectorShape::VectorShape(int _stride, uint _alignment)
+    : stride(_stride), hasConstantStride(true), alignment(std::max<uint>(1, _alignment)),
       defined(true) {}
 
 VectorShape VectorShape::fromConstant(const Constant* C) {

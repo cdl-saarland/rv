@@ -25,7 +25,7 @@ namespace rv {
 class VectorShape {
   int stride;
   bool hasConstantStride;
-  unsigned alignment; // NOTE: General alignment if not hasConstantStride, else alignment of first
+  uint alignment; // NOTE: General alignment if not hasConstantStride, else alignment of first
   bool defined;
 
   VectorShape(unsigned _alignment);              // varying
