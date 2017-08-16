@@ -59,6 +59,12 @@ namespace rv {
   void scheduleDomRegion(llvm::BasicBlock * domEntry, llvm::Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
 
   // statistics
+      // # kept phi incoming values
+      size_t numUniformAssignments;
+      // # num of super blocks before partially linearized phi nodes
+      size_t numPreservedAssignments;
+      // # phi incoming values folded into selects
+      size_t numFoldedAssignments;
       // number of schedule heads that had to be diverted
       size_t numDivertedHeads;
       // number of lost returns
@@ -382,7 +388,10 @@ namespace rv {
     size_t simplifyBlends();
   public:
     Linearizer(VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _dt, llvm::LoopInfo & _li)
-    : numDivertedHeads(0)
+    : numUniformAssignments(0)
+    , numPreservedAssignments(0)
+    , numFoldedAssignments(0)
+    , numDivertedHeads(0)
     , numDelayedReturns(0)
     , numFoldedBranches(0)
     , numPreservedBranches(0)

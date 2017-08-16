@@ -653,6 +653,8 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
   auto & phiBlock = *phi.getParent();
 
+  numFoldedAssignments += blocks.size() - 1;
+
   auto phiShape = vecInfo.getVectorShape(phi);
   for (size_t i = 1; i < blocks.size(); ++i) {
     auto * inBlock = blocks[i];
@@ -716,7 +718,10 @@ Linearizer::foldPhis(BasicBlock & block) {
   if (isRepairPhi(phi)) return;
 
 // check if PHIs need to be folded at all
-  if (!needsFolding(phi)) return;
+  if (!needsFolding(phi)) {
+    numUniformAssignments += phi.getNumIncomingValues();
+    return;
+  }
 
   // TODO fast path for num preds == 1
 
@@ -775,6 +780,7 @@ Linearizer::foldPhis(BasicBlock & block) {
 
     IRBuilder<> builder(&block, block.getFirstInsertionPt());
 
+    numPreservedAssignments += selectBlockMap.size() - 1;
 
   // materialize blended inputs
     auto phiShape = vecInfo.getVectorShape(*phi);
@@ -1274,6 +1280,12 @@ Linearizer::run() {
   }
   if (numUniformLoops > 0) {
     Report() << "\t" << numUniformLoops << " uniform loops.\n";
+  }
+  if (numFoldedAssignments > 0) {
+    Report() << "phi stats:\n"
+      << "\t" << numUniformAssignments << " c-uniform incoming values\n"
+      << "\t" << numFoldedAssignments << " folded incoming values\n"
+      << "\t" << numPreservedAssignments << " preserved incoming values.\n";
   }
 }
 
