@@ -1416,7 +1416,7 @@ void NatBuilder::addLazyInstruction(Instruction *const instr) {
 void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
   assert(!lazyInstructions.empty() && "no lazy instructions to generate!");
 
-  errs() << " --- reqLazy: " << upToInstruction->getName() << " --\n";
+  IF_DEBUG_NAT errs() << " --- reqLazy: " << upToInstruction->getName() << " --\n";
 
   Instruction *lazyInstr = lazyInstructions.front();
   lazyInstructions.pop_front();
@@ -1451,7 +1451,7 @@ void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
     lazyInstructions.pop_front();
   }
 
-  errs() << " --- DONE reqLazy: " << upToInstruction->getName() << " --\n";
+  IF_DEBUG_NAT errs() << " --- DONE reqLazy: " << upToInstruction->getName() << " --\n";
 
   // if we reach this point this should be guaranteed:
   assert(lazyInstr == upToInstruction && "something went wrong during lazy generation!");
