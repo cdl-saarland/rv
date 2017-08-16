@@ -8,14 +8,14 @@ Config::Config()
 
   // should all (non-loop exiting) branches be folded regardless of VA result?
   // set to false for partial linearization
-, foldAllBranches(false)
+, foldAllBranches(CheckFlag("RV_FOLD_BRANCHES"))
 
 // backend defaults
 , scalarizeIndexComputation(true)
 , useScatterGatherIntrinsics(true)
 , enableMaskedMove(true)
-, enableInterleaved(false)
-, enablePseudoInterleaved(false)
+, enableInterleaved(true)
+, enablePseudoInterleaved(true)
 , cropPseudoInterleaved(false)
 , useSafeDivisors(true)
 
