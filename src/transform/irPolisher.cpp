@@ -18,11 +18,14 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
 
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/PassManager.h"
+#include "llvm/Passes/PassBuilder.h"
 
 #include "rv/transform/irPolisher.h"
 #include "report.h"
@@ -156,32 +159,7 @@ Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, 
   auto newLeft  = boolCmp ? getMaskForValueOrInst(builder, left , bitWidth) : left;
   auto newRight = boolCmp ? getMaskForValueOrInst(builder, right, bitWidth) : right;
 
-  // Optimizations:
-  // cmp eq <n x i1> %x, false => not %x
-  // cmp ne <n x i1> %x, true  => not %x
-  // cmp eq <n x i1> %x, true  => %x
-  // cmp ne <n x i1> %x, false => %x
   auto pred = cmpInst->getPredicate();
-  if (boolCmp && (pred == CmpInst::ICMP_EQ || pred == CmpInst::ICMP_NE)) {
-    if (auto leftCst = dyn_cast<Constant>(left)) {
-      if ((leftCst->isAllOnesValue() && pred == CmpInst::ICMP_EQ) ||
-          (leftCst->isZeroValue()    && pred == CmpInst::ICMP_NE)) {
-        return newRight;
-      } else if ((leftCst->isAllOnesValue() && pred == CmpInst::ICMP_NE) ||
-                 (leftCst->isZeroValue()    && pred == CmpInst::ICMP_EQ)) {
-        return builder.CreateNot(newRight);
-      }
-    } else if (auto rightCst = dyn_cast<Constant>(right)) {
-      if ((rightCst->isAllOnesValue() && pred == CmpInst::ICMP_EQ) ||
-          (rightCst->isZeroValue()    && pred == CmpInst::ICMP_NE)) {
-        return newLeft;
-      } else if ((rightCst->isAllOnesValue() && pred == CmpInst::ICMP_EQ) ||
-                 (rightCst->isZeroValue()    && pred == CmpInst::ICMP_NE)) {
-        return builder.CreateNot(newLeft);
-      }
-    }
-  }
-
   auto newLeftTy = newLeft->getType();
   auto vecLen    = newLeftTy->getVectorNumElements();
   auto scalarTy  = newLeftTy->getScalarType();
@@ -257,29 +235,6 @@ Value *IRPolisher::replaceSelectInst(IRBuilder<> &builder, llvm::SelectInst *sel
       auto selectClone = builder.Insert(selectInst->clone());
       selectClone->setOperand(0, cmpClone);
       return selectClone;
-    }
-  }
-
-  // Optimization: if the select is using a NOT,
-  // then invert operands and use original (non-NOT) value.
-  bool invertOps = false;
-  if (BinaryOperator::isNot(condMask)) {
-    invertOps = true;
-    condMask = BinaryOperator::getNotArgument(condMask);
-  }
-  if (invertOps) std::swap(newS1, newS2);
-
-  // Optimizations:
-  // select %x true false  -> cond
-  // select %x false true  -> not cond
-  if (boolSelect) {
-    auto s1Cst = dyn_cast<Constant>(newS1);
-    auto s2Cst = dyn_cast<Constant>(newS2);
-    if (s1Cst && s2Cst) {
-      if (s1Cst->isAllOnesValue() && s2Cst->isZeroValue())
-        return condMask;
-      if (s1Cst->isZeroValue() && s2Cst->isAllOnesValue())
-        return builder.CreateNot(condMask);
     }
   }
 
@@ -475,6 +430,14 @@ bool IRPolisher::polish() {
   }
 
   IF_DEBUG { errs() << "Starting polishing phase\n"; }
+
+  // Run InstCombine to perform peephole opts
+  FunctionPassManager FPM;
+  FunctionAnalysisManager FAM;
+  PassBuilder builder;
+  builder.registerFunctionAnalyses(FAM);
+  FPM.addPass(InstCombinePass());
+  FPM.run(F, FAM);
 
   visitedInsts.clear();
   queue = std::move(std::queue<ExtInst>());
