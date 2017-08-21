@@ -71,6 +71,7 @@ inline bool startsWith(const char* str1, const char* str2) {
 }
 
 Value *IRPolisher::mapIntrinsicCall(llvm::IRBuilder<>& builder, llvm::CallInst* callInst, unsigned bitWidth) {
+  if (!isa<Function>(callInst->getCalledValue())) return nullptr;
   auto callee = callInst->getCalledFunction();
   auto isReduceOr = startsWith(callee->getName().data(), "rv_reduce_or");
   auto isReduceAnd = startsWith(callee->getName().data(), "rv_reduce_and");
@@ -129,7 +130,9 @@ Value *IRPolisher::mapIntrinsicCall(llvm::IRBuilder<>& builder, llvm::CallInst* 
 }
 
 Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
+  if (!isa<Function>(callInst->getCalledValue())) return nullptr;
   auto callee = callInst->getCalledFunction();
+
   auto isReduceOr = startsWith(callee->getName().data(), "rv_reduce_or");
   auto isReduceAnd = startsWith(callee->getName().data(), "rv_reduce_and");
 
