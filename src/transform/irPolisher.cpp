@@ -345,6 +345,16 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     newStore->setSynchScope(storeInst->getSynchScope());
 
     newInst = newStore;
+  } else if (auto loadInst = dyn_cast<LoadInst>(inst)) {
+    auto ptr = loadInst->getOperand(0);
+    auto newLoad = builder.CreateLoad(ptr);
+
+    newLoad->setAlignment(loadInst->getAlignment());
+    newLoad->setVolatile(loadInst->isVolatile());
+    newLoad->setOrdering(loadInst->getOrdering());
+    newLoad->setSynchScope(loadInst->getSynchScope());
+
+    newInst = getMaskForValue(builder, newLoad, bitWidth);
   } else if (auto phiNode = dyn_cast<PHINode>(inst)) {
     auto vecLen = phiNode->getType()->getVectorNumElements();
     auto vecTy = VectorType::get(builder.getIntNTy(bitWidth), vecLen);
