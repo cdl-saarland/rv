@@ -310,16 +310,21 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
   return true;
 }
 
+static bool
+IsDecomposable(Type & ty) {
+  return isa<StructType>(ty) || isa<ArrayType>(ty) || isa<VectorType>(ty);
+}
+
 bool
 StructOpt::shouldPromote(llvm::AllocaInst & allocaInst) {
-  if (!isa<StructType>(allocaInst.getType()->getPointerElementType())) return false; // TODO can be extended to small arrays
+  if (!IsDecomposable(*allocaInst.getType()->getPointerElementType())) return false;
 
 // check that the alloca is only ever accessed as a whole (no GEPs)
   for (auto & use : allocaInst.uses()) {
     auto * load = dyn_cast<LoadInst>(use.getUser());
     auto * store = dyn_cast<StoreInst>(use.getUser());
     if (!load && !store) {
-      IF_DEBUG_SO { errs() << "\t non-load/stire user -> can not promote\n";}
+      IF_DEBUG_SO { errs() << "\t non-load/store user -> can not promote\n";}
       return false;
     }
     if (store) {
