@@ -31,6 +31,22 @@ using namespace llvm;
 #define IF_DEBUG_SROV if (true)
 #endif
 
+// InsertElementInst operand accessors missing in LLVM 4.0
+static Value*
+GetVectorOperand(InsertElementInst & insertInst) {
+  return insertInst.getOperand(0);
+}
+
+static Value*
+GetElemOperand(InsertElementInst & insertInst) {
+  return insertInst.getOperand(1);
+}
+
+static Value*
+GetIndexOperand(InsertElementInst & insertInst) {
+  return insertInst.getOperand(2);
+}
+
 namespace rv {
 
 typedef std::vector<llvm::Value*> ValVec;
@@ -120,13 +136,18 @@ repairPhis() {
 // check whether all uses of this will-be-replicated instruction can be recovered from the scalare replicates
 bool
 canRepairUses(Value & val) {
+  // allow SIMD operations on this type
+  if (isa<VectorType>(val.getType())) {
+    return true;
+  }
+
   // can always repair constants
   if (isa<Constant>(val)) return true;
 
   if (isa<ExtractValueInst>(val)) return true;
 
   for (auto * user : val.users()) {
-    if (!isa<PHINode>(user) && !isa<ExtractValueInst>(user) && !isa<SelectInst>(user) && !isa<InsertValueInst>(user)) {
+    if (!isa<PHINode>(user) && !isa<ExtractValueInst>(user) && !isa<SelectInst>(user) && !isa<InsertValueInst>(user) && !isa<InsertElementInst>(user) && !isa<ExtractElementInst>(user)) {
       IF_DEBUG_SROV { errs() << "can not repair use: " << *user << "\n"; }
       return false;
     }
@@ -142,7 +163,8 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
   auto * constVal = dyn_cast<Constant>(&val);
   auto * selInst = dyn_cast<SelectInst>(&val);
   auto * phiInst = dyn_cast<PHINode>(&val);
-  auto * insertInst = dyn_cast<InsertValueInst>(&val);
+  auto * insertValInst = dyn_cast<InsertValueInst>(&val);
+  auto * insertElemInst = dyn_cast<InsertElementInst>(&val);
 
   // remark: checkedSet makes every value appear replicable on the second query
   // However, a single negative reponse for a recursive constituent makes canReplicate fail anyway
@@ -167,18 +189,25 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
   } else if (selInst) {
     return canReplicate(*selInst->getTrueValue(), checkedSet) && canReplicate(*selInst->getFalseValue(), checkedSet);
 
-  } else if (insertInst) {
-    return canReplicate(*insertInst->getAggregateOperand(), checkedSet);
+  } else if (insertValInst) {
+    return canReplicate(*insertValInst->getAggregateOperand(), checkedSet);
+  } else if (insertElemInst) {
+    auto * vecOp = insertElemInst->getOperand(0);
+    return canReplicate(*vecOp, checkedSet);
   } else if (isa<ExtractValueInst>(val)) {
     return true;
   } else if (isa<LoadInst>(val) || isa<StoreInst>(val)) {
     return true;
+  } else if (isa<VectorType>(val.getType())) {
+    return cast<Instruction>(val).isBinaryOp(); // allow replication of binary SIMD operators
   }
 
   return false;
 }
 
 Value * reaggregateInstruction(IRBuilder<> & builder, const ValVec & replVec, Type * aggTy, const VectorShape & vecShape, size_t & index) {
+  assert(!aggTy->isVectorTy() && "vector re-aggregation not yet implemented");
+
   if (aggTy->isStructTy()) {
     size_t n = aggTy->getStructNumElements();
     Value * aggVal = UndefValue::get(aggTy);
@@ -214,7 +243,7 @@ repairExternalUses(Instruction & inst) {
     if (replMap.hasReplicate(*userInst)) continue;
 
     // remap extractvalue inst to the scalar replicate
-    auto * extractInst = dyn_cast<ExtractValueInst>(userInst);
+    auto * extractInst = isa<ExtractValueInst>(userInst) || isa<ExtractElementInst>(userInst) ? userInst : nullptr;
 
     if (extractInst) {
       ValVec aggRepl = requestReplicate(*extractInst);
@@ -280,6 +309,8 @@ void
 replicateType(Type & type, TypeVec & oTypes) {
   auto * structTy = dyn_cast<StructType>(&type);
   auto * arrTy = dyn_cast<ArrayType>(&type);
+  auto * vecTy = dyn_cast<VectorType>(&type);
+
   if (structTy) {
     size_t numElems = structTy->getNumElements();
     oTypes.reserve(oTypes.size() + numElems);
@@ -296,6 +327,14 @@ replicateType(Type & type, TypeVec & oTypes) {
     for (size_t i = 0; i < numElems; ++i) {
       Append(oTypes, elemTyVec);
     }
+  } else if (vecTy) {
+    auto * elemTy = vecTy->getElementType();
+    size_t numElems = vecTy->getNumElements();
+    oTypes.reserve(oTypes.size() + numElems);
+    for (size_t i = 0; i < numElems; ++i) {
+      oTypes.push_back(elemTy);
+    }
+
   } else {
     oTypes.push_back(&type);
   }
@@ -306,10 +345,13 @@ const Type&
 GetAggregateOperand(const Type & type, size_t i) {
   auto * structTy = dyn_cast<StructType>(&type);
   auto * arrTy = dyn_cast<ArrayType>(&type);
+  auto * vecTy = dyn_cast<VectorType>(&type);
   if (structTy) {
     return *structTy->getElementType(i);
   } else if (arrTy) {
     return *arrTy->getElementType();
+  } else if (vecTy) {
+    return *vecTy->getElementType();
   } else {
     abort();
   }
@@ -342,11 +384,9 @@ GetNumReplicates(const Type & type) {
   // scalar value
   if (type.isIntegerTy() || type.isFloatingPointTy()) return 1;
 
-  // for now only structs
-  if (!type.isStructTy() && !type.isArrayTy()) { return 0; }
-
   auto * structTy = dyn_cast<const StructType>(&type);
   auto * arrTy = dyn_cast<const ArrayType>(&type);
+  auto * vecTy = dyn_cast<const VectorType>(&type);
 
 // check if this struct is composed entirely of int/bool or fp types
   int flatSize = 0;
@@ -359,11 +399,18 @@ GetNumReplicates(const Type & type) {
       if (flatElemSize == 0) return 0; // can not replicate element
       flatSize += flatElemSize;
     }
+
   } else if (arrTy) {
     auto & elemTy = *arrTy->getArrayElementType();
     auto flatElemSize = GetNumReplicates(elemTy);
     if (flatElemSize == 0) return 0;
     flatSize = flatElemSize * arrTy->getArrayNumElements();
+
+  } else if (vecTy) {
+    // auto & elemTy = *vecTy->getArrayElementType();
+    // auto flatElemSize = GetNumReplicates(elemTy);
+    // if (flatElemSize == 0) return 0;
+    flatSize = vecTy->getNumElements();
   }
 
 // passed all tests
@@ -403,6 +450,14 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
   }
 }
 
+static
+int GetShuffleIndex(Constant & shuffleMask, int i) {
+  if (shuffleMask.isZeroValue()) return 0;
+  auto & maskVec = cast<ConstantVector>(shuffleMask);
+  return cast<ConstantInt>(maskVec.getOperand(i))->getSExtValue();
+}
+
+
 ValVec
 requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
   ValVec replVec;
@@ -410,6 +465,8 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
   auto * phi = dyn_cast<PHINode>(&inst);
   IRBuilder<> builder(inst.getParent(), inst.getIterator());
   std::string oldInstName = inst.getName().str();
+
+  auto * vecTy = dyn_cast<VectorType>(inst.getType());
 
 // phi replication logic (attach inputs later)
   if (phi) {
@@ -420,7 +477,6 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
 
       auto * replPhi = builder.CreatePHI(replTyVec[i], phi->getNumIncomingValues(), phiReplName);
       replVec.push_back(replPhi);
-      IF_DEBUG_SROV { errs() << "\t" << i << " : " << *replPhi << "\n"; }
     }
 
     // register PHI node as replicated
@@ -459,7 +515,6 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
       ss << oldInstName << ".repl." << i;
       auto * replSelect = builder.CreateSelect(&selMask, replTrueVec[i], replFalseVec[i], ss.str());
       replVec.push_back(replSelect);
-      IF_DEBUG_SROV { errs() << "\t" << i << " : " << *replSelect << "\n"; }
     }
 
   } else if (isa<InsertValueInst>(inst)) {
@@ -476,6 +531,17 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
       replVec[elemStart + i] = elemRepl[i];
     }
 
+  } else if (isa<InsertElementInst>(inst)) {
+    auto & insertInst = cast<InsertElementInst>(inst);
+    auto & vecVal = *GetVectorOperand(insertInst);
+    auto & elemVal = *GetElemOperand(insertInst);
+    auto & idxOp = *GetIndexOperand(insertInst);
+
+    replVec = requestReplicate(vecVal);
+
+    size_t elemStart = cast<ConstantInt>(idxOp).getSExtValue();
+    replVec[elemStart] = &elemVal;
+
   } else if (isa<ExtractValueInst>(inst)) {
     auto & extInst = cast<ExtractValueInst>(inst);
     auto & aggVal = *extInst.getAggregateOperand();
@@ -488,6 +554,63 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
     for (size_t i = 0; i < numRepls; ++i) {
       replVec.push_back(aggRepl[start + i]);
     }
+
+  } else if (isa<ExtractElementInst>(inst)) {
+    auto & extInst = cast<ExtractElementInst>(inst);
+    auto & vecVal = *extInst.getVectorOperand();
+    int idx = cast<ConstantInt>(extInst.getIndexOperand())->getSExtValue();
+    size_t start = GetElementOffset(*vecVal.getType(), idx);
+
+    size_t numRepls = GetNumReplicates(*extInst.getType());
+    ValVec aggRepl = requestReplicate(vecVal);
+
+    assert((start + numRepls <= aggRepl.size()) && "OOB");
+    for (size_t i = 0; i < numRepls; ++i) {
+      replVec.push_back(aggRepl[start + i]);
+    }
+  } else if (isa<ShuffleVectorInst>(inst)) {
+    const int width = vecTy->getNumElements();
+
+    auto & shuffle = cast<ShuffleVectorInst>(inst);
+    ValVec lhsVec = requestReplicate(*shuffle.getOperand(0));
+    ValVec rhsVec = requestReplicate(*shuffle.getOperand(1));
+
+    auto & shuffleMask = *shuffle.getMask();
+    for (int c = 0; c < width; ++c) {
+      int laneIdx = GetShuffleIndex(shuffleMask, c);
+      Value * laneRepl;
+      if (laneIdx >= 0) {
+         laneRepl = laneIdx < width ? lhsVec[laneIdx] : rhsVec[laneIdx - width];
+      } else {
+        laneRepl = UndefValue::get(vecTy->getElementType());
+      }
+      replVec.push_back(laneRepl);
+    }
+
+  } else if (inst.isBinaryOp() && vecTy) {
+    auto * flatTy = vecTy->getElementType();
+
+    std::vector<Instruction*> repls;
+    for (int c = 0; c < vecTy->getNumElements(); ++c) {
+      auto * cloned = inst.clone();
+      cloned->mutateType(flatTy);
+      repls.push_back(cloned);
+    }
+
+    // remap operands
+    for (int i = 0; i < inst.getNumOperands(); ++i) {
+      ValVec opRepl = requestReplicate(*inst.getOperand(i));
+      for (int c = 0; c < vecTy->getNumElements(); ++c) {
+        repls[c]->setOperand(i, opRepl[c]);
+      }
+    }
+
+    // insert op
+    for (int c = 0; c < vecTy->getNumElements(); ++c) {
+      builder.Insert(repls[c], ".r");
+      replVec.push_back(repls[c]);
+    }
+
   } else {
     assert(false && "un-replicatable operation");
     abort();
@@ -497,9 +620,38 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
   assert(!replVec.empty());
   replMap.addReplicate(inst, replVec);
 
+  IF_DEBUG_SROV {
+    errs() << "repls " << inst << ":\n";
+    for (int i = 0; i < replVec.size(); ++i) {
+      errs() << "\t" << i << " : " << *replVec[i] << "\n";
+    }
+  }
+
   return replVec;
 }
 
+ValVec
+requestConstVectorReplicate(Constant & val) {
+  ValVec res;
+  auto & vecTy = cast<VectorType>(*val.getType());
+  auto & elemTy = *vecTy.getElementType();
+  const int width = vecTy.getNumElements();
+
+  if (val.isZeroValue()) {
+    for (int i = 0; i < width; ++i) {
+      res.push_back(Constant::getNullValue(&elemTy));
+    }
+
+  } else {
+    // generic const expresssion case
+    for (int i = 0; i < val.getNumOperands(); ++i) {
+      ValVec elemRepl = requestReplicate(*val.getOperand(i));
+      Append(res, elemRepl);
+    }
+  }
+
+  return res;
+}
 
 ValVec
 requestReplicate(Value & val) {
@@ -516,7 +668,7 @@ requestReplicate(Value & val) {
   assert(replTyVec.size() >= 1 && "un-replictable type");
 
 // replication of atoms (unless this is an extract)
-  if ((replTyVec.size() == 1) && !isa<ExtractValueInst>(val)) {
+  if ((replTyVec.size() == 1) && !isa<ExtractValueInst>(val) && !isa<ExtractElementInst>(val)) {
     replVec.push_back(&val);
     return replVec;
   }
@@ -531,12 +683,18 @@ requestReplicate(Value & val) {
     return replVec;
   }
 
+  auto * vecTy = dyn_cast<VectorType>(val.getType());
+
 // replication of constant aggregates
   auto * constVal = dyn_cast<Constant>(&val);
   if (constVal) {
-    for (size_t i = 0; i < constVal->getNumOperands(); ++i) {
-      ValVec elemRepl = requestReplicate(*constVal->getOperand(i));
-      Append(replVec, elemRepl);
+    if (vecTy) {
+      replVec = requestConstVectorReplicate(*constVal);
+    } else {
+      for (int i = 0; i < constVal->getNumOperands(); ++i) {
+        ValVec elemRepl = requestReplicate(*constVal->getOperand(i));
+        Append(replVec, elemRepl);
+      }
     }
 
     replMap.addReplicate(val, replVec);
@@ -574,27 +732,48 @@ run() {
       }
 
       // only start replication from extractvalue
-      if (!isa<ExtractValueInst>(I)) continue;
+      if (isa<ExtractValueInst>(I)) {
+        auto & extractedVal = *I.getOperand(0);
 
-      auto & extractedVal = *I.getOperand(0);
+        int numScalarRepls = GetNumReplicates(*extractedVal.getType());
+        if (numScalarRepls == 0) {
+         IF_DEBUG_SROV { errs() << "SROV: can not replicate extractval operand: " << extractedVal << "). skipping..\n"; }
+          continue;
+        }
 
-      int numScalarRepls = GetNumReplicates(*extractedVal.getType());
-      if (numScalarRepls == 0) {
-       IF_DEBUG_SROV { errs() << "SROV: can not replicate extractval operand: " << extractedVal << "). skipping..\n"; }
-        continue;
+        // only try to replicate extract value insts
+        ConstValSet checkedSet;
+        if (!canReplicate(extractedVal, checkedSet)) {
+          IF_DEBUG_SROV { errs() << "SROV: can not replicate dependent operation of: " << I << " " << extractedVal << ". skipping..\n"; }
+          continue;
+        }
+
+        // go ahead and replicate
+        IF_DEBUG_SROV { errs() << "SROV: scalar repl of: " << extractedVal << ") with " << numScalarRepls << " slots\n"; }
+        requestReplicate(extractedVal);
+        changedCode = true;
+
+      } else if (isa<ExtractElementInst>(I)) {
+        auto & extractedVal = *I.getOperand(0);
+
+        int numScalarRepls = GetNumReplicates(*extractedVal.getType());
+        if (numScalarRepls == 0) {
+         IF_DEBUG_SROV { errs() << "SROV: can not replicate extractelem operand: " << extractedVal << "). skipping..\n"; }
+          continue;
+        }
+
+        // only try to replicate extract value insts
+        ConstValSet checkedSet;
+        if (!canReplicate(extractedVal, checkedSet)) {
+          IF_DEBUG_SROV { errs() << "SROV: can not replicate dependent operation of: " << I << " " << extractedVal << ". skipping..\n"; }
+          continue;
+        }
+
+        // go ahead and replicate
+        IF_DEBUG_SROV { errs() << "SROV: scalar repl of: " << extractedVal << ") with " << numScalarRepls << " slots\n"; }
+        requestReplicate(extractedVal);
+        changedCode = true;
       }
-
-      // only try to replicate extract value insts
-      ConstValSet checkedSet;
-      if (!canReplicate(extractedVal, checkedSet)) {
-        IF_DEBUG_SROV { errs() << "SROV: can not replicate dependent operation of: " << I << " " << extractedVal << ". skipping..\n"; }
-        continue;
-      }
-
-      // go ahead and replicate
-      IF_DEBUG_SROV { errs() << "SROV: scalar repl of: " << extractedVal << ") with " << numScalarRepls << " slots\n"; }
-      requestReplicate(extractedVal);
-      changedCode = true;
     }
   }
 
