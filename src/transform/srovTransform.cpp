@@ -206,8 +206,6 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
 }
 
 Value * reaggregateInstruction(IRBuilder<> & builder, const ValVec & replVec, Type * aggTy, const VectorShape & vecShape, size_t & index) {
-  assert(!aggTy->isVectorTy() && "vector re-aggregation not yet implemented");
-
   if (aggTy->isStructTy()) {
     size_t n = aggTy->getStructNumElements();
     Value * aggVal = UndefValue::get(aggTy);
@@ -218,6 +216,16 @@ Value * reaggregateInstruction(IRBuilder<> & builder, const ValVec & replVec, Ty
       vecInfo.setVectorShape(*aggVal, vecShape);
     }
     return aggVal;
+  } else if (aggTy->isVectorTy()) {
+    Value * aggVal = UndefValue::get(aggTy);
+    vecInfo.setVectorShape(*aggVal, vecShape);
+    size_t n = aggTy->getVectorNumElements();
+    for (size_t i = 0; i < n; i++) {
+      aggVal = builder.CreateInsertElement(aggVal, replVec[i], ConstantInt::get(Type::getInt32Ty(builder.getContext()), i));
+      vecInfo.setVectorShape(*aggVal, vecShape);
+    }
+    return aggVal;
+
   } else {
     return replVec[index++];
   }
@@ -759,6 +767,11 @@ run() {
         int numScalarRepls = GetNumReplicates(*extractedVal.getType());
         if (numScalarRepls == 0) {
          IF_DEBUG_SROV { errs() << "SROV: can not replicate extractelem operand: " << extractedVal << "). skipping..\n"; }
+          continue;
+        }
+
+        if (numScalarRepls >= vecInfo.getVectorWidth()) {
+          IF_DEBUG_SROV { errs() << "SROV: will not replicate vectors that are larger than the target width for: " << extractedVal << "). skipping..\n"; }
           continue;
         }
 
