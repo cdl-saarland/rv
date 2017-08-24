@@ -42,6 +42,7 @@ namespace llvm {
 }
 
 namespace rv {
+using InstVec = const std::vector<const llvm::Instruction*>;
 
 class VAWrapperPass : public llvm::FunctionPass {
   static char ID;
@@ -86,7 +87,8 @@ public:
   VectorizationAnalysis(const VectorizationAnalysis&) = delete;
   VectorizationAnalysis& operator=(VectorizationAnalysis) = delete;
 
-  void analyze(const llvm::Function& F);
+  void analyze();
+  void updateAnalysis(InstVec & updateList);
 
   void addInitial(const llvm::Instruction* inst, VectorShape shape);
 

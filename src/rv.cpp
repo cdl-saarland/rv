@@ -210,8 +210,6 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
                              const DFG& dfg,
                              const LoopInfo& loopInfo)
 {
-    auto & scalarFn = vecInfo.getScalarFunction();
-
     IF_DEBUG {
       errs() << "VA before analysis:\n";
       vecInfo.dump();
@@ -219,7 +217,7 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
 
     // determines value and control shapes
     VectorizationAnalysis vea(config, platInfo, vecInfo, cdg, dfg, loopInfo);
-    vea.analyze(scalarFn);
+    vea.analyze();
 }
 
 bool

@@ -194,14 +194,14 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     IF_DEBUG { errs() << "header phi " << phi->getName() << " has shape " << phiShape.str() << "\n"; }
 
-    if (phiShape.isDefined()) { vecInfo.addPinnedInitial(phi, phiShape); }
+    if (phiShape.isDefined()) { vecInfo.setPinnedShape(*phi, phiShape); }
   }
 
   // set uniform overrides
   IF_DEBUG { errs() << "-- Setting remTrans uni overrides --\n"; }
   for (auto * val : uniOverrides) {
     IF_DEBUG { errs() << "- " << *val << "\n"; }
-    vecInfo.addPinnedInitial(val, rv::VectorShape::uni());
+    vecInfo.setPinnedShape(*val, rv::VectorShape::uni());
   }
 
 

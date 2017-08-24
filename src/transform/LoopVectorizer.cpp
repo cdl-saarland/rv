@@ -232,7 +232,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
     IF_DEBUG { errs() << "header phi " << phi->getName() << " has shape " << phiShape.str() << "\n"; }
 
-    if (phiShape.isDefined()) vecInfo.setVectorShape(*phi, phiShape);
+    if (phiShape.isDefined()) vecInfo.setPinnedShape(*phi, phiShape);
   }
 
   // set uniform overrides
