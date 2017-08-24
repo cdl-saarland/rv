@@ -164,6 +164,10 @@ namespace native {
     bool isInterleaved(llvm::Instruction *inst, llvm::Value *accessedPtr, int byteSize, std::vector<llvm::Value *> &srcs);
     bool isPseudointerleaved(llvm::Instruction *inst, llvm::Value *addr, int byteSize);
 
+    // a varying value is stored to a uniform ptr (under a predicate)
+    llvm::Value *createVaryingToUniformStore(llvm::Instruction *inst, llvm::Type *accessedType, unsigned int alignment, llvm::Value *addr, llvm::Value *mask, llvm::Value *values);
+
+    // a uniform value is stored to a uniform ptr (with a predicate)
     llvm::Value *createUniformMaskedMemory(llvm::Instruction *inst, llvm::Type *accessedType, unsigned alignment,
                                            llvm::Value *addr, llvm::Value *mask, llvm::Value *values);
     llvm::Value *createVaryingMemory(llvm::Type *vecType, unsigned alignment, llvm::Value *addr, llvm::Value *mask,
