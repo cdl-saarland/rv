@@ -618,7 +618,7 @@ void NatBuilder::fallbackVectorize(Instruction *const inst) {
       mapVectorValue(inst, resVec[0]);
     } else {
       for (size_t lane = 0; lane < vectorWidth(); ++lane) {
-        mapScalarValue(inst, resVec[lane]);
+        mapScalarValue(inst, resVec[lane], lane);
       }
     }
 
