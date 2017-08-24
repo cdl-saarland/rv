@@ -43,6 +43,9 @@ class VectorizationInfo
 
     Region* region;
 
+    std::set<const llvm::Value*> pinned;
+    std::map<const llvm::Value*, VectorShape> initial;
+
 public:
     bool inRegion(const llvm::Instruction & inst) const;
     bool inRegion(const llvm::BasicBlock & block) const;
@@ -85,6 +88,25 @@ public:
     // whether this exit block terminates the loop
     bool isKillExit(const llvm::BasicBlock & block) const;
     void setNotKillExit(const llvm::BasicBlock* block);
+
+    /// Disable recomputation of this value's shape and make it effectvely final
+    void setPinned(const llvm::Value*);
+
+    bool isPinned(const llvm::Value*);
+
+
+    /// Adds a value and its assumed shape the initialization list.
+    /// Dependent values will be updated accordingly during analysis.
+    void addInitial(const llvm::Value*, VectorShape);
+
+    /// Convenience function that combines setPinned and setInitial.
+    void addPinnedInitial(const llvm::Value*, VectorShape);
+
+    /// Returns a pointer to the initialization mapping
+    std::map<const llvm::Value*, VectorShape>* getInitialization();
+
+    /// Empties the initialization mapping to allow for a new analysis run.
+    void clearInitialization();
 
     llvm::LLVMContext & getContext() const;
     llvm::Function & getScalarFunction() { return *mapping.scalarFn; }

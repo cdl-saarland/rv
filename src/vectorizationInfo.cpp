@@ -120,7 +120,7 @@ VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, uint vectorWidth,
     mapping.resultShape = VectorShape::uni();
     for (auto& arg : parentFn.getArgumentList()) {
       mapping.argShapes.push_back(VectorShape::uni());
-      setVectorShape(arg, VectorShape::uni());
+      addInitial(&arg, VectorShape::uni());
     }
 }
 
@@ -133,7 +133,7 @@ VectorizationInfo::VectorizationInfo(VectorMapping _mapping)
   auto it = argList.begin();
   for (auto argShape : mapping.argShapes)
   {
-    setVectorShape(*it, argShape);
+    addInitial(&*it, argShape);
     ++it;
   }
 }
@@ -249,6 +249,32 @@ VectorizationInfo::isDivergentLoopTopLevel(const llvm::Loop* loop) const
 bool
 VectorizationInfo::isKillExit(const BasicBlock& BB) const {
     return NonKillExits.count(&BB) == 0;
+}
+
+bool VectorizationInfo::isPinned(const Value* V) {
+  return pinned.count(V) != 0;
+}
+
+void VectorizationInfo::setPinned(const Value* V) {
+  pinned.insert(V);
+}
+
+void VectorizationInfo::addInitial(const Value* V, VectorShape shape) {
+  initial[V] = shape;
+}
+
+void VectorizationInfo::addPinnedInitial(const Value* V, VectorShape shape) {
+  setPinned(V);
+  addInitial(V, shape);
+}
+
+std::map<const llvm::Value*, VectorShape>*
+VectorizationInfo::getInitialization() {
+  return &initial;
+}
+
+void VectorizationInfo::clearInitialization() {
+  initial.clear();
 }
 
 void

@@ -90,11 +90,11 @@ VectorizationAnalysis::VectorizationAnalysis(Config _config,
 void
 VectorizationAnalysis::analyze(const Function& F) {
   assert (!F.isDeclaration());
-  assert (mWorklist.empty());
 
   init(F);
   compute(F);
   fixUndefinedShapes(F);
+  mVecinfo.clearInitialization();
   computeLoopDivergence();
 
   // mark all non-loop exiting branches as divergent to trigger a full linearization
@@ -131,27 +131,6 @@ void VectorizationAnalysis::fixUndefinedShapes(const Function& F) {
   }
 }
 
-void VectorizationAnalysis::collectOverrides(const Function& F) {
-  // Collect overrides
-  for (auto& BB : F) {
-    for (auto& I : BB) {
-      if (mVecinfo.hasKnownShape(I)) {
-        overrides[&I] = mVecinfo.getVectorShape(I);
-        mVecinfo.dropVectorShape(I);
-      }
-    }
-  }
-
-  IF_DEBUG_VA {
-    for (auto& pair : overrides) {
-      auto * inst = dyn_cast<Instruction>(pair.first);
-      if (inst && mVecinfo.inRegion(*inst)) {
-        errs() << "Override for: " << *pair.first << ", shape: " << pair.second << "\n";
-      }
-    }
-  };
-}
-
 void VectorizationAnalysis::adjustValueShapes(const Function& F) {
   // Enforce shapes to be existing, if absent, set to VectorShape::undef()
   // If already there, also optimize alignment in case of pointer type
@@ -186,27 +165,23 @@ void VectorizationAnalysis::adjustValueShapes(const Function& F) {
 }
 
 void VectorizationAnalysis::init(const Function& F) {
-  collectOverrides(F);
   adjustValueShapes(F);
 
   // Propagation of vector shapes starts at values that do not depend on other values:
-  // - Arguments
-  // - Overridden values (as if they were arguments)
+  // - Initialization mapping
   // - Allocas (which are uniform at the beginning)
   // - PHIs with constants as incoming values
   // - Calls without arguments
-  for (auto& arg : F.args()) {
-    addDependentValuesToWL(&arg);
+
+  for (auto p : *mVecinfo.getInitialization()) {
+    update(p.first, p.second);
   }
 
   for (const BasicBlock& BB : F) {
     mVecinfo.setVectorShape(BB, VectorShape::uni());
 
     for (const Instruction& I : BB) {
-      if (overrides.count(&I) != 0) {
-        // Call update here to trigger divergence computation
-        update(&I, overrides[&I]);
-      } else if (isa<AllocaInst>(&I)) {
+      if (isa<AllocaInst>(&I)) {
         update(&I, VectorShape::uni(mVecinfo.getMapping().vectorWidth));
       } else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
         if (call->getFunctionType()->getReturnType()->isVoidTy()) continue;
@@ -393,7 +368,7 @@ void VectorizationAnalysis::compute(const Function& F) {
     const Instruction* I = mWorklist.front();
     mWorklist.pop();
 
-    if (overrides.count(I) != 0) {
+    if (mVecinfo.isPinned(I)) {
       continue;
     }
 
