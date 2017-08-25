@@ -29,7 +29,9 @@ enum class RedKind : int32_t {
   Add = 1,
   Mul = 2,
   And = 3,
-  Or = 4
+  Or = 4,
+  Max = 5,
+  Min = 6
 };
 
 // join operator

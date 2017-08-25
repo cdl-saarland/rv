@@ -47,6 +47,8 @@ to_string(RedKind red) {
     case RedKind::Mul: return "Mul";
     case RedKind::And: return "And";
     case RedKind::Or: return "Or";
+    case RedKind::Max: return "Max";
+    case RedKind::Min: return "Min";
     default:
       abort();
   }

@@ -4,6 +4,21 @@ using namespace llvm;
 
 namespace rv {
 
+static
+Instruction&
+CreateMinMax(IRBuilder<> & builder, Value & A, Value & B, bool createMin) {
+  auto * aTy = A.getType();
+  bool isFloat = aTy->isFPOrFPVectorTy();
+
+  Value * cmpInst;
+  if (isFloat) {
+    cmpInst = builder.CreateFCmpOGT(&A, &B);
+  } else {
+    cmpInst = builder.CreateICmpSGT(&A, &B);
+  }
+  return *cast<Instruction>(builder.CreateSelect(cmpInst, createMin ? &B : &A, createMin ? &A : &B));
+}
+
 // materialize a single instance of firstArg [[RedKind~OpCode]] secondArg
 Instruction&
 CreateReductInst(IRBuilder<> & builder, RedKind redKind, Value & firstArg, Value & secondArg) {
@@ -30,6 +45,12 @@ CreateReductInst(IRBuilder<> & builder, RedKind redKind, Value & firstArg, Value
       } else {
         return *cast<Instruction>(builder.CreateMul(&firstArg, &secondArg, secondArg.getName() + ".r"));
       }
+
+    case RedKind::Max:
+      return CreateMinMax(builder, firstArg, secondArg, false);
+
+    case RedKind::Min:
+      return CreateMinMax(builder, firstArg, secondArg, true);
 
     default:
       abort(); // unsupported reduction
