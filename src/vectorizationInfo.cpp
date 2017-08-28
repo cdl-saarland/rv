@@ -156,18 +156,19 @@ VectorizationInfo::hasKnownShape(const llvm::Value& val) const {
 VectorShape
 VectorizationInfo::getVectorShape(const llvm::Value& val) const
 {
+    auto it = shapes.find(&val);
+
+  // give precedence to user shapes
+    if (it != shapes.end()) {
+      return it->second;
+    }
+
  // return default shape for constants
     auto * constVal = dyn_cast<Constant>(&val);
     if (constVal) {
       return VectorShape::fromConstant(constVal);
     }
 
-    auto it = shapes.find(&val);
-
-  // for all other objects return a explicit shape first
-    if (it != shapes.end()) {
-      return it->second;
-    }
 
   // out-of-region values default to uniform
     auto * inst = dyn_cast<Instruction>(&val);
@@ -175,9 +176,8 @@ VectorizationInfo::getVectorShape(const llvm::Value& val) const
       return VectorShape::uni(); // TODO getAlignment(*inst));
     }
 
-    // return VectorShape::undef();
-    assert (it != shapes.end());
-    return it->second;
+  // otw, the shape is undefined
+    return VectorShape::undef();
 }
 
 void

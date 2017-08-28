@@ -881,9 +881,6 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
 }
 
 VectorShape VectorizationAnalysis::getShape(const Value* const V) {
-  if (const Constant* C = dyn_cast<Constant>(V))
-    return VectorShape::fromConstant(C);
-
   return mVecinfo.getVectorShape(*V);
 }
 
