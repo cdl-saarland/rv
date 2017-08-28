@@ -17,6 +17,7 @@ from binaries import *
 from os import path
 import csv
 import time
+import re
 
 numSamples = 15
 
@@ -52,12 +53,12 @@ def profileTest(profileMode, numSamples, func):
   return resList[len(resList) // 2]
 
 
-def wholeFunctionVectorize(srcFile, argMappings, width):
+def wholeFunctionVectorize(srcFile, argMappings, width, extraShapes):
   baseName = path.basename(srcFile).split(".")[0]
   destFile = "build/" + baseName + ".wfv.ll"
   logPrefix =  "logs/"  + baseName + ".wfv"
   scalarName = "foo"
-  ret = runWFV(srcFile, destFile, scalarName, argMappings, width, logPrefix)
+  ret = runWFV(srcFile, destFile, scalarName, argMappings, width, logPrefix, extraShapes)
   return destFile if ret == 0 else None
 
 def outerLoopVectorize(srcFile, loopDesc, width):
@@ -71,17 +72,33 @@ def outerLoopVectorize(srcFile, loopDesc, width):
 def executeWFVTest(scalarLL, options, profileMode):
   sigInfo = options.split(",")
 
+  extraShapes = dict()
+
   width = 8
   for option in sigInfo:
     opSplit = option.split(":")
-    if opSplit[0].strip() == "LaunchCode":
-      launchCode = opSplit[1].strip()
-    elif opSplit[0].strip() == "Shapes":
-      shapes = opSplit[1].strip()
-    elif opSplit[0].strip() == "Width":
-      width = int(opSplit[1].strip())
+    if not opSplit or len(opSplit) != 2:
+      print("(ill-formed header option entry: {})".format(option))
+      return None, None
 
-  testBC = wholeFunctionVectorize(scalarLL, shapes, width)
+    lhsPart = opSplit[0].strip()
+    rhsPart = opSplit[1].strip()
+
+    if lhsPart == "LaunchCode":
+      launchCode = rhsPart
+    elif lhsPart == "Shapes":
+      shapes = rhsPart
+    elif lhsPart == "Width":
+      width = int(rhsPart)
+    else:
+      namedMatch = re.search("\[(.*)\]", option)
+      if not namedMatch is None:
+        mStart = namedMatch.span()[0]
+        optName = option[:mStart]
+        keyName = namedMatch.groups()[0]
+        extraShapes[keyName] = rhsPart
+
+  testBC = wholeFunctionVectorize(scalarLL, shapes, width, extraShapes)
   if testBC:
     result = profileTest(profileMode, numSamples, lambda: runWFVTest(testBC, launchCode, profileMode))
     if profileMode:

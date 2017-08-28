@@ -91,7 +91,7 @@ def runOuterLoopVec(scalarLL, destFile, scalarName = "foo", loopDesc=None, logPr
 
     return shellCmd(cmd,  None, logPrefix)
 
-def runWFV(scalarLL, destFile, scalarName = "foo", shapes=None, width=None, logPrefix=None):
+def runWFV(scalarLL, destFile, scalarName = "foo", shapes=None, width=None, logPrefix=None, extraShapes=dict()):
     cmd = rvToolLine + " -wfv -lower -i " + scalarLL
     if destFile:
       cmd = cmd + " -o " + destFile
@@ -101,6 +101,8 @@ def runWFV(scalarLL, destFile, scalarName = "foo", shapes=None, width=None, logP
       cmd = cmd + " -s " + shapes
     if width:
       cmd = cmd + " -w " + str(width)
+    if 0 < len(extraShapes.items()):
+      cmd = cmd + " -x " + ",".join("{}={}".format(k,v) for k,v in extraShapes.items())
 
     return shellCmd(cmd,  None, logPrefix)
 

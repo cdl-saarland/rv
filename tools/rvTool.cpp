@@ -60,13 +60,19 @@ static const char STRIDEDCHAR = 'S';
 static const char VARCHAR = 'T';
 
 static void
-fail(const char * errMsg = nullptr) __attribute__((noreturn));
+fail() __attribute__((noreturn));
 
-static void
-fail(const char * errMsg) {
-  if (errMsg) std::cerr << errMsg << "\nAbort!\n";
-  assert(false); // preserve the stack frame in dbg builds
+static void fail() {
+  std::cerr << '\n';
+  assert(false);
   exit(-1);
+}
+
+template<class ...Args>
+static void
+fail(std::string arg, Args... rest) {
+  std::cerr << arg;
+  fail(rest...);
 }
 
 using namespace llvm;
@@ -88,8 +94,7 @@ writeModuleToFile(Module* mod, const std::string& fileName)
     mod->print(file, nullptr);
     if (EC)
     {
-        errs() << "ERROR: printing module to file failed: " << EC.message() << "\n";
-        fail();
+        fail("ERROR: printing module to file failed: ", EC.message());
     }
     file.close();
 }
@@ -292,11 +297,11 @@ vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
     // run RV
     // replace stride
 }
-
+using ShapeMap = std::map<std::string, rv::VectorShape>;
 
 // Use case: Whole-Function Vectorizer
 void
-vectorizeFunction(rv::VectorMapping& vectorizerJob)
+vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
 {
     Function* scalarFn = vectorizerJob.scalarFn;
     Module& mod = *scalarFn->getParent();
@@ -344,6 +349,15 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob)
     rv::VectorMapping targetMapping = vectorizerJob;
     targetMapping.scalarFn = scalarCopy;
     rv::VectorizationInfo vecInfo(targetMapping);
+
+    // transfer extra shapes
+    for (auto & it : extraShapes) {
+      auto name = it.first;
+      auto shape = it.second;
+      auto * gv = mod.getGlobalVariable(name);
+      if (!gv) fail("could not find global variable ", name, " in test module!");
+      vecInfo.setPinnedShape(*gv, shape);
+    }
 
     // build Analysis
     DominatorTree domTree(*scalarCopy);
@@ -463,6 +477,20 @@ unsigned decodeAlignment(std::stringstream& shapeText)
     return readNumber(shapeText);
 }
 
+template <typename Elem_Reader_t>
+void readList(int sep,
+              std::stringstream& listText,
+              Elem_Reader_t reader)
+{
+    bool next;
+    do {
+        reader(listText);  // read one element
+        int c = listText.peek();
+        next = c == sep;            // check if the list ends here
+        if (next) listText.ignore(1);     // skip seperator
+    } while (next);
+}
+#if 0
 template <char SEPERATOR, typename Elem_t, typename Elem_Reader_t, typename ... ReaderArgTypes>
 void readList(std::stringstream& listText,
               std::vector<Elem_t>& vec,
@@ -477,6 +505,7 @@ void readList(std::stringstream& listText,
         if (next) listText.ignore(1);     // skip seperator
     } while (next);
 }
+#endif
 
 rv::VectorShape decodeShape(std::stringstream& shapestream)
 {
@@ -578,6 +607,19 @@ int main(int argc, char** argv)
     }
 #endif
 
+    // parse additional global variable shapes "-x gvName=shape,gvName2=shape2"
+    ShapeMap shapeMap;
+    std::string extraShapeText;
+    if (reader.readOption<std::string>("-x", extraShapeText)) {
+      std::stringstream shapeStream(extraShapeText);
+      readList(',', shapeStream, [&shapeMap](std::stringstream & in){
+          std::string gvName, shapeText;
+          if (!std::getline(in, gvName, '=')) { fail("could not parse global variable shape!"); }
+          rv::VectorShape gvShape = decodeShape(in);
+          shapeMap[gvName] = gvShape;
+          std::cerr << "USER SHAPE " << gvName << " set to " << gvShape.str() << "\n";
+      });
+    }
 
 
     // TODO factor out
@@ -605,7 +647,9 @@ int main(int argc, char** argv)
           std::stringstream shapestream(shapeText);
           // allow functions without arguments
           if (shapestream.peek() != 'r') {
-            readList<LISTSEPERATOR>(shapestream, argShapes, decodeShape);
+            readList<>(LISTSEPERATOR, shapestream, [&argShapes](decltype(shapestream)& in) {
+                 argShapes.push_back(decodeShape(in));
+            });
           }
 
           // fail on excessive specification
@@ -662,7 +706,8 @@ int main(int argc, char** argv)
           errs() << "\nVectorizing kernel \"" << vectorizerJob.scalarFn->getName()
                  << "\" into declaration \"" << vectorizerJob.vectorFn->getName()
                  << "\" with vector size " << vectorizerJob.vectorWidth << "... \n";
-          vectorizeFunction(vectorizerJob);
+
+          vectorizeFunction(vectorizerJob, shapeMap);
 
       }
       else if (loopVecMode)
