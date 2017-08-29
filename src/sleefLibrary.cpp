@@ -87,7 +87,7 @@ const size_t avx_sp_BufferLen = 0;
 const unsigned char * sse_sp_Buffer = nullptr;
 const size_t sse_sp_BufferLen = 0;
 
-const unsigned char * avx512_dp_Buffer nullptr;
+const unsigned char * avx512_dp_Buffer = nullptr;
 const size_t avx512_dp_BufferLen = 0;
 
 const unsigned char * avx2_dp_Buffer = nullptr;
