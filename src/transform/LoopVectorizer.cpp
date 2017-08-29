@@ -239,7 +239,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   IF_DEBUG { errs() << "-- Setting remTrans uni overrides --\n"; }
   for (auto * val : uniOverrides) {
     IF_DEBUG { errs() << "- " << *val << "\n"; }
-    vecInfo.setVectorShape(*val, VectorShape::uni());
+    vecInfo.setPinnedShape(*val, VectorShape::uni());
   }
 
   //DT.verifyDomTree();
