@@ -20,6 +20,7 @@ Config::Config()
 , useSafeDivisors(true)
 
 // optimization defaults
+, enableSplitAllocas(!CheckFlag("RV_DISABLE_SPLITALLOCAS"))
 , enableStructOpt(!CheckFlag("RV_DISABLE_STRUCTOPT"))
 , enableSROV(!CheckFlag("RV_DISABLE_SROV"))
 , enableIRPolish(!CheckFlag("RV_DISABLE_POLISH"))
@@ -81,7 +82,8 @@ printNativeFlags(const Config & config, llvm::raw_ostream & out) {
 
 static void
 printOptFlags(const Config & config, llvm::raw_ostream & out) {
-    out << "opts: enableStructOpt = " << config.enableStructOpt
+    out << "opts: enableSplitAllocas = " << config.enableSplitAllocas
+        << ", enableStructOpt = " << config.enableStructOpt
         << ", enableSROV = " << config.enableSROV
         << ", enableHeuristicBOSCC = " << config.enableHeuristicBOSCC
         << ", enableIRPolish = " << config.enableIRPolish;

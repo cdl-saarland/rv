@@ -33,6 +33,7 @@ struct Config {
   bool useSafeDivisors; // blend-in safe divisors to eliminate spurious arithmetic exceptions
 
 // optimization flags
+  bool enableSplitAllocas;
   bool enableStructOpt;
   bool enableSROV;
   bool enableIRPolish;

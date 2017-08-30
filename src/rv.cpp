@@ -32,6 +32,7 @@
 
 #include "rv/transform/Linearizer.h"
 
+#include "rv/transform/splitAllocas.h"
 #include "rv/transform/structOpt.h"
 #include "rv/transform/srovTransform.h"
 #include "rv/transform/irPolisher.h"
@@ -283,6 +284,14 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 // flag is set if the env var holds a string that starts on a non-'0' char
 bool
 VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTree, LoopInfo & loopInfo, ScalarEvolution & SE, MemoryDependenceResults & MDR, ValueToValueMapTy * vecInstMap) {
+  // split structural allocas
+  if (config.enableSplitAllocas) {
+    SplitAllocas split(vecInfo);
+    split.run();
+  } else {
+    Report() << "Split allocas opt disabled (RV_DISABLE_SPLITALLOCAS != 0)\n";
+  }
+
   // transform allocas from Array-of-struct into Struct-of-vector where possibe
   if (config.enableStructOpt) {
     StructOpt sopt(vecInfo, platInfo.getDataLayout());
