@@ -74,7 +74,7 @@ bool SplitAllocas::analyseUses(Instruction * inst, Type * type) {
         }
         if (!analyseUses(gep, gep->getType())) return false;
       } else if (!load && !store && type->getPointerElementType()->isStructTy()) {
-        // not a phi, load or store
+        // not a gep, load or store
         IF_DEBUG_SA { errs() << "skip: unforeseen use" << *userInst << "\n"; }
         return false;
       }
