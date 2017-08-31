@@ -54,6 +54,30 @@ IsLifetimeUse(Instruction * userInst) {
   return true;
 }
 
+static bool
+IsLoadStoreIntrinsicUse(Value * userInst) {
+  if (auto call = dyn_cast<CallInst>(userInst)) {
+    auto * callee = dyn_cast<Function>(call->getCalledValue());
+    return callee && (callee->getName() == "rv_load" || callee->getName() == "rv_store");
+  } else if (auto bitcast = dyn_cast<BitCastInst>(userInst)) {
+    for (auto user : bitcast->users()) {
+      if (!IsLoadStoreIntrinsicUse(user)) return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+static void
+RemapLoadStoreIntrinsicShape(Value * userInst, VectorizationInfo & vecInfo) {
+  if (auto bitcast = dyn_cast<BitCastInst>(userInst)) {
+    for (auto user : bitcast->users()) {
+      RemapLoadStoreIntrinsicShape(user, vecInfo);
+    }
+    vecInfo.setVectorShape(*userInst, VectorShape::uni());
+  }
+}
 
 // TODO move this into vecInfo
 VectorShape
@@ -210,6 +234,11 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       inst->replaceUsesOfWith(&allocaInst, transformMap[&allocaInst]);
       continue; // skip lifetime/BC users
 
+    } else if (IsLoadStoreIntrinsicUse(inst)) {
+      inst->replaceUsesOfWith(&allocaInst, transformMap[&allocaInst]);
+      RemapLoadStoreIntrinsicShape(inst, vecInfo);
+      continue;
+
     } else {
       assert(isa<AllocaInst>(inst) && "unexpected instruction in alloca transformation");
     }
@@ -236,6 +265,9 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
   for (auto deadVal : seen) {
     auto *deadInst = cast<Instruction>(deadVal);
     assert(deadInst);
+    // keep the load/store intrinsics
+    if (IsLoadStoreIntrinsicUse(deadInst)) continue;
+
     if (!deadInst->getType()->isVoidTy()) {
       deadInst->replaceAllUsesWith(UndefValue::get(deadInst->getType()));
     }
@@ -306,8 +338,8 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
         continue;
       }
 
-      // use by lifetime.start/end marker
-      else if (IsLifetimeUse(userInst)) continue;
+      // use by lifetime.start/end marker / intrinsics
+      else if (IsLifetimeUse(userInst) || IsLoadStoreIntrinsicUse(userInst)) continue;
 
       // skip unforeseen users
       else if (!isa<PHINode>(userInst)) return false;

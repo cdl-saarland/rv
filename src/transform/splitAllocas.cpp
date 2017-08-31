@@ -63,10 +63,9 @@ bool SplitAllocas::analyseUses(Instruction * inst, Type * type) {
             IF_DEBUG_SA { errs() << "skip: non constant gep\n"; }
             return false;
           }
-          auto integerCst = cst->getZExtValue();
           if (id_it == gep->idx_begin()) {
             // first gep index must be 0
-            if (integerCst != 0) {
+            if (cst->getZExtValue() != 0) {
               IF_DEBUG_SA { errs() << "skip: first index non zero\n"; }
               return false;
             }

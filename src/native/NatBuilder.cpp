@@ -334,6 +334,10 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         vectorizeExtractCall(call);
       else if (callee && callee->getName() == "rv_insert")
         vectorizeInsertCall(call);
+      else if (callee && callee->getName() == "rv_load")
+        vectorizeLoadCall(call);
+      else if (callee && callee->getName() == "rv_store")
+        vectorizeStoreCall(call);
       else if (callee && callee->getName() == "rv_shuffle")
         vectorizeShuffleCall(call);
       else if (callee && callee->getName() == "rv_ballot")
@@ -725,6 +729,64 @@ NatBuilder::vectorizeInsertCall(CallInst *rvCall) {
 
   auto * insertVal = builder.CreateInsertElement(vecVal, elemVal, laneId, "rv_ins");
   mapVectorValue(rvCall, insertVal);
+}
+
+void
+NatBuilder::vectorizeLoadCall(CallInst *rvCall) {
+  ++numRVIntrinsics;
+
+  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_load(vecPtr, laneId)");
+
+  Value *vecPtr = rvCall->getArgOperand(0);
+  assert(getVectorShape(*rvCall->getArgOperand(1)).isUniform());
+  auto * laneId = requestScalarValue(rvCall->getArgOperand(1));
+
+// uniform arg
+  if (getVectorShape(*vecPtr).isUniform()) {
+    auto * uniVal = requestScalarValue(vecPtr);
+    auto addressSpace = uniVal->getType()->getPointerAddressSpace();
+    auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
+    auto * gepPtr = builder.CreateGEP(castPtr, { laneId });
+    auto * loadVal = builder.CreateLoad(gepPtr);
+    mapScalarValue(rvCall, loadVal);
+    return;
+  }
+
+// non-uniform arg
+  auto * vecVal = requestVectorValue(vecPtr);
+  auto * lanePtr = builder.CreateExtractElement(vecVal, laneId, "rv_load");
+  auto * laneVal = builder.CreateLoad(lanePtr, "rv_load");
+  mapScalarValue(rvCall, laneVal);
+}
+
+void
+NatBuilder::vectorizeStoreCall(CallInst *rvCall) {
+  ++numRVIntrinsics;
+
+  assert(rvCall->getNumArgOperands() == 3 && "expected 3 arguments for rv_store(vecPtr, laneId, value)");
+
+  Value *vecPtr  = rvCall->getArgOperand(0);
+  assert(getVectorShape(*rvCall->getArgOperand(2)).isUniform());
+  Value *elemVal = requestScalarValue(rvCall->getArgOperand(2));
+  assert(getVectorShape(*rvCall->getArgOperand(1)).isUniform());
+  auto * laneId = requestScalarValue(rvCall->getArgOperand(1));
+
+// uniform arg
+  if (getVectorShape(*vecPtr).isUniform()) {
+    auto * uniVal = requestScalarValue(vecPtr);
+    auto addressSpace = uniVal->getType()->getPointerAddressSpace();
+    auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
+    auto * gepPtr = builder.CreateGEP(castPtr, { laneId });
+    auto * store = builder.CreateStore(elemVal, gepPtr);
+    mapScalarValue(rvCall, store);
+    return;
+  }
+
+// non-uniform arg
+  auto * vecVal = requestVectorValue(vecPtr);
+  auto * lanePtr = builder.CreateExtractElement(vecVal, laneId, "rv_store");
+  auto * store = builder.CreateStore(elemVal, lanePtr, "rv_store");
+  mapScalarValue(rvCall, store);
 }
 
 void
