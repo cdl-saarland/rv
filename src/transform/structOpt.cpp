@@ -26,6 +26,34 @@ using namespace llvm;
 
 namespace rv {
 
+static bool
+IsDecomposable(Type & ty) {
+  return isa<StructType>(ty) || isa<ArrayType>(ty) || isa<VectorType>(ty);
+}
+
+static bool
+IsLifetimeUse(Instruction * userInst) {
+  // look through bc (to i8 presumably)
+  auto * bc = dyn_cast<BitCastInst>(userInst);
+  auto ptr = bc ? bc : userInst;
+
+  // that pointer must only be used in lifetimes
+  for (auto & ptrUse : ptr->uses()) {
+    auto * call = dyn_cast<CallInst>(ptrUse.getUser());
+    if (!call) return false;
+    auto * callee = dyn_cast<Function>(call->getCalledValue());
+    if (!callee) return false;
+
+    if ((callee->getIntrinsicID() != Intrinsic::lifetime_start) &&
+        (callee->getIntrinsicID() != Intrinsic::lifetime_end)) {
+      return false;
+    }
+  }
+
+  // ok
+  return true;
+}
+
 
 // TODO move this into vecInfo
 VectorShape
@@ -128,7 +156,7 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
   // have seen this user
     if (!seen.insert(inst).second) continue;
 
-    auto * allocaInst = dyn_cast<AllocaInst>(inst);
+    // auto * allocaInst = dyn_cast<AllocaInst>(inst);
     auto * store = dyn_cast<StoreInst>(inst);
     auto * load = dyn_cast<LoadInst>(inst);
     auto * gep = dyn_cast<GetElementPtrInst>(inst);
@@ -177,8 +205,13 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       vecInfo.dropVectorShape(*phi);
       transformMap[phi] = vecPhi;
 
+    } else if (IsLifetimeUse(inst)) {
+      // remap BC operand
+      inst->replaceUsesOfWith(&allocaInst, transformMap[&allocaInst]);
+      continue; // skip lifetime/BC users
+
     } else {
-      assert(allocaInst && "unexpected instruction in alloca transformation");
+      assert(isa<AllocaInst>(inst) && "unexpected instruction in alloca transformation");
     }
 
   // update users users
@@ -273,6 +306,9 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
         continue;
       }
 
+      // use by lifetime.start/end marker
+      else if (IsLifetimeUse(userInst)) continue;
+
       // skip unforeseen users
       else if (!isa<PHINode>(userInst)) return false;
 
@@ -310,20 +346,17 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
   return true;
 }
 
-static bool
-IsDecomposable(Type & ty) {
-  return isa<StructType>(ty) || isa<ArrayType>(ty) || isa<VectorType>(ty);
-}
-
 bool
 StructOpt::shouldPromote(llvm::AllocaInst & allocaInst) {
   if (!IsDecomposable(*allocaInst.getType()->getPointerElementType())) return false;
 
 // check that the alloca is only ever accessed as a whole (no GEPs)
   for (auto & use : allocaInst.uses()) {
-    auto * load = dyn_cast<LoadInst>(use.getUser());
-    auto * store = dyn_cast<StoreInst>(use.getUser());
-    if (!load && !store) {
+    auto * inst = dyn_cast<Instruction>(use.getUser());
+    if (!inst) continue;
+    auto * load = dyn_cast<LoadInst>(inst);
+    auto * store = dyn_cast<StoreInst>(inst);
+    if (!load && !store && !IsLifetimeUse(inst)) {
       IF_DEBUG_SO { errs() << "\t non-load/store user -> can not promote\n";}
       return false;
     }
