@@ -49,9 +49,9 @@ Value * SplitAllocas::AllocaTree::load(IRBuilder<> & builder, VectorizationInfo 
   }
 }
 
-bool SplitAllocas::analyseUses(Instruction * inst) {
-  for (auto & use : inst->uses()) {
-    if (auto userInst = dyn_cast<Instruction>(use.getUser())) {
+bool SplitAllocas::analyseUses(Instruction * inst, Type * type) {
+  for (auto user : inst->users()) {
+    if (auto userInst = dyn_cast<Instruction>(user)) {
       auto * store = dyn_cast<StoreInst>(userInst);
       auto * load = dyn_cast<LoadInst>(userInst);
       auto * gep = dyn_cast<GetElementPtrInst>(userInst);
@@ -72,10 +72,10 @@ bool SplitAllocas::analyseUses(Instruction * inst) {
             }
           }
         }
-        if (!analyseUses(gep)) return false;
-      } else if (!load && !store) {
+        if (!analyseUses(gep, gep->getType())) return false;
+      } else if (!load && !store && type->getPointerElementType()->isStructTy()) {
         // not a phi, load or store
-        IF_DEBUG_SA { errs() << "skip: unforeseen use\n"; }
+        IF_DEBUG_SA { errs() << "skip: unforeseen use" << *userInst << "\n"; }
         return false;
       }
     }
@@ -84,23 +84,26 @@ bool SplitAllocas::analyseUses(Instruction * inst) {
   return true;
 }
 
-std::unique_ptr<SplitAllocas::AllocaTree> SplitAllocas::createAllocaTree(llvm::AllocaInst * allocaInst, Type * type) {
+std::unique_ptr<SplitAllocas::AllocaTree> SplitAllocas::createAllocaTree(llvm::AllocaInst * allocaInst, Type * type, VectorShape vectorShape) {
   if (type->isStructTy()) {
     AllocaTree::Children children;
     for (size_t i = 0; i < type->getStructNumElements(); ++i) {
-      children.emplace_back(createAllocaTree(allocaInst, type->getStructElementType(i)));
+      children.emplace_back(createAllocaTree(allocaInst, type->getStructElementType(i), vectorShape));
     }
     return std::unique_ptr<AllocaTree>(new AllocaTree(type, std::move(children)));
   } else {
     IF_DEBUG_SA { errs() << "\t- " << *type << "\n"; }
-    return std::unique_ptr<AllocaTree>(new AllocaTree(type, new AllocaInst(type, allocaInst->getName(), allocaInst)));
+    auto alloca = new AllocaInst(type, allocaInst->getName(), allocaInst);
+    vecInfo.setVectorShape(*alloca, vectorShape);
+    return std::unique_ptr<AllocaTree>(new AllocaTree(type, alloca));
   }
 }
 
 void SplitAllocas::splitUses(Instruction * inst, AllocaTree * tree, VectorShape vectorShape) {
   std::vector<Instruction *> deadInsts;
 
-  for (auto & use : inst->uses()) {
+  for (auto use_it = inst->use_begin(); use_it != inst->use_end();) {
+    auto & use = *use_it;
     if (auto userInst = dyn_cast<Instruction>(use.getUser())) {
       auto * store = dyn_cast<StoreInst>(userInst);
       auto * load = dyn_cast<LoadInst>(userInst);
@@ -122,14 +125,23 @@ void SplitAllocas::splitUses(Instruction * inst, AllocaTree * tree, VectorShape 
         }
         splitUses(gep, cur, vectorShape);
       } else {
-        assert(false);
+        assert(tree->leafAlloca);
+        // changing the operand will remove the current use from the list
+        // we hence need to increment the iterator first
+        ++use_it;
+        userInst->setOperand(use.getOperandNo(), tree->leafAlloca);
+        continue; // do not mark the instruction as dead code
       }
 
       deadInsts.push_back(userInst);
     }
+    ++use_it;
   }
 
-  for (auto inst : deadInsts) inst->eraseFromParent();
+  for (auto inst : deadInsts) {
+    IF_DEBUG_SA { errs() << "\tdeleting:" << *inst << "\n"; }
+    inst->eraseFromParent();
+  }
 }
 
 bool SplitAllocas::run() {
@@ -151,9 +163,9 @@ bool SplitAllocas::run() {
       continue;
 
     IF_DEBUG_SA { errs() << "\n# trying to split alloca " << *allocaInst << "\n"; }
-    if (analyseUses(allocaInst)) {
+    if (analyseUses(allocaInst, allocaInst->getType())) {
       IF_DEBUG_SA { errs() << "--members:\n"; }
-      auto root = createAllocaTree(allocaInst, allocaInst->getAllocatedType());
+      auto root = createAllocaTree(allocaInst, allocaInst->getAllocatedType(), vectorShape);
       IF_DEBUG_SA { errs() << "--uses:\n"; }
       splitUses(allocaInst, root.get(), vectorShape);
       allocaInst->eraseFromParent();

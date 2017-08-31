@@ -12,7 +12,6 @@
 namespace llvm {
   class Instruction;
   class AllocaInst;
-  class DataLayout;
   class Type;
 }
 
@@ -44,9 +43,9 @@ class SplitAllocas {
 
   /// recursively analyses every use of an alloca and determine if it can be split
   /// allocas that are used by instructions other than loads/stores/geps cannot be split
-  bool analyseUses(llvm::Instruction *);
+  bool analyseUses(llvm::Instruction *, llvm::Type *);
   /// creates a sequence of allocas to replace the original alloca instruction
-  std::unique_ptr<AllocaTree> createAllocaTree(llvm::AllocaInst * allocaInst, llvm::Type *);
+  std::unique_ptr<AllocaTree> createAllocaTree(llvm::AllocaInst * allocaInst, llvm::Type *, VectorShape);
   /// recursively splits the uses of an alloca
   void splitUses(llvm::Instruction *, AllocaTree *, VectorShape);
 
