@@ -436,7 +436,7 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
       // load every member
       auto * elemGep = builder.CreateGEP(ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
       vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
-      flatIdx += flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
+      flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
     }
     return flatIdx;
   } else {
