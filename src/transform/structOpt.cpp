@@ -32,22 +32,20 @@ IsDecomposable(Type & ty) {
 }
 
 static bool
-IsLifetimeUse(Instruction * userInst) {
+IsLifetimeUse(Instruction & userInst) {
   // look through bc (to i8 presumably)
-  auto * bc = dyn_cast<BitCastInst>(userInst);
-  auto ptr = bc ? bc : userInst;
+  auto * bc = dyn_cast<BitCastInst>(&userInst);
+  auto & ptrUser = bc ? *bc : userInst;
 
   // that pointer must only be used in lifetimes
-  for (auto & ptrUse : ptr->uses()) {
-    auto * call = dyn_cast<CallInst>(ptrUse.getUser());
-    if (!call) return false;
-    auto * callee = dyn_cast<Function>(call->getCalledValue());
-    if (!callee) return false;
+  auto * call = dyn_cast<CallInst>(&ptrUser);
+  if (!call) return false;
+  auto * callee = dyn_cast<Function>(call->getCalledValue());
+  if (!callee) return false;
 
-    if ((callee->getIntrinsicID() != Intrinsic::lifetime_start) &&
-        (callee->getIntrinsicID() != Intrinsic::lifetime_end)) {
-      return false;
-    }
+  if ((callee->getIntrinsicID() != Intrinsic::lifetime_start) &&
+      (callee->getIntrinsicID() != Intrinsic::lifetime_end)) {
+    return false;
   }
 
   // ok
@@ -229,7 +227,8 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       vecInfo.dropVectorShape(*phi);
       transformMap[phi] = vecPhi;
 
-    } else if (IsLifetimeUse(inst)) {
+    // important: this case has to become *before* the CastInst case (lifetime pattern is more general)
+    } else if (IsLifetimeUse(*inst)) {
       // remap BC operand
       inst->replaceUsesOfWith(&allocaInst, transformMap[&allocaInst]);
       continue; // skip lifetime/BC users
@@ -313,6 +312,7 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
   // inspect users
     for (auto user : inst->users()) {
       auto * userInst = dyn_cast<Instruction>(user);
+      IF_DEBUG_SO { errs() << "inspecting user " << *userInst << "\n"; }
 
       if (!userInst) continue;
 
@@ -339,10 +339,11 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
       }
 
       // use by lifetime.start/end marker / intrinsics
-      else if (IsLifetimeUse(userInst) || IsLoadStoreIntrinsicUse(userInst)) continue;
+      else if (IsLifetimeUse(*userInst) || IsLoadStoreIntrinsicUse(userInst)) continue;
 
       // see through bitcasts
       else if (isa<CastInst>(userInst)) {
+        IF_DEBUG_SO { errs() << "\t cast transition (restricted patterns apply):\n"; }
         if (!userInst->getType()->isPointerTy()) {
             IF_DEBUG_SO { errs() << "skip: casting alloca-derived pointer to int : " << *userInst << "\n"; }
           return false;
@@ -352,16 +353,18 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
         // TODO only accept a BC+store pattern (since we are here, the GEP itself seems to be valie)
         for (auto & bcUse : userInst->uses()) {
           auto * subInst = dyn_cast<Instruction>(bcUse.getUser());
+          IF_DEBUG_SO { errs() << "sub use: " << *subInst << "\n"; }
           if (isa<StoreInst>(subInst)) {
+            IF_DEBUG_SO { errs() << "sub store!\n"; }
             needCompatibleType = true;
             if (bcUse.getOperandNo() != 1) { // leaking the value!
               IF_DEBUG_SO { errs() << "skip: (BC guarded use) store leaks value: " << *subInst << "\n";  }
               return false;
             }
           }
-          else if (isa<LoadInst>(subInst)) { needCompatibleType = true; continue; }
-          else if (IsLifetimeUse(subInst)) continue;
-          else if (IsLoadStoreIntrinsicUse(userInst)) { needCompatibleType = true; continue; }
+          else if (isa<LoadInst>(subInst)) { IF_DEBUG_SO { errs() << "sub load!\n"; } needCompatibleType = true; continue; }
+          else if (IsLifetimeUse(*subInst)) { IF_DEBUG_SO { errs() << "sub lifetime use!\n"; } continue; }
+          else if (IsLoadStoreIntrinsicUse(subInst)) { IF_DEBUG_SO { errs() << "sub load/store intrinsic use!\n"; } needCompatibleType = true; continue; }
           else {
             IF_DEBUG_SO { errs() << "skip: (BC guarded use) will not accept other uses than loads and stores : " << *subInst << "\n"; }
             return false;
@@ -424,8 +427,8 @@ StructOpt::shouldPromote(llvm::AllocaInst & allocaInst) {
     if (!inst) continue;
     auto * load = dyn_cast<LoadInst>(inst);
     auto * store = dyn_cast<StoreInst>(inst);
-    if (!load && !store && !IsLifetimeUse(inst)) {
-      IF_DEBUG_SO { errs() << "\t non-load/store user -> can not promote\n";}
+    if (!load && !store && !IsLifetimeUse(*inst)) {
+      IF_DEBUG_SO { errs() << "\t non-load/store user " << *inst << " -> can not promote\n";}
       return false;
     }
     if (store) {
