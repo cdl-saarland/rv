@@ -341,6 +341,42 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
       // use by lifetime.start/end marker / intrinsics
       else if (IsLifetimeUse(userInst) || IsLoadStoreIntrinsicUse(userInst)) continue;
 
+      // see through bitcasts
+      else if (isa<CastInst>(userInst)) {
+        if (!userInst->getType()->isPointerTy()) {
+            IF_DEBUG_SO { errs() << "skip: casting alloca-derived pointer to int : " << *userInst << "\n"; }
+          return false;
+        }
+
+        bool needCompatibleType = false;
+        // TODO only accept a BC+store pattern (since we are here, the GEP itself seems to be valie)
+        for (auto & bcUse : userInst->uses()) {
+          auto * subInst = dyn_cast<Instruction>(bcUse.getUser());
+          if (isa<StoreInst>(subInst)) {
+            needCompatibleType = true;
+            if (bcUse.getOperandNo() != 1) { // leaking the value!
+              IF_DEBUG_SO { errs() << "skip: (BC guarded use) store leaks value: " << *subInst << "\n";  }
+              return false;
+            }
+          }
+          else if (isa<LoadInst>(subInst)) { needCompatibleType = true; continue; }
+          else if (IsLifetimeUse(subInst)) continue;
+          else if (IsLoadStoreIntrinsicUse(userInst)) { needCompatibleType = true; continue; }
+          else {
+            IF_DEBUG_SO { errs() << "skip: (BC guarded use) will not accept other uses than loads and stores : " << *subInst << "\n"; }
+            return false;
+          }
+        }
+
+        // if the pointer is used to access data make sure that the store size is identical
+        if (needCompatibleType) {
+          if (layout.getTypeAllocSize(userInst->getType()->getPointerElementType()) != layout.getTypeAllocSize(inst->getType()->getPointerElementType())) {
+            IF_DEBUG_SO { errs() << "skip: casting to non-aligned type (that is accessed) : " << *userInst << "\n"; }
+            return false;
+          }
+        }
+      }
+
       // skip unforeseen users
       else if (!isa<PHINode>(userInst)) return false;
 
