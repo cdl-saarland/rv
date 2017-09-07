@@ -1915,10 +1915,10 @@ llvm::GetElementPtrInst *NatBuilder::requestScalarGEP(llvm::GetElementPtrInst *c
   return cast<GetElementPtrInst>(mapped);
 }
 
-BitCastInst *NatBuilder::requestVectorBitCast(BitCastInst *const bc) {
+Value *NatBuilder::requestVectorBitCast(BitCastInst *const bc) {
   Value *mapped = getVectorValue(bc);
   if (mapped)
-    return cast<BitCastInst>(mapped);
+    return mapped;
 
   ++numVecBCs;
 
@@ -1937,13 +1937,13 @@ BitCastInst *NatBuilder::requestVectorBitCast(BitCastInst *const bc) {
 
   builder.SetInsertPoint(insertBlock, insertPoint);
 
-  return cast<BitCastInst>(mapped);
+  return mapped;
 }
 
-llvm::BitCastInst *NatBuilder::requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx, bool skipMapping) {
+Value *NatBuilder::requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx, bool skipMapping) {
   Value *mapped = getScalarValue(bc, laneIdx);
   if (mapped)
-    return cast<BitCastInst>(mapped);
+    return mapped;
 
   ++numScalBCs;
 
@@ -1961,7 +1961,7 @@ llvm::BitCastInst *NatBuilder::requestScalarBitCast(llvm::BitCastInst *const bc,
 
   builder.SetInsertPoint(insertBlock, insertPoint);
 
-  return cast<BitCastInst>(mapped);
+  return mapped;
 }
 
 GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const gep, unsigned interleavedIdx) {
