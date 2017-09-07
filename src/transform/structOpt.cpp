@@ -234,7 +234,11 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       continue; // skip lifetime/BC users
 
     } else if (IsLoadStoreIntrinsicUse(inst)) {
-      inst->replaceUsesOfWith(&allocaInst, transformMap[&allocaInst]);
+      for (size_t i = 0, n = inst->getNumOperands(); i < n; ++i) {
+        if (transformMap.count(inst->getOperand(i)) != 0)
+          inst->setOperand(i, transformMap[inst->getOperand(i)]);
+      }
+
       RemapLoadStoreIntrinsicShape(inst, vecInfo);
       continue;
 
