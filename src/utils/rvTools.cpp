@@ -236,7 +236,7 @@ rv::getBaseAlignment(const Value & V, const DataLayout &DL) {
   } else if (const AllocaInst *AI = dyn_cast<AllocaInst>(&V))
     Align = AI->getAlignment();
   else if (auto CS = ImmutableCallSite(&V))
-    Align = CS.getAttributes().getParamAlignment(AttributeSet::ReturnIndex);
+    Align = CS.getAttributes().getParamAlignment(AttributeList::ReturnIndex);
   else if (const LoadInst *LI = dyn_cast<LoadInst>(&V))
     if (MDNode *MD = LI->getMetadata(LLVMContext::MD_align)) {
       ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));

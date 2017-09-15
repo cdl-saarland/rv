@@ -354,7 +354,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     newStore->setAlignment(storeInst->getAlignment());
     newStore->setVolatile(storeInst->isVolatile());
     newStore->setOrdering(storeInst->getOrdering());
-    newStore->setSynchScope(storeInst->getSynchScope());
+    newStore->setSyncScopeID(storeInst->getSyncScopeID());
 
     newInst = newStore;
   } else if (auto loadInst = dyn_cast<LoadInst>(inst)) {
@@ -364,7 +364,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     newLoad->setAlignment(loadInst->getAlignment());
     newLoad->setVolatile(loadInst->isVolatile());
     newLoad->setOrdering(loadInst->getOrdering());
-    newLoad->setSynchScope(loadInst->getSynchScope());
+    newLoad->setSyncScopeID(loadInst->getSyncScopeID());
 
     newInst = getMaskForValue(builder, newLoad, bitWidth);
   } else if (auto phiNode = dyn_cast<PHINode>(inst)) {

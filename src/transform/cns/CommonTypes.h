@@ -58,7 +58,6 @@ typedef std::set<const llvm::Value *> ConstValueSet;
 typedef std::set<llvm::PHINode *> PHISet;
 
 typedef std::set<llvm::Instruction *> InstructionSet;
-typedef llvm::Function::ArgumentListType ArgList;
 typedef std::vector<llvm::BasicBlock *> BlockVector;
 typedef std::set<llvm::BasicBlock *> BlockSet;
 typedef std::vector<BlockSet> BlockSetVector;

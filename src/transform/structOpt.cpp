@@ -505,7 +505,7 @@ StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
 // we may transorm the alloc
 
   // replace alloca
-  auto * vecAlloc = new AllocaInst(vecAllocTy, allocaInst.getName(), &allocaInst);
+  auto * vecAlloc = new AllocaInst(vecAllocTy, allocaInst.getType()->getAddressSpace(), allocaInst.getName(), &allocaInst);
 
   const uint alignment = layout.getPrefTypeAlignment(vecAllocTy); // TODO should enfore a stricter alignment at this point
   vecInfo.setVectorShape(*vecAlloc, VectorShape::uni(alignment));

@@ -178,7 +178,7 @@ MaskExpander::requestBranchMask(TerminatorInst & term, int succIdx, IRBuilder<> 
 
     // case test, mask = (switchVal == caseVal)
     } else {
-      auto & caseVal = *itCase.getCaseValue();
+      auto & caseVal = *itCase->getCaseValue();
       auto & caseCmp = *builder.CreateICmp(ICmpInst::ICMP_EQ, &caseVal, &switchVal, "caseeq_" + std::to_string(caseVal.getSExtValue()));
       vecInfo.setVectorShape(caseCmp, valShape);
       setBranchMask(sourceBlock, succIdx, caseCmp);
@@ -248,7 +248,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   if (&BB == &entryBlock) {
     auto & mapping =vecInfo.getMapping();
     if (mapping.maskPos >= 0) {
-      auto itArg = mapping.scalarFn->getArgumentList().begin();
+      auto itArg = mapping.scalarFn->arg_begin();
       std::advance(itArg, mapping.maskPos);
       IF_DEBUG_ME {errs() << "entryMask: " << *itArg << "\n"; }
       setBlockMask(BB, *itArg);

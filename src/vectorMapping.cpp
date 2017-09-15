@@ -27,11 +27,8 @@ VectorMapping::dump(llvm::raw_ostream & out) const {
 		<< "\tmaskPos  = " << maskPos << "\n"
 		<< "\tresultSh = " << resultShape.str() << "\n"
 		<< "\tparamShs: {\n";
-	const auto & scalarArgList = scalarFn->getArgumentList();
-	const auto & vectorArgList = vectorFn->getArgumentList();
-
-	auto itScalarArg = scalarArgList.begin();
-	auto itVectorArg = vectorArgList.begin();
+	auto itScalarArg= scalarFn->arg_begin();
+	auto itVectorArg= vectorFn->arg_begin();
 
 	uint i = 0;
 	for (VectorShape argShape : argShapes) {

@@ -120,7 +120,7 @@ bool PlatformInfo::addSIMDMapping(const Function &scalarFunction,
 
   // Find out which arguments are UNIFORM and which are VARYING.
   SmallVector<bool, 4> uniformArgs;
-  uniformArgs.reserve(scalarFunction.getArgumentList().size());
+  uniformArgs.reserve(scalarFunction.arg_size());
 
   Function::const_arg_iterator scalarA = scalarFunction.arg_begin();
   Function::const_arg_iterator simdA = simdFunction.arg_begin();
@@ -161,13 +161,10 @@ VectorMapping *PlatformInfo::inferMapping(llvm::Function &scalarFnc,
   // argument shapes
   rv::VectorShapeVec argShapes;
 
-  auto &scalarArgList = scalarFnc.getArgumentList();
-  auto itScalarArg = scalarArgList.begin();
+  auto itScalarArg = scalarFnc.arg_begin();
+  auto itSimdArg = simdFnc.arg_begin();
 
-  auto &simdArgList = simdFnc.getArgumentList();
-  auto itSimdArg = simdArgList.begin();
-
-  for (uint i = 0; i < simdArgList.size(); ++i) {
+  for (size_t i = 0; i < simdFnc.arg_size(); ++i) {
     // mask special case
     if (maskPos >= 0 && (i == (uint)maskPos)) {
       argShapes.push_back(VectorShape::varying());
@@ -176,7 +173,7 @@ VectorMapping *PlatformInfo::inferMapping(llvm::Function &scalarFnc,
     }
 
     // trailing additional argument case
-    if (itScalarArg == scalarArgList.end()) {
+    if (itScalarArg == scalarFnc.arg_end()) {
       IF_DEBUG errs() << "Unexpected additional argument (pos " << i
                       << ") in simd function " << simdFnc << "\n";
       argShapes.push_back(VectorShape::varying());
@@ -195,8 +192,8 @@ VectorMapping *PlatformInfo::inferMapping(llvm::Function &scalarFnc,
     ++itSimdArg;
   }
 
-  assert(itScalarArg == scalarArgList.end());
-  assert(itSimdArg == simdArgList.end());
+  assert(itScalarArg == scalarFnc.arg_end());
+  assert(itSimdArg == simdFnc.arg_end());
 
   int vecWidth = 0; // FIXME
   return new rv::VectorMapping(&scalarFnc, &simdFnc,

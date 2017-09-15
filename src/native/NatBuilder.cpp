@@ -179,8 +179,8 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   // map arguments first
   if (!region) {
     unsigned i = 0;
-    auto sit = func->getArgumentList().begin();
-    for (auto it = vecFunc->getArgumentList().begin(), et = vecFunc->getArgumentList().end();
+    auto sit = func->arg_begin();
+    for (auto it = vecFunc->arg_begin(), et = vecFunc->arg_end();
          it != et; ++it, ++sit, ++i) {
       Argument *arg = &*it;
       const Argument *sarg = &*sit;
@@ -1456,6 +1456,9 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
   maskNonConst ? (scatter ? ++numMaskedScatter : ++numMaskedGather) : (scatter ? ++numScatter : ++numGather);
 
   if (config.useScatterGatherIntrinsics) {
+
+    auto * vecPtrTy = addr->getType();
+
     std::vector<Value *> args;
     if (scatter) args.push_back(values);
     args.push_back(addr);
@@ -1463,8 +1466,8 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
     args.push_back(mask);
     if (!scatter) args.push_back(UndefValue::get(vecType));
     Module *mod = vecInfo.getMapping().vectorFn->getParent();
-    Function *intr = scatter ? Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, vecType)
-                             : Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, vecType);
+    Function *intr = scatter ? Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, {vecType, vecPtrTy})
+                             : Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, {vecType, vecPtrTy});
     assert(intr && "scatter/gather not found!");
     return builder.CreateCall(intr, args);
 
@@ -2050,7 +2053,7 @@ Value *NatBuilder::requestCascadeLoad(Value *vecPtr, unsigned alignment, Value *
   }
 
   // cast call argument to correct type if needed
-  Argument *ptrArg = &*func->getArgumentList().begin();
+  Argument *ptrArg = &*func->arg_begin();
   Value *callPtr = vecPtr;
 
   if (ptrArg->getType() != vecPtr->getType()) {
@@ -2080,7 +2083,7 @@ Value *NatBuilder::requestCascadeStore(Value *vecVal, Value *vecPtr, unsigned al
   }
 
   // cast call arguments to correct type if needed
-  auto argIt = func->getArgumentList().begin();
+  auto argIt = func->arg_begin();
   Argument *valArg = &*argIt++;
   Argument *ptrArg = &*argIt;
   Value *callVal = vecVal;
@@ -2126,7 +2129,7 @@ Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigne
   FunctionType *fnType = FunctionType::get(resType, argTypes, false);
   Function *func = Function::Create(fnType, GlobalValue::LinkageTypes::ExternalLinkage, name, mod);
 
-  auto argIt = func->getArgumentList().begin();
+  auto argIt = func->arg_begin();
   Argument *valVec = nullptr;
   if (store) {
     valVec = &*argIt++;
@@ -2453,10 +2456,10 @@ void
 NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
   assert((red.kind != RedKind::Top) && (red.kind != RedKind::Bot));
 
-  const size_t vectorWidth = vecInfo.getVectorWidth();
+  const auto vectorWidth = vecInfo.getVectorWidth();
   auto * vecPhi = cast<PHINode>(getVectorValue(&scaPhi));
   auto redShape = red.getShape(vectorWidth);
-  assert(redShape.isVarying());
+  assert(redShape.isVarying()); (void) redShape;
 
 // construct new (vectorized) initial value
   // TODO generalize to multi phi reductions

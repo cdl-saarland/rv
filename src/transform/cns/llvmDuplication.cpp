@@ -164,7 +164,7 @@ BlockSet splitNode(llvm::BasicBlock *srcBlock, llvm::DominatorTree *domTree) {
 #ifdef CNS_SSA_UPDATER
 #else
           auto * func = srcBlock->getParent();
-          location = new AllocaInst(inst.getType(), "cns.stash", func->begin()->getFirstNonPHI());
+          location = new AllocaInst(inst.getType(), 0, "cns.stash", func->begin()->getFirstNonPHI());
 #endif
           IF_DEBUG_CNS errs() << "SSAUpdater setup:\n";
           for (auto itMap : cloneMap) {

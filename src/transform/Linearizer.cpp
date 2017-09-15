@@ -963,7 +963,7 @@ Linearizer::emitBlock(int targetId) {
     if (phi && phi->getNumIncomingValues() == 1) {
       auto itPred = pred_begin(relayBlock);
       auto predEnd = pred_end(relayBlock);
-      assert(itPred != predEnd);
+      assert(itPred != predEnd); (void) predEnd;
       auto * singlePred = *itPred;
 
       IF_DEBUG_LIN {
