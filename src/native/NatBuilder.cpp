@@ -785,7 +785,7 @@ NatBuilder::vectorizeStoreCall(CallInst *rvCall) {
 // non-uniform arg
   auto * vecVal = requestVectorValue(vecPtr);
   auto * lanePtr = builder.CreateExtractElement(vecVal, laneId, "rv_store");
-  auto * store = builder.CreateStore(elemVal, lanePtr, "rv_store");
+  auto * store = builder.CreateStore(elemVal, lanePtr);
   mapScalarValue(rvCall, store);
 }
 

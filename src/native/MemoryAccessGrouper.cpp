@@ -99,7 +99,7 @@ const SCEV *MemoryAccessGrouper::add(Value *addrVal) {
 
     IF_DEBUG_MG errs() << "\tresult: " << offset << "\n";
 
-    if (abs(offset) >= groupLimit) continue;
+    if (std::abs(offset) >= groupLimit) continue;
 
     IF_DEBUG_MG errs() << "== " << offset << "\n";
 
