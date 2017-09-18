@@ -8,7 +8,7 @@
 #include <vector>
 #include <set>
 #include <map>
-#include <bits/stl_pair.h>
+#include <utility>
 
 namespace llvm {
 class Loop;
