@@ -439,6 +439,23 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
       flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
     }
     return flatIdx;
+
+  } else if (ptrElemTy->isVectorTy()) {
+    auto * intTy = Type::getInt32Ty(builder.getContext());
+    size_t n = ptrElemTy->getVectorNumElements();
+    auto * ptrTy = cast<PointerType>(ptr->getType());
+    auto * scaPtrTy = PointerType::get(ptrTy->getPointerElementType()->getVectorElementType(), ptrTy->getPointerAddressSpace());
+    auto * scaPtr = builder.CreatePointerCast(ptr, scaPtrTy);
+    vecInfo.setVectorShape(*scaPtr, ptrShape);
+
+    for (size_t i = 0; i < n; i++) {
+      // load every member
+      auto * elemGep = i > 0 ? builder.CreateGEP(scaPtr, ConstantInt::get(intTy, i, true), "srov_gep") : scaPtr;
+      vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
+      flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
+    }
+    return flatIdx;
+
   } else {
     // not a structure, just perform a normal load/store
     if (load) {
@@ -461,6 +478,11 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
 static
 int GetShuffleIndex(Constant & shuffleMask, int i) {
   if (shuffleMask.isZeroValue()) return 0;
+  if (isa<ConstantDataSequential>(shuffleMask)) {
+    auto & constData = cast<ConstantDataSequential>(shuffleMask);
+    return constData.getElementAsInteger(i);
+  }
+
   auto & maskVec = cast<ConstantVector>(shuffleMask);
   return cast<ConstantInt>(maskVec.getOperand(i))->getSExtValue();
 }
@@ -649,7 +671,15 @@ requestConstVectorReplicate(Constant & val) {
     for (size_t i = 0; i < width; ++i) {
       res.push_back(Constant::getNullValue(&elemTy));
     }
+  // replicate non operand based constants
+  } else if (isa<ConstantDataSequential>(val)) {
+    auto & constData = cast<ConstantDataSequential>(val);
+    for (size_t i = 0; i < constData.getNumElements(); ++i) {
+      ValVec elemRepl = requestReplicate(*constData.getElementAsConstant(i));
+      Append(res, elemRepl);
+    }
 
+  // replicate operand based constants
   } else {
     // generic const expresssion case
     for (size_t i = 0; i < val.getNumOperands(); ++i) {
@@ -658,6 +688,7 @@ requestConstVectorReplicate(Constant & val) {
     }
   }
 
+  assert(!res.empty());
   return res;
 }
 
