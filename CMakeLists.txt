@@ -94,19 +94,22 @@ OPTION(RV_ENABLE_SLEEF "Generate RV's builtin vector-math library" ON)
 OPTION(RV_ENABLE_CRT "Implement complex math functions using BC-compiler compiler-rt" OFF)
 OPTION(RV_DEBUG "Enable verbose debug output and expensive internal checks." OFF)
 
+set(RV_TARGETS_TO_BUILD "Native" CACHE STRING "Semicolon-separated list of targets to build, or 'Native'.")
+string(REPLACE "Native" ${LLVM_NATIVE_ARCH} RV_TARGETS_TO_BUILD "${RV_TARGETS_TO_BUILD}")
+list(REMOVE_DUPLICATES RV_TARGETS_TO_BUILD)
 
 # check enabled targets
-IF (X86 IN_LIST LLVM_TARGETS_TO_BUILD)
-  SET(RV_ENABLE_X86 On)
-ELSE()
-  SET(RV_ENABLE_X86 Off)
-ENDIF()
+if(X86 IN_LIST RV_TARGETS_TO_BUILD)
+  set(RV_ENABLE_X86 On)
+else()
+  set(RV_ENABLE_X86 Off)
+endif()
 
-IF (AArch64 IN_LIST LLVM_TARGETS_TO_BUILD)
-  SET(RV_ENABLE_ADVSIMD On)
-ELSE()
-  SET(RV_ENABLE_ADVSIMD Off)
-ENDIF()
+if(AArch64 IN_LIST RV_TARGETS_TO_BUILD)
+  set(RV_ENABLE_ADVSIMD On)
+else()
+  set(RV_ENABLE_ADVSIMD Off)
+endif()
 
 
 set(RV_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
