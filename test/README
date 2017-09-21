@@ -1,50 +1,49 @@
 -- Launching the test suite --
 run ./test_rv.py in the test/ folder.
-test_rv optionally accepts file patterns to c/cpp unit tests on the command line.
+test_rv optionally accepts file patterns to c/cpp system tests on the command line.
 
 -- How test_rv works --
-libRVs testing infrastructure is based on unit test files in suite/.
+libRVs testing infrastructure is based on system test files in suite/.
 The command line tool to run these is test_rv.py.
-test_rv.py will take a unit test file, vectorize it, and link it against a matching test launcher.
-The function in that module is always called "foo".
+test_rv.py will take a system test file, vectorize it, and link it against a matching test launcher.
+The function in the test file is always called "foo".
 test_rv vectorizes the test using rvTool, the command line vectorizer that is build along with libRV.
 
-The filename of each unit test describes what should be vectorized and how (loop region or whole function).
-The filename also determines the launcher for this test.
+-- "wfv" or "loop" mode --
+The filename of each system test describes whether it is a Whole-Function Vectorization test or an Outer-Loop Vectorization test.
+All test files have the structure: <testName>-<mode>.c/cpp
+If <mode> is "wfv", test_rv will apply Whole-Function Vectorization, if <mode> is "loop>, RV test_rv will apply Outer-Loop Vectorization to the first outer most loop.
 
-test_rv recognizes two file name patterns:
+-- Test file configure line --
+test_rv will parse the first line in the system test files.
+This line encodes how the test shall be vectorized and which test launcher it should be linked against.
+The line is always structured as a list of key-value pairs. The key refers to a specific option name. The value has to be written without any in-between spaces.
+// A: value, B: value
 
-1.) Outer-Loop Vectorization Tests
-Filename structure: <testName>-loop-<launchCode>_<loopIdx>.c/cpp
-Launcher: launcher/loopverify_<launchCode>.cpp
+- Common options -
+// LaunchCode: <launchCode>
+Identifies the launcher module that has to be linked against this test to actually run it. All launchers are in the folder "rv/test/launchers". 
+loopverify_<launchCode>.cpp (verify_<launchCode>.cpp) will be used for <launchCode> in OuterLoop (WFV mode).
+There are also profiling launchers when running test_rv in profiling mode.
 
-# loopIdx: currently ignored, rvTool vectorizes the first outer most loop in the unit test.
+// Width: <Width>
+The vectorization factor used to vectorize this function (outer loop).
 
-2.) WFV tests
-Filename structure: <testName>-wfv-<launchCode>_<simdMapping>.c/cpp
-Launcher: launcher/verify_<launchCode>.cpp
+- WFV options -
+// InputShape: <SIMD Shape Signature>
+The SIMD Shape Signature is a list of vector shapes sepearted by the character "_". Every shape in the list defines the kind of shape the corresponding test function argument (the first, the second, ..) will have once the test function (foo) is vectorized. We explain the syntax of shapes below.
+It the test function returns a value, its shape can be defined by appending "r<Shape>" to the signature.
 
-# simdMapping: Each character in this string is a shape code for an argument. The shape of the return value can be given by appending rX where C is a shape code.
-Possible shape codes are C for contiguous, U for uniform, T for varying.
-For example, the simdMapping "CrT" means that the function has exactly one contiguous argument and returns a vector value.
-rvTool takes care of generating a matching SIMD declaration in the unit test module.
+For example, "U_TrU" refers to a test function that receives a uniform input as its first argument, a varying argument as its second argument and returns a uniform value again.
+rvTool will automatically create a SIMD declaration from the scalar function type of the test function and its SIMD shape signature.
 
-
--- Test source structure --
-test_rv.py - command line tester
-launcher/ - test launchers.
-suite/ - contains outer-loop and whole-function vectorization tests.
-wfv1testsuite/ - sources of the legacy WFV test suite.
-
-
--- Adding your own tests --
-Create a new file with a function "foo" and give it a name according to the patterns described above.
-If there already is a fitting launcher for your unit test you are done.
-Otherwise, you will have to add your own launcher.
-To do that add a new cpp file the the correct launch code to launcher/.
-WFV test launchers should return with an error code if there is a mismatch between scalar and SIMD execution result on a bunch of random inputs.
-Outer-loop test launchers should print a hash code of the output buffers on stdot: test_rv will compare these to decide whether the test passed.
-
-
--- General remarks --
-The vectorizer loop in outer-loop tests must be a plain 0, .., n-1 loop or rvTool will not recognize it.
+-- Shape syntax --
+Shapes consist of a base shape specifier, optionally followed by an alignment specifier.
+- base shape specifier -
+U : uniform
+C : contiguous
+T : varying
+S<n>: the value has an affine stride of <n> (single digit). For example, "S1" is equivalent to "C". "S0" is equivalent to "U".
+- alignment specifier -
+"a4" indicates that the first lane will always have an alignment of "4". If the base shape is varying, the alignment independelty applies to all lanes.
+For example, "S4a16" encodes a stride-4 affine shape where the first lane is always a multiple of "16".

@@ -111,9 +111,9 @@ def executeWFVTest(scalarLL, options, profileMode):
 
 def executeOuterLoopTest(scalarLL, options, profileMode):
   sigInfo = options.split(",")
-  # launchCode = options.split("-k")[1].split("-")[0].strip()
-
+  # defaults
   width = 8
+  loopHint = 0
 
   for option in sigInfo:
     opSplit = option.split(":")
