@@ -599,22 +599,22 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
     auto * flatTy = vecTy->getElementType();
 
     std::vector<Instruction*> repls;
-    for (int c = 0; c < vecTy->getNumElements(); ++c) {
+    for (size_t c = 0; c < vecTy->getNumElements(); ++c) {
       auto * cloned = inst.clone();
       cloned->mutateType(flatTy);
       repls.push_back(cloned);
     }
 
     // remap operands
-    for (int i = 0; i < inst.getNumOperands(); ++i) {
+    for (size_t i = 0; i < inst.getNumOperands(); ++i) {
       ValVec opRepl = requestReplicate(*inst.getOperand(i));
-      for (int c = 0; c < vecTy->getNumElements(); ++c) {
+      for (size_t c = 0; c < vecTy->getNumElements(); ++c) {
         repls[c]->setOperand(i, opRepl[c]);
       }
     }
 
     // insert op
-    for (int c = 0; c < vecTy->getNumElements(); ++c) {
+    for (size_t c = 0; c < vecTy->getNumElements(); ++c) {
       builder.Insert(repls[c], ".r");
       replVec.push_back(repls[c]);
     }
@@ -630,7 +630,7 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
 
   IF_DEBUG_SROV {
     errs() << "repls " << inst << ":\n";
-    for (int i = 0; i < replVec.size(); ++i) {
+    for (size_t i = 0; i < replVec.size(); ++i) {
       errs() << "\t" << i << " : " << *replVec[i] << "\n";
     }
   }
@@ -643,16 +643,16 @@ requestConstVectorReplicate(Constant & val) {
   ValVec res;
   auto & vecTy = cast<VectorType>(*val.getType());
   auto & elemTy = *vecTy.getElementType();
-  const int width = vecTy.getNumElements();
+  const size_t width = vecTy.getNumElements();
 
   if (val.isZeroValue()) {
-    for (int i = 0; i < width; ++i) {
+    for (size_t i = 0; i < width; ++i) {
       res.push_back(Constant::getNullValue(&elemTy));
     }
 
   } else {
     // generic const expresssion case
-    for (int i = 0; i < val.getNumOperands(); ++i) {
+    for (size_t i = 0; i < val.getNumOperands(); ++i) {
       ValVec elemRepl = requestReplicate(*val.getOperand(i));
       Append(res, elemRepl);
     }
@@ -699,7 +699,7 @@ requestReplicate(Value & val) {
     if (vecTy) {
       replVec = requestConstVectorReplicate(*constVal);
     } else {
-      for (int i = 0; i < constVal->getNumOperands(); ++i) {
+      for (size_t i = 0; i < constVal->getNumOperands(); ++i) {
         ValVec elemRepl = requestReplicate(*constVal->getOperand(i));
         Append(replVec, elemRepl);
       }
@@ -743,7 +743,7 @@ run() {
       if (isa<ExtractValueInst>(I)) {
         auto & extractedVal = *I.getOperand(0);
 
-        int numScalarRepls = GetNumReplicates(*extractedVal.getType());
+        size_t numScalarRepls = GetNumReplicates(*extractedVal.getType());
         if (numScalarRepls == 0) {
          IF_DEBUG_SROV { errs() << "SROV: can not replicate extractval operand: " << extractedVal << "). skipping..\n"; }
           continue;
@@ -764,7 +764,7 @@ run() {
       } else if (isa<ExtractElementInst>(I)) {
         auto & extractedVal = *I.getOperand(0);
 
-        int numScalarRepls = GetNumReplicates(*extractedVal.getType());
+        size_t numScalarRepls = GetNumReplicates(*extractedVal.getType());
         if (numScalarRepls == 0) {
          IF_DEBUG_SROV { errs() << "SROV: can not replicate extractelem operand: " << extractedVal << "). skipping..\n"; }
           continue;
