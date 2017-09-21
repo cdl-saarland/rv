@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#!/usr/bin/env python
 import sys
 
 cppFileName = sys.argv[1]
@@ -21,7 +21,7 @@ def encodeByte(byte):
     return byte
 
 
-stream = open(bcFile, 'br')
+stream = open(bcFile, 'rb')
 with open(cppFileName, 'w') as out:
   # prologue
   out.write("#include<string>\nextern const unsigned char {}_Buffer[] = {}".format(bufferName, "{")) 
@@ -38,7 +38,7 @@ with open(cppFileName, 'w') as out:
       out.write(',')
 
     later = True
-    out.write("0x{:02X}".format(byte[0]))
+    out.write("0x{:02X}".format(ord(byte[0])))
 
   # epilogue
   out.write("{0};\nextern const size_t {1}_BufferLen = sizeof({1}_Buffer);\n".format("}", bufferName))
