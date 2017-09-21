@@ -1,4 +1,3 @@
-;
 #include "rv/analysis/DFG.h"
 #include "llvm/IR/CFG.h"
 
