@@ -53,10 +53,6 @@ TargetTransformInfo *PlatformInfo::getTTI() { return mTTI; }
 
 TargetLibraryInfo *PlatformInfo::getTLI() { return mTLI; }
 
-static bool compareWithScalarFnName(const VecDesc &LHS, StringRef S) {
-  return std::strncmp(LHS.scalarFnName, S.data(), S.size()) < 0;
-}
-
 void PlatformInfo::addVectorizableFunctions(ArrayRef<VecDesc> funcs, bool givePrecedence) {
   auto itInsert = givePrecedence ? commonVectorMappings.begin() : commonVectorMappings.end();
   commonVectorMappings.insert(itInsert, funcs.begin(), funcs.end());
