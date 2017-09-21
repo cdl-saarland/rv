@@ -54,7 +54,7 @@ public:
 
     const VectorMapping& getMapping() const { return mapping; }
 
-    uint getVectorWidth() const { return mapping.vectorWidth; }
+    size_t getVectorWidth() const { return mapping.vectorWidth; }
 
     VectorizationInfo(VectorMapping _mapping);
     VectorizationInfo(llvm::Function& parentFn, uint vectorWidth, Region& _region);

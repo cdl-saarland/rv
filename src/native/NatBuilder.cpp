@@ -2453,7 +2453,7 @@ void
 NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
   assert((red.kind != RedKind::Top) && (red.kind != RedKind::Bot));
 
-  const int vectorWidth = vecInfo.getVectorWidth();
+  const size_t vectorWidth = vecInfo.getVectorWidth();
   auto * vecPhi = cast<PHINode>(getVectorValue(&scaPhi));
   auto redShape = red.getShape(vectorWidth);
   assert(redShape.isVarying());
