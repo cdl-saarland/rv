@@ -23,7 +23,7 @@ Config::Config()
 , enableSplitAllocas(!CheckFlag("RV_DISABLE_SPLITALLOCAS"))
 , enableStructOpt(!CheckFlag("RV_DISABLE_STRUCTOPT"))
 , enableSROV(!CheckFlag("RV_DISABLE_SROV"))
-, enableIRPolish(!CheckFlag("RV_DISABLE_POLISH"))
+, enableIRPolish(CheckFlag("RV_ENABLE_POLISH"))
 , enableHeuristicBOSCC(CheckFlag("RV_EXP_BOSCC"))
 
 // feature flags
