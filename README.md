@@ -1,4 +1,4 @@
-# The Region Vectorizer (LLVM 4.0 version)
+# The Region Vectorizer (LLVM 5.0 version)
 
 Compiler Design Lab / Saarland University / Saarland Informatics Campus
 
@@ -19,7 +19,7 @@ To enable vectorized complex arithmetic through compiler-rt checkout compiler-rt
 
 ### Build prerequisites 
 
-* LLVM 4.0 (cmake)
+* LLVM 5.0 (cmake)
 * Clang (for the vector math libraries)
 * compiler-rt [optional] (for complex arithmetic functions)
 
