@@ -139,13 +139,13 @@ namespace native {
     llvm::Value *requestVectorValue(llvm::Value *const value);
     llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
                                     bool skipMapping = false);
-    llvm::GetElementPtrInst *buildGEP(llvm::GetElementPtrInst *const gep, bool buildScalar, unsigned laneIdx);
-    llvm::GetElementPtrInst *requestVectorGEP(llvm::GetElementPtrInst *const gep);
-    llvm::GetElementPtrInst *requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneIdx, bool skipMapping);
+    llvm::Value *buildGEP(llvm::GetElementPtrInst *const gep, bool buildScalar, unsigned laneIdx);
+    llvm::Value *requestVectorGEP(llvm::GetElementPtrInst *const gep);
+    llvm::Value *requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneIdx, bool skipMapping);
     llvm::Value *requestVectorBitCast(llvm::BitCastInst *const bc);
     llvm::Value *requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx, bool skipMapping);
 
-    llvm::GetElementPtrInst *requestInterleavedGEP(llvm::GetElementPtrInst *const gep, unsigned interleavedIdx);
+    llvm::Value *requestInterleavedGEP(llvm::GetElementPtrInst *const gep, unsigned interleavedIdx);
     llvm::Value *requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, llvm::Type *const vecType);
 
     llvm::Value *requestCascadeLoad(llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
