@@ -372,7 +372,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     } else if (gep || bc) {
       continue; // skipped
     } else if (canVectorize(inst) && shouldVectorize(inst))
-      vectorize(inst);
+      vectorizeInstruction(inst);
     else if (!canVectorize(inst) && shouldVectorize(inst))
       fallbackVectorize(inst);
     else
@@ -642,7 +642,7 @@ void NatBuilder::fallbackVectorize(Instruction *const inst) {
 }
 
 /* expects that builder has valid insertion point set */
-void NatBuilder::vectorize(Instruction *const inst) {
+void NatBuilder::vectorizeInstruction(Instruction *const inst) {
   assert(inst && "no instruction to vectorize");
   assert(builder.GetInsertBlock() && "no insertion point set");
   Instruction *vecInst = inst->clone();

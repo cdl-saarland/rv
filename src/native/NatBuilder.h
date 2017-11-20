@@ -99,7 +99,7 @@ namespace native {
 
   private:
     void vectorize(llvm::BasicBlock *const bb, llvm::BasicBlock *vecBlock);
-    void vectorize(llvm::Instruction *const inst);
+    void vectorizeInstruction(llvm::Instruction *const inst);
     void vectorizePHIInstruction(llvm::PHINode *const scalPhi);
     void vectorizeMemoryInstruction(llvm::Instruction *const inst);
     void vectorizeCallInstruction(llvm::CallInst *const scalCall);
