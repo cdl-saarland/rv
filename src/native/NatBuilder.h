@@ -79,7 +79,10 @@ namespace native {
     // create a mask cascade at the current insertion point, call @genFunc in every cascaded block, if @packResult insert all values provided by @genFunc into
     // an accumulator and return that (result size 1). If !@packResult return dominating definitions of the computed value
     // @genFunc: first argument is an IRBuilder that inserts into a fresh mask-guarded block, second argument is the lane for which the instruction @inst should be scalarized
-    ValVec scalarizeCascaded(llvm::BasicBlock & srcBlock, llvm::Instruction & inst, bool packResult, std::function<llvm::Value*(llvm::IRBuilder<>&,size_t)> genFunc);
+    ValVec scalarizeCascaded(llvm::BasicBlock & srcBlock, llvm::Instruction & srcInst, bool packResult, std::function<llvm::Value*(llvm::IRBuilder<>&,size_t)> genFunc);
+
+    // scalarize without if-guard
+    ValVec scalarize(llvm::BasicBlock & srcBlock, llvm::Instruction & srcInst, bool packResult, std::function<llvm::Value*(llvm::IRBuilder<>&,size_t)> genFunc);
 
   public:
     NatBuilder(rv::Config config, rv::PlatformInfo &_platformInfo, rv::VectorizationInfo &_vecInfo,
