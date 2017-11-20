@@ -340,8 +340,7 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTre
   if (config.enableIRPolish) {
     IRPolisher polisher(vecInfo.getVectorFunction(), config);
     polisher.polish();
-  } else {
-    Report() << "IR Polisher disabled (RV_DISABLE_POLISH != 0)\n";
+    Report() << "IR Polisher enabled (RV_ENABLE_POLISH != 0)\n";
   }
 
   IF_DEBUG verifyFunction(vecInfo.getVectorFunction());
