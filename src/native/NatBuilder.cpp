@@ -1669,7 +1669,8 @@ SetInsertBeforeTerm(IRBuilder<> & builder, BasicBlock & block) {
     builder.SetInsertPoint(&block);
 }
 
-Value *NatBuilder::requestVectorValue(Value *const value) {
+llvm::Value*
+NatBuilder::requestVectorValue(Value *const value) {
   if (isa<GetElementPtrInst>(value))
     return requestVectorGEP(cast<GetElementPtrInst>(value));
 
@@ -1849,7 +1850,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   return reqVal;
 }
 
-GetElementPtrInst *
+llvm::Value *
 NatBuilder::buildGEP(GetElementPtrInst *const gep, bool buildScalar, unsigned laneIdx) {
   BasicBlockVector &mappedBlocks = getMappedBlocks(gep->getParent());
   BasicBlock *insertBlock = builder.GetInsertBlock();
@@ -1885,40 +1886,44 @@ NatBuilder::buildGEP(GetElementPtrInst *const gep, bool buildScalar, unsigned la
     idxList.push_back(vecIdx);
   }
 
-  GetElementPtrInst *vecGEP = cast<GetElementPtrInst>(builder.CreateGEP(vecBasePtr, idxList, gep->getName()));
-  vecGEP->setIsInBounds(gep->isInBounds());
+  Value * vecGEP = cast<GetElementPtrInst>(builder.CreateGEP(vecBasePtr, idxList, gep->getName()));
+  auto * vecGEPInst = dyn_cast<GetElementPtrInst>(vecGEP);
+  if (vecGEPInst) {
+    vecGEPInst->setIsInBounds(gep->isInBounds());
+  }
 
   builder.SetInsertPoint(insertBlock, insertPoint);
 
   return vecGEP;
 }
 
-GetElementPtrInst *NatBuilder::requestVectorGEP(GetElementPtrInst *const gep) {
+llvm::Value*
+NatBuilder::requestVectorGEP(GetElementPtrInst *const gep) {
   Value *mapped = getVectorValue(gep);
-  if (mapped)
-    return cast<GetElementPtrInst>(mapped);
+  if (mapped) return mapped;
 
   ++numVecGEPs;
 
   mapped = buildGEP(gep, false, 0);
   mapVectorValue(gep, mapped);
-  return cast<GetElementPtrInst>(mapped);
+  return mapped;
 }
 
-llvm::GetElementPtrInst *NatBuilder::requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneIdx, bool skipMapping) {
+llvm::Value*
+NatBuilder::requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneIdx, bool skipMapping) {
   Value *mapped = getScalarValue(gep, laneIdx);
-  if (mapped)
-    return cast<GetElementPtrInst>(mapped);
+  if (mapped) return mapped;
 
   ++numScalGEPs;
 
   mapped = buildGEP(gep, true, laneIdx);
   if (!skipMapping)
     mapScalarValue(gep, mapped, laneIdx);
-  return cast<GetElementPtrInst>(mapped);
+  return mapped;
 }
 
-Value *NatBuilder::requestVectorBitCast(BitCastInst *const bc) {
+llvm::Value*
+NatBuilder::requestVectorBitCast(BitCastInst *const bc) {
   Value *mapped = getVectorValue(bc);
   if (mapped)
     return mapped;
@@ -1967,7 +1972,8 @@ Value *NatBuilder::requestScalarBitCast(llvm::BitCastInst *const bc, unsigned la
   return mapped;
 }
 
-GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const gep, unsigned interleavedIdx) {
+llvm::Value*
+NatBuilder::requestInterleavedGEP(GetElementPtrInst *const gep, unsigned interleavedIdx) {
   assert(gep->getNumOperands() - 1 == gep->getNumIndices() && "llvm implementation for GEP changed!");
 
   // first, we need a vectorized base vecValue (or scalar if all_uniform). then, we have to calculate the indices
@@ -2015,13 +2021,15 @@ GetElementPtrInst *NatBuilder::requestInterleavedGEP(GetElementPtrInst *const ge
     idxList.push_back(interIdx);
   }
 
-  GetElementPtrInst *interGEP = cast<GetElementPtrInst>(builder.CreateGEP(basePtr, idxList, "inter_gep"));
-  interGEP->setIsInBounds(gep->isInBounds());
+  auto *interGEP = builder.CreateGEP(basePtr, idxList, "inter_gep");
+  auto * interGEPInst = dyn_cast<GetElementPtrInst>(interGEP);
+  if (interGEPInst) interGEPInst->setIsInBounds(gep->isInBounds());
 
   return interGEP;
 }
 
-Value *NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, Type *const vecType) {
+llvm::Value *
+NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, Type *const vecType) {
   ++numInterGEPs;
   Value *interAddr = addr;
 
@@ -2040,7 +2048,8 @@ Value *NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned i
   return builder.CreatePointerCast(interAddr, vecPtrType, "inter_cast");
 }
 
-Value *NatBuilder::requestCascadeLoad(Value *vecPtr, unsigned alignment, Value *mask) {
+llvm::Value *
+NatBuilder::requestCascadeLoad(Value *vecPtr, unsigned alignment, Value *mask) {
   Type *elementPtrType = cast<VectorType>(vecPtr->getType())->getElementType();
   Type *accessedType = cast<PointerType>(elementPtrType)->getElementType();
   unsigned bitWidth = accessedType->getScalarSizeInBits();
