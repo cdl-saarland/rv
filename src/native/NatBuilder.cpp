@@ -943,135 +943,105 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       mapVectorValue(scalCall, append);
 
       ++numSemiCalls;
-
-    } else if (calledFunction && calledFunction->isIntrinsic() && Intrinsic::isOverloaded(calledFunction->getIntrinsicID())) {
-        // decode ambiguous type arguments
-        auto id = calledFunction->getIntrinsicID();
-        auto * funcTy = calledFunction->getFunctionType();
-        SmallVector<Intrinsic::IITDescriptor, 4> paramDescs;
-        Intrinsic::getIntrinsicInfoTableEntries(id, paramDescs);
-        SmallVector<Type*,4> overloadedTypes;
-
-        // append ambiguous types
-        SmallSet<uint, 4> mangledArgs;
-        for (auto desc : paramDescs) {
-          if (desc.Kind != Intrinsic::IITDescriptor::Argument) continue;
-          switch (desc.getArgumentKind()) {
-            case llvm::Intrinsic::IITDescriptor::AK_Any:
-              break;
-            default:
-              uint argIdx = desc.getArgumentNumber();
-              if (!mangledArgs.insert(argIdx).second) continue; // already mangled that arg
-              overloadedTypes.push_back(getVectorType(funcTy->getParamType(argIdx), vectorWidth()));
-              break;
-          }
-        }
-
-        Function *vecIntr = Intrinsic::getDeclaration(vecInfo.getVectorFunction().getParent(), calledFunction->getIntrinsicID(), overloadedTypes);
-        CallInst *call = cast<CallInst>(scalCall->clone());
-        call->setCalledFunction(vecIntr);
-        call->mutateType(vecIntr->getReturnType());
-        mapOperandsInto(scalCall, call, true);
-        mapVectorValue(scalCall, call);
-        builder.Insert(call, scalCall->getName());
-
-      ++numVecCalls;
-
-      }  else {
-      // check if we need cascade first
-      Value *predicate = vecInfo.getPredicate(*scalCall->getParent());
-      assert(predicate && "expected predicate!");
-      assert(predicate->getType()->isIntegerTy(1) && "predicate must be i1 type!");
-      bool needCascade = !isa<Constant>(predicate) && HasSideEffects(*scalCall);
-
-      // if we need cascading, we need the vectorized predicate and the cascading blocks
-      std::vector<BasicBlock *> condBlocks;
-      std::vector<BasicBlock *> maskedBlocks;
-      BasicBlock *resBlock = nullptr;
-      if (needCascade) {
-        BasicBlock *vecBlock = cast<BasicBlock>(getVectorValue(scalCall->getParent()));
-        resBlock = createCascadeBlocks(vecBlock->getParent(), vectorWidth(), condBlocks, maskedBlocks);
-
-        // branch to our entry block of the cascade
-        builder.CreateBr(condBlocks[0]);
-        builder.SetInsertPoint(condBlocks[0]);
-      }
-
-      // type of the call. we don't need to construct a result if void, vector or struct
-      Type *callType = scalCall->getType();
-      Value *resVec = (callType->isVoidTy() || callType->isVectorTy() || callType->isStructTy())
-                      ? nullptr
-                      : UndefValue::get(getVectorType(callType, vectorWidth()));
-
-      // create <vector_width> scalar calls
-      for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
-        BasicBlock *condBlock = nullptr;
-        BasicBlock *maskedBlock = nullptr;
-        BasicBlock *nextBlock = nullptr;
-
-        // if predicated, extract from mask and conditionally branch
-        if (needCascade) {
-          condBlock = condBlocks[lane];
-          maskedBlock = maskedBlocks[lane];
-          nextBlock = lane == vectorWidth() - 1 ? resBlock : condBlocks[lane + 1];
-
-          assert(builder.GetInsertBlock() == condBlock);
-          Value *mask = requestScalarValue(predicate, lane,
-                                           needCascade); // do not map this value if it's fresh to avoid dominance violations
-          builder.CreateCondBr(mask, maskedBlock, nextBlock);
-          builder.SetInsertPoint(maskedBlock);
-        }
-
-        // (masked block or not cascaded)
-        // for each argument, get lane value of argument, do the call, (if !voidTy, !vectorTy, !structTy) insert to resVec
-        std::vector<Value *> args;
-        for (unsigned i = 0; i < scalCall->getNumArgOperands(); ++i) {
-          Value *scalArg = scalCall->getArgOperand(i);
-          Value *laneArg = requestScalarValue(scalArg, lane,
-                                              needCascade); // do not map this value if it's fresh to avoid dominance violations
-          args.push_back(laneArg);
-        }
-        std::string suffix = callType->isVoidTy() ? "" : "_lane_" + std::to_string(lane);
-        auto scalCallName = scalCall->getName();
-        std::string vecCallName = scalCallName.empty() ? suffix : scalCallName.str() + suffix;
-        Value *call = builder.CreateCall(callee, args, vecCallName);
-        if (!needCascade)
-          mapScalarValue(scalCall, call, lane); // might proof useful. but only if not predicated
-
-        Value *insert = nullptr;
-        if (!(callType->isVoidTy() || callType->isVectorTy() || callType->isStructTy())) {
-          insert = builder.CreateInsertElement(resVec, call, ConstantInt::get(i32Ty, lane),
-                                               "insert_lane_" + std::to_string(lane));
-        }
-
-        // if predicated, branch to nextBlock and create phi which will become resVec. else, insert is resVec
-        if (needCascade) {
-          builder.CreateBr(nextBlock);
-          builder.SetInsertPoint(nextBlock);
-
-          if (callType->isStructTy() || callType->isVectorTy()) {
-            PHINode *phi = builder.CreatePHI(callType, 2);
-            phi->addIncoming(UndefValue::get(callType), condBlock);
-            phi->addIncoming(call, maskedBlock);
-            mapScalarValue(scalCall, phi, lane);
-
-          } else if (!callType->isVoidTy()) {
-            PHINode *phi = builder.CreatePHI(resVec->getType(), 2);
-            phi->addIncoming(resVec, condBlock);
-            phi->addIncoming(insert, maskedBlock);
-            resVec = phi;
-          }
-        } else if (!callType->isVoidTy()) {
-          resVec = insert;
-        }
-      }
-
-      // map resVec as vector value for scalCall and remap parent block of scalCall with resBlock
-      mapVectorValue(scalCall, resVec);
-      if (resBlock) mapVectorValue(scalCall->getParent(), resBlock);
-
-      needCascade ? ++numCascadeCalls : ++numFallCalls;
+      return;
     }
+
+// fallback to replication
+// TODO re-use generic cascading code here
+
+    // check if we need cascade first
+    Value *predicate = vecInfo.getPredicate(*scalCall->getParent());
+    assert(predicate && "expected predicate!");
+    assert(predicate->getType()->isIntegerTy(1) && "predicate must be i1 type!");
+    bool needCascade = !isa<Constant>(predicate) && HasSideEffects(*scalCall);
+
+    // if we need cascading, we need the vectorized predicate and the cascading blocks
+    std::vector<BasicBlock *> condBlocks;
+    std::vector<BasicBlock *> maskedBlocks;
+    BasicBlock *resBlock = nullptr;
+    if (needCascade) {
+      BasicBlock *vecBlock = cast<BasicBlock>(getVectorValue(scalCall->getParent()));
+      resBlock = createCascadeBlocks(vecBlock->getParent(), vectorWidth(), condBlocks, maskedBlocks);
+
+      // branch to our entry block of the cascade
+      builder.CreateBr(condBlocks[0]);
+      builder.SetInsertPoint(condBlocks[0]);
+    }
+
+    // type of the call. we don't need to construct a result if void, vector or struct
+    Type *callType = scalCall->getType();
+    Value *resVec = (callType->isVoidTy() || callType->isVectorTy() || callType->isStructTy())
+                    ? nullptr
+                    : UndefValue::get(getVectorType(callType, vectorWidth()));
+
+    // create <vector_width> scalar calls
+    for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
+      BasicBlock *condBlock = nullptr;
+      BasicBlock *maskedBlock = nullptr;
+      BasicBlock *nextBlock = nullptr;
+
+      // if predicated, extract from mask and conditionally branch
+      if (needCascade) {
+        condBlock = condBlocks[lane];
+        maskedBlock = maskedBlocks[lane];
+        nextBlock = lane == vectorWidth() - 1 ? resBlock : condBlocks[lane + 1];
+
+        assert(builder.GetInsertBlock() == condBlock);
+        Value *mask = requestScalarValue(predicate, lane,
+                                         needCascade); // do not map this value if it's fresh to avoid dominance violations
+        builder.CreateCondBr(mask, maskedBlock, nextBlock);
+        builder.SetInsertPoint(maskedBlock);
+      }
+
+      // (masked block or not cascaded)
+      // for each argument, get lane value of argument, do the call, (if !voidTy, !vectorTy, !structTy) insert to resVec
+      std::vector<Value *> args;
+      for (unsigned i = 0; i < scalCall->getNumArgOperands(); ++i) {
+        Value *scalArg = scalCall->getArgOperand(i);
+        Value *laneArg = requestScalarValue(scalArg, lane,
+                                            needCascade); // do not map this value if it's fresh to avoid dominance violations
+        args.push_back(laneArg);
+      }
+      std::string suffix = callType->isVoidTy() ? "" : "_lane_" + std::to_string(lane);
+      auto scalCallName = scalCall->getName();
+      std::string vecCallName = scalCallName.empty() ? suffix : scalCallName.str() + suffix;
+      Value *call = builder.CreateCall(callee, args, vecCallName);
+      if (!needCascade)
+        mapScalarValue(scalCall, call, lane); // might proof useful. but only if not predicated
+
+      Value *insert = nullptr;
+      if (!(callType->isVoidTy() || callType->isVectorTy() || callType->isStructTy())) {
+        insert = builder.CreateInsertElement(resVec, call, ConstantInt::get(i32Ty, lane),
+                                             "insert_lane_" + std::to_string(lane));
+      }
+
+      // if predicated, branch to nextBlock and create phi which will become resVec. else, insert is resVec
+      if (needCascade) {
+        builder.CreateBr(nextBlock);
+        builder.SetInsertPoint(nextBlock);
+
+        if (callType->isStructTy() || callType->isVectorTy()) {
+          PHINode *phi = builder.CreatePHI(callType, 2);
+          phi->addIncoming(UndefValue::get(callType), condBlock);
+          phi->addIncoming(call, maskedBlock);
+          mapScalarValue(scalCall, phi, lane);
+
+        } else if (!callType->isVoidTy()) {
+          PHINode *phi = builder.CreatePHI(resVec->getType(), 2);
+          phi->addIncoming(resVec, condBlock);
+          phi->addIncoming(insert, maskedBlock);
+          resVec = phi;
+        }
+      } else if (!callType->isVoidTy()) {
+        resVec = insert;
+      }
+    }
+
+    // map resVec as vector value for scalCall and remap parent block of scalCall with resBlock
+    mapVectorValue(scalCall, resVec);
+    if (resBlock) mapVectorValue(scalCall->getParent(), resBlock);
+
+    needCascade ? ++numCascadeCalls : ++numFallCalls;
   }
 }
 
