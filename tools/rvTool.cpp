@@ -50,6 +50,7 @@
 #include "rv/transform/remTransform.h"
 #include "rv/vectorizationInfo.h"
 
+
 static const char LISTSEPERATOR = '_';
 static const char RETURNSHAPESEPERATOR = 'r';
 
@@ -58,6 +59,11 @@ static const char UNICHAR = 'U';
 static const char CONTCHAR = 'C';
 static const char STRIDEDCHAR = 'S';
 static const char VARCHAR = 'T';
+
+// be verbose (rvTool level only)
+static bool verbose = false;
+#define IF_VERBOSE if (verbose)
+
 
 static void
 fail() __attribute__((noreturn));
@@ -169,20 +175,18 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     const bool useImpreciseFunctions = true;
     addSleefMappings(config, platformInfo, useImpreciseFunctions);
 
-#define IF_DEBUG if (true)
-
 // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable
   for (auto & inst : *preparedLoop->getHeader()) {
     auto * phi = dyn_cast<PHINode>(&inst);
     if (!phi) continue;
 
-    IF_DEBUG { errs() << "loopVecPass: header phi  " << *phi << " : "; }
+    IF_VERBOSE { errs() << "loopVecPass: header phi  " << *phi << " : "; }
 
     rv::StridePattern * pat = reductionAnalysis.getStrideInfo(*phi);
     rv::VectorShape phiShape;
     if (pat) {
-      IF_DEBUG { pat->dump(); }
+      IF_VERBOSE { pat->dump(); }
       phiShape = pat->getShape(vectorWidth);
 
     } else {
@@ -192,20 +196,20 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
         errs() << "\n\tskip: unrecognized phi use in vector loop " << preparedLoop->getName() << "\n";
         fail();
       } else {
-        IF_DEBUG { redInfo->dump(); }
+        IF_VERBOSE { redInfo->dump(); }
         phiShape = redInfo->getShape(vectorWidth);
       }
     }
 
-    IF_DEBUG { errs() << "header phi " << phi->getName() << " has shape " << phiShape.str() << "\n"; }
+    IF_VERBOSE { errs() << "header phi " << phi->getName() << " has shape " << phiShape.str() << "\n"; }
 
     if (phiShape.isDefined()) { vecInfo.setPinnedShape(*phi, phiShape); }
   }
 
   // set uniform overrides
-  IF_DEBUG { errs() << "-- Setting remTrans uni overrides --\n"; }
+  IF_VERBOSE { errs() << "-- Setting remTrans uni overrides --\n"; }
   for (auto * val : uniOverrides) {
-    IF_DEBUG { errs() << "- " << *val << "\n"; }
+    IF_VERBOSE { errs() << "- " << *val << "\n"; }
     vecInfo.setPinnedShape(*val, rv::VectorShape::uni());
   }
 
@@ -285,7 +289,7 @@ vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
 
 
     // dump normalized function
-    {
+    IF_VERBOSE {
       errs() << "-- normalized functions --\n";
       parentFn.print(errs());
     }
@@ -391,7 +395,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
 
 
     // dump normalized function
-    {
+    IF_VERBOSE {
       errs() << "-- normalized functions --\n";
       scalarCopy->print(errs());
     }
@@ -526,6 +530,29 @@ rv::VectorShape decodeShape(std::stringstream& shapestream)
     fail("Expected stride specifier.");
 }
 
+static void
+PrintHelp() {
+  std::cerr << "RV command line tool (rvTool)\n"
+            << "No operation specified (-wfv,-loopvec,-normalize,-lower)\n"
+            << "-i MODULE [-k KERNELNAME] [-t TARGET_DECL] [-normalize] [-lower] [-v] "
+            << "[-o OUTPUT_LL] [-w 8] [-s SHAPES] [-x GV_SHAPES]\n"
+            << "commands:\n"
+            << "-wfv/-loopvec : vectorize a whole-function or an outer loop\n"
+            << "-lower        : lower predicate intrinsics in scalar kernel.\n"
+            << "-normalize    : normalize kernel and quit.\n"
+            << "options:\n"
+            << "-i MODULE     : LLVM input module.\n"
+            << "-o MODULE     : LLVM output module.\n"
+            << "-k KERNEL     : name of the function to vectorize/function with loop to vectorize.\n"
+            << "-t DECL       : target SIMD declaration (WFV mode only, will be auto generated if missing).\n"
+            << "-s SHAPES     : WFV argument shapes.\n"
+            << "-x GVSHAPES   : comma-separates list of global value shapes, e.g. \"gvar=C,gvar2=S4\".\n"
+            << "-w WIDTH      : vectorization factor.\n"
+            << "-v            : enable verbose output (rvTool level output).\n";
+}
+
+
+
 int main(int argc, char** argv)
 {
     ArgumentReader reader(argc, argv);
@@ -549,12 +576,11 @@ int main(int argc, char** argv)
 
     bool runNormalize = reader.hasOption("-normalize");
 
-    bool runRed = reader.hasOption("-red");
+    // verbose debug output (rvTool level)
+    verbose = reader.hasOption("-v");
 
     if (!hasFile) {
-        std::cerr << "Not all arguments specified -wfv/-loopvec) "
-                  << "-i MODULE [-k KERNELNAME] [-target TARGET_DECL] [-normalize] [-red]"
-                  << "[-o OUTPUT_LL] [-w 8] [--lower]\n";
+      PrintHelp();
         return -1;
     }
 
@@ -590,22 +616,6 @@ int main(int argc, char** argv)
 
       finish = true;
     }
-
-#if 0
-    if (runRed) {
-      outs() << "-- Reduction Analysis output --\n";
-      for (auto & func : *mod) {
-        DominatorTree DT;
-        DT.recalculate(func);
-        LoopInfo LI;
-        LI.analyze(DT);
-        rv::ReductionAnalysis reda(func, LI);
-        reda.analyze();
-        reda.print(outs());
-        finish = true;
-      }
-    }
-#endif
 
     // parse additional global variable shapes "-x gvName=shape,gvName2=shape2"
     ShapeMap shapeMap;
@@ -704,7 +714,7 @@ int main(int argc, char** argv)
           rv::VectorMapping vectorizerJob(scalarFn, vectorFn, vectorWidth, -1, resShape, argShapes);
 
           // Vectorize
-          errs() << "\nVectorizing kernel \"" << vectorizerJob.scalarFn->getName()
+          IF_VERBOSE errs() << "\nVectorizing kernel \"" << vectorizerJob.scalarFn->getName()
                  << "\" into declaration \"" << vectorizerJob.vectorFn->getName()
                  << "\" with vector size " << vectorizerJob.vectorWidth << "... \n";
 
@@ -717,7 +727,7 @@ int main(int argc, char** argv)
       }
 
       if (lowerIntrinsics) {
-        errs() << "Lowering intrinsics in function " << scalarFn->getName() << "\n";
+        IF_VERBOSE errs() << "Lowering intrinsics in function " << scalarFn->getName() << "\n";
         rv::lowerIntrinsics(*scalarFn);
       }
 
@@ -728,7 +738,7 @@ int main(int argc, char** argv)
     if (hasOutFile)
     {
         writeModuleToFile(mod, outFile);
-        errs() << "Final module written to \"" << outFile << "\"\n";
+        IF_VERBOSE errs() << "Final module written to \"" << outFile << "\"\n";
     }
     else
     {
