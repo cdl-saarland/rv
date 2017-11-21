@@ -2,15 +2,15 @@
 #include "llvm/IR/CFG.h"
 
 
-using namespace llvm;
+using namespace rv;
 
 template<> char DFGBaseWrapper<true>::ID = 0;
 template<> char DFGBaseWrapper<false>::ID = 0;
 
 template<>
-bool DFGBaseWrapper<true>::runOnFunction(Function& F)
+bool DFGBaseWrapper<true>::runOnFunction(llvm::Function& F)
 {
-    DominatorTreeBase<BasicBlock, true>& tree = static_cast<DominatorTreeBase<BasicBlock, true>&>(getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree());
+  llvm::DominatorTreeBase<llvm::BasicBlock, true>& tree = static_cast<llvm::DominatorTreeBase<llvm::BasicBlock, true>&>(getAnalysis<llvm::PostDominatorTreeWrapperPass>().getPostDomTree());
 
     mDFGBase = new DFGBase<true>(tree);
     mDFGBase->create(F);
@@ -18,9 +18,9 @@ bool DFGBaseWrapper<true>::runOnFunction(Function& F)
 }
 
 template<>
-bool DFGBaseWrapper<false>::runOnFunction(Function& F)
+bool DFGBaseWrapper<false>::runOnFunction(llvm::Function& F)
 {
-    DominatorTreeBase<BasicBlock, false>& tree = static_cast<DominatorTreeBase<BasicBlock, false>&>(getAnalysis<DominatorTreeWrapperPass>().getDomTree());
+  llvm::DominatorTreeBase<llvm::BasicBlock, false>& tree = static_cast<llvm::DominatorTreeBase<llvm::BasicBlock, false>&>(getAnalysis<llvm::DominatorTreeWrapperPass>().getDomTree());
 
     mDFGBase = new DFGBase<false>(tree);
     mDFGBase->create(F);
@@ -37,48 +37,40 @@ DFGBase<backward>::~DFGBase() {
 }
 
 template<bool backward>
-void DFGBase<backward>::create(Function& F) {
-  auto const getIdom = [&](const BasicBlock* const BB) {
-    auto idomNode = DT.getNode(const_cast<BasicBlock*>(BB));
+void DFGBase<backward>::create(llvm::Function& F) {
+  auto const getIdom = [&](const llvm::BasicBlock& BB) {
+    auto idomNode = DT.getNode(const_cast<llvm::BasicBlock*>(&BB));
     auto idom = idomNode ? idomNode->getIDom() : nullptr;
     return idom ? idom->getBlock() : nullptr;
   };
 
-  for (Function::iterator it = F.begin(), E = F.end(); it != E; ++it) {
-    BasicBlock* const BB = &*it;
-    nodes_[BB] = new Node(BB);
+  for (auto & BB : F) {
+    nodes_[&BB] = new Node(&BB);
   }
 
-  for (Function::iterator it = F.begin(), E = F.end(); it != E; ++it) {
-    BasicBlock* const BB = &*it;
-    Node* const df_node = get(BB);
-    BasicBlock* const idom = getIdom(BB);
+  for (const auto & BB : F) {
+    Node* df_node = get(BB);
+    const llvm::BasicBlock* idom = getIdom(BB);
     if (idom == nullptr) continue;
 
-    if (!backward) { /* Dominance Frontier Graph */
-      pred_iterator pi       = pred_begin(BB);
-      pred_iterator const E  = pred_end(BB);
-      for (; pi != E; ++pi) {
-        BasicBlock* runner = *pi;
+    if (!backward) { // Dominance Frontier Graph
+      for (auto pi : llvm::predecessors(&BB)) {
+        const llvm::BasicBlock* runner = pi;
         while (runner != idom) {
-          Node* const df_runner = get(runner);
+          Node* df_runner = get(*runner);
           df_node->succs_.push_back(df_runner);
           df_runner->preds_.push_back(df_node);
-          runner = getIdom(df_runner->getBB());
+          runner = getIdom(*df_runner->getBB());
         }
       }
-    } else { /* Control Dependence Graph */
-      succ_iterator si       = succ_begin(BB);
-      succ_iterator const E  = succ_end(BB);
-      for (; si != E; ++si) {
-        BasicBlock* runner = *si;
+    } else { // Control Dependence Graph
+      for (auto si : llvm::successors(&BB)) {
+        const llvm::BasicBlock* runner = si;
         while (runner != idom) {
-          // if (runner == BB)
-          //   break;
-          Node* const df_runner = get(runner);
+          Node* const df_runner = get(*runner);
           df_node->succs_.push_back(df_runner);
           df_runner->preds_.push_back(df_node);
-          runner = getIdom(df_runner->getBB()); // postIDom
+          runner = getIdom(*df_runner->getBB()); // postIDom
         }
       }
     }
@@ -87,16 +79,16 @@ void DFGBase<backward>::create(Function& F) {
 
 //------------------------------------------------------------------------------
 
-namespace llvm {
+namespace rv {
 template class DFGBase<true>;
 template class DFGBase<false>;
 
-FunctionPass* createDFGPass()
+llvm::FunctionPass* createDFGPass()
 {
     return new DFGBaseWrapper<false>();
 }
 
-FunctionPass* createCDGPass()
+llvm::FunctionPass* createCDGPass()
 {
     return new DFGBaseWrapper<true>();
 }

@@ -62,8 +62,8 @@ VAWrapperPass::runOnFunction(Function& F) {
   auto& Vecinfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
   auto& platInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
 
-  const CDG& cdg = *getAnalysis<llvm::CDGWrapper>().getDFG();
-  const DFG& dfg = *getAnalysis<llvm::DFGWrapper>().getDFG();
+  const CDG& cdg = *getAnalysis<CDGWrapper>().getDFG();
+  const DFG& dfg = *getAnalysis<DFGWrapper>().getDFG();
   const LoopInfo& LoopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 
   VectorizationAnalysis vea(config, platInfo, Vecinfo, cdg, dfg, LoopInfo);

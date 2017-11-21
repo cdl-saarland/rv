@@ -34,28 +34,29 @@
 #include "llvm/Pass.h"
 
 
-namespace llvm {
+namespace rv {
+
 template<bool backward> class DFGBase;
 
 template<bool backward>
-class DFGBaseWrapper : public FunctionPass {
+class DFGBaseWrapper : public llvm::FunctionPass {
     DFGBase<backward>* mDFGBase;
 public:
     static char ID;
 
     DFGBaseWrapper() : FunctionPass(ID), mDFGBase(nullptr) {}
 
-    void getAnalysisUsage(AnalysisUsage& Info) const override
+    void getAnalysisUsage(llvm::AnalysisUsage& Info) const override
     {
         if (backward)
-            Info.addRequired<DominatorTreeWrapperPass>();
+            Info.addRequired<llvm::DominatorTreeWrapperPass>();
         else
-            Info.addRequired<PostDominatorTreeWrapperPass>();
+            Info.addRequired<llvm::PostDominatorTreeWrapperPass>();
 
         Info.setPreservesAll();
     }
 
-    bool runOnFunction(Function& F) override;
+    bool runOnFunction(llvm::Function& F) override;
 
     DFGBase<backward>* getDFG()
     {
@@ -68,28 +69,28 @@ class DFGBase {
 public:
     class Node;
 
-    using nodes_t = ArrayRef<const Node*>;
+    using nodes_t = llvm::ArrayRef<const Node*>;
 
     class Node {
         friend class DFGBase<backward>;
 
-        explicit Node(BasicBlock* const BB) : BB(BB) { }
+        explicit Node(llvm::BasicBlock* const BB) : BB(BB) { }
 
     public:
-       BasicBlock* getBB() const { return BB; }
+        llvm::BasicBlock* getBB() const { return BB; }
 
         nodes_t preds() const { return preds_; }
         nodes_t succs() const { return succs_; }
 
     private:
-        mutable BasicBlock* BB;
+        mutable llvm::BasicBlock* BB;
         mutable std::vector<Node*> preds_;
         mutable std::vector<Node*> succs_;
     };
 
     //----------------------------------------------------------------------------
 
-    DFGBase(const DominatorTreeBase<BasicBlock, backward>& DT) : DT(DT)
+    DFGBase(const llvm::DominatorTreeBase<llvm::BasicBlock, backward>& DT) : DT(DT)
     {
         assert (backward == DT.isPostDominator() && "Wrong dominance tree specified!\n");
     }
@@ -97,24 +98,24 @@ public:
     DFGBase(const DFGBase&) = delete;
     DFGBase& operator=(DFGBase) = delete;
 
-    void create(Function& F);
+    void create(llvm::Function& F);
 
     ~DFGBase();
 
-    Node* operator[](const BasicBlock* const BB) const { return get(BB); }
+    Node* operator[](const llvm::BasicBlock* const BB) const { return get(*BB); }
 
 private:
-    const DominatorTreeBase<BasicBlock, backward>& DT;
+    const llvm::DominatorTreeBase<llvm::BasicBlock, backward>& DT;
 
-    Node* get(const BasicBlock* const BB) const
+    Node* get(const llvm::BasicBlock& BB) const
     {
-        auto const it = nodes_.find(BB);
+        auto const it = nodes_.find(&BB);
         if (it == nodes_.end())
             return nullptr;
         return it->second;
     }
 
-    DenseMap<const BasicBlock*, Node*> nodes_;
+    llvm::DenseMap<const llvm::BasicBlock*, Node*> nodes_;
 };
 
 //------------------------------------------------------------------------------
@@ -131,8 +132,9 @@ using CDNode = CDG::Node;
 
 //------------------------------------------------------------------------------
 
-FunctionPass* createDFGPass();
-FunctionPass* createCDGPass();
+llvm::FunctionPass* createDFGPass();
+llvm::FunctionPass* createCDGPass();
+
 }
 
 

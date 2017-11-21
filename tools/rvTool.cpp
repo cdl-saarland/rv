@@ -111,8 +111,8 @@ normalizeFunction(Function& F)
 }
 
 void
-vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopInfo, DFG& dfg,
-              CDG& cdg, DominatorTree& domTree, PostDominatorTree& postDomTree)
+vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopInfo, rv::DFG& dfg,
+              rv::CDG& cdg, DominatorTree& domTree, PostDominatorTree& postDomTree)
 {
     // assert: function is already normalized
     Module& mod = *parentFn.getParent();
@@ -272,7 +272,7 @@ vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
     }
 
     // Dominance Frontier Graph
-    DFG dfg(domTree);
+    rv::DFG dfg(domTree);
     dfg.create(parentFn);
 
     // post dom
@@ -280,7 +280,7 @@ vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
 
     // Control Dependence Graph
     postDomTree.recalculate(parentFn);
-    CDG cdg(postDomTree);
+    rv::CDG cdg(postDomTree);
     cdg.create(parentFn);
 
 
@@ -378,7 +378,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     MemoryDependenceResults MDR = mdAnalysis.run(*scalarCopy, fam);
 
     // Dominance Frontier Graph
-    DFG dfg(domTree);
+    rv::DFG dfg(domTree);
     dfg.create(*scalarCopy);
 
     // post dom
@@ -386,7 +386,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     postDomTree.recalculate(*scalarCopy);
 
     // Control Dependence Graph
-    CDG cdg(postDomTree);
+    rv::CDG cdg(postDomTree);
     cdg.create(*scalarCopy);
 
 

@@ -80,8 +80,8 @@ public:
   VectorizationAnalysis(Config config,
                         PlatformInfo & platInfo,
                         VectorizationInfo& VecInfo,
-                        const llvm::CDG& cdg,
-                        const llvm::DFG& dfg,
+                        const CDG& cdg,
+                        const DFG& dfg,
                         const llvm::LoopInfo& LoopInfo);
 
   VectorizationAnalysis(const VectorizationAnalysis&) = delete;

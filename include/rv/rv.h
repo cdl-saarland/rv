@@ -57,8 +57,8 @@ public:
     // (see VectorizationInfo).
     //
     void analyze(VectorizationInfo& vecInfo,
-                 const llvm::CDG& cdg,
-                 const llvm::DFG& dfg,
+                 const rv::CDG& cdg,
+                 const rv::DFG& dfg,
                  const llvm::LoopInfo& loopInfo);
 
     //
@@ -67,8 +67,8 @@ public:
     //
     bool
     linearize(VectorizationInfo& vecInfo,
-              llvm::CDG& cdg,
-              llvm::DFG& dfg,
+              rv::CDG& cdg,
+              rv::DFG& dfg,
               llvm::LoopInfo& loopInfo,
               llvm::PostDominatorTree& postDomTree,
               llvm::DominatorTree& domTree,
