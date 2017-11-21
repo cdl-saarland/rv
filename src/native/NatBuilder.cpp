@@ -1802,7 +1802,7 @@ NatBuilder::buildGEP(GetElementPtrInst *const gep, bool buildScalar, unsigned la
     idxList.push_back(vecIdx);
   }
 
-  Value * vecGEP = cast<GetElementPtrInst>(builder.CreateGEP(vecBasePtr, idxList, gep->getName()));
+  Value * vecGEP = builder.CreateGEP(vecBasePtr, idxList, gep->getName());
   auto * vecGEPInst = dyn_cast<GetElementPtrInst>(vecGEP);
   if (vecGEPInst) {
     vecGEPInst->setIsInBounds(gep->isInBounds());
