@@ -324,7 +324,7 @@ struct LoopCloner {
   CloneLoopAnalyses(Loop * clonedParentLoop, Loop & L, ValueToValueMapTy & valueMap) {
     // create a loop object
     auto * clonedHead = &LookUp(valueMap, *L.getHeader());
-    auto * clonedLoop = new Loop(); //Loop(clonedHead);
+    auto * clonedLoop = LI.AllocateLoop(); // clonedHead
 
     // embed the loop object in the loop tree
     if (!clonedParentLoop) {

@@ -232,7 +232,7 @@ Value *IRPolisher::replaceSelectInst(IRBuilder<> &builder, llvm::SelectInst *sel
     if (isa<FPMathOperator>(cmpInst)) {
         oldFMF = cmpInst->getFastMathFlags();
         FastMathFlags newFMF = oldFMF;
-        newFMF.setUnsafeAlgebra();
+        newFMF.setFast();
         cmpInst->setFastMathFlags(newFMF);
     }
 

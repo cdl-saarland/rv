@@ -480,7 +480,7 @@ void VectorizationAnalysis::compute(const Function& F) {
     } else if (I->getType()->isFloatingPointTy()) {
       // allow strided/aligned fp values only in fast math mode
       FastMathFlags flags = I->getFastMathFlags();
-      if (!flags.unsafeAlgebra() && !New.isUniform()) {
+      if (!flags.isFast() && !New.isUniform()) {
         New = VectorShape::varying();
       }
     }
