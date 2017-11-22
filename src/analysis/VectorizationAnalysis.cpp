@@ -779,8 +779,9 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
     {
       if (shape1.isUniform() && shape2.isUniform()) return VectorShape::uni(alignment1 / alignment2);
 
-      if (const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2)) {
-        const int c = (int) constantOp->getSExtValue();
+      const ConstantInt* constDivisor = dyn_cast<ConstantInt>(op2);
+      if (shape1.hasStridedShape() && constDivisor) {
+        const int c = (int) constDivisor->getSExtValue();
         if (stride1 % c == 0) return VectorShape::strided(stride1 / c, alignment1 / std::abs(c));
       }
 
