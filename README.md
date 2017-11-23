@@ -39,7 +39,7 @@ You'll get what you ordered.
 
 ### Usage
 
-1. Annotate vectorizable loops with `#pragma clang vectorize(assume_safety) vectorize_width(W)` where W is the desired vectorization width.
+1. Annotate vectorizable loops with `#pragma clang loop vectorize(assume_safety) vectorize_width(W)` where W is the desired vectorization width.
 2. Invoke clang with `-Xclang -load -Xclang libRV.so -mllvm -rv-loopvec`. We recommend to also disable loop unrolling `-fno-unroll-loops`.
 
 ## Getting started on the code
