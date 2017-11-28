@@ -14,6 +14,7 @@
 #include <queue>
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Dominators.h"
@@ -75,6 +76,8 @@ class VectorizationAnalysis {
 
   // Divergence computation:
   BranchDependenceAnalysis BDA;
+
+  llvm::DenseSet<const llvm::BasicBlock*> mControlDivergentBlocks;
 
 public:
   VectorizationAnalysis(Config config,
