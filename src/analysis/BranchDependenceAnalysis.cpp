@@ -353,5 +353,15 @@ BranchDependenceAnalysis::getEffectedBlocks(const llvm::TerminatorInst& term) co
   return it->second;
 }
 
+ConstBlockSet
+BranchDependenceAnalysis::getControlDependentBlocks(const llvm::TerminatorInst& term) const {
+    ConstBlockSet res;
+    for (auto closure : pdClosureMap) {
+        if (closure.second.count(term.getParent())) {
+            res.insert(closure.first);
+        }
+    }
+    return res;
+}
 
 } // namespace rv

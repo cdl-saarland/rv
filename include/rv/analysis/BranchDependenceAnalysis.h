@@ -80,6 +80,8 @@ public:
   /// \brief returns the set of blocks whose PHI nodes become divergent if @branch is divergent
   const ConstBlockSet & getEffectedBlocks(const llvm::TerminatorInst & term) const;
 
+  ConstBlockSet getControlDependentBlocks(const llvm::TerminatorInst & term) const;
+
   const ConstBlockSet& getEffectedBlocks_old(const llvm::TerminatorInst & term) const {
     auto it = effectedBlocks_old.find(&term);
     if (it == effectedBlocks_old.end()) return emptySet;
