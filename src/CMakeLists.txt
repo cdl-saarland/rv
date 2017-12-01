@@ -45,6 +45,7 @@ add_rv_library(RV
   rv.cpp
   rvConfig.cpp
   rvDebug.cpp
+  passes.cpp
   sleefLibrary.cpp
   transform/CNSPass.cpp
   transform/Linearizer.cpp

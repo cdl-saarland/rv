@@ -2,6 +2,7 @@
 #define RV_PASSES_H
 
 #include "llvm/Pass.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "rv/config.h"
 
 namespace rv {
@@ -13,6 +14,9 @@ namespace rv {
 
   // Controlled Node Splitting (Irreducible loop normalization)
   llvm::FunctionPass *createCNSPass();
+
+  // add RV's outer loop vectorizer and required passes to @PM
+  void addOuterLoopVectorizer(llvm::legacy::PassManagerBase & PM, Config config = Config());
 } // namespace rv
 
 

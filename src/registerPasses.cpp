@@ -6,18 +6,6 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-// This file composes the individual LLVM-IR passes provided by Polly to a
-// functional polyhedral optimizer. The polyhedral optimizer is automatically
-// made available to LLVM based compilers by loading the Polly shared library
-// into such a compiler.
-//
-// The Polly optimizer is made available by executing a static constructor that
-// registers the individual Polly passes in the LLVM pass manager builder. The
-// passes are registered such that the default behaviour of the compiler is not
-// changed, but that the flag '-polly' provided at optimization level '-O3'
-// enables additional polyhedral optimizations.
-//===----------------------------------------------------------------------===//
 
 #include "rv/passes.h"
 #include "llvm/Support/CommandLine.h"
@@ -25,7 +13,6 @@
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
-
 #include "rv/transform/loopExitCanonicalizer.h"
 
 using namespace llvm;
@@ -61,16 +48,7 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
   }
 
   if (rvLoopVecEnabled) {
-    // PM.add(rv::createCNSPass());
-    PM.add(createLoopSimplifyPass());
-    PM.add(createLCSSAPass());
-    // PM.add(createLoopExitCanonicalizerPass()); //FIXME
-    PM.add(rv::createLoopVectorizerPass());
-
-    // post rv cleanup
-    PM.add(createAlwaysInlinerLegacyPass());
-    PM.add(createInstructionCombiningPass());
-    PM.add(createAggressiveDCEPass());
+    rv::addOuterLoopVectorizer(PM);
   }
 }
 
