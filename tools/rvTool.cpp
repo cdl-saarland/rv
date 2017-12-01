@@ -46,6 +46,7 @@
 #include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
+#include "rv/rvDebug.h"
 
 #include "rv/transform/remTransform.h"
 #include "rv/vectorizationInfo.h"
@@ -742,7 +743,7 @@ int main(int argc, char** argv)
     }
     else
     {
-        mod->dump();
+      rv::Dump(*mod);
     }
 
     return 0;

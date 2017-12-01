@@ -26,6 +26,7 @@
 #include "rv/PlatformInfo.h"
 #include "rv/transform/maskExpander.h"
 
+#include "rv/rvDebug.h"
 #include <rvConfig.h>
 #include "report.h"
 
@@ -600,7 +601,7 @@ run() {
 
   IF_DEBUG_BOSCC {
     errs() << "--- FUNCTION AFTER BOSCC ---:\n";
-    vecInfo.getScalarFunction().dump();
+    Dump(vecInfo.getScalarFunction());
   }
 
   return false;

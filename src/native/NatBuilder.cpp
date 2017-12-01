@@ -23,6 +23,7 @@
 #include "rv/transform/redTools.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/region/Region.h"
+#include "rv/rvDebug.h"
 
 #include "rvConfig.h"
 #include "ShuffleBuilder.h"
@@ -291,7 +292,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   IF_DEBUG_NAT {
     errs() << "-- Vectorized IR: --\n";
     for (auto *oldBB : oldBlocks) {
-      getVectorValue(oldBB)->dump();
+      Dump(*getVectorValue(oldBB));
     }
     errs() << "-- End of Vectorized IR: --\n";
   }
@@ -1734,9 +1735,9 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     IF_DEBUG {
       errs() << "Extracting a scalar value from a vector:\n";
       errs() << "Original Value: ";
-      value->dump();
+      Dump(*value);
       errs() << "Vector Value: ";
-      mappedVal->dump();
+      Dump(*mappedVal);
     };
 
     // if the mappedVal is a alloca instruction, create a GEP instruction
@@ -2650,7 +2651,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
         const VectorShape &retShape = getVectorShape(*inst);
         if (retShape.isUniform()) {
           errs() << "Warning: Uniform return in Function with Vector Type!\n";
-          inst->dump();
+          Dump(*inst);
         }
       };
       return true;

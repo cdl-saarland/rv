@@ -31,6 +31,7 @@
 #include "report.h"
 
 #include "rvConfig.h"
+#include "rv/rvDebug.h"
 
 #if 1
 #define IF_DEBUG_LIN IF_DEBUG
@@ -1352,7 +1353,7 @@ Linearizer::resolveRepairPhis() {
 
 void
 Linearizer::verify() {
-  IF_DEBUG_LIN { errs() << "\n-- LIN: verify linearization --\n"; func.dump(); }
+  IF_DEBUG_LIN { errs() << "\n-- LIN: verify linearization --\n"; Dump(func); }
 
   for (int i = 0; i < getNumBlocks(); ++i) {
     auto * block = &getBlock(i);

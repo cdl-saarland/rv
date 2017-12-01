@@ -29,6 +29,7 @@
 #include "llvm/Transforms/Utils/Cloning.h"
 
 #include "rvConfig.h"
+#include "rv/rvDebug.h"
 #include "report.h"
 
 #include <map>
@@ -999,7 +1000,7 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
   // rebuild reduction information for cloned loop
   reda.analyze(clonedLoop);
 
-  IF_DEBUG F.dump();
+  IF_DEBUG Dump(F);
 
   delete branchCond;
 

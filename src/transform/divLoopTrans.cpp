@@ -15,6 +15,7 @@
 #include "rv/transform/maskExpander.h"
 
 #include "rvConfig.h"
+#include "rv/rvDebug.h"
 #include "report.h"
 
 #include "llvm/Analysis/LoopInfo.h"
@@ -1061,7 +1062,7 @@ DivLoopTrans::transformDivergentLoops() {
   // checkpoint:
   domTree.recalculate(vecInfo.getScalarFunction());
   IF_DEBUG_DLT {
-    vecInfo.getScalarFunction().dump();
+    Dump(vecInfo.getScalarFunction());
     loopInfo.print(errs());
     loopInfo.verify(domTree); // must not recompute
   }
