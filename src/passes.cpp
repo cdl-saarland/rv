@@ -13,7 +13,7 @@ addOuterLoopVectorizer(legacy::PassManagerBase & PM, Config config) {
    // PM.add(rv::createCNSPass());
    PM.add(createLoopSimplifyPass());
    PM.add(createLCSSAPass());
-   // PM.add(createLoopExitCanonicalizerPass()); //FIXME
+   PM.add(createLoopExitCanonicalizerPass()); // required for divLoopTrans
    PM.add(rv::createLoopVectorizerPass());
 
    // post rv cleanup
