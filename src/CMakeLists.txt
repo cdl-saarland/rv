@@ -28,6 +28,7 @@ add_rv_library(RV
   PlatformInfo.cpp
   VectorizationInfoProxyPass.cpp
   analysis/BranchDependenceAnalysis.cpp
+  analysis/costModel.cpp
   analysis/DFG.cpp
   analysis/VectorizationAnalysis.cpp
   analysis/reductionAnalysis.cpp
