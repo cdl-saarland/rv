@@ -1769,7 +1769,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
 
 llvm::Value *
 NatBuilder::buildGEP(GetElementPtrInst *const gep, bool buildScalar, unsigned laneIdx) {
-  BasicBlockVector &mappedBlocks = getMappedBlocks(gep->getParent());
+  BasicBlockVector mappedBlocks = getMappedBlocks(gep->getParent());
   BasicBlock *insertBlock = builder.GetInsertBlock();
   auto insertPoint = builder.GetInsertPoint();
   setInsertionToDomBlockEnd(builder, mappedBlocks);
@@ -1847,7 +1847,7 @@ NatBuilder::requestVectorBitCast(BitCastInst *const bc) {
 
   ++numVecBCs;
 
-  BasicBlockVector &mappedBlocks = getMappedBlocks(bc->getParent());
+  BasicBlockVector mappedBlocks = getMappedBlocks(bc->getParent());
   BasicBlock *insertBlock = builder.GetInsertBlock();
   auto insertPoint = builder.GetInsertPoint();
   setInsertionToDomBlockEnd(builder, mappedBlocks);
@@ -1872,7 +1872,7 @@ Value *NatBuilder::requestScalarBitCast(llvm::BitCastInst *const bc, unsigned la
 
   ++numScalBCs;
 
-  BasicBlockVector &mappedBlocks = getMappedBlocks(bc->getParent());
+  BasicBlockVector mappedBlocks = getMappedBlocks(bc->getParent());
   BasicBlock *insertBlock = builder.GetInsertBlock();
   auto insertPoint = builder.GetInsertPoint();
   setInsertionToDomBlockEnd(builder, mappedBlocks);
@@ -2576,8 +2576,15 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
   } else return nullptr;
 }
 
-BasicBlockVector &NatBuilder::getMappedBlocks(BasicBlock *const block) {
+BasicBlockVector
+NatBuilder::getMappedBlocks(BasicBlock *const block) {
   auto blockIt = basicBlockMap.find(block);
+  if (region && !region->contains(block)) {
+    BasicBlockVector blocks;
+    blocks.push_back(const_cast<BasicBlock*>(block));
+    return blocks;
+  }
+
   assert(blockIt != basicBlockMap.end() && "no mapped blocks for block!");
   return blockIt->second;
 }

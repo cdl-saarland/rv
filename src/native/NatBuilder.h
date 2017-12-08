@@ -98,7 +98,7 @@ namespace native {
 
     llvm::Value *getVectorValue(llvm::Value *const value, bool getLastBlock = false);
     llvm::Value *getScalarValue(llvm::Value *const value, unsigned laneIdx = 0);
-    BasicBlockVector &getMappedBlocks(llvm::BasicBlock *const bb);
+    BasicBlockVector getMappedBlocks(llvm::BasicBlock *const bb);
 
   private:
     void vectorize(llvm::BasicBlock *const bb, llvm::BasicBlock *vecBlock);
