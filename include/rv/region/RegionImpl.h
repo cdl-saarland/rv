@@ -23,6 +23,16 @@ public:
 
     virtual std::string str() const = 0;
 
+    virtual void for_blocks(std::function<bool(const llvm::BasicBlock& block)> userFunc) const {
+      auto * func = getRegionEntry().getParent();
+      for (const auto & BB : *func) {
+        if (contains(&BB)) {
+          bool carryOn = userFunc(BB);
+          if (!carryOn) break;
+        }
+      }
+    }
+
     virtual void getEndingBlocks(llvm::SmallPtrSet<llvm::BasicBlock*, 2>& endingBlocks) const
     {
         assert (endingBlocks.empty());

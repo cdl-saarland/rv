@@ -234,4 +234,14 @@ Function *PlatformInfo::requestMaskReductionFunc(const std::string &name) {
   return redFunc; // TODO add SIMD mapping
 }
 
+size_t
+PlatformInfo::getMaxVectorWidth() const {
+  return getMaxVectorBits() / 8;
+}
+
+size_t
+PlatformInfo::getMaxVectorBits() const {
+  return mTTI->getRegisterBitWidth(true);
+}
+
 }

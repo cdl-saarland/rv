@@ -19,6 +19,7 @@
 #include "rv/region/Region.h"
 #include "rv/sleefLibrary.h"
 #include "rv/analysis/reductionAnalysis.h"
+#include "rv/analysis/costModel.h"
 #include "rv/transform/remTransform.h"
 
 #include "rvConfig.h"
@@ -178,7 +179,19 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   //   return false;
   // }
 
-  // TODO check legality
+// pick a vectorization factor
+  CostModel costModel(vectorizer->getPlatformInfo());
+  LoopRegion tmpLoopRegionImpl(L);
+  Region tmpLoopRegion(tmpLoopRegionImpl);
+  size_t refinedWidth = costModel.pickWidthForRegion(tmpLoopRegion, VectorWidth); // TODO run VA first
+
+  if (refinedWidth <= 1) {
+    if (enableDiagOutput) { errs() << "loopVecPass, costModel: vectorization not beneficial\n"; }
+    return false;
+  } else if (refinedWidth != VectorWidth) {
+    if (enableDiagOutput) { errs() << "loopVecPass, costModel: refined vector width to " << refinedWidth << " from " << VectorWidth << "\n"; }
+    VectorWidth = refinedWidth;
+  }
 
   Report() << "loopVecPass: Vectorize " << L.getName() << " with VW: " << VectorWidth << " , Dependence Distance: " << depDist
          << " and TripAlignment: " << tripAlign << "\n";
@@ -210,7 +223,6 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   Region LoopRegion(LoopRegionImpl);
 
   VectorizationInfo vecInfo(*F, VectorWidth, LoopRegion);
-
 
 // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable

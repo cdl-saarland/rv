@@ -36,6 +36,10 @@ public:
     void add(const llvm::BasicBlock & extra) {
       extraBlocks.insert(&extra);
     }
+
+    // iteratively apply @userFunc to all blocks in the region
+    // stop if @userFunc returns false or all blocks have been prosessed, otw carry on
+    void for_blocks(std::function<bool(const llvm::BasicBlock& block)> userFunc) const;
 };
 
 }

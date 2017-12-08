@@ -91,6 +91,8 @@ public:
     //
     void finalize();
 
+    PlatformInfo & getPlatformInfo() const { return platInfo; }
+
 private:
     Config config;
     PlatformInfo & platInfo;

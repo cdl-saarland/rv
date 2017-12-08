@@ -41,4 +41,10 @@ Region::getEndingBlocks(llvm::SmallPtrSet<BasicBlock*, 2>& endingBlocks) const
     mImpl.getEndingBlocks(endingBlocks);
 }
 
+void
+Region::for_blocks(std::function<bool(const BasicBlock& block)> userFunc) const {
+  mImpl.for_blocks(userFunc);
+  for (auto * block : extraBlocks) userFunc(*block);
+}
+
 } // namespace rv

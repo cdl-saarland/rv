@@ -70,6 +70,9 @@ public:
   llvm::Function *requestMaskReductionFunc(const std::string &name);
   llvm::Function *requestVectorMaskReductionFunc(const std::string &name, size_t width);
 
+  size_t getMaxVectorWidth() const;
+  size_t getMaxVectorBits() const;
+
 private:
   VectorMapping *inferMapping(llvm::Function &scalarFnc,
                               llvm::Function &simdFnc, int maskPos);
