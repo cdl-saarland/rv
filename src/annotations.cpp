@@ -11,11 +11,25 @@
 
 using namespace llvm;
 
+namespace {
+  const char* rv_atomic_string = "rv_atomic";
+  const char* rv_redkind_string  = "rv_redkind";
+}
+
 namespace rv {
+
+bool
+IsCriticalSection(const llvm::Function & func) {
+  auto * mdNode = func.getMetadata(rv_atomic_string);
+  return (bool) mdNode;
+}
 
 void
 MarkAsCriticalSection(llvm::Function & func) {
-  abort(); // TODO mark as noinline, add !rv_atomic MD node
+  // mark function as "noinline" to survive O3
+  func.removeAttribute(AttributeList::FunctionIndex, Attribute::AlwaysInline);
+  func.addAttribute(AttributeList::FunctionIndex, Attribute::NoInline);
+  func.setMetadata(rv_atomic_string, MDNode::get(func.getContext(), {}));
 }
 
 void
@@ -25,12 +39,12 @@ SetReductionHint(llvm::PHINode & loopHeaderPhi, RedKind redKind) {
 
   auto * redKindNode = MDString::get(ctx, redKindText);
   auto * boxedNode = MDNode::get(ctx, redKindNode);
-  loopHeaderPhi.setMetadata("rv_redkind", boxedNode);
+  loopHeaderPhi.setMetadata(rv_redkind_string, boxedNode);
 }
 
 RedKind
-ReadReductionHint(llvm::PHINode & loopHeaderPhi) {
-  auto * boxedHint = loopHeaderPhi.getMetadata("rv_redkind");
+ReadReductionHint(const llvm::PHINode & loopHeaderPhi) {
+  auto * boxedHint = loopHeaderPhi.getMetadata(rv_redkind_string);
   if (!boxedHint) return RedKind::Bot; // unknown
   assert(boxedHint->getNumOperands() >= 1);
 

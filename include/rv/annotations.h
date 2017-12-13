@@ -10,9 +10,10 @@ namespace llvm {
 
 namespace rv {
   void MarkAsCriticalSection(llvm::Function & func);
+  bool IsCriticalSection(const llvm::Function & func);
 
   void SetReductionHint(llvm::PHINode & loopHeaderPhi, RedKind redKind);
-  RedKind ReadReductionHint(llvm::PHINode & loopHeaderPhi);
+  RedKind ReadReductionHint(const llvm::PHINode & loopHeaderPhi);
 }
 
 #endif

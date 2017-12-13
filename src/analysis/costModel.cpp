@@ -3,6 +3,7 @@
 #include "rv/PlatformInfo.h"
 #include "rv/vectorizationInfo.h"
 #include "rv/region/Region.h"
+#include "rv/annotations.h"
 
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/BasicBlock.h"
@@ -59,15 +60,14 @@ size_t
 CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) const {
   if (!needsReplication(inst)) return maxWidth; // remains scalar
 
-  const auto & instTy = *inst.getType();
-  if (instTy.isVoidTy()) {
-    return maxWidth;
-  }
-
+// check call mappings, critical sections
   auto * call = dyn_cast<CallInst>(&inst);
   if (call) {
     auto * callee = dyn_cast_or_null<Function>(call->getCalledValue());
     if (!callee) return 1;
+
+    // check if this is a critical section
+    if (IsCriticalSection(*callee)) return maxWidth;
 
     // find widest available implementation
     size_t sampleWidth = maxWidth;
@@ -79,8 +79,13 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
     }
 
     IF_DEBUG_CM { errs() << "cm: max width for " << calleeName << " is " << sampleWidth << "\n"; }
-    maxWidth = sampleWidth;
-    if (maxWidth <= 1) return maxWidth;
+    return sampleWidth;
+  }
+
+// TODO memory access pattern
+  const auto & instTy = *inst.getType();
+  if (instTy.isVoidTy()) {
+    return maxWidth;
   }
 
 // default to type based width
