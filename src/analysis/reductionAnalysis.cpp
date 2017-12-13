@@ -13,9 +13,9 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/IRBuilder.h>
 
-
 #include "rvConfig.h"
 #include "rv/vectorShape.h"
+#include "rv/annotations.h"
 
 #if -1
 #define IF_DEBUG_RED IF_DEBUG
@@ -26,33 +26,6 @@
 using namespace llvm;
 
 namespace rv {
-
-RedKind JoinKinds(RedKind A, RedKind B) {
-  // default bottom rules
-  if (A == RedKind::Bot) return B;
-  if (B == RedKind::Bot) return A;
-
-  // fallback rule
-  if (A != B) return RedKind::Top;
-  return A; // A == B
-}
-
-
-const char *
-to_string(RedKind red) {
-  switch (red) {
-    case RedKind::Bot: return "Bot";
-    case RedKind::Top: return "Top";
-    case RedKind::Add: return "Add";
-    case RedKind::Mul: return "Mul";
-    case RedKind::And: return "And";
-    case RedKind::Or: return "Or";
-    case RedKind::Max: return "Max";
-    case RedKind::Min: return "Min";
-    default:
-      abort();
-  }
-}
 
 // try to infer the reduction kind of the operator implemented by inst
 static RedKind
@@ -93,28 +66,6 @@ InferRedKind(Instruction & inst, Reduction & red) {
       return RedKind::Top;
   }
   abort();
-}
-
-Constant&
-GetNeutralElement(RedKind redKind, Type & chainTy) {
-  switch(redKind) {
-    case RedKind::Or:
-      assert(chainTy.isIntegerTy());
-      return *ConstantInt::getNullValue(&chainTy);
-    case RedKind::And:
-      assert(chainTy.isIntegerTy());
-      return *ConstantInt::getAllOnesValue(&chainTy);
-
-    case RedKind::Add:
-      return *(chainTy.isFloatTy() ? ConstantFP::get(&chainTy, 0.0) : ConstantInt::getNullValue(&chainTy));
-
-    case RedKind::Mul:
-      return *(chainTy.isFloatTy() ? ConstantFP::get(&chainTy, 1.0) : ConstantInt::get(&chainTy, 1, false));
-
-    default:
-      IF_DEBUG_RED { errs() << "red: Unknown neutral element for " << to_string(redKind) << "\n"; }
-      abort();
-  }
 }
 
 // struct StridePattern
@@ -461,7 +412,15 @@ ReductionAnalysis::analyze(Loop & hostLoop) {
 
     // convert the SEE into a reduction object
     auto * red = new Reduction(elements);
-    red->kind = ClassifyReduction(*red);
+
+    // infer reduction kind
+    RedKind userHint = ReadReductionHint(*seedPhi);
+    if (userHint != RedKind::Bot) {
+      IF_DEBUG_RED { errs() << "Using provided reduction hint " << to_string(userHint) << "\n"; }
+      red->kind = userHint;
+    } else {
+      red->kind = ClassifyReduction(*red);
+    }
     red->levelLoop = &hostLoop;
 
     // register with the analysis

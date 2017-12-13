@@ -25,6 +25,7 @@ if (RV_DEBUG)
 endif()
 
 add_rv_library(RV
+  annotations.cpp
   PlatformInfo.cpp
   VectorizationInfoProxyPass.cpp
   analysis/BranchDependenceAnalysis.cpp
@@ -32,6 +33,7 @@ add_rv_library(RV
   analysis/DFG.cpp
   analysis/VectorizationAnalysis.cpp
   analysis/reductionAnalysis.cpp
+  analysis/reductions.cpp
   analysis/DivPathDecider.cpp
   config.cpp
   init.cpp

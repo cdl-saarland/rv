@@ -7,6 +7,7 @@
 #include <llvm/IR/Constant.h>
 #include <llvm/Transforms/Utils/ValueMapper.h>
 
+#include "rv/analysis/reductions.h"
 #include "rv/vectorShape.h"
 
 #include <set>
@@ -20,30 +21,6 @@ namespace llvm {
 namespace rv {
 
 using InstSet = std::set<llvm::Instruction*>;
-
-
-// reduction-kind lattice
-enum class RedKind : int32_t {
-  Top = -1, // not a recognized reduction
-  Bot = 0, // not yet analyzed
-  Add = 1,
-  Mul = 2,
-  And = 3,
-  Or = 4,
-  Max = 5,
-  Min = 6
-};
-
-// join operator
-RedKind JoinKinds(RedKind A, RedKind B);
-
-const char* to_string(RedKind red);
-
-// get the neutral element for this reduction kind and data type
-llvm::Constant& GetNeutralElement(RedKind redKind, llvm::Type & chainType);
-
-// try to infer the reduction kind of the operator implemented by inst (this ignores the operands of instruction)
-RedKind InferRedKind(llvm::Instruction & inst);
 
 // stride recurrence
 struct StridePattern {
