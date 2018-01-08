@@ -920,7 +920,7 @@ void VectorizationAnalysis::computeLoopDivergence() {
 
     for (const BasicBlock* exit : exits) {
       if (mVecinfo.getVectorShape(*exit).isVarying()) {
-        mVecinfo.setDivergentLoop(l);
+        mVecinfo.setLoopDivergence(*l, false);
         break;
       }
     }

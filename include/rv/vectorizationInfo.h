@@ -81,7 +81,6 @@ public:
     void dumpBlockInfo(const llvm::BasicBlock & block) const;
     void dumpArguments() const;
 
-    void setDivergentLoop(const llvm::Loop* loop);
     void setLoopDivergence(const llvm::Loop & loop, bool toUniform);
 
     // whether this exit block terminates the loop
