@@ -618,7 +618,10 @@ void NatBuilder::copyInstruction(Instruction *const inst, unsigned laneIdx) {
 static
 bool
 NeedsGuarding(Instruction & inst) {
-  return isa<LoadInst>(inst) || isa<StoreInst>(inst);
+  return inst.mayReadOrWriteMemory();
+
+  // if (isa<CallInst>(inst)) return cast<CallInst>(inst).mayHaveSideEffects();
+  // return isa<LoadInst>(inst) || isa<StoreInst>(inst) || isa<AtomicCmpXchgInst>(inst);
 }
 
 static
@@ -885,10 +888,6 @@ NatBuilder::vectorizeAlignCall(CallInst *rvCall) {
     mapScalarValue(rvCall, requestScalarValue(vecArg));
 }
 
-static bool HasSideEffects(CallInst &call) {
-  return call.mayHaveSideEffects();
-}
-
 void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   Value * callee = scalCall->getCalledValue();
   StringRef calleeName = callee->getName();
@@ -966,7 +965,7 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     Value *predicate = vecInfo.getPredicate(*scalCall->getParent());
     assert(predicate && "expected predicate!");
     assert(predicate->getType()->isIntegerTy(1) && "predicate must be i1 type!");
-    bool needCascade = !isa<Constant>(predicate) && HasSideEffects(*scalCall);
+    bool needCascade = !isa<Constant>(predicate) && scalCall->mayHaveSideEffects();
 
     // scalar replication function
     auto replFunc = [this,scalCall](IRBuilder<> & builder, size_t lane) -> Value* {
@@ -2763,7 +2762,7 @@ bool NatBuilder::isPseudointerleaved(Instruction *inst, Value *addr, int byteSiz
         StoreInst *store = dyn_cast<StoreInst>(prevInst);
         load = dyn_cast<LoadInst>(prevInst);
 
-        if (call && HasSideEffects(*call)) {
+        if (call && call->mayHaveSideEffects()) {
           erase = true;
           break;
         }
