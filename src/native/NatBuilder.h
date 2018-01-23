@@ -37,7 +37,6 @@ using ValVec = llvm::SmallVector<llvm::Value*, 16>;
 namespace native {
   typedef std::map<const llvm::Function *, const rv::VectorMapping *> VectorMappingMap;
   typedef std::vector<llvm::Value *> LaneValueVector;
-  typedef std::vector<llvm::Value *> PseudointerValueVector;
   typedef std::vector<llvm::BasicBlock *> BasicBlockVector;
 
   class NatBuilder {
@@ -133,7 +132,7 @@ namespace native {
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
     std::map<const llvm::Type *, rv::MemoryAccessGrouper> grouperMap;
-    std::map<const llvm::Value *, PseudointerValueVector> pseudointerValueMap;
+    std::map<const llvm::Value *, LaneValueVector> pseudointerValueMap;
     std::vector<llvm::PHINode *> phiVector;
     std::deque<llvm::Instruction *> lazyInstructions;
 

@@ -1414,7 +1414,7 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
   if (isPseudoInter && !load) {
     Value *srcAddr = cast<StoreInst>(srcs->front())->getPointerOperand();
     if (pseudointerValueMap.count(srcAddr)) {
-      PseudointerValueVector &pseudoValues = pseudointerValueMap[srcAddr];
+      LaneValueVector &pseudoValues = pseudointerValueMap[srcAddr];
       for (unsigned i = 1; i < pseudoValues.size(); ++i) {
         values->push_back(pseudoValues[i]);
       }
