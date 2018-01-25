@@ -4,8 +4,10 @@
 
 using namespace rv;
 
+#ifndef _MSC_VER
 template<> char DFGBaseWrapper<true>::ID = 0;
 template<> char DFGBaseWrapper<false>::ID = 0;
+#endif
 
 template<>
 bool DFGBaseWrapper<true>::runOnFunction(llvm::Function& F)
