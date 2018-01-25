@@ -2,11 +2,12 @@
 #define RV_UTILS_MATHUTILS_H_
 
 #include <utility>
-#include <strings.h>
 
 
 #ifdef _MSC_VER
 #define COMPILER_VSTUDIO
+#else
+#include <strings.h>
 #endif
 
 
