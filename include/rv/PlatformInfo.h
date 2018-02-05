@@ -7,6 +7,8 @@
 
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
+#include "rv/vectorISA.h"
+
 #include <rv/vectorMapping.h>
 
 namespace rv {
@@ -22,8 +24,7 @@ using VecDescVector = std::vector<VecDesc>;
 
 class PlatformInfo {
 public:
-  PlatformInfo(llvm::Module &mod, llvm::TargetTransformInfo *TTI,
-               llvm::TargetLibraryInfo *TLI);
+  PlatformInfo(llvm::Module &mod, llvm::TargetTransformInfo *TTI, llvm::TargetLibraryInfo *TLI);
   ~PlatformInfo();
 
   void addMapping(const llvm::Function *function, const VectorMapping *mapping);
@@ -35,8 +36,9 @@ public:
   void setTTI(llvm::TargetTransformInfo *TTI);
   void setTLI(llvm::TargetLibraryInfo *TLI);
 
-  llvm::TargetTransformInfo *getTTI();
-  llvm::TargetLibraryInfo *getTLI();
+  llvm::TargetTransformInfo *getTTI() const;
+  llvm::TargetLibraryInfo *getTLI() const;
+  const VectorISA & getVectorISA() const { return vectorISA; }
 
   // add a batch of SIMD function mappings to this platform
   // these will be used during code generation
@@ -74,15 +76,19 @@ public:
   size_t getMaxVectorBits() const;
 
 private:
+  void addBuiltinIntrinsics(); // register builtin rv_* intrinsics
+
   VectorMapping *inferMapping(llvm::Function &scalarFnc,
                               llvm::Function &simdFnc, int maskPos);
 
   llvm::Module &mod;
   llvm::TargetTransformInfo *mTTI;
   llvm::TargetLibraryInfo *mTLI;
+  VectorISA vectorISA;
   VectorFuncMap funcMappings;
   VecDescVector commonVectorMappings;
 };
+
 }
 
 #endif // RV_PLATFORMINFO_H

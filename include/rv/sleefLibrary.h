@@ -10,13 +10,13 @@
 #ifndef RV_SLEEFLIBRARY_H
 #define RV_SLEEFLIBRARY_H
 
-#include "rv/config.h"
+#include "rv/vectorISA.h"
 #include "rv/PlatformInfo.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 
 namespace rv {
   // add sleef vector math library
-  bool addSleefMappings(const Config & config, PlatformInfo &platformInfo, bool useImpreciseFunctions);
+  bool addSleefMappings(const VectorISA & vectorIsa, PlatformInfo &platformInfo, bool useImpreciseFunctions);
 
   llvm::Function *
   requestSleefFunction(const llvm::StringRef &funcName, llvm::StringRef &vecFuncName, llvm::Module *insertInto, bool doublePrecision);

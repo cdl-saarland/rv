@@ -35,12 +35,12 @@ add_rv_library(RV
   analysis/reductionAnalysis.cpp
   analysis/reductions.cpp
   analysis/DivPathDecider.cpp
-  config.cpp
   init.cpp
   native/MemoryAccessGrouper.cpp
   native/NatBuilder.cpp
   native/ShuffleBuilder.cpp
   native/Utils.cpp
+  optConfig.cpp
   region/LoopRegion.cpp
   region/Region.cpp
   registerPasses.cpp
@@ -49,6 +49,7 @@ add_rv_library(RV
   rvConfig.cpp
   rvDebug.cpp
   passes.cpp
+  session.cpp
   sleefLibrary.cpp
   transform/CNSPass.cpp
   transform/Linearizer.cpp
@@ -71,6 +72,7 @@ add_rv_library(RV
   transform/structOpt.cpp
   transform/splitAllocas.cpp
   utils/rvTools.cpp
+  vectorISA.cpp
   vectorMapping.cpp
   vectorShape.cpp
   vectorizationInfo.cpp

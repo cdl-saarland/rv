@@ -5,8 +5,8 @@
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
 //
-// @authors kloessner
-//
+
+#include "rv/rv.h"
 
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/IR/LegacyPassManager.h>
@@ -18,7 +18,6 @@
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
 #include <llvm/Analysis/BranchProbabilityInfo.h>
 
-#include "rv/rv.h"
 #include "rv/analysis/DFG.h"
 #include "rv/analysis/VectorizationAnalysis.h"
 
@@ -55,100 +54,202 @@ using namespace llvm;
 
 namespace rv {
 
-VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo, Config _config)
-        : config(_config)
+
+
+
+// class VectorizerInterface
+
+VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo, OptConfig _optConfig)
+        : optConfig(_optConfig)
         , platInfo(_platInfo)
+{}
+
+void
+VectorizerInterface::analyze(VectorizationInfo& vecInfo,
+                             const CDG& cdg,
+                             const DFG& dfg,
+                             const LoopInfo& loopInfo,
+                             VAConfig vaConfig)
 {
-  addIntrinsics();
+    IF_DEBUG {
+      errs() << "VA before analysis:\n";
+      vecInfo.dump();
+    }
+
+    // determines value and control shapes
+    BranchDependenceAnalysis BDA(vecInfo.getScalarFunction(), cdg, dfg, loopInfo);
+    VectorizationAnalysis vea(vaConfig, platInfo, vecInfo, BDA, loopInfo);
+    vea.analyze();
+}
+
+bool
+VectorizerInterface::linearize(VectorizationInfo& vecInfo,
+                 CDG& cdg,
+                 DFG& dfg,
+                 LoopInfo& loopInfo,
+                 PostDominatorTree& postDomTree,
+                 DominatorTree& domTree,
+                 BranchProbabilityInfo * pbInfo)
+{
+    // use a fresh domtree here
+    // DominatorTree fixedDomTree(vecInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
+    domTree.recalculate(vecInfo.getScalarFunction());
+
+    // lazy mask generator
+    MaskExpander maskEx(vecInfo, domTree, postDomTree, loopInfo);
+
+    // convert divergent loops inside the region to uniform loops
+    DivLoopTrans divLoopTrans(platInfo, vecInfo, maskEx, domTree, loopInfo);
+    divLoopTrans.transformDivergentLoops();
+
+    postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+
+    // insert BOSCC branches if desired
+    if (optConfig.enableHeuristicBOSCC) {
+      BOSCCTransform bosccTrans(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo, pbInfo);
+      bosccTrans.run();
+    }
+    // expand masks after BOSCC
+    maskEx.expandRegionMasks();
+
+    postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+
+    IF_DEBUG {
+      errs() << "--- VecInfo before Linearizer ---\n";
+      vecInfo.dump();
+    }
+
+    // FIXME use external reduction analysis result (if available)
+    ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
+    auto * hostLoop = loopInfo.getLoopFor(&vecInfo.getEntry());
+    if (hostLoop) reda.analyze(*hostLoop);
+
+    // optimize reduction data flow
+    ReductionOptimization redOpt(vecInfo, reda, domTree);
+    redOpt.run();
+
+    // partially linearize acyclic control in the region
+    Linearizer linearizer(vecInfo, maskEx, domTree, loopInfo);
+    linearizer.run();
+
+    IF_DEBUG {
+      errs() << "--- VecInfo after Linearizer ---\n";
+      vecInfo.dump();
+    }
+
+    return true;
+}
+
+// flag is set if the env var holds a string that starts on a non-'0' char
+bool
+VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTree, LoopInfo & loopInfo, ScalarEvolution & SE, MemoryDependenceResults & MDR, ValueToValueMapTy * vecInstMap) {
+  // split structural allocas
+  if (optConfig.enableSplitAllocas) {
+    SplitAllocas split(vecInfo);
+    split.run();
+  } else {
+    Report() << "Split allocas opt disabled (RV_DISABLE_SPLITALLOCAS != 0)\n";
+  }
+
+  // transform allocas from Array-of-struct into Struct-of-vector where possibe
+  if (optConfig.enableStructOpt) {
+    StructOpt sopt(vecInfo, platInfo.getDataLayout());
+    sopt.run();
+  } else {
+    Report() << "Struct opt disabled (RV_DISABLE_STRUCTOPT != 0)\n";
+  }
+
+  // Scalar-Replication-Of-Varying-(Aggregates): split up structs of vectorizable elements to promote use of vector registers
+  if (optConfig.enableSROV) {
+    SROVTransform srovTransform(vecInfo, platInfo);
+    srovTransform.run();
+  } else {
+    Report() << "SROV opt disabled (RV_DISABLE_SROV != 0)\n";
+  }
+
+  auto * hostLoop = loopInfo.getLoopFor(&vecInfo.getEntry());
+  ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
+  if (hostLoop) reda.analyze(*hostLoop);
+
+// vectorize with native
+  native::NatBuilder natBuilder(optConfig, platInfo, vecInfo, domTree, MDR, SE, reda);
+  natBuilder.vectorize(true, vecInstMap);
+
+  // IR Polish phase: promote i1 vectors and perform early instruction (read: intrinsic) selection
+  if (optConfig.enableIRPolish) {
+    IRPolisher polisher(vecInfo.getVectorFunction(), platInfo.getVectorISA());
+    polisher.polish();
+    Report() << "IR Polisher enabled (RV_ENABLE_POLISH != 0)\n";
+  }
+
+  IF_DEBUG verifyFunction(vecInfo.getVectorFunction());
+
+  return true;
 }
 
 void
-VectorizerInterface::addIntrinsics() {
-    for (Function & func : platInfo.getModule()) {
-        if (func.getName() == "rv_any" ||
-            func.getName() == "rv_all") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying()}
-          );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_extract") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying(), VectorShape::uni()}
-          );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_insert") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::varying(),
-            {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
-          );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_load") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying(), VectorShape::uni()}
-          );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_store") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
-          );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_shuffle") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::uni(), VectorShape::uni()}
-          );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_ballot") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying(), VectorShape::varying()}
-            );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_align") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::undef(),
-            {VectorShape::undef(), VectorShape::uni()}
-            );
-          platInfo.addSIMDMapping(mapping);
-        }
-    }
+VectorizerInterface::finalize() {
+  // TODO strip finalize
 }
+
+
+
+
+
+
+
+template <typename Impl>
+static void lowerIntrinsicCall(CallInst* call, Impl impl) {
+  call->replaceAllUsesWith(impl(call));
+  call->eraseFromParent();
+}
+
+static void lowerIntrinsicCall(CallInst* call) {
+  auto * callee = call->getCalledFunction();
+  if (callee->getName() == "rv_any" ||
+      callee->getName() == "rv_all" ||
+      callee->getName() == "rv_extract" ||
+      callee->getName() == "rv_shuffle" ||
+      callee->getName() == "rv_align") {
+    lowerIntrinsicCall(call, [] (const CallInst* call) {
+      return call->getOperand(0);
+    });
+  } else if (callee->getName() == "rv_insert") {
+    lowerIntrinsicCall(call, [] (const CallInst* call) {
+      return call->getOperand(2);
+    });
+  } else if (callee->getName() == "rv_load") {
+    lowerIntrinsicCall(call, [] (CallInst* call) {
+      IRBuilder<> builder(call);
+      auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
+      auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
+      auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
+      return builder.CreateLoad(gep);
+    });
+  } else if (callee->getName() == "rv_store") {
+    lowerIntrinsicCall(call, [] (CallInst* call) {
+      IRBuilder<> builder(call);
+      auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
+      auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
+      auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
+      return builder.CreateStore(call->getOperand(2), gep);
+    });
+  } else if (callee->getName() == "rv_ballot") {
+    lowerIntrinsicCall(call, [] (CallInst* call) {
+      IRBuilder<> builder(call);
+      return builder.CreateZExt(call->getOperand(0), builder.getInt32Ty());
+    });
+  }
+}
+
+
+
+
+
+
+
 
 static void
 EmbedInlinedCode(BasicBlock & entry, Loop & hostLoop, LoopInfo & loopInfo, std::set<BasicBlock*> & funcBlocks) {
@@ -166,7 +267,7 @@ EmbedInlinedCode(BasicBlock & entry, Loop & hostLoop, LoopInfo & loopInfo, std::
 #define IF_DEBUG_CRT IF_DEBUG
 
 void
-VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, LoopInfo & loopInfo)
+lowerComplexArithmetic(VectorizationInfo & vecInfo, LoopInfo & loopInfo)
 {
   auto & scalarFn = vecInfo.getScalarFunction();
   auto & mod = *scalarFn.getParent();
@@ -223,180 +324,6 @@ VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, LoopInfo & l
     if (hostLoop) EmbedInlinedCode(entryBB, *hostLoop, loopInfo, funcBlocks);
   }
 }
-
-
-void
-VectorizerInterface::analyze(VectorizationInfo& vecInfo,
-                             const CDG& cdg,
-                             const DFG& dfg,
-                             const LoopInfo& loopInfo)
-{
-    IF_DEBUG {
-      errs() << "VA before analysis:\n";
-      vecInfo.dump();
-    }
-
-    // determines value and control shapes
-    VectorizationAnalysis vea(config, platInfo, vecInfo, cdg, dfg, loopInfo);
-    vea.analyze();
-}
-
-bool
-VectorizerInterface::linearize(VectorizationInfo& vecInfo,
-                 CDG& cdg,
-                 DFG& dfg,
-                 LoopInfo& loopInfo,
-                 PostDominatorTree& postDomTree,
-                 DominatorTree& domTree,
-                 BranchProbabilityInfo * pbInfo)
-{
-    // use a fresh domtree here
-    // DominatorTree fixedDomTree(vecInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
-    domTree.recalculate(vecInfo.getScalarFunction());
-
-    // lazy mask generator
-    MaskExpander maskEx(vecInfo, domTree, postDomTree, loopInfo);
-
-    // convert divergent loops inside the region to uniform loops
-    DivLoopTrans divLoopTrans(platInfo, vecInfo, maskEx, domTree, loopInfo);
-    divLoopTrans.transformDivergentLoops();
-
-    postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-    domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-
-    // insert BOSCC branches if desired
-    if (config.enableHeuristicBOSCC) {
-      BOSCCTransform bosccTrans(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo, pbInfo);
-      bosccTrans.run();
-    }
-    // expand masks after BOSCC
-    maskEx.expandRegionMasks();
-
-    postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-    domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-
-    IF_DEBUG {
-      errs() << "--- VecInfo before Linearizer ---\n";
-      vecInfo.dump();
-    }
-
-    // FIXME use external reduction analysis result (if available)
-    ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
-    auto * hostLoop = loopInfo.getLoopFor(&vecInfo.getEntry());
-    if (hostLoop) reda.analyze(*hostLoop);
-
-    // optimize reduction data flow
-    ReductionOptimization redOpt(vecInfo, reda, domTree);
-    redOpt.run();
-
-    // partially linearize acyclic control in the region
-    Linearizer linearizer(vecInfo, maskEx, domTree, loopInfo);
-    linearizer.run();
-
-    IF_DEBUG {
-      errs() << "--- VecInfo after Linearizer ---\n";
-      vecInfo.dump();
-    }
-
-    return true;
-}
-
-// flag is set if the env var holds a string that starts on a non-'0' char
-bool
-VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTree, LoopInfo & loopInfo, ScalarEvolution & SE, MemoryDependenceResults & MDR, ValueToValueMapTy * vecInstMap) {
-  // split structural allocas
-  if (config.enableSplitAllocas) {
-    SplitAllocas split(vecInfo);
-    split.run();
-  } else {
-    Report() << "Split allocas opt disabled (RV_DISABLE_SPLITALLOCAS != 0)\n";
-  }
-
-  // transform allocas from Array-of-struct into Struct-of-vector where possibe
-  if (config.enableStructOpt) {
-    StructOpt sopt(vecInfo, platInfo.getDataLayout());
-    sopt.run();
-  } else {
-    Report() << "Struct opt disabled (RV_DISABLE_STRUCTOPT != 0)\n";
-  }
-
-  // Scalar-Replication-Of-Varying-(Aggregates): split up structs of vectorizable elements to promote use of vector registers
-  if (config.enableSROV) {
-    SROVTransform srovTransform(vecInfo, platInfo);
-    srovTransform.run();
-  } else {
-    Report() << "SROV opt disabled (RV_DISABLE_SROV != 0)\n";
-  }
-
-  auto * hostLoop = loopInfo.getLoopFor(&vecInfo.getEntry());
-  ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
-  if (hostLoop) reda.analyze(*hostLoop);
-
-// vectorize with native
-  native::NatBuilder natBuilder(config, platInfo, vecInfo, domTree, MDR, SE, reda);
-  natBuilder.vectorize(true, vecInstMap);
-
-  // IR Polish phase: promote i1 vectors and perform early instruction (read: intrinsic) selection
-  if (config.enableIRPolish) {
-    IRPolisher polisher(vecInfo.getVectorFunction(), config);
-    polisher.polish();
-    Report() << "IR Polisher enabled (RV_ENABLE_POLISH != 0)\n";
-  }
-
-  IF_DEBUG verifyFunction(vecInfo.getVectorFunction());
-
-  return true;
-}
-
-void
-VectorizerInterface::finalize() {
-  // TODO strip finalize
-}
-
-template <typename Impl>
-static void lowerIntrinsicCall(CallInst* call, Impl impl) {
-  call->replaceAllUsesWith(impl(call));
-  call->eraseFromParent();
-}
-
-static void lowerIntrinsicCall(CallInst* call) {
-  auto * callee = call->getCalledFunction();
-  if (callee->getName() == "rv_any" ||
-      callee->getName() == "rv_all" ||
-      callee->getName() == "rv_extract" ||
-      callee->getName() == "rv_shuffle" ||
-      callee->getName() == "rv_align") {
-    lowerIntrinsicCall(call, [] (const CallInst* call) {
-      return call->getOperand(0);
-    });
-  } else if (callee->getName() == "rv_insert") {
-    lowerIntrinsicCall(call, [] (const CallInst* call) {
-      return call->getOperand(2);
-    });
-  } else if (callee->getName() == "rv_load") {
-    lowerIntrinsicCall(call, [] (CallInst* call) {
-      IRBuilder<> builder(call);
-      auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
-      auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-      auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
-      return builder.CreateLoad(gep);
-    });
-  } else if (callee->getName() == "rv_store") {
-    lowerIntrinsicCall(call, [] (CallInst* call) {
-      IRBuilder<> builder(call);
-      auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
-      auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-      auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
-      return builder.CreateStore(call->getOperand(2), gep);
-    });
-  } else if (callee->getName() == "rv_ballot") {
-    lowerIntrinsicCall(call, [] (CallInst* call) {
-      IRBuilder<> builder(call);
-      return builder.CreateZExt(call->getOperand(0), builder.getInt32Ty());
-    });
-  }
-}
-
 void
 lowerIntrinsics(Module & mod) {
   const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align"};

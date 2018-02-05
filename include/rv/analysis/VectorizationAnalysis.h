@@ -30,7 +30,6 @@
 
 #include "DFG.h"
 
-#include "rv/config.h"
 #include "rv/vectorizationInfo.h"
 #include "rv/vectorMapping.h"
 #include "rv/VectorizationInfoProxyPass.h"
@@ -45,22 +44,35 @@ namespace llvm {
 namespace rv {
 using InstVec = const std::vector<const llvm::Instruction*>;
 
-class VAWrapperPass : public llvm::FunctionPass {
-  static char ID;
-  Config config;
 
-public:
-  VAWrapperPass() : FunctionPass(ID), config() { }
-  VAWrapperPass(Config _config) : FunctionPass(ID), config(_config) { }
-  VAWrapperPass(const VAWrapperPass&) = delete;
-  VAWrapperPass& operator=(VAWrapperPass) = delete;
+struct VAConfig {
+  VAConfig();
 
-  void getAnalysisUsage(llvm::AnalysisUsage& Info) const override;
-  bool runOnFunction(llvm::Function& F) override;
+  // Vectorization Analysis lattice
+  enum class Lattice : int {
+    VA_Full = 0, // {varying(a)} \_/ {(s,a)}
+    VA_TopBot = 1, // {varying, uniform}
+    VA_Karrenberg = 2, // {varying, uniform, consecutive} x alignment
+    VA_Coutinho = 3, // {varying, strided} // no alignment
+  };
+
+  // set to VA_Full for complete lattice
+  Lattice vaLattice;
+
+  // should all (non-loop exiting) branches be folded regardless of VA result?
+  // set to false for partial linearization
+  bool foldAllBranches;
+
+  void print(llvm::raw_ostream & out) const;
+  void dump() const;
 };
 
+std::string to_string(VAConfig::Lattice vaLattice);
+
+
+
 class VectorizationAnalysis {
-  Config config;
+  VAConfig vaConfig;
 
   /// In- and output
   VectorizationInfo& mVecinfo;
@@ -75,17 +87,16 @@ class VectorizationAnalysis {
   const VectorFuncMap& mFuncinfo;
 
   // Divergence computation:
-  BranchDependenceAnalysis BDA;
+  BranchDependenceAnalysis & BDA;
 
   llvm::DenseSet<const llvm::BasicBlock*> mControlDivergentBlocks;
 
 public:
-  VectorizationAnalysis(Config config,
+  VectorizationAnalysis(VAConfig vaConfig,
                         PlatformInfo & platInfo,
                         VectorizationInfo& VecInfo,
-                        const CDG& cdg,
-                        const DFG& dfg,
-                        const llvm::LoopInfo& LoopInfo);
+                        BranchDependenceAnalysis & _BDA,
+                        const llvm::LoopInfo& loopInfo);
 
   VectorizationAnalysis(const VectorizationAnalysis&) = delete;
   VectorizationAnalysis& operator=(VectorizationAnalysis) = delete;
@@ -146,7 +157,24 @@ private:
   void computeLoopDivergence();
 };
 
-llvm::FunctionPass* createVectorizationAnalysisPass(Config config=Config());
+
+
+
+class VAWrapperPass : public llvm::FunctionPass {
+  static char ID;
+  VAConfig vaConfig;
+
+public:
+  VAWrapperPass() : FunctionPass(ID), vaConfig() { }
+  VAWrapperPass(VAConfig _vaConfig) : FunctionPass(ID), vaConfig(_vaConfig) { }
+  VAWrapperPass(const VAWrapperPass&) = delete;
+  VAWrapperPass& operator=(VAWrapperPass) = delete;
+
+  void getAnalysisUsage(llvm::AnalysisUsage& Info) const override;
+  bool runOnFunction(llvm::Function& F) override;
+};
+
+llvm::FunctionPass* createVectorizationAnalysisPass(VAConfig vaConfig=VAConfig());
 
 }
 

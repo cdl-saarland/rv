@@ -9,7 +9,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 
-#include "rv/config.h"
+#include "rv/vectorISA.h"
 
 namespace rv {
 
@@ -22,7 +22,7 @@ namespace rv {
 class IRPolisher {
   llvm::Function &F;
   llvm::Type* boolVector;
-  rv::Config config;
+  VectorISA vectorIsa;
 
   struct ExtInst {
     llvm::Instruction* inst;
@@ -66,7 +66,7 @@ class IRPolisher {
   llvm::Value *getConditionFromMask(llvm::IRBuilder<>&, llvm::Value*);
 
 public:
-  IRPolisher(llvm::Function &f, Config _config) : F(f), config(_config) {}
+  IRPolisher(llvm::Function &f, VectorISA _vectorIsa) : F(f), vectorIsa(_vectorIsa) {}
 
   bool polish();
 };

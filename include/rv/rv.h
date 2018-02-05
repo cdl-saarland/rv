@@ -12,9 +12,12 @@
 #include "rv/PlatformInfo.h"
 #include "rv/analysis/DFG.h"
 #include "rv/transform/maskExpander.h"
-#include "rv/config.h"
+#include "rv/optConfig.h"
+#include "rv/analysis/VectorizationAnalysis.h"
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
+
+#include <llvm/Support/Compiler.h>
 
 namespace llvm {
   class LoopInfo;
@@ -42,12 +45,10 @@ class VectorizationInfo;
  * a wrong analysis is used as the VectorizationInfo object. The user is responsible for
  * running the analysis phase prior, or specifying a valid analysis himself.
  */
+[[deprecated]]
 class VectorizerInterface {
 public:
-    VectorizerInterface(PlatformInfo & _platform, Config config = Config());
-
-    // try to inline common math functions (compiler-rt) before the analysis
-    void lowerRuntimeCalls(VectorizationInfo & vecInfo, llvm::LoopInfo & loopInfo);
+    LLVM_ATTRIBUTE_DEPRECATED(VectorizerInterface(PlatformInfo & _platform, OptConfig optConfig = OptConfig()), "use the new API in "rv/session.h" instead");
 
     //
     // Analyze properties of the scalar function that are needed later in transformations
@@ -59,7 +60,8 @@ public:
     void analyze(VectorizationInfo& vecInfo,
                  const rv::CDG& cdg,
                  const rv::DFG& dfg,
-                 const llvm::LoopInfo& loopInfo);
+                 const llvm::LoopInfo& loopInfo,
+                 VAConfig vaConfig = VAConfig());
 
     //
     // Linearize divergent regions of the scalar function to preserve semantics for the
@@ -94,14 +96,17 @@ public:
     PlatformInfo & getPlatformInfo() const { return platInfo; }
 
 private:
-    Config config;
+    OptConfig optConfig;
     PlatformInfo & platInfo;
 
     void addIntrinsics();
 };
 
 
-   // implement all rv_* intrinsics
+  // inline complex arithmetic function (compiler-rt runtime library)
+  void lowerComplexArithmetic(VectorizationInfo & vecInfo, llvm::LoopInfo & loopInfo);
+
+   // implement all rv_* intrinsics - such that they behave as if the vector width as one
    // this is necessary to make scalar functions with predicate intrinsics executable
    // the SIMS semantics of the function will change if @scalar func used any mask intrinsics
   void lowerIntrinsics(llvm::Function & scalarFunc);

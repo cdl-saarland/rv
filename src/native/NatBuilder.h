@@ -16,7 +16,7 @@
 
 #include <rv/vectorizationInfo.h>
 #include <rv/PlatformInfo.h>
-#include "rv/config.h"
+#include "rv/optConfig.h"
 
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
 #include <llvm/IR/Dominators.h>
@@ -42,7 +42,7 @@ namespace native {
   class NatBuilder {
     llvm::IRBuilder<> builder;
 
-    rv::Config config;
+    rv::OptConfig optConfig;
     rv::PlatformInfo &platformInfo;
     rv::VectorizationInfo &vecInfo;
     const llvm::DominatorTree &dominatorTree;
@@ -84,7 +84,7 @@ namespace native {
     ValVec scalarize(llvm::BasicBlock & srcBlock, llvm::Instruction & srcInst, bool packResult, std::function<llvm::Value*(llvm::IRBuilder<>&,size_t)> genFunc);
 
   public:
-    NatBuilder(rv::Config config, rv::PlatformInfo &_platformInfo, rv::VectorizationInfo &_vecInfo,
+    NatBuilder(rv::OptConfig optConfig, rv::PlatformInfo &_platformInfo, rv::VectorizationInfo &_vecInfo,
                const llvm::DominatorTree &_dominatorTree, llvm::MemoryDependenceResults &memDepRes,
                llvm::ScalarEvolution &_SE, rv::ReductionAnalysis & _reda);
 

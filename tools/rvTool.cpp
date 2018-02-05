@@ -47,6 +47,7 @@
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
 #include "rv/rvDebug.h"
+#include "rv/session.h"
 
 #include "rv/transform/remTransform.h"
 #include "rv/vectorizationInfo.h"
@@ -157,24 +158,19 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
       fail("remTrans could not transform to a vectorizable loop.");
     }
 
-    // configure RV
-    rv::Config config;
-    config.useSLEEF = true;
-    config.print(outs());
-
     // setup region
     rv::LoopRegion loopRegionImpl(*preparedLoop);
     rv::Region loopRegion(loopRegionImpl);
     rv::VectorizationInfo vecInfo(parentFn, vectorWidth, loopRegion);
 
-    rv::PlatformInfo platformInfo(mod, &tti, &tli);
+    rv::PlatformInfo platInfo(mod, &tti, &tli);
 
     MemoryDependenceAnalysis mdAnalysis;
     MemoryDependenceResults MDR = mdAnalysis.run(parentFn, fam);
 
     // link in SIMD library
     const bool useImpreciseFunctions = true;
-    addSleefMappings(config, platformInfo, useImpreciseFunctions);
+    addSleefMappings(platInfo.getVectorISA(), platInfo, useImpreciseFunctions);
 
 // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable
@@ -215,10 +211,8 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
   }
 
 
-    rv::VectorizerInterface vectorizer(platformInfo, config);
-
     // early math func lowering
-    vectorizer.lowerRuntimeCalls(vecInfo, loopInfo);
+    rv::lowerComplexArithmetic(vecInfo, loopInfo);
     domTree.recalculate(parentFn);
     postDomTree.recalculate(parentFn);
     cdg.create(parentFn);
@@ -227,7 +221,16 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     loopInfo.print(errs());
     loopInfo.verify(domTree);
 
+    rv::Session session(platInfo, domTree, postDomTree, loopInfo, SE, MDR, nullptr);
 
+    // configure RV
+    rv::OptConfig optConfig;
+    optConfig.useSLEEF = true;
+    optConfig.print(outs());
+
+    session.run(vecInfo, optConfig);
+
+#if 0
     // vectorizationAnalysis
     vectorizer.analyze(vecInfo, cdg, dfg, loopInfo);
 
@@ -248,6 +251,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     // cleanup
     vectorizer.finalize();
+#endif
 }
 
 // Use case: Outer-loop Vectorizer
@@ -337,18 +341,11 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     TargetTransformInfo tti = irAnalysis.run(*scalarCopy, fam);
     TargetLibraryAnalysis libAnalysis;
     TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent(), mam);
-    rv::PlatformInfo platformInfo(mod, &tti, &tli);
-
-    // configure RV
-    rv::Config config;
-    config.useSLEEF = true;
-    const bool useImpreciseFunctions = true;
-    config.print(outs());
+    rv::PlatformInfo platInfo(mod, &tti, &tli);
 
     // link in SIMD library
-    addSleefMappings(config, platformInfo, useImpreciseFunctions);
-
-    rv::VectorizerInterface vectorizer(platformInfo, config);
+    const bool useImpreciseFunctions = true;
+    addSleefMappings(platInfo.getVectorISA(), platInfo, useImpreciseFunctions);
 
     // set-up vecInfo overlay and define vectorization job (mapping)
     rv::VectorMapping targetMapping = vectorizerJob;
@@ -401,8 +398,9 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
       scalarCopy->print(errs());
     }
 
-    // early math func lowering
-    vectorizer.lowerRuntimeCalls(vecInfo, loopInfo);
+    // early complex math inlining
+    rv::lowerComplexArithmetic(vecInfo, loopInfo);
+
     domTree.recalculate(*scalarCopy);
     postDomTree.recalculate(*scalarCopy);
     cdg.create(*scalarCopy);
@@ -411,7 +409,17 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     loopInfo.print(errs());
     loopInfo.verify(domTree);
 
-    // vectorizationAnalysis
+    // analyze, linearize & vectorize
+    rv::Session session(platInfo, domTree, postDomTree, loopInfo, SE, MDR, nullptr);
+
+    // configure RV
+    rv::OptConfig optConfig;
+    optConfig.useSLEEF = true;
+    optConfig.print(outs());
+
+    session.run(vecInfo, optConfig);
+
+#if 0
     vectorizer.analyze(vecInfo, cdg, dfg, loopInfo);
 
     // mask generator
@@ -431,6 +439,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
 
     // cleanup
     vectorizer.finalize();
+#endif
 
     scalarCopy->eraseFromParent();
 }

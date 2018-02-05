@@ -24,8 +24,7 @@
 #define IF_DEBUG_VA if (false)
 #endif
 
-//
-//
+
 // generic transfer functions
 rv::VectorShape
 GenericTransfer(rv::VectorShape a) {
@@ -45,46 +44,51 @@ using namespace llvm;
 
 namespace rv {
 
-char VAWrapperPass::ID = 0;
+
+// struct VAConfig
+
+VAConfig::VAConfig()
+: vaLattice(Lattice::VA_Full) // full (s,a) lattice
+, foldAllBranches(false)
+{
+}
 
 void
-VAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
-  Info.addRequired<DFGBaseWrapper<true>>();
-  Info.addRequired<DFGBaseWrapper<false>>();
-  Info.addRequired<LoopInfoWrapperPass>();
-  Info.addRequired<VectorizationInfoProxyPass>();
-
-  Info.setPreservesAll();
+VAConfig::print(llvm::raw_ostream & out) const {
+   out << "VA:   " << to_string(vaLattice) << ", foldAllBranches = " << foldAllBranches;
 }
 
-bool
-VAWrapperPass::runOnFunction(Function& F) {
-  auto& Vecinfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
-  auto& platInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
+void VAConfig::dump() const { print(llvm::errs()); }
 
-  const CDG& cdg = *getAnalysis<CDGWrapper>().getDFG();
-  const DFG& dfg = *getAnalysis<DFGWrapper>().getDFG();
-  const LoopInfo& LoopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-
-  VectorizationAnalysis vea(config, platInfo, Vecinfo, cdg, dfg, LoopInfo);
-  vea.analyze();
-
-  return false;
+std::string
+to_string(VAConfig::Lattice vaLattice) {
+  switch(vaLattice) {
+    case VAConfig::Lattice::VA_Full: return "sa-lattice";
+    case VAConfig::Lattice::VA_TopBot: return "topbot-lattice";
+    case VAConfig::Lattice::VA_Karrenberg: return "karrenberg-lattice";
+    case VAConfig::Lattice::VA_Coutinho: return "coutinho-lattice";
+    default:
+        abort(); // invalid lattice argument
+  }
 }
 
-VectorizationAnalysis::VectorizationAnalysis(Config _config,
+
+
+
+// class VectorizationAnalysis
+
+VectorizationAnalysis::VectorizationAnalysis(VAConfig _vaConfig,
                                              PlatformInfo& platInfo,
                                              VectorizationInfo& VecInfo,
-                                             const CDG& cdg,
-                                             const DFG& dfg,
+                                             BranchDependenceAnalysis & _BDA,
                                              const LoopInfo& LoopInfo)
 
-        : config(_config),
+        : vaConfig(_vaConfig),
           mVecinfo(VecInfo),
           layout(platInfo.getDataLayout()),
           mLoopInfo(LoopInfo),
           mFuncinfo(platInfo.getFunctionMappings()),
-          BDA(mVecinfo.getScalarFunction(), cdg, dfg, LoopInfo)
+          BDA(_BDA)
 { }
 
 void
@@ -100,7 +104,7 @@ VectorizationAnalysis::updateAnalysis(InstVec & updateList) {
   computeLoopDivergence();
 
   // mark all non-loop exiting branches as divergent to trigger a full linearization
-  if (config.foldAllBranches) {
+  if (vaConfig.foldAllBranches) {
     for (auto & BB: F) {
       auto & term = *BB.getTerminator();
       if (term.getNumSuccessors() <= 1) continue; // uninteresting
@@ -133,7 +137,7 @@ VectorizationAnalysis::analyze() {
   computeLoopDivergence();
 
   // mark all non-loop exiting branches as divergent to trigger a full linearization
-  if (config.foldAllBranches) {
+  if (vaConfig.foldAllBranches) {
     for (auto & BB: F) {
       auto & term = *BB.getTerminator();
       if (term.getNumSuccessors() <= 1) continue; // uninteresting
@@ -436,7 +440,7 @@ void VectorizationAnalysis::compute(const Function& F) {
       // Otw, we can compute the instruction shape
       New = computeShapeForInst(I);
 
-      if (config.vaMethod == Config::VA_Karrenberg) {
+      if (vaConfig.vaLattice == VAConfig::Lattice::VA_Karrenberg) {
         // degrade non-cont negatively strided shapes
 
         if (New.isVarying()) {
@@ -461,7 +465,7 @@ void VectorizationAnalysis::compute(const Function& F) {
           }
         }
 
-      } else if (config.vaMethod == Config::VA_Coutinho) {
+      } else if (vaConfig.vaLattice == VAConfig::Lattice::VA_Coutinho) {
         // only degrade alignment information
         New.setAlignment(1);
       }
@@ -492,7 +496,7 @@ void VectorizationAnalysis::compute(const Function& F) {
 
 VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
   // always default to the naive transformer (only top or bottom)
-  if (config.vaMethod == Config::VA_TopBot) { return computeGenericArithmeticTransfer(*I); }
+  if (vaConfig.vaLattice == VAConfig::Lattice::VA_TopBot) { return computeGenericArithmeticTransfer(*I); }
 
   if (I->isBinaryOp()) return computeShapeForBinaryInst(cast<BinaryOperator>(I));
   if (I->isCast()) return computeShapeForCastInst(cast<CastInst>(I));
@@ -901,8 +905,8 @@ VectorShape VectorizationAnalysis::getShape(const Value* const V) {
   return mVecinfo.getVectorShape(*V);
 }
 
-FunctionPass* createVectorizationAnalysisPass(rv::Config config) {
-  return new VAWrapperPass(config);
+FunctionPass* createVectorizationAnalysisPass(rv::VAConfig vaConfig) {
+  return new VAWrapperPass(vaConfig);
 }
 
 void VectorizationAnalysis::computeLoopDivergence() {
@@ -929,6 +933,39 @@ void VectorizationAnalysis::computeLoopDivergence() {
       loops.push(subLoop);
     }
   }
+}
+
+
+
+
+// class VAWrapperPass
+
+char VAWrapperPass::ID = 0;
+
+void
+VAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
+  Info.addRequired<DFGBaseWrapper<true>>();
+  Info.addRequired<DFGBaseWrapper<false>>();
+  Info.addRequired<LoopInfoWrapperPass>();
+  Info.addRequired<VectorizationInfoProxyPass>();
+
+  Info.setPreservesAll();
+}
+
+bool
+VAWrapperPass::runOnFunction(Function& F) {
+  auto& Vecinfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
+  auto& platInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
+
+  const CDG& cdg = *getAnalysis<CDGWrapper>().getDFG();
+  const DFG& dfg = *getAnalysis<DFGWrapper>().getDFG();
+  const LoopInfo& loopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+
+  BranchDependenceAnalysis BDA(F, cdg, dfg, loopInfo);
+  VectorizationAnalysis vea(vaConfig, platInfo, Vecinfo, BDA, loopInfo);
+  vea.analyze();
+
+  return false;
 }
 
 

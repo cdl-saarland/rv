@@ -871,37 +871,34 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
   static Module const *extraModules[5 * 2];
   static Module* scalarModule; // scalar implementations to be inlined
 
-  bool addSleefMappings(const Config & config,
+  bool addSleefMappings(const VectorISA & vectorIsa,
                         PlatformInfo &platInfo,
                         bool allowImprecise) {
-    if (!config.useSLEEF)
-      return false;
-
 #ifdef RV_ENABLE_BUILTINS
-    if (config.useADVSIMD) {
+    if (vectorIsa.hasADVSIMD) {
       AddMappings_ADVSIMD(platInfo, allowImprecise);
     } else {
       // TODO add neon32 mappings
     }
 
-    if (config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) {
+    if (vectorIsa.hasSSE || vectorIsa.hasAVX || vectorIsa.hasAVX2 || vectorIsa.hasAVX512) {
       AddMappings_SSE(platInfo, allowImprecise);
     }
 
-    if (config.useAVX) {
+    if (vectorIsa.hasAVX) {
       AddMappings_AVX(platInfo, allowImprecise);
     }
 
-    if (config.useAVX2 || config.useAVX512) {
+    if (vectorIsa.hasAVX2 || vectorIsa.hasAVX512) {
       AddMappings_AVX2(platInfo, allowImprecise);
     }
-    if (config.useAVX512) {
+    if (vectorIsa.hasAVX512) {
       AddMappings_AVX512(platInfo, allowImprecise);
     }
 
     // TODO generic mappings
 
-    return config.useAVX || config.useAVX2 || config.useSSE || config.useAVX512 || config.useADVSIMD;
+    return vectorIsa.hasAVX || vectorIsa.hasAVX2 || vectorIsa.hasSSE || vectorIsa.hasAVX512 || vectorIsa.hasADVSIMD;
 
 #else
     return false;

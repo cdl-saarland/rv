@@ -15,7 +15,102 @@ namespace rv {
 
 PlatformInfo::PlatformInfo(Module &_mod, TargetTransformInfo *TTI,
                            TargetLibraryInfo *TLI)
-    : mod(_mod), mTTI(TTI), mTLI(TLI) {}
+: mod(_mod)
+, mTTI(TTI)
+, mTLI(TLI)
+, vectorISA(VectorISA::infer(mod))
+{
+  addBuiltinIntrinsics(); // register RV's internal intrinsics
+}
+
+
+void
+PlatformInfo::addBuiltinIntrinsics() {
+    for (Function & func : getModule()) {
+        if (func.getName() == "rv_any" ||
+            func.getName() == "rv_all") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::uni(),
+            {VectorShape::varying()}
+          );
+          addSIMDMapping(mapping);
+        } else if (func.getName() == "rv_extract") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::uni(),
+            {VectorShape::varying(), VectorShape::uni()}
+          );
+          addSIMDMapping(mapping);
+        } else if (func.getName() == "rv_insert") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::varying(),
+            {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
+          );
+          addSIMDMapping(mapping);
+        } else if (func.getName() == "rv_load") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::uni(),
+            {VectorShape::varying(), VectorShape::uni()}
+          );
+          addSIMDMapping(mapping);
+        } else if (func.getName() == "rv_store") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::uni(),
+            {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
+          );
+          addSIMDMapping(mapping);
+        } else if (func.getName() == "rv_shuffle") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::uni(),
+            {VectorShape::uni(), VectorShape::uni()}
+          );
+          addSIMDMapping(mapping);
+        } else if (func.getName() == "rv_ballot") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::uni(),
+            {VectorShape::varying(), VectorShape::varying()}
+            );
+          addSIMDMapping(mapping);
+        } else if (func.getName() == "rv_align") {
+          VectorMapping mapping(
+            &func,
+            &func,
+            0, // no specific vector width
+            -1, //
+            VectorShape::undef(),
+            {VectorShape::undef(), VectorShape::uni()}
+            );
+          addSIMDMapping(mapping);
+        }
+    }
+}
 
 PlatformInfo::~PlatformInfo() {
   for (auto it : funcMappings) {
@@ -49,9 +144,9 @@ void PlatformInfo::setTTI(TargetTransformInfo *TTI) { mTTI = TTI; }
 
 void PlatformInfo::setTLI(TargetLibraryInfo *TLI) { mTLI = TLI; }
 
-TargetTransformInfo *PlatformInfo::getTTI() { return mTTI; }
+TargetTransformInfo *PlatformInfo::getTTI() const { return mTTI; }
 
-TargetLibraryInfo *PlatformInfo::getTLI() { return mTLI; }
+TargetLibraryInfo *PlatformInfo::getTLI() const { return mTLI; }
 
 void PlatformInfo::addVectorizableFunctions(ArrayRef<VecDesc> funcs, bool givePrecedence) {
   auto itInsert = givePrecedence ? commonVectorMappings.begin() : commonVectorMappings.end();

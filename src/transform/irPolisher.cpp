@@ -32,7 +32,7 @@
 
 #include "rv/LinkAllPasses.h"
 #include "rv/passes.h"
-#include "rv/config.h"
+#include "rv/vectorISA.h"
 
 #include "rvConfig.h"
 
@@ -447,7 +447,7 @@ llvm::Value *IRPolisher::getConditionFromMask(IRBuilder<> &builder, llvm::Value*
 }
 
 bool IRPolisher::polish() {
-  if (!(config.useAVX2 || config.useAVX2)) {
+  if (!(vectorIsa.hasAVX2 || vectorIsa.hasAVX2)) {
     return false; // requires >= AVX
   }
 
@@ -534,7 +534,7 @@ bool IRPolisher::polish() {
 namespace {
 
 class IRPolisherWrapper : public FunctionPass {
-  rv::Config config;
+  rv::OptConfig optConfig;
 
 public:
   static char ID;
@@ -542,13 +542,11 @@ public:
   : FunctionPass(ID)
   {}
 
-  IRPolisherWrapper(const Config & _config)
-  : FunctionPass(ID)
-  , config(_config)
-  {}
-
   bool runOnFunction(Function & F) {
-    rv::IRPolisher polisher(F, config);
+    auto vectorIsa = VectorISA::infer(F);
+    if (vectorIsa.hasNone()) return false;
+
+    rv::IRPolisher polisher(F, vectorIsa);
     bool changed = polisher.polish();
     return changed;
   }
@@ -560,7 +558,7 @@ public:
 
 char IRPolisherWrapper::ID = 0;
 
-FunctionPass *rv::createIRPolisherWrapperPass(rv::Config config) { return new IRPolisherWrapper(config); }
+FunctionPass *rv::createIRPolisherWrapperPass() { return new IRPolisherWrapper(); }
 
 INITIALIZE_PASS_BEGIN(IRPolisherWrapper, "rv-irpolish",
                       "RV - Polish Vector IR", false, false)

@@ -92,10 +92,10 @@ void NatBuilder::printStatistics() {
   file << "Feature,Frequency\n";
 
   // memory statistics
-  file << (config.useScatterGatherIntrinsics ? "masked-scatter," : "masked-casc-store,") << numMaskedScatter << "\n";
-  file << (config.useScatterGatherIntrinsics ? "masked-gather," : "masked-casc-load,") << numMaskedGather << "\n";
-  file << (config.useScatterGatherIntrinsics ? "scatter," : "cascade-store,") << numScatter << "\n";
-  file << (config.useScatterGatherIntrinsics ? "gather," : "cascade-load,")  << numGather << "\n";
+  file << (optConfig.useScatterGatherIntrinsics ? "masked-scatter," : "masked-casc-store,") << numMaskedScatter << "\n";
+  file << (optConfig.useScatterGatherIntrinsics ? "masked-gather," : "masked-casc-load,") << numMaskedGather << "\n";
+  file << (optConfig.useScatterGatherIntrinsics ? "scatter," : "cascade-store,") << numScatter << "\n";
+  file << (optConfig.useScatterGatherIntrinsics ? "gather," : "cascade-load,")  << numGather << "\n";
   file << "pseudointer-masked-load," << numPseudoMaskedLoads << "\n";
   file << "pseudointer-masked-store," << numPseudoMaskedStores << "\n";
   file << "pseudointer-load," << numPseudoLoads << "\n";
@@ -141,11 +141,11 @@ VectorShape NatBuilder::getVectorShape(const Value &val) {
   else return VectorShape::uni();
 }
 
-NatBuilder::NatBuilder(Config _config, PlatformInfo &_platformInfo, VectorizationInfo &_vecInfo,
+NatBuilder::NatBuilder(OptConfig _optConfig, PlatformInfo &_platformInfo, VectorizationInfo &_vecInfo,
                        const DominatorTree &_dominatorTree, MemoryDependenceResults &_memDepRes,
                        ScalarEvolution &_SE, ReductionAnalysis & _reda) :
     builder(_vecInfo.getMapping().vectorFn->getContext()),
-    config(_config),
+    optConfig(_optConfig),
     platformInfo(_platformInfo),
     vecInfo(_vecInfo),
     dominatorTree(_dominatorTree),
@@ -195,7 +195,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   }
 
   // visit all memory instructions and check if we can scalarize their index calculation
-  if (config.scalarizeIndexComputation)
+  if (optConfig.scalarizeIndexComputation)
     visitMemInstructions();
 
   // create all BasicBlocks first and map them
@@ -322,7 +322,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
 
     // loads and stores need special treatment (masking, shuffling, etc) (build them lazily)
     if (canVectorize(inst) && (load || store))
-      if (config.enableInterleaved) addLazyInstruction(inst);
+      if (optConfig.enableInterleaved) addLazyInstruction(inst);
       else vectorizeMemoryInstruction(inst);
     else if (call) {
       // calls need special treatment
@@ -346,7 +346,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       else if (callee && callee->getName() == "rv_align")
         vectorizeAlignCall(call);
       else
-        if (config.enableInterleaved) addLazyInstruction(inst);
+        if (optConfig.enableInterleaved) addLazyInstruction(inst);
         else {
           if (shouldVectorize(call))
             vectorizeCallInstruction(call);
@@ -528,7 +528,7 @@ void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst,
                                                                                                             laneIdx);
 
     // only have to deal with the 2nd operand
-    if (config.useSafeDivisors && (isPredicatedDiv && i > 0)) {
+    if (optConfig.useSafeDivisors && (isPredicatedDiv && i > 0)) {
       // create a select between mappedOp and neutral element vector (1)
       Value *neutralVec = vectorizedInst ? getConstantVector(vectorWidth(), op->getType(), 1)
                                          : (op->getType()->isFloatingPointTy() ? ConstantFP::get(op->getType(), 1)
@@ -1068,14 +1068,14 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     addr.push_back(requestScalarValue(accessedPtr));
     alignment = addrShape.getAlignmentFirst();
 
-  } else if ((addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !(needsMask && !config.enableMaskedMove)) {
+  } else if ((addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !(needsMask && !optConfig.enableMaskedMove)) {
     // cast pointer to vector-width pointer
     Value *ptr = requestScalarValue(accessedPtr);
     PointerType *vecPtrType = PointerType::getUnqual(vecType);
     addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
     alignment = addrShape.getAlignmentFirst();
 
-  } else if ((addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) && !(needsMask && !config.enableMaskedMove)) {
+  } else if ((addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) && !(needsMask && !optConfig.enableMaskedMove)) {
     // interleaved access. ptrs: base, base+vector, base+2vector, ...
     Value *srcPtr = getPointerOperand(cast<Instruction>(srcs[0]));
     for (unsigned i = 0; i < srcs.size(); ++i) {
@@ -1087,14 +1087,14 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     alignment = addrShape.getAlignmentFirst();
     interleaved = true;
 
-  } else if ((addrShape.isStrided() && isPseudointerleaved(inst, accessedPtr, byteSize)) && !(needsMask && !config.enableMaskedMove)) {
+  } else if ((addrShape.isStrided() && isPseudointerleaved(inst, accessedPtr, byteSize)) && !(needsMask && !optConfig.enableMaskedMove)) {
     // pseudo-interleaved: same as above. we don't know the array limits, so we skip the last index of the last load
     unsigned stride = (unsigned) addrShape.getStride() / byteSize;
     srcs.push_back(inst);
     Value *srcPtr = getPointerOperand(inst);
     Type *interType = vecType;
     for (unsigned i = 0; i < stride; ++i) {
-      if (config.cropPseudoInterleaved && i == (stride - 1)) {
+      if (optConfig.cropPseudoInterleaved && i == (stride - 1)) {
         interType = getVectorType(accessedType, vectorWidth() - (stride-1));
       }
       Value *ptr = requestInterleavedAddress(srcPtr, i, interType);
@@ -1104,7 +1104,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     if (store && needsMask) {
       masks.push_back(mask);
       for (unsigned i = 1; i < stride; ++i) {
-        unsigned width = i == (stride - 1) && config.cropPseudoInterleaved ? vectorWidth() - (stride - 1) : vectorWidth();
+        unsigned width = i == (stride - 1) && optConfig.cropPseudoInterleaved ? vectorWidth() - (stride - 1) : vectorWidth();
         masks.push_back(getConstantVector(width, i1Ty, 0));
       }
     }
@@ -1126,17 +1126,17 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       vecMem = createUniformMaskedMemory(load, accessedType, alignment, addr[0], mask, nullptr);
 
-    } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
+    } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !optConfig.enableMaskedMove)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       vecMem = createContiguousLoad(addr[0], alignment, needsMask ? mask : nullptr, UndefValue::get(vecType));
 
       addrShape.isUniform() ? ++numUniLoads : needsMask ? ++numContMaskedLoads : ++numContLoads;
 
-    } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
+    } else if (interleaved && !(needsMask && !optConfig.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
       createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs);
 
-    } else if (pseudoInter && !(needsMask && !config.enableMaskedMove)) {
+    } else if (pseudoInter && !(needsMask && !optConfig.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
       createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs, true);
 
@@ -1160,7 +1160,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr[0], mask, mappedStoredVal);
       }
 
-    } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
+    } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !optConfig.enableMaskedMove)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                        : requestVectorValue(storedValue);
@@ -1168,7 +1168,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
       addrShape.isUniform() ? ++numUniStores : needsMask ? ++numContMaskedStores : ++numContStores;
 
-    } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
+    } else if (interleaved && !(needsMask && !optConfig.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
       std::vector<Value *> vals;
       vals.reserve(addr.size());
@@ -1179,7 +1179,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       }
       createInterleavedMemory(vecType, alignment, &addr, &masks, &vals, &srcs);
 
-    } else if (pseudoInter && !(needsMask && !config.enableMaskedMove)) {
+    } else if (pseudoInter && !(needsMask && !optConfig.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
       Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                        : requestVectorValue(storedValue);
@@ -1371,7 +1371,7 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
   bool maskNonConst(!isa<ConstantVector>(mask));
   maskNonConst ? (scatter ? ++numMaskedScatter : ++numMaskedGather) : (scatter ? ++numScatter : ++numGather);
 
-  if (config.useScatterGatherIntrinsics) {
+  if (optConfig.useScatterGatherIntrinsics) {
 
     auto * vecPtrTy = addr->getType();
 
@@ -1432,7 +1432,7 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
         masks->push_back(getConstantVector(vectorWidth(), i1Ty, 1));
       unsigned width = vectorWidth();
       for (unsigned i = 1; i < addr->size(); ++i) {
-        if (i == (stride - 1) && config.cropPseudoInterleaved) {
+        if (i == (stride - 1) && optConfig.cropPseudoInterleaved) {
           width = vectorWidth() - (stride - 1);
           interType = getVectorType(vecType->getVectorElementType(), width);
         }
@@ -1442,7 +1442,7 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
       }
       needsMask = true;
     }
-  } else if (isPseudoInter && load && !config.cropPseudoInterleaved) {
+  } else if (isPseudoInter && load && !optConfig.cropPseudoInterleaved) {
     unsigned width = vectorWidth() - (stride - 1);
     std::vector<unsigned> trueMask(width, 1);
     masks->push_back(getConstantVectorPadded(vectorWidth(), i1Ty, trueMask, true));
@@ -2164,7 +2164,7 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
   Value * ptest = nullptr;
   // TODO from LLVM >= 5.0 use reduction intrinsics
   // rv_all(x) == !rv_any(!x)
-  if (config.enableIRPolish) {
+  if (optConfig.enableIRPolish) {
     // this is a workaround until LLVM reduction intrinsics are available
     // emit a rv_ptest intrinsic
     auto * redFunc = platformInfo.requestVectorMaskReductionFunc("rv_reduce_or", vector->getType()->getVectorNumElements());
@@ -2682,7 +2682,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
 }
 
 bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSize, std::vector<Value *> &srcs) {
-  if (!config.enableInterleaved)
+  if (!optConfig.enableInterleaved)
     return false;
 
   StructType *st;
@@ -2736,7 +2736,7 @@ bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSi
 }
 
 bool NatBuilder::isPseudointerleaved(Instruction *inst, Value *addr, int byteSize) {
-  if (!config.enablePseudoInterleaved)
+  if (!optConfig.enablePseudoInterleaved)
     return false;
 
   VectorShape addrShape = getVectorShape(*addr);

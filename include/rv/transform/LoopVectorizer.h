@@ -14,7 +14,7 @@
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "rv/transform/remTransform.h"
-#include "rv/config.h"
+#include "rv/optConfig.h"
 #include "rv/analysis/reductionAnalysis.h"
 
 #include <limits>
@@ -39,9 +39,9 @@ class VectorizerInterface;
 class LoopVectorizer : public llvm::FunctionPass {
 public:
   static char ID;
-  LoopVectorizer()
+  LoopVectorizer(OptConfig _optConfig=OptConfig())
   : llvm::FunctionPass(ID)
-  , config()
+  , optConfig(_optConfig)
   , enableDiagOutput(false)
   , introduced(false)
   , DT(nullptr)
@@ -60,7 +60,7 @@ public:
   void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
 private:
-  Config config;
+  OptConfig optConfig;
 
   bool enableDiagOutput;
   bool introduced;

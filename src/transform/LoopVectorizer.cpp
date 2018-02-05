@@ -211,7 +211,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
   // print configuration banner once
   if (!introduced) {
-    config.print(Report());
+    optConfig.print(Report());
     introduced = true;
   }
 
@@ -280,7 +280,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   cdg.create(*F);
 
 // early math func lowering
-  vectorizer->lowerRuntimeCalls(vecInfo, *LI);
+  rv::lowerComplexArithmetic(vecInfo, *LI);
   DT->recalculate(*F);
   PDT->recalculate(*F);
   cdg.create(*F);
@@ -380,11 +380,11 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   PlatformInfo platInfo(*F.getParent(), &tti, &tli);
 
   // TODO query target capabilities
-  config.useSLEEF = true;
+  optConfig.useSLEEF = true;
 
   bool useImpreciseFunctions = true;
-  addSleefMappings(config, platInfo, useImpreciseFunctions);
-  vectorizer.reset(new VectorizerInterface(platInfo, config));
+  addSleefMappings(platInfo.getVectorISA(), platInfo, useImpreciseFunctions);
+  vectorizer.reset(new VectorizerInterface(platInfo, optConfig));
 
 
   std::vector<Loop*> loops;
@@ -422,7 +422,7 @@ void LoopVectorizer::getAnalysisUsage(AnalysisUsage &AU) const {
 
 char LoopVectorizer::ID = 0;
 
-FunctionPass *rv::createLoopVectorizerPass() { return new LoopVectorizer(); }
+FunctionPass *rv::createLoopVectorizerPass(OptConfig optConfig) { return new LoopVectorizer(optConfig); }
 
 INITIALIZE_PASS_BEGIN(LoopVectorizer, "rv-loop-vectorize",
                       "RV - Vectorize loops", false, false)

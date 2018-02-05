@@ -9,12 +9,12 @@ using namespace llvm;
 namespace rv {
 
 void
-addOuterLoopVectorizer(legacy::PassManagerBase & PM, Config config) {
+addOuterLoopVectorizer(legacy::PassManagerBase & PM, OptConfig optConfig) {
    // PM.add(rv::createCNSPass());
    PM.add(createLoopSimplifyPass());
    PM.add(createLCSSAPass());
    PM.add(createLoopExitCanonicalizerPass()); // required for divLoopTrans
-   PM.add(rv::createLoopVectorizerPass());
+   PM.add(rv::createLoopVectorizerPass(optConfig));
 
    // post rv cleanup
    PM.add(createAlwaysInlinerLegacyPass());
