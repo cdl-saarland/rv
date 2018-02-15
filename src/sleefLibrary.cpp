@@ -869,7 +869,10 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
 
   static Module const *sleefModules[5 * 2];
   static Module const *extraModules[5 * 2];
+
+#ifdef RV_ENABLE_CRT
   static Module* scalarModule; // scalar implementations to be inlined
+#endif
 
   bool addSleefMappings(const Config & config,
                         PlatformInfo &platInfo,

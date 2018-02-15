@@ -16,6 +16,7 @@
 #include <llvm/Analysis/LoopInfo.h>
 
 #include "rv/region/Region.h"
+#include "rvConfig.h"
 
 using namespace llvm;
 
@@ -119,6 +120,7 @@ VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, uint vectorWidth,
 {
     mapping.resultShape = VectorShape::uni();
     for (auto& arg : parentFn.args()) {
+      RV_UNUSED(arg);
       mapping.argShapes.push_back(VectorShape::uni());
     }
 }

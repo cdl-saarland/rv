@@ -202,6 +202,7 @@ ReductionAnalysis::tryMatchStridePattern(PHINode & headerPhi) {
   if (auto * intIncrement = dyn_cast<ConstantInt>(incConst)) {
     inc =  sign * intIncrement->getSExtValue();
   } else if (auto * fpInc = dyn_cast<ConstantFP>(incConst)) {
+    RV_UNUSED(fpInc);
     REASON("TODO implement floating point strides (fast math)")
     return nullptr; // TODO allow natural number fp increments in fast-math
   }
