@@ -113,7 +113,7 @@ elseif (LLVM_LINK_LLVM_DYLIB)
   )
 endif()
 
-# Build a monolithic Polly.a and a thin module LLVMPolly.moduleext that links to
+# Build a monolithic libRV.a and a thin module LLVMRV.moduleext that links to
 # that static library.
 if (MSVC)
   # Add dummy target, because loadable modules are not supported on Windows

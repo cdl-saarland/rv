@@ -71,4 +71,4 @@ struct VectorMapping {
 
 
 
-#endif /* INCLUDE_WFV_VECTORMAPPING_H_ */
+#endif /* INCLUDE_RV_VECTORMAPPING_H_ */

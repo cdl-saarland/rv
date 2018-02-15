@@ -53,7 +53,7 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
 }
 
 
-static llvm::RegisterStandardPasses RegisterPollyOptimizerScalarLate(
+static llvm::RegisterStandardPasses RegisterRVOptimizerScalarLate(
     llvm::PassManagerBuilder::EP_VectorizerStart,
     registerRVPasses);
 

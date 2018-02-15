@@ -26,8 +26,6 @@
 #include "llvm/Transforms/Utils/SSAUpdater.h"
 #include "llvm/IR/Verifier.h"
 
-#include "llvm/IR/Metadata.h"
-
 #define IF_DEBUG_DLT IF_DEBUG
 
 using namespace llvm;

@@ -130,8 +130,10 @@ LoopExitCanonicalizer::canonicalizeLoop(Loop* loop) const
             continue;
         }
 
-        DEBUG_RV( outs() << "loop exit has more than one incoming edge: '"; );
-        DEBUG_RV( outs() << exitBB->getName() << "' - canonicalizing...\n"; );
+        IF_DEBUG {
+          outs() << "loop exit has more than one incoming edge: '";
+          outs() << exitBB->getName() << "' - canonicalizing...\n";
+        }
 
         SmallVector<BasicBlock*, 2> exitingBlocks;
         rv::getExitingBlocks(exitBB, mLoopInfo, exitingBlocks);
@@ -149,14 +151,14 @@ LoopExitCanonicalizer::canonicalizeLoop(Loop* loop) const
         }
     }
 
-    DEBUG_RV(
+    IF_DEBUG {
         exitBlocks.clear();
         loop->getExitBlocks(exitBlocks);
         for (const auto &exitBB : exitBlocks)
         {
             assert (exitBB->getUniquePredecessor());
         }
-    );
+    }
 }
 
 BasicBlock*
