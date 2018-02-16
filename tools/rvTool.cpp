@@ -36,6 +36,7 @@
 #include "llvm/IR/Verifier.h"
 
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Compiler.h"
 
 #include "ArgumentReader.h"
 
@@ -66,8 +67,7 @@ static bool verbose = false;
 #define IF_VERBOSE if (verbose)
 
 
-static void
-fail() __attribute__((noreturn));
+static void fail() LLVM_ATTRIBUTE_NORETURN;
 
 static void fail() {
   std::cerr << '\n';

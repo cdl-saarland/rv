@@ -2,6 +2,7 @@
 #define RV_REPORT_H_
 
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/Support/Compiler.h>
 
 namespace rv {
 
@@ -14,11 +15,7 @@ llvm::raw_ostream & Report();
 // output stream for error
 llvm::raw_ostream & Error();
 
-#ifdef _MSC_VER
-__declspec(noreturn) void fail(const std::string & text);
-#else
-void fail(const std::string & text) __attribute__((noreturn));
-#endif
+void fail(const std::string & text) LLVM_ATTRIBUTE_NORETURN;
 
 }
 
