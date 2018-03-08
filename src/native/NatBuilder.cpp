@@ -1518,6 +1518,16 @@ void NatBuilder::addLazyInstruction(Instruction *const instr) {
   ++numLazy;
 }
 
+llvm::Type*
+GetPointerElementType(Type * ptrTy) {
+  auto* innerTy = ptrTy->getPointerElementType();
+  auto * innerArrTy = cast<ArrayType>(innerTy);
+  if (innerArrTy && innerArrTy->getNumElements() == 0) {
+    return innerArrTy->getElementType();
+  }
+  return innerTy;
+}
+
 void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
   assert(!lazyInstructions.empty() && "no lazy instructions to generate!");
 
@@ -1644,7 +1654,7 @@ NatBuilder::requestVectorValue(Value *const value) {
     if (value->getType()->isPointerTy()) {
       auto * scalarPtrTy = vecValue->getType();
       auto * intTy = builder.getInt32Ty();
-      auto * ptrElemTy = scalarPtrTy->getPointerElementType();
+      auto * ptrElemTy = GetPointerElementType(scalarPtrTy);
       int scalarBytes = static_cast<int>(layout.getTypeStoreSize(ptrElemTy));
 
       // vecValue is a single pointer and has to be broadcasted to a vector of pointers first
