@@ -501,7 +501,9 @@ computeDispersion(RatioMap & dispMap) {
     // join incoming fractions
     bool validRatio = true;
     double ratio = 0.0;
+    SmallPtrSet<const BasicBlock*, 6> seenPreds;
     for (auto * pred : predecessors(block)) {
+      if (!seenPreds.insert(pred).second) continue;
       if (!vecInfo.inRegion(*pred)) {
         continue;
       }
