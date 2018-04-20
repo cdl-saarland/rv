@@ -183,6 +183,7 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
     auto * load = dyn_cast<LoadInst>(inst);
     auto * gep = dyn_cast<GetElementPtrInst>(inst);
     auto * phi = dyn_cast<PHINode>(inst);
+    auto * cast = dyn_cast<CastInst>(inst);
 
   // transform this (final) gep
     if (load || store) {
@@ -242,6 +243,12 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       RemapLoadStoreIntrinsicShape(inst, vecInfo);
       continue;
 
+    } else if (cast) {
+      auto vecTy = vectorizeType(*cast->getDestTy()->getPointerElementType());
+      auto vecPtrTy = PointerType::get(vecTy, cast->getDestTy()->getPointerAddressSpace());
+      auto vecBitCast = CastInst::CreatePointerCast(transformMap[cast->getOperand(0)], vecPtrTy, cast->getName(), cast);
+      vecInfo.setVectorShape(*vecBitCast, VectorShape::uni());
+      transformMap[cast] = vecBitCast;
     } else {
       assert(isa<AllocaInst>(inst) && "unexpected instruction in alloca transformation");
     }
