@@ -1521,7 +1521,7 @@ void NatBuilder::addLazyInstruction(Instruction *const instr) {
 llvm::Type*
 GetPointerElementType(Type * ptrTy) {
   auto* innerTy = ptrTy->getPointerElementType();
-  auto * innerArrTy = cast<ArrayType>(innerTy);
+  auto * innerArrTy = dyn_cast<ArrayType>(innerTy);
   if (innerArrTy && innerArrTy->getNumElements() == 0) {
     return innerArrTy->getElementType();
   }
