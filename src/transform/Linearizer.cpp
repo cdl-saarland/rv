@@ -1368,7 +1368,7 @@ Linearizer::verify() {
   }
 
   // check whether the on-the-fly domTree repair worked
-  dt.verifyDomTree();
+  dt.verify();
 
   // generic verification passes
   llvm::verifyFunction(func, &errs());

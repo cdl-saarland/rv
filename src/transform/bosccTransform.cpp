@@ -599,7 +599,7 @@ run() {
   // recover
   postDomTree.recalculate(vecInfo.getScalarFunction());
 
-  domTree.verifyDomTree();
+  domTree.verify();
 
   IF_DEBUG_BOSCC {
     errs() << "--- FUNCTION AFTER BOSCC ---:\n";

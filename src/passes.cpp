@@ -1,5 +1,6 @@
 #include "rv/passes.h"
 
+#include "llvm/Transforms/Utils.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "rv/transform/loopExitCanonicalizer.h"

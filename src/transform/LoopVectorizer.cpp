@@ -260,12 +260,12 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     vecInfo.setPinnedShape(*val, VectorShape::uni());
   }
 
-  //DT.verifyDomTree();
+  //DT.verify();
   //LI.verify(DT);
 
   IF_DEBUG {
     verifyFunction(*F, &errs());
-    DT->verifyDomTree();
+    DT->verify();
     PDT->print(errs());
     LI->print(errs());
     // LI->verify(*DT); // FIXME unreachable blocks
