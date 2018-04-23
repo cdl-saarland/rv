@@ -1,4 +1,4 @@
-# The Region Vectorizer (LLVM 6.0 version)
+# The Region Vectorizer (LLVM trunk version)
 
 Compiler Design Lab / Saarland University / Saarland Informatics Campus
 
