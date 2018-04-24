@@ -19,7 +19,7 @@ addOuterLoopVectorizer(legacy::PassManagerBase & PM, Config config) {
 
    // post rv cleanup
    PM.add(createAlwaysInlinerLegacyPass());
-   PM.add(createInstructionCombiningPass());
+   PM.add(createAggressiveInstCombinerPass());
    PM.add(createAggressiveDCEPass());
 }
 
