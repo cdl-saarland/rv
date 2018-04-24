@@ -212,10 +212,12 @@ AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
           {"modf", "xmodf_sse2", 2},
 
           {"llvm.fabs.f32", "xfabsf_sse", 4},
+          {"llvm.floor.f32", "xfloorf_sse", 4},
           {"llvm.copysign.f32", "xcopysignf_sse", 4},
           {"llvm.fmin.f32", "xfminf_sse", 4},
           {"llvm.fmax.f32", "xfmaxf_sse", 4},
           {"llvm.fabs.f64", "xfabs_sse", 2},
+          {"llvm.floor.f64", "xfloor_sse", 2},
           {"llvm.copysign.f64", "xcopysign_sse", 2},
           {"llvm.fmin.f64", "xfmin_sse", 2},
           {"llvm.fmax.f64", "xfmax_sse", 2}
@@ -346,10 +348,12 @@ AddMappings_AVX(PlatformInfo & platInfo, bool allowImprecise) {
           {"modf", "xmodf_avx", 4},
 
           {"llvm.fabs.f32", "xfabsf_avx", 8},
+          {"llvm.floor.f32", "xfloorf_avx", 8},
           {"llvm.copysign.f32", "xcopysignf_avx", 8},
           {"llvm.minnum.f32", "xfminf_avx", 8},
           {"llvm.maxnum.f32", "xfmaxf_avx", 8},
           {"llvm.fabs.f64", "xfabs_avx", 4},
+          {"llvm.floor.f64", "xfloor_avx", 4},
           {"llvm.copysign.f64", "xcopysign_avx", 4},
           {"llvm.minnum.f64", "xfmin_avx", 4},
           {"llvm.maxnum.f64", "xfmax_avx", 4}
