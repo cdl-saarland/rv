@@ -132,6 +132,7 @@ WFVPass::parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorM
   mapping.maskPos = needsMask ? 0 : -1;
   mapping.vectorWidth = vectorWidth;
   mapping.vectorFn = createVectorDeclaration(scalarFn, mapping.resultShape, mapping.argShapes, vectorWidth, mapping.maskPos);
+  mapping.vectorFn->setName(attribText);
   mapping.vectorFn->setLinkage(GlobalValue::ExternalLinkage); // FIXME for debugging
 
   mapping.dump(errs());
