@@ -42,7 +42,6 @@
 
 #include "llvm/Transforms/Utils/Cloning.h"
 
-
 #include "report.h"
 #include <map>
 #include <sstream>
@@ -74,16 +73,6 @@ ParseRegisterWidth(char c) {
   };
 }
 
-int
-ParseInt(std::stringstream & stream) {
-  unsigned n = 0;
-  char c = stream.peek();
-  while ('0' <= c && c <= '9') {
-    n = 10*n + (c - '0');
-  }
-  return n;
-}
-
 bool
 WFVPass::parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & mapping) {
   if (!attribText.startswith("_ZGV")) return false;
@@ -92,9 +81,10 @@ WFVPass::parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorM
   if (attribText.size() < 6) return false;
 
   // parse general vector attribs
-  int vecRegisterBits = ParseRegisterWidth(attribText[4]);
+  // int vecRegisterBits = ParseRegisterWidth(attribText[4]); // TODO use ISA hint for rvConfig
 
   bool needsMask = attribText[5] == 'M';
+  if (needsMask) return false; // TODO fix WFV entry mask handling
 
   // parse vectorization factor
   char * pos; // = attribText.begin() + 6; // "_ZGV<api><vecbits>"
@@ -140,6 +130,7 @@ WFVPass::parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorM
   mapping.resultShape = VectorShape::varying();
   mapping.argShapes = argShapes;
   mapping.maskPos = needsMask ? 0 : -1;
+  mapping.vectorWidth = vectorWidth;
   mapping.vectorFn = createVectorDeclaration(scalarFn, mapping.resultShape, mapping.argShapes, vectorWidth, mapping.maskPos);
   mapping.vectorFn->setLinkage(GlobalValue::ExternalLinkage); // FIXME for debugging
 
@@ -147,8 +138,81 @@ WFVPass::parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorM
   return true;
 }
 
+void
+WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob) {
+  // clone scalar function
+  ValueToValueMapTy cloneMap;
+  Function* scalarCopy = CloneFunction(wfvJob.scalarFn, cloneMap, nullptr);
+  wfvJob.scalarFn = scalarCopy;
+
+  // prepare analyses
+  DominatorTree DT(*scalarCopy);
+  PostDominatorTree PDT;
+  PDT.recalculate(*scalarCopy);
+  LoopInfo LI(DT);
+
+  // Domin Frontier Graph
+  DFG dfg(DT);
+  dfg.create(*scalarCopy);
+
+  // Control Dependence Graph
+  CDG cdg(PDT);
+  cdg.create(*scalarCopy);
+
+// early math func lowering
+  // vectorizer.lowerRuntimeCalls(vecInfo, LI);
+  // DT->recalculate(*F);
+  // PDT->recalculate(*F);
+  // cdg.create(*F);
+  // dfg.create(*F);
+
+  VectorizationInfo vecInfo(wfvJob);
+
+// Vectorize
+  // vectorizationAnalysis
+  vectorizer.analyze(vecInfo, cdg, dfg, LI); // TODO can be shared across jobs
+
+  if (enableDiagOutput) {
+    errs() << "-- VA result --\n";
+    vecInfo.dump();
+    errs() << "-- EOF --\n";
+  }
+
+  IF_DEBUG Dump(*scalarCopy);
+
+  // control conversion
+  vectorizer.linearize(vecInfo, cdg, dfg, LI, PDT, DT, nullptr);
+
+  DominatorTree domTreeNew(
+      *vecInfo.getMapping().scalarFn); // Control conversion does not preserve
+                                       // the domTree so we have to rebuild it
+                                       // for now
+
+  // vectorize the prepared loop embedding it in its context
+  ValueToValueMapTy vecMap;
+
+  // FIXME SE is invalid at this point..
+  PassBuilder pb;
+  FunctionAnalysisManager fam;
+  pb.registerFunctionAnalyses(fam);
+  ScalarEvolutionAnalysis adhocAnalysis;
+  adhocAnalysis.run(*scalarCopy, fam);
+
+  MemoryDependenceAnalysis mdAnalysis;
+  MemoryDependenceResults MDR = mdAnalysis.run(*scalarCopy, fam);
+
+  auto & localSE = fam.getResult<ScalarEvolutionAnalysis>(*scalarCopy);
+
+  // FIXME share state until this point (modified src function)
+  bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew, LI, localSE, MDR, &vecMap);
+  if (!vectorizeOk)
+    llvm_unreachable("vector code generation failed");
+
+  scalarCopy->eraseFromParent();
+}
+
 bool
-WFVPass::runOnFunction(Function & F, PlatformInfo & platInfo) {
+WFVPass::runOnFunction(Function & F, VectorizerInterface & vectorizer) {
   auto attribSet = F.getAttributes().getFnAttributes();
 
   // parse SIMD signatures
@@ -167,27 +231,36 @@ WFVPass::runOnFunction(Function & F, PlatformInfo & platInfo) {
   if (wfvJobs.empty()) return false;
 
   // vectorize jobs
-  Config rvConfig; // TODO parse machine attributes of scalar function
-  VectorizerInterface vectorizer(platInfo, rvConfig);
   for (auto & job : wfvJobs) {
+    vectorizeFunction(vectorizer, job);
   }
 
 
-  //
-  return; // TODO
+  return true; // TODO
 }
 
 bool
 WFVPass::runOnModule(Module & M) {
+  enableDiagOutput = CheckFlag("WFV_DIAG");
+
   bool changed = false;
   for (auto & func : M) {
     if (func.isDeclaration()) continue;
 
     auto & TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(func);
     auto & TLI = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
-    PlatformInfo platInfo(M, &TTI, &TLI);
 
-    changed |= runOnFunction(func, platInfo);
+    // link in SIMD library
+
+    Config rvConfig; // TODO parse machine attributes of scalar function
+    rvConfig.useSLEEF = true;
+    PlatformInfo platInfo(M, &TTI, &TLI);
+    const bool useImpreciseFunctions = true; // FIXME only in fast-math mode
+    addSleefMappings(rvConfig, platInfo, useImpreciseFunctions);
+
+    VectorizerInterface vectorizer(platInfo, rvConfig);
+
+    changed |= runOnFunction(func, vectorizer);
   }
 
   return changed;
