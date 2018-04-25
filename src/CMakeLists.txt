@@ -70,6 +70,8 @@ add_rv_library(RV
   transform/srovTransform.cpp
   transform/structOpt.cpp
   transform/splitAllocas.cpp
+  transform/WFVPass.cpp
+  utils.cpp
   utils/rvTools.cpp
   vectorMapping.cpp
   vectorShape.cpp

@@ -26,6 +26,10 @@ static cl::opt<bool>
                  cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static cl::opt<bool>
+    rvWFVEnabled("rv-wfv", cl::desc("Enable RV's whole-function vectorizer"),
+                 cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+
+static cl::opt<bool>
     rvOnlyPolish("rv-polish", cl::desc("Only run RV's polish phase"),
                  cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
@@ -45,6 +49,10 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
   if (rvOnlyCNS) {
     PM.add(rv::createCNSPass());
     return;
+  }
+
+  if (rvWFVEnabled) {
+    rv::addWholeFunctionVectorizer(PM);
   }
 
   if (rvLoopVecEnabled) {

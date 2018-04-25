@@ -49,6 +49,7 @@
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
 #include "rv/rvDebug.h"
+#include "rv/utils.h"
 
 #include "rv/transform/remTransform.h"
 #include "rv/vectorizationInfo.h"
@@ -436,37 +437,6 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     scalarCopy->eraseFromParent();
 }
 
-Type*
-vectorizeType(Type* scalarTy, rv::VectorShape shape, uint vectorWidth)
-{
-    if (scalarTy->isVoidTy()) return scalarTy;
-    if (!shape.isDefined() || shape.hasStridedShape()) return scalarTy;
-
-    return VectorType::get(scalarTy, vectorWidth);
-}
-
-Function*
-createVectorDeclaration(Function& scalarFn, rv::VectorShape resShape,
-                        const rv::VectorShapeVec& argShapes, uint vectorWidth)
-{
-    auto* scalarFnTy = scalarFn.getFunctionType();
-
-    auto* vectorRetTy = vectorizeType(scalarFnTy->getReturnType(), resShape, vectorWidth);
-
-    std::vector<Type*> vectorArgTys;
-    for (uint i = 0; i < scalarFnTy->getNumParams(); ++i)
-    {
-        auto* scalarArgTy = scalarFnTy->getParamType(i);
-        rv::VectorShape argShape = argShapes[i];
-        vectorArgTys.push_back(vectorizeType(scalarArgTy, argShape, vectorWidth));
-    }
-
-    auto* vectorFnTy = FunctionType::get(vectorRetTy, vectorArgTys, false);
-
-    return llvm::Function::Create(vectorFnTy, scalarFn.getLinkage(), scalarFn.getName() + "_SIMD",
-                                  scalarFn.getParent());
-}
-
 unsigned readNumber(std::stringstream& shapeText)
 {
     unsigned number;
@@ -698,7 +668,7 @@ int main(int argc, char** argv)
           Function* vectorFn = nullptr;
           if (!hasTargetDeclName)
           {
-              vectorFn = createVectorDeclaration(*scalarFn, resShape, argShapes, vectorWidth);
+              vectorFn = rv::createVectorDeclaration(*scalarFn, resShape, argShapes, vectorWidth);
           }
           else
           {

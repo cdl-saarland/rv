@@ -9,6 +9,14 @@ using namespace llvm;
 
 namespace rv {
 
+static void
+AddCleanupPasses(legacy::PassManagerBase & PM) {
+   // post rv cleanup
+   PM.add(createAlwaysInlinerLegacyPass());
+   PM.add(createAggressiveInstCombinerPass());
+   PM.add(createAggressiveDCEPass());
+}
+
 void
 addOuterLoopVectorizer(legacy::PassManagerBase & PM, Config config) {
    // PM.add(rv::createCNSPass());
@@ -17,11 +25,16 @@ addOuterLoopVectorizer(legacy::PassManagerBase & PM, Config config) {
    PM.add(createLoopExitCanonicalizerPass()); // required for divLoopTrans
    PM.add(rv::createLoopVectorizerPass());
 
-   // post rv cleanup
-   PM.add(createAlwaysInlinerLegacyPass());
-   PM.add(createAggressiveInstCombinerPass());
-   PM.add(createAggressiveDCEPass());
+   AddCleanupPasses(PM);
 }
 
+
+void addWholeFunctionVectorizer(llvm::legacy::PassManagerBase & PM) {
+  PM.add(createLCSSAPass());
+  PM.add(createLoopExitCanonicalizerPass()); // required for divLoopTrans
+  PM.add(rv::createWFVPass());
+
+  AddCleanupPasses(PM);
+}
 
 }

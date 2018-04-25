@@ -30,10 +30,13 @@ VectorMapping::dump(llvm::raw_ostream & out) const {
 	auto itScalarArg= scalarFn->arg_begin();
 	auto itVectorArg= vectorFn->arg_begin();
 
-	uint i = 0;
+	int i = 0;
 	for (VectorShape argShape : argShapes) {
-		out << "\t\t(" << i << ") " << *itScalarArg << " -> " << *itVectorArg << " : " << argShape.str() << "\n";
-		++i; ++itScalarArg; ++itVectorArg;
+          if (i == maskPos) {
+            ++itVectorArg; // skip the vector mask
+          }
+          out << "\t\t(" << i << ") " << *itScalarArg << " -> " << *itVectorArg << " : " << argShape.str() << "\n";
+          ++i; ++itScalarArg; ++itVectorArg;
 	}
 
 	out << "\t}\n";

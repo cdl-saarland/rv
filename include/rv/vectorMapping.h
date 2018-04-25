@@ -63,6 +63,16 @@ struct VectorMapping {
 	, resultShape()
 	{}
 
+        VectorMapping()
+        : scalarFn(nullptr)
+        , vectorFn(nullptr)
+        , vectorWidth(0)
+        , maskPos(-1)
+        , argShapes()
+        , resultShape()
+        {}
+
+
 	void dump(llvm::raw_ostream & out) const;
 };
 
