@@ -911,10 +911,10 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       assert((mapping.maskPos < 0) && "TODO implemented predicated mapped calls.");
 
       std::vector<Value*> vecCallArgs;
-      for (int i = 0; i < (int) scalCall->getNumArgOperands(); ++i) {
+      auto itVecArg = mapping.vectorFn->arg_begin();
+      for (int i = 0; i < (int) scalCall->getNumArgOperands(); ++i, ++itVecArg) {
         auto * scalArg = scalCall->getArgOperand(i);
-        auto * vectorArg = mapping.vectorFn->getOperand(i);
-        if (vectorArg->getType()->isVectorTy()) {
+        if (itVecArg->getType()->isVectorTy()) {
           vecCallArgs.push_back(requestVectorValue(scalArg));
         } else {
           vecCallArgs.push_back(requestScalarValue(scalArg));
