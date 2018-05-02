@@ -8,27 +8,36 @@
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include <rv/vectorMapping.h>
+#include "llvm/ADT/SmallVector.h"
 
 namespace rv {
 
 struct VecDesc {
-  const char *scalarFnName;
-  const char *vectorFnName;
+  std::string scalarFnName;
+  std::string vectorFnName;
   unsigned vectorWidth;
+
+  VecDesc(std::string _scalarName, std::string _vectorName, unsigned _width)
+  : scalarFnName(_scalarName), vectorFnName(_vectorName), vectorWidth(_width)
+  {}
 };
 
-using VectorFuncMap = std::map<const llvm::Function *, const VectorMapping *>;
+// used for shape-based call mappings
+using VecMappingShortVec = llvm::SmallVector<VectorMapping, 4>;
+using VectorFuncMap = std::map<const llvm::Function *, VecMappingShortVec*>;
+
+// used for on-demand mappings
 using VecDescVector = std::vector<VecDesc>;
 
 class PlatformInfo {
+  void registerDeclareSIMDFunction(llvm::Function & F);
 public:
   PlatformInfo(llvm::Module &mod, llvm::TargetTransformInfo *TTI,
                llvm::TargetLibraryInfo *TLI);
   ~PlatformInfo();
 
-  void addMapping(const llvm::Function *function, const VectorMapping *mapping);
+  bool addMapping(VectorMapping & mapping);
 
-  void removeMappingIfPresent(const llvm::Function *function);
   const VectorMapping *
   getMappingByFunction(const llvm::Function *function) const;
 
@@ -53,13 +62,14 @@ public:
                                             llvm::Module *insertInto,
                                             bool doublePrecision);
 
+  // query available vector mappings for a given vector call signature
+  bool
+  getMappingsForCall(VecMappingShortVec & possibleMappings, const llvm::Function & scalarFn, const VectorShapeVec & argShapes, uint vectorWidth, bool needsPredication);
+
   VectorFuncMap &getFunctionMappings() { return funcMappings; }
 
   llvm::Module &getModule() const { return mod; }
   llvm::LLVMContext &getContext() const { return mod.getContext(); }
-
-  // add a new SIMD function mapping
-  bool addSIMDMapping(rv::VectorMapping &mapping);
 
   bool addSIMDMapping(const llvm::Function &scalarFunction,
                       const llvm::Function &simdFunction,
@@ -74,7 +84,7 @@ public:
   size_t getMaxVectorBits() const;
 
 private:
-  VectorMapping *inferMapping(llvm::Function &scalarFnc,
+  VectorMapping inferMapping(llvm::Function &scalarFnc,
                               llvm::Function &simdFnc, int maskPos);
 
   llvm::Module &mod;

@@ -11,6 +11,7 @@
 
 #include <rv/vectorShape.h>
 #include <initializer_list>
+#include <llvm/ADT/SmallVector.h>
 
 namespace llvm {
 	class Function;
@@ -72,6 +73,15 @@ struct VectorMapping {
         , resultShape()
         {}
 
+
+        bool operator==(const VectorMapping & O) const {
+          return (scalarFn == O.scalarFn) &&
+                 (vectorFn == O.vectorFn) &&
+                 (vectorWidth == O.vectorWidth) &&
+                 (maskPos == O.maskPos) &&
+                 (argShapes == O.argShapes) &&
+                 (resultShape == O.resultShape);
+        }
 
 	void dump(llvm::raw_ostream & out) const;
 };

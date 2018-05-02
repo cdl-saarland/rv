@@ -6,6 +6,9 @@
 #include "rv/sleefLibrary.h"
 
 #include "utils/rvTools.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Module.h"
+#include "rv/utils.h"
 
 #include "rvConfig.h"
 
@@ -13,36 +16,37 @@ using namespace llvm;
 
 namespace rv {
 
+void
+PlatformInfo::registerDeclareSIMDFunction(Function & F) {
+  auto attribSet = F.getAttributes().getFnAttributes();
+  // parse SIMD signatures
+  std::vector<VectorMapping> wfvJobs;
+  for (auto attrib : attribSet) {
+    if (!attrib.isStringAttribute()) continue;
+    StringRef attribText = attrib.getKindAsString();
+
+    if (attribText.size() < 2) continue;
+
+    VectorMapping vecMapping;
+    if (!parseVectorMapping(F, attribText, vecMapping, false)) continue;
+    addMapping(vecMapping);
+  }
+
+}
+
 PlatformInfo::PlatformInfo(Module &_mod, TargetTransformInfo *TTI,
                            TargetLibraryInfo *TLI)
-    : mod(_mod), mTTI(TTI), mTLI(TLI) {}
+    : mod(_mod), mTTI(TTI), mTLI(TLI)
+{
+  for (auto & F : mod) {
+    registerDeclareSIMDFunction(F);
+  }
+}
 
 PlatformInfo::~PlatformInfo() {
   for (auto it : funcMappings) {
     delete it.second;
   }
-}
-
-void PlatformInfo::addMapping(const Function *function,
-                              const rv::VectorMapping *mapping) {
-  funcMappings[function] = mapping;
-}
-
-void PlatformInfo::removeMappingIfPresent(const Function *function) {
-  auto found = funcMappings.find(function);
-
-  if (found != funcMappings.end())
-    funcMappings.erase(found);
-}
-
-const rv::VectorMapping *
-PlatformInfo::getMappingByFunction(const Function *function) const {
-  auto found = funcMappings.find(function);
-
-  if (found != funcMappings.end())
-    return found->second;
-
-  return nullptr;
 }
 
 void PlatformInfo::setTTI(TargetTransformInfo *TTI) { mTTI = TTI; }
@@ -104,44 +108,56 @@ Function *PlatformInfo::requestVectorizedFunction(StringRef funcName,
                                 doublePrecision);
 }
 
-bool PlatformInfo::addSIMDMapping(rv::VectorMapping &mapping) {
-  if (funcMappings.count(mapping.scalarFn))
-    return false;
-  funcMappings[mapping.scalarFn] = new rv::VectorMapping(mapping);
-  return true;
-}
-
-// This function should be called *before* run().
-bool PlatformInfo::addSIMDMapping(const Function &scalarFunction,
-                                  const Function &simdFunction,
-                                  const int maskPosition,
-                                  const bool mayHaveSideEffects) {
-  assert(scalarFunction.getParent() == simdFunction.getParent());
-
-  // Find out which arguments are UNIFORM and which are VARYING.
-  SmallVector<bool, 4> uniformArgs;
-  uniformArgs.reserve(scalarFunction.arg_size());
-
-  Function::const_arg_iterator scalarA = scalarFunction.arg_begin();
-  Function::const_arg_iterator simdA = simdFunction.arg_begin();
-
-  for (Function::const_arg_iterator scalarE = scalarFunction.arg_end();
-       scalarA != scalarE; ++scalarA, ++simdA) {
-    Type *scalarType = scalarA->getType();
-    Type *simdType = simdA->getType();
-    const bool isUniform = typesMatch(scalarType, simdType);
-
-    uniformArgs.push_back(isUniform);
+bool
+PlatformInfo::addMapping(rv::VectorMapping &mapping) {
+  auto it = funcMappings.find(mapping.scalarFn);
+  VecMappingShortVec * vecMappings = nullptr;
+  if (it == funcMappings.end()) {
+    vecMappings = new VecMappingShortVec();
+    funcMappings[mapping.scalarFn] = vecMappings;
+  } else {
+    vecMappings = it->second;
   }
 
-  funcMappings[&scalarFunction] =
-      inferMapping(const_cast<Function &>(scalarFunction),
-                   const_cast<Function &>(simdFunction), maskPosition);
+  // check if there is an equivalent mapping already
+  for (auto & knownMapping : *vecMappings) {
+    if (knownMapping == mapping) return false;
+  }
 
+  vecMappings->push_back(mapping);
   return true;
 }
 
-VectorMapping *PlatformInfo::inferMapping(llvm::Function &scalarFnc,
+
+// query available vector mappings for a given vector call signature
+bool
+PlatformInfo::getMappingsForCall(VecMappingShortVec & matchVec, const llvm::Function & scalarFn, const VectorShapeVec & argShapes, uint vectorWidth, bool needsPredication) {
+// register user shapes
+  auto it = funcMappings.find(&scalarFn);
+  if (it == funcMappings.end()) return false;
+  auto & allMappings = *it->second;
+
+  for (auto & mapping : allMappings) {
+    if (mapping.vectorWidth > 1 && (mapping.vectorWidth != vectorWidth)) continue;
+    if (mapping.maskPos < 0 && needsPredication) continue;
+
+    // check that all arg shapes are compatible with the shapes in the caller
+    bool foundIncompatibleShape = false;
+    for (int i = 0; i < (int) argShapes.size(); ++i) {
+      if (mapping.argShapes[i] < argShapes[i]) {
+        foundIncompatibleShape = true;
+        break;
+      }
+    }
+    if (foundIncompatibleShape) continue;
+
+    matchVec.push_back(mapping);
+  }
+  return matchVec.size() > 0;
+}
+
+VectorMapping
+PlatformInfo::inferMapping(llvm::Function &scalarFnc,
                                           llvm::Function &simdFnc,
                                           int maskPos) {
 
@@ -196,7 +212,7 @@ VectorMapping *PlatformInfo::inferMapping(llvm::Function &scalarFnc,
   assert(itSimdArg == simdFnc.arg_end());
 
   int vecWidth = 0; // FIXME
-  return new rv::VectorMapping(&scalarFnc, &simdFnc,
+  return rv::VectorMapping(&scalarFnc, &simdFnc,
                                vecWidth, // if all arguments have shapes this
                                          // function is suitable for all
                                          // possible widths

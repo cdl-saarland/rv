@@ -75,7 +75,7 @@ VectorizerInterface::addIntrinsics() {
             VectorShape::uni(),
             {VectorShape::varying()}
           );
-          platInfo.addSIMDMapping(mapping);
+          platInfo.addMapping(mapping);
         } else if (func.getName() == "rv_extract") {
           VectorMapping mapping(
             &func,
@@ -85,7 +85,7 @@ VectorizerInterface::addIntrinsics() {
             VectorShape::uni(),
             {VectorShape::varying(), VectorShape::uni()}
           );
-          platInfo.addSIMDMapping(mapping);
+          platInfo.addMapping(mapping);
         } else if (func.getName() == "rv_insert") {
           VectorMapping mapping(
             &func,
@@ -95,7 +95,7 @@ VectorizerInterface::addIntrinsics() {
             VectorShape::varying(),
             {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
           );
-          platInfo.addSIMDMapping(mapping);
+          platInfo.addMapping(mapping);
         } else if (func.getName() == "rv_load") {
           VectorMapping mapping(
             &func,
@@ -105,7 +105,7 @@ VectorizerInterface::addIntrinsics() {
             VectorShape::uni(),
             {VectorShape::varying(), VectorShape::uni()}
           );
-          platInfo.addSIMDMapping(mapping);
+          platInfo.addMapping(mapping);
         } else if (func.getName() == "rv_store") {
           VectorMapping mapping(
             &func,
@@ -115,7 +115,7 @@ VectorizerInterface::addIntrinsics() {
             VectorShape::uni(),
             {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
           );
-          platInfo.addSIMDMapping(mapping);
+          platInfo.addMapping(mapping);
         } else if (func.getName() == "rv_shuffle") {
           VectorMapping mapping(
             &func,
@@ -125,7 +125,7 @@ VectorizerInterface::addIntrinsics() {
             VectorShape::uni(),
             {VectorShape::uni(), VectorShape::uni()}
           );
-          platInfo.addSIMDMapping(mapping);
+          platInfo.addMapping(mapping);
         } else if (func.getName() == "rv_ballot") {
           VectorMapping mapping(
             &func,
@@ -133,9 +133,9 @@ VectorizerInterface::addIntrinsics() {
             0, // no specific vector width
             -1, //
             VectorShape::uni(),
-            {VectorShape::varying(), VectorShape::varying()}
+            {VectorShape::varying()}
             );
-          platInfo.addSIMDMapping(mapping);
+          platInfo.addMapping(mapping);
         } else if (func.getName() == "rv_align") {
           VectorMapping mapping(
             &func,
@@ -145,7 +145,7 @@ VectorizerInterface::addIntrinsics() {
             VectorShape::undef(),
             {VectorShape::undef(), VectorShape::uni()}
             );
-          platInfo.addSIMDMapping(mapping);
+          platInfo.addMapping(mapping);
         }
     }
 }

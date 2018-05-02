@@ -80,16 +80,16 @@ VectorizationAnalysis::VectorizationAnalysis(Config _config,
                                              const LoopInfo& LoopInfo)
 
         : config(_config),
-          mVecinfo(VecInfo),
+          platInfo(platInfo),
+          vecInfo(VecInfo),
           layout(platInfo.getDataLayout()),
           mLoopInfo(LoopInfo),
-          mFuncinfo(platInfo.getFunctionMappings()),
-          BDA(mVecinfo.getScalarFunction(), cdg, dfg, LoopInfo)
+          BDA(vecInfo.getScalarFunction(), cdg, dfg, LoopInfo)
 { }
 
 void
 VectorizationAnalysis::updateAnalysis(InstVec & updateList) {
-  auto & F = mVecinfo.getScalarFunction();
+  auto & F = vecInfo.getScalarFunction();
   assert (!F.isDeclaration());
 
   // start from instructions on the update list
@@ -105,13 +105,13 @@ VectorizationAnalysis::updateAnalysis(InstVec & updateList) {
       auto & term = *BB.getTerminator();
       if (term.getNumSuccessors() <= 1) continue; // uninteresting
 
-      if (!mVecinfo.inRegion(BB)) continue; // no begin vectorized
+      if (!vecInfo.inRegion(BB)) continue; // no begin vectorized
 
       auto * loop = mLoopInfo.getLoopFor(&BB);
       bool keepShape = loop && loop->isLoopExiting(&BB);
 
       if (!keepShape) {
-        mVecinfo.setVectorShape(term, VectorShape::varying());
+        vecInfo.setVectorShape(term, VectorShape::varying());
       }
     }
   }
@@ -119,12 +119,12 @@ VectorizationAnalysis::updateAnalysis(InstVec & updateList) {
 
   IF_DEBUG_VA {
     errs() << "VecInfo after VA:\n";
-    mVecinfo.dump();
+    vecInfo.dump();
   }
 }
 void
 VectorizationAnalysis::analyze() {
-  auto & F = mVecinfo.getScalarFunction();
+  auto & F = vecInfo.getScalarFunction();
   assert (!F.isDeclaration());
 
   init(F);
@@ -138,13 +138,13 @@ VectorizationAnalysis::analyze() {
       auto & term = *BB.getTerminator();
       if (term.getNumSuccessors() <= 1) continue; // uninteresting
 
-      if (!mVecinfo.inRegion(BB)) continue; // no begin vectorized
+      if (!vecInfo.inRegion(BB)) continue; // no begin vectorized
 
       auto * loop = mLoopInfo.getLoopFor(&BB);
       bool keepShape = loop && loop->isLoopExiting(&BB);
 
       if (!keepShape) {
-        mVecinfo.setVectorShape(term, VectorShape::varying());
+        vecInfo.setVectorShape(term, VectorShape::varying());
       }
     }
   }
@@ -152,16 +152,16 @@ VectorizationAnalysis::analyze() {
 
   IF_DEBUG_VA {
     errs() << "VecInfo after VA:\n";
-    mVecinfo.dump();
+    vecInfo.dump();
   }
 }
 
 void VectorizationAnalysis::fixUndefinedShapes(const Function& F) {
   for (const BasicBlock& BB : F) {
-    if (!mVecinfo.inRegion(BB)) continue;
+    if (!vecInfo.inRegion(BB)) continue;
     for (const Instruction& I : BB) {
       if (!getShape(&I).isDefined())
-        mVecinfo.setVectorShape(I, VectorShape::uni());
+        vecInfo.setVectorShape(I, VectorShape::uni());
     }
   }
 }
@@ -172,28 +172,28 @@ void VectorizationAnalysis::adjustValueShapes(const Function& F) {
 
   // Arguments
   for (auto& arg : F.args()) {
-    if (!mVecinfo.hasKnownShape(arg)) {
-      assert(mVecinfo.getRegion() && "will only default function args if in region mode");
+    if (!vecInfo.hasKnownShape(arg)) {
+      assert(vecInfo.getRegion() && "will only default function args if in region mode");
       // set argument shapes to uniform if not known better
-      mVecinfo.setVectorShape(arg, VectorShape::uni());
+      vecInfo.setVectorShape(arg, VectorShape::uni());
     } else {
       // Adjust pointer argument alignment
       if (arg.getType()->isPointerTy()) {
-        VectorShape argShape = mVecinfo.getVectorShape(arg);
+        VectorShape argShape = vecInfo.getVectorShape(arg);
         uint minAlignment = getBaseAlignment(arg, layout);
         // max is the more precise one
         argShape.setAlignment(std::max<uint>(minAlignment, argShape.getAlignmentFirst()));
-        mVecinfo.setVectorShape(arg, argShape);
+        vecInfo.setVectorShape(arg, argShape);
       }
     }
   }
 
   // Instructions in region(!)
   for (auto& BB : F) {
-    if (mVecinfo.inRegion(BB)) {
+    if (vecInfo.inRegion(BB)) {
       for (auto& I : BB) {
-        if (!mVecinfo.hasKnownShape(I))
-          mVecinfo.setVectorShape(I, VectorShape::undef());
+        if (!vecInfo.hasKnownShape(I))
+          vecInfo.setVectorShape(I, VectorShape::undef());
       }
     }
   }
@@ -210,7 +210,7 @@ void VectorizationAnalysis::init(const Function& F) {
 
 // push all users of pinned values
   std::set<const Instruction*> seen;
-  for (auto * val : mVecinfo.pinned_values()) {
+  for (auto * val : vecInfo.pinned_values()) {
     for(auto * user : val->users()) {
       auto * inst = dyn_cast<Instruction>(user);
       if (inst && seen.insert(inst).second) mWorklist.push(inst);
@@ -219,11 +219,11 @@ void VectorizationAnalysis::init(const Function& F) {
 
 // push non-user instructions
   for (const BasicBlock& BB : F) {
-    mVecinfo.setVectorShape(BB, VectorShape::uni());
+    vecInfo.setVectorShape(BB, VectorShape::uni());
 
     for (const Instruction& I : BB) {
       if (isa<AllocaInst>(&I)) {
-        update(&I, VectorShape::uni(mVecinfo.getMapping().vectorWidth));
+        update(&I, VectorShape::uni(vecInfo.getMapping().vectorWidth));
       } else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
         if (call->getNumArgOperands() != 0) continue;
 
@@ -268,7 +268,7 @@ bool VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
     errs() << "\n";
   };
 
-  mVecinfo.setVectorShape(*V, New);
+  vecInfo.setVectorShape(*V, New);
 
   // Add dependent elements to worklist
   addDependentValuesToWL(V);
@@ -284,15 +284,15 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
   // Find out which regions diverge because of this non-uniform branch
   // The branch is regarded as varying, even if its condition is only strided
   for (const auto* BB : BDA.getEffectedBlocks(*branch)) {
-    if (!mVecinfo.inRegion(*BB) || getShape(BB).isVarying()) {
+    if (!vecInfo.inRegion(*BB) || getShape(BB).isVarying()) {
       continue;
     } // filter out irrelevant nodes (FIXME filter out directly in BDA)
 
-    mVecinfo.setVectorShape(*BB, VectorShape::varying());
+    vecInfo.setVectorShape(*BB, VectorShape::varying());
 
     // Loop exit handling
     if (BB->getUniquePredecessor()) {
-      mVecinfo.setNotKillExit(BB);
+      vecInfo.setNotKillExit(BB);
     }
 
     IF_DEBUG_VA {
@@ -333,7 +333,7 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
     const Instruction* inst = cast<Instruction>(user);
 
     // We are only analyzing the region
-    if (!mVecinfo.inRegion(*inst)) continue;
+    if (!vecInfo.inRegion(*inst)) continue;
 
     // Ignore calls without return value
     if (const CallInst* callI = dyn_cast<CallInst>(inst)) {
@@ -362,16 +362,6 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
 
     IF_DEBUG_VA errs() << "Inserted (transitive) alloca operand of " << *V << ":" << *op << "\n";
   }
-}
-
-static
-bool
-HasSideEffects(const Function & func) {
-  if (func.hasFnAttribute(Attribute::ReadOnly) || func.hasFnAttribute(Attribute::ReadNone)) {
-    return false;
-  }
-
-  return true;
 }
 
 VectorShape VectorizationAnalysis::joinIncomingValues(const PHINode& phi) {
@@ -417,7 +407,7 @@ void VectorizationAnalysis::compute(const Function& F) {
     const Instruction* I = mWorklist.front();
     mWorklist.pop();
 
-    if (mVecinfo.isPinned(*I)) {
+    if (vecInfo.isPinned(*I)) {
       continue;
     }
 
@@ -490,6 +480,17 @@ void VectorizationAnalysis::compute(const Function& F) {
   }
 }
 
+
+static
+bool
+HasSideEffects(const Function & func) {
+  if (func.hasFnAttribute(Attribute::ReadOnly) || func.hasFnAttribute(Attribute::ReadNone)) {
+    return false;
+  }
+
+  return true;
+}
+
 VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
   // always default to the naive transformer (only top or bottom)
   if (config.vaMethod == Config::VA_TopBot) { return computeGenericArithmeticTransfer(*I); }
@@ -500,7 +501,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
   switch (I->getOpcode()) {
     case Instruction::Alloca:
     {
-      const int alignment = mVecinfo.getMapping().vectorWidth;
+      const int alignment = vecInfo.getMapping().vectorWidth;
       auto* AllocatedType = I->getType()->getPointerElementType();
       const bool Vectorizable = false;
 
@@ -546,7 +547,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
         case CmpInst::Predicate::ICMP_UGE:
         // These coincide because a >= b is equivalent to !(a < b)
         {
-          const int vectorWidth = (int)mVecinfo.getMapping().vectorWidth;
+          const int vectorWidth = (int)vecInfo.getMapping().vectorWidth;
           const int stride = diffShape.getStride();
           const int alignment = diffShape.getAlignmentFirst();
 
@@ -607,7 +608,8 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
 
     case Instruction::Call:
     {
-      const auto* calledValue = cast<CallInst>(I)->getCalledValue();
+      auto & call = *cast<CallInst>(I);
+      const auto* calledValue = call.getCalledValue();
       const Function * callee = dyn_cast<Function>(calledValue);
       if (!callee) return VectorShape::varying(); // calling a non-function
 
@@ -618,30 +620,31 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
         return shape;
       }
 
-      // Find the shape that is mapped to this function
-      // No mapping -> assume most unprecise, varying
-      auto found = mFuncinfo.find(callee);
-      if (found == mFuncinfo.end()) {
-        if (HasSideEffects(*callee)) return VectorShape::varying();
-        else break; // default transformer
-      }
-
-      const VectorMapping* mapping = found->second;
-      const VectorShapeVec Arginfo = mapping->argShapes;
-
-      auto & call = *cast<CallInst>(I);
+      // collect required argument shapes
+      bool allArgsUniform = true;
       size_t numParams = call.getNumArgOperands();
+      VectorShapeVec callArgShapes;
       for (size_t i = 0; i < numParams; ++i) {
         auto& op = *call.getArgOperand(i);
-        const VectorShape& expected = Arginfo[i];
-        const VectorShape& actual = getShape(&op);
-
-        // If the expected shape is more precise than the computed shape, return varying
-        if (expected < actual)
-          return VectorShape::varying();
+        auto argShape = getShape(&op);
+        allArgsUniform &= argShape.isUniform();
+        callArgShapes.push_back(argShape);
       }
 
-      return mapping->resultShape;
+      bool isUniformCall = allArgsUniform && !HasSideEffects(*callee);
+
+      // query available vector mappings
+      bool needsPredication = false; // FIXME whether the call needs predication due to the call context
+      VecMappingShortVec matchVec;
+      platInfo.getMappingsForCall(matchVec, *callee, callArgShapes, vecInfo.getVectorWidth(), needsPredication);
+
+      // pick mapping with the most precise result shape
+      VectorShape bestResultShape = isUniformCall ? VectorShape::uni() : VectorShape::varying();
+      for (const auto & mapping : matchVec) {
+        bestResultShape = mapping.resultShape < bestResultShape ? mapping.resultShape : bestResultShape;
+      }
+
+      return bestResultShape;
     }
 
     case Instruction::Load:
@@ -898,7 +901,7 @@ VectorShape VectorizationAnalysis::computeShapeForCastInst(const CastInst* castI
 }
 
 VectorShape VectorizationAnalysis::getShape(const Value* const V) {
-  return mVecinfo.getVectorShape(*V);
+  return vecInfo.getVectorShape(*V);
 }
 
 FunctionPass* createVectorizationAnalysisPass(rv::Config config) {
@@ -919,8 +922,8 @@ void VectorizationAnalysis::computeLoopDivergence() {
     l->getExitBlocks(exits);
 
     for (const BasicBlock* exit : exits) {
-      if (mVecinfo.getVectorShape(*exit).isVarying()) {
-        mVecinfo.setLoopDivergence(*l, false);
+      if (vecInfo.getVectorShape(*exit).isVarying()) {
+        vecInfo.setLoopDivergence(*l, false);
         break;
       }
     }

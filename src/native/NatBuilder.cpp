@@ -141,12 +141,12 @@ VectorShape NatBuilder::getVectorShape(const Value &val) {
   else return VectorShape::uni();
 }
 
-NatBuilder::NatBuilder(Config _config, PlatformInfo &_platformInfo, VectorizationInfo &_vecInfo,
+NatBuilder::NatBuilder(Config _config, PlatformInfo &_platInfo, VectorizationInfo &_vecInfo,
                        const DominatorTree &_dominatorTree, MemoryDependenceResults &_memDepRes,
                        ScalarEvolution &_SE, ReductionAnalysis & _reda) :
     builder(_vecInfo.getMapping().vectorFn->getContext()),
     config(_config),
-    platformInfo(_platformInfo),
+    platInfo(_platInfo),
     vecInfo(_vecInfo),
     dominatorTree(_dominatorTree),
     memDepRes(_memDepRes),
@@ -889,19 +889,55 @@ NatBuilder::vectorizeAlignCall(CallInst *rvCall) {
     mapScalarValue(rvCall, requestScalarValue(vecArg));
 }
 
-void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
+void
+NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   Value * callee = scalCall->getCalledValue();
   StringRef calleeName = callee->getName();
   Function * calledFunction = dyn_cast<Function>(callee);
 
+  // look for (proper) mappings with arg shapes
+  if (calledFunction) {
+    VectorShapeVec callArgShapes;
+    for (int i = 0; i < (int) scalCall->getNumArgOperands(); ++i) {
+      auto argShape = vecInfo.getVectorShape(*scalCall->getArgOperand(i));
+      callArgShapes.push_back(argShape);
+    }
+    bool needsPredication = false; // FIXME query block predicate
+    VecMappingShortVec matchVec;
+    platInfo.getMappingsForCall(matchVec, *calledFunction, callArgShapes, vecInfo.getVectorWidth(), needsPredication);
+
+    if (!matchVec.empty()) {
+      VectorMapping mapping = matchVec[0];
+      assert((mapping.maskPos < 0) && "TODO implemented predicated mapped calls.");
+
+      std::vector<Value*> vecCallArgs;
+      for (int i = 0; i < (int) scalCall->getNumArgOperands(); ++i) {
+        auto * scalArg = scalCall->getArgOperand(i);
+        auto * vectorArg = mapping.vectorFn->getOperand(i);
+        if (vectorArg->getType()->isVectorTy()) {
+          vecCallArgs.push_back(requestVectorValue(scalArg));
+        } else {
+          vecCallArgs.push_back(requestScalarValue(scalArg));
+        }
+      }
+
+      auto *vecCall = builder.CreateCall(mapping.vectorFn, vecCallArgs, scalCall->getName() + ".mapped");
+      mapVectorValue(scalCall, vecCall);
+      ++numVecCalls;
+      return;
+    }
+  }
+
+
+  // TODO re-factor the remainder of this function
   // if calledFunction is vectorizable (standard mapping exists for given vector width), create new call to vector calledFunction
-  if (calledFunction && platformInfo.isFunctionVectorizable(calledFunction->getName(), vectorWidth())) {
+  if (calledFunction && platInfo.isFunctionVectorizable(calledFunction->getName(), vectorWidth())) {
     CallInst *call = cast<CallInst>(scalCall->clone());
     bool doublePrecision = false;
     if (call->getNumArgOperands() > 0)
       doublePrecision = call->getArgOperand(0)->getType()->isDoubleTy();
     Module *mod = vecInfo.getMapping().vectorFn->getParent();
-    Function *simdFunc = platformInfo.requestVectorizedFunction(calleeName, vectorWidth(), mod, doublePrecision);
+    Function *simdFunc = platInfo.requestVectorizedFunction(calleeName, vectorWidth(), mod, doublePrecision);
     call->setCalledFunction(simdFunc);
     call->mutateType(simdFunc->getReturnType());
     mapOperandsInto(scalCall, call, true);
@@ -915,7 +951,7 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     bool replicate = true;
     unsigned vecWidth;
     for (vecWidth = vectorWidth() / 2; calledFunction && vecWidth >= 2; vecWidth /= 2) {
-      if (platformInfo.isFunctionVectorizable(calleeName, vecWidth)) {
+      if (platInfo.isFunctionVectorizable(calleeName, vecWidth)) {
         replicate = false;
         break;
       }
@@ -927,7 +963,7 @@ void NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       if (scalCall->getNumArgOperands() > 0)
         doublePrecision = scalCall->getArgOperand(0)->getType()->isDoubleTy();
       Module *mod = vecInfo.getMapping().vectorFn->getParent();
-      Function *simdFunc = platformInfo.requestVectorizedFunction(calleeName, vecWidth, mod, doublePrecision);
+      Function *simdFunc = platInfo.requestVectorizedFunction(calleeName, vecWidth, mod, doublePrecision);
       ShuffleBuilder appender(vectorWidth());
       ShuffleBuilder extractor(vecWidth);
 
@@ -2177,7 +2213,7 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
   if (config.enableIRPolish) {
     // this is a workaround until LLVM reduction intrinsics are available
     // emit a rv_ptest intrinsic
-    auto * redFunc = platformInfo.requestVectorMaskReductionFunc("rv_reduce_or", vector->getType()->getVectorNumElements());
+    auto * redFunc = platInfo.requestVectorMaskReductionFunc("rv_reduce_or", vector->getType()->getVectorNumElements());
     ptest = builder.CreateCall(redFunc, vector, "ptest");
 
   } else {

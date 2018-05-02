@@ -12,7 +12,6 @@ namespace rv {
 bool
 parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & mapping, bool createMissingDecl) {
   if (!attribText.startswith("_ZGV")) return false;
-  errs() << "Checking: " << attribText << "\n";
 
   if (attribText.size() < 6) return false;
 
@@ -77,7 +76,6 @@ parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & 
     mapping.vectorFn->setLinkage(GlobalValue::ExternalLinkage); // FIXME for debugging
   }
 
-  mapping.dump(errs());
   return true;
 }
 

@@ -43,7 +43,7 @@ namespace native {
     llvm::IRBuilder<> builder;
 
     rv::Config config;
-    rv::PlatformInfo &platformInfo;
+    rv::PlatformInfo & platInfo;
     rv::VectorizationInfo &vecInfo;
     const llvm::DominatorTree &dominatorTree;
     llvm::MemoryDependenceResults & memDepRes;

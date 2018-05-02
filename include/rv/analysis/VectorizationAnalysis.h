@@ -61,18 +61,16 @@ public:
 
 class VectorizationAnalysis {
   Config config;
+  PlatformInfo & platInfo;
 
   /// In- and output
-  VectorizationInfo& mVecinfo;
+  VectorizationInfo& vecInfo;
 
   /// Next instructions to handle
   std::queue<const llvm::Instruction*> mWorklist;
 
   const llvm::DataLayout& layout;
   const llvm::LoopInfo& mLoopInfo; // Preserves LoopInfo
-
-  // Shape computation:
-  const VectorFuncMap& mFuncinfo;
 
   // Divergence computation:
   BranchDependenceAnalysis BDA;
