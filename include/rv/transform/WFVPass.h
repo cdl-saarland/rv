@@ -48,7 +48,6 @@ class WFVPass : public llvm::ModulePass {
   bool enableDiagOutput; // WFV_DIAG
 
   bool runOnFunction(llvm::Function & F, rv::VectorizerInterface & vectorizer);
-  bool parseVectorMapping(llvm::Function & scalarFn, llvm::StringRef & attribText, VectorMapping & mapping);
   void vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob);
 public:
   static char ID;

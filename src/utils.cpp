@@ -1,8 +1,85 @@
 #include "rv/utils.h"
 
+#include "rv/vectorMapping.h"
+#include "llvm/IR/Module.h"
+#include "llvm/IR/Value.h"
+
 using namespace llvm;
 
 namespace rv {
+
+
+bool
+parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & mapping, bool createMissingDecl) {
+  if (!attribText.startswith("_ZGV")) return false;
+  errs() << "Checking: " << attribText << "\n";
+
+  if (attribText.size() < 6) return false;
+
+  // parse general vector attribs
+  // int vecRegisterBits = ParseRegisterWidth(attribText[4]); // TODO use ISA hint for rvConfig
+
+  bool needsMask = attribText[5] == 'M';
+  if (needsMask) return false; // TODO fix WFV entry mask handling
+
+  // parse vectorization factor
+  char * pos; // = attribText.begin() + 6; // "_ZGV<api><vecbits>"
+  unsigned vectorWidth = strtol(attribText.begin() + 6, &pos, 10);
+
+  // process arument shapes
+  VectorShapeVec argShapes;
+
+  auto * endText = attribText.end();
+
+  for (; pos != endText && *pos != '_'; ) {
+    char token = *pos;
+    switch(token) {
+      case 'v': argShapes.push_back(VectorShape::varying()); ++pos; break;
+      case 'u': argShapes.push_back(VectorShape::uni()); ++pos; break;
+      case 'a': {
+        char * nextPos;
+        ++pos;
+        auto alignVal = strtol(pos, &nextPos, 10);
+        pos = nextPos;
+
+        int lastArgIdx = argShapes.size() - 1;
+        assert(lastArgIdx >= 0);
+        argShapes[lastArgIdx].setAlignment(alignVal);
+      } break;
+      case 'l': {
+        ++pos;
+        char * nextPos;
+        auto strideVal = strtol(pos, &nextPos, 10);
+        pos = nextPos;
+
+        argShapes.push_back(VectorShape::strided(strideVal));
+      } break;
+      // case 's': // ??
+
+      default:
+        abort();
+    }
+  }
+
+  Function * simdDecl = scalarFn.getParent()->getFunction(attribText);
+ if (!createMissingDecl && !simdDecl) return false;
+
+  mapping.scalarFn = &scalarFn;
+  mapping.resultShape = VectorShape::varying();
+  mapping.argShapes = argShapes;
+  mapping.maskPos = needsMask ? 0 : -1;
+  mapping.vectorWidth = vectorWidth;
+  if (simdDecl) {
+    mapping.vectorFn = simdDecl;
+  } else {
+    mapping.vectorFn = createVectorDeclaration(scalarFn, mapping.resultShape, mapping.argShapes, vectorWidth, mapping.maskPos);
+    mapping.vectorFn->setName(attribText);
+    mapping.vectorFn->setLinkage(GlobalValue::ExternalLinkage); // FIXME for debugging
+  }
+
+  mapping.dump(errs());
+  return true;
+}
 
 Type*
 vectorizeType(Type* scalarTy, VectorShape shape, uint vectorWidth)
