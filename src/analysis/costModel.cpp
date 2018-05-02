@@ -69,10 +69,19 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
     // check if this is a critical section
     if (IsCriticalSection(*callee)) return maxWidth;
 
+    VectorShapeVec botArgVec;
+    for (int i = 0; i < call->getNumArgOperands(); ++i) {
+      botArgVec.push_back(VectorShape::undef());
+    }
+
     // find widest available implementation
     size_t sampleWidth = maxWidth;
     StringRef calleeName = callee->getName();
     for (; sampleWidth > 1; sampleWidth /= 2) {
+
+      VecMappingShortVec matchVec;
+      const bool needsPredication = false; // FIXME
+      if (platInfo.getMappingsForCall(matchVec, *callee, botArgVec, sampleWidth, needsPredication)) break;
       if (platInfo.isFunctionVectorizable(calleeName, sampleWidth)) {
         break;
       }
