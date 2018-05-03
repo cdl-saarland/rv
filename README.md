@@ -19,10 +19,9 @@ To enable vectorized complex arithmetic through compiler-rt checkout compiler-rt
 
 ### Build prerequisites 
 
-* LLVM 6.0 (cmake)
+* LLVM trunk (as of latest commit on this branch)
 * Clang (for the vector math libraries)
 * compiler-rt [optional] (for complex arithmetic functions)
-
 
 
 ## Testing
