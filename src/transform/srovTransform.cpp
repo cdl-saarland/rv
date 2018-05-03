@@ -730,9 +730,16 @@ requestReplicate(Value & val) {
     if (vecTy) {
       replVec = requestConstVectorReplicate(*constVal);
     } else {
-      for (size_t i = 0; i < constVal->getNumOperands(); ++i) {
-        ValVec elemRepl = requestReplicate(*constVal->getOperand(i));
-        Append(replVec, elemRepl);
+      if (constVal->isNullValue()) {
+        // null values do not have any operand
+        for (size_t i = 0; i < replTyVec.size(); ++i) {
+          replVec.push_back(Constant::getNullValue(replTyVec[i]));
+        }
+      } else {
+        for (size_t i = 0; i < constVal->getNumOperands(); ++i) {
+          ValVec elemRepl = requestReplicate(*constVal->getOperand(i));
+          Append(replVec, elemRepl);
+        }
       }
     }
 
