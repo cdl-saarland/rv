@@ -11,6 +11,13 @@ The initial version of RV was a fork of the Whole-Function Vectorizer by Ralf Ka
 
 For any questions, please get in touch with Simon Moll (moll@cs.uni-saarland.de).
 
+## Features
+
+* Support for OpenMP 4.5 `#pragma omp simd` **and** `#pragma omp declare simd` (pass `-fopenmp -Xclang -load libRV.so -mllvm -rv` to Clang and you are set).
+* Implements *Partial Control-Flow Linearization*, S. Moll and S. Hack (PLDI '18), to appear.
+* Whole-Function vectorizer (`min -> min_avx2`).
+* Outer-loop vectorizer.
+
 ## Buildling libRV
 
 RV is an LLVM tool project and integrates into the LLVM build system.
