@@ -28,6 +28,7 @@ add_rv_library(RV
   annotations.cpp
   PlatformInfo.cpp
   VectorizationInfoProxyPass.cpp
+  analysis/AllocaSSA.cpp
   analysis/BranchDependenceAnalysis.cpp
   analysis/costModel.cpp
   analysis/DFG.cpp
@@ -41,6 +42,7 @@ add_rv_library(RV
   native/NatBuilder.cpp
   native/ShuffleBuilder.cpp
   native/Utils.cpp
+  region/FunctionRegion.cpp
   region/LoopRegion.cpp
   region/Region.cpp
   registerPasses.cpp

@@ -10,6 +10,8 @@
 #include "rv/region/Region.h"
 
 #include "rv/region/RegionImpl.h"
+#include <llvm/IR/Function.h>
+#include <llvm/ADT/PostOrderIterator.h>
 
 using namespace llvm;
 
@@ -45,6 +47,16 @@ void
 Region::for_blocks(std::function<bool(const BasicBlock& block)> userFunc) const {
   mImpl.for_blocks(userFunc);
   for (auto * block : extraBlocks) userFunc(*block);
+}
+
+void
+Region::for_blocks_rpo(std::function<bool(const BasicBlock& block)> userFunc) const {
+  const Function & F = *getRegionEntry().getParent();
+  ReversePostOrderTraversal<const Function*> RPOT(&F);
+
+  for (auto * BB : RPOT) {
+    if (mImpl.contains(BB) || extraBlocks.count(BB)) userFunc(*BB);
+  }
 }
 
 } // namespace rv

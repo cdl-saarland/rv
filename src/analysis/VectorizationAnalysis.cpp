@@ -16,6 +16,8 @@
 #include "utils/rvTools.h"
 #include "utils/mathUtils.h"
 
+#include "rv/region/FunctionRegion.h"
+#include "rv/analysis/AllocaSSA.h"
 #include <numeric>
 
 #if 1
@@ -126,6 +128,14 @@ void
 VectorizationAnalysis::analyze() {
   auto & F = vecInfo.getScalarFunction();
   assert (!F.isDeclaration());
+
+  // compute pointer provenance
+  FunctionRegion wrapperReg(vecInfo.getScalarFunction());
+  Region funcRegion(wrapperReg);
+  AllocaSSA allocaSSA(funcRegion);
+  allocaSSA.compute();
+  allocaSSA.print(errs());
+  abort();
 
   init(F);
   compute(F);
