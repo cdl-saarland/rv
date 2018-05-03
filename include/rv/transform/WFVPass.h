@@ -24,6 +24,7 @@
 #include "llvm/ADT/StringRef.h"
 
 #include <limits>
+#include <vector>
 
 namespace llvm {
   class Loop;
@@ -47,7 +48,8 @@ class PlatformInfo;
 class WFVPass : public llvm::ModulePass {
   bool enableDiagOutput; // WFV_DIAG
 
-  bool runOnFunction(llvm::Function & F, rv::VectorizerInterface & vectorizer);
+  std::vector<VectorMapping> wfvJobs;
+  void collectJobs(llvm::Function & F);
   void vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob);
 public:
   static char ID;

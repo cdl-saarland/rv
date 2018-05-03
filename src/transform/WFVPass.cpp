@@ -147,12 +147,11 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
   scalarCopy->eraseFromParent();
 }
 
-bool
-WFVPass::runOnFunction(Function & F, VectorizerInterface & vectorizer) {
+void
+WFVPass::collectJobs(Function & F) {
   auto attribSet = F.getAttributes().getFnAttributes();
 
   // parse SIMD signatures
-  std::vector<VectorMapping> wfvJobs;
   for (auto attrib : attribSet) {
     if (!attrib.isStringAttribute()) continue;
     StringRef attribText = attrib.getKindAsString();
@@ -163,43 +162,47 @@ WFVPass::runOnFunction(Function & F, VectorizerInterface & vectorizer) {
     if (!parseVectorMapping(F, attribText, vecMapping, true)) continue;
     wfvJobs.push_back(vecMapping);
   }
-
-  if (wfvJobs.empty()) return false;
-
-  // vectorize jobs
-  for (auto & job : wfvJobs) {
-    vectorizeFunction(vectorizer, job);
-  }
-
-
-  return true; // TODO
 }
 
 bool
 WFVPass::runOnModule(Module & M) {
   enableDiagOutput = CheckFlag("WFV_DIAG");
 
-  bool changed = false;
+  // collect WFV jobs
   for (auto & func : M) {
     if (func.isDeclaration()) continue;
 
-    auto & TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(func);
-    auto & TLI = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
-
-    // link in SIMD library
-
-    Config rvConfig; // TODO parse machine attributes of scalar function
-    rvConfig.useSLEEF = true;
-    PlatformInfo platInfo(M, &TTI, &TLI);
-    const bool useImpreciseFunctions = true; // FIXME only in fast-math mode
-    addSleefMappings(rvConfig, platInfo, useImpreciseFunctions);
-
-    VectorizerInterface vectorizer(platInfo, rvConfig);
-
-    changed |= runOnFunction(func, vectorizer);
+    collectJobs(func);
   }
 
-  return changed;
+  // no annotated functions found (pragma omp declare simd)
+  if (wfvJobs.empty()) return false;
+
+  // configure platform info
+  auto & TLI = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
+
+  // FIXME this assumes that all functions were compiled for the same target
+  auto & TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(*wfvJobs[0].scalarFn);
+  Config rvConfig; // TODO parse machine attributes of scalar function
+
+  // configure platInfo
+  rvConfig.useSLEEF = true;
+  PlatformInfo platInfo(M, &TTI, &TLI);
+  const bool useImpreciseFunctions = true; // FIXME only in fast-math mode
+  addSleefMappings(rvConfig, platInfo, useImpreciseFunctions);
+
+  // add mappings for recursive vectorization
+  for (auto & job : wfvJobs) {
+    platInfo.addMapping(job);
+  }
+
+  // vectorize jobs
+  VectorizerInterface vectorizer(platInfo, rvConfig);
+  for (auto & job : wfvJobs) {
+    vectorizeFunction(vectorizer, job);
+  }
+
+  return true;
 }
 
 
