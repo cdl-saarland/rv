@@ -30,6 +30,7 @@ addOuterLoopVectorizer(legacy::PassManagerBase & PM, Config config) {
 
 
 void addWholeFunctionVectorizer(llvm::legacy::PassManagerBase & PM) {
+   PM.add(createLoopSimplifyPass());
   PM.add(createLCSSAPass());
   PM.add(createLoopExitCanonicalizerPass()); // required for divLoopTrans
   PM.add(rv::createWFVPass());
