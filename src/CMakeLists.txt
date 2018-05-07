@@ -36,6 +36,7 @@ add_rv_library(RV
   analysis/reductionAnalysis.cpp
   analysis/reductions.cpp
   analysis/DivPathDecider.cpp
+  analysis/UndeadMaskAnalysis.cpp
   config.cpp
   init.cpp
   intrinsics.cpp

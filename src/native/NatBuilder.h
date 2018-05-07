@@ -14,10 +14,11 @@
 
 #include <vector>
 
-#include <rv/vectorizationInfo.h>
-#include <rv/PlatformInfo.h>
+#include "rv/vectorizationInfo.h"
+#include "rv/PlatformInfo.h"
 #include "rv/config.h"
 #include "rv/intrinsics.h"
+#include "rv/analysis/UndeadMaskAnalysis.h"
 
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
 #include <llvm/IR/Dominators.h>
@@ -25,6 +26,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Transforms/Utils/ValueMapper.h>
 #include <llvm/ADT/SmallVector.h>
+
 
 namespace rv {
   class Region;
@@ -50,6 +52,7 @@ namespace native {
     llvm::MemoryDependenceResults & memDepRes;
     llvm::ScalarEvolution &SE;
     rv::ReductionAnalysis & reda;
+    rv::UndeadMaskAnalysis undeadMasks;
 
     llvm::DataLayout layout;
 
@@ -178,7 +181,7 @@ namespace native {
 
     // a uniform value is stored to a uniform ptr (with a predicate)
     llvm::Value *createUniformMaskedMemory(llvm::Instruction *inst, llvm::Type *accessedType, unsigned alignment,
-                                           llvm::Value *addr, llvm::Value *mask, llvm::Value *values);
+                                           llvm::Value *addr, llvm::Value * scalarMask, llvm::Value *vectorMask, llvm::Value *values);
     llvm::Value *createVaryingMemory(llvm::Type *vecType, unsigned alignment, llvm::Value *addr, llvm::Value *mask,
                                      llvm::Value *values);
     void createInterleavedMemory(llvm::Type *vecType, unsigned alignment, std::vector<llvm::Value *> *addr, std::vector<llvm::Value *> *mask,

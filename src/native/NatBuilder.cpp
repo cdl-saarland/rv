@@ -153,6 +153,7 @@ NatBuilder::NatBuilder(Config _config, PlatformInfo &_platInfo, VectorizationInf
     memDepRes(_memDepRes),
     SE(_SE),
     reda(_reda),
+    undeadMasks(dominatorTree, vecInfo),
     layout(_vecInfo.getScalarFunction().getParent()),
     i1Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 32)),
@@ -1124,6 +1125,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     return fallbackVectorize(inst);
   }
 
+  const auto & block = *inst->getParent();
   LoadInst *load = dyn_cast<LoadInst>(inst);
   StoreInst *store = dyn_cast<StoreInst>(inst);
 
@@ -1232,7 +1234,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   if (load) {
     if (needsMask && addrShape.isUniform()) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
-      vecMem = createUniformMaskedMemory(load, accessedType, alignment, addr[0], mask, nullptr);
+      vecMem = createUniformMaskedMemory(load, accessedType, alignment, addr[0], predicate, mask, nullptr);
 
     } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
@@ -1265,7 +1267,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                        : requestVectorValue(storedValue);
 
-        vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr[0], mask, mappedStoredVal);
+        vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr[0], predicate, mask, mappedStoredVal);
       }
 
     } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
@@ -1428,25 +1430,33 @@ NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, u
 }
 
 Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedType, unsigned int alignment,
-                                             Value *addr, Value *mask, Value *values) {
+                                             Value *addr, Value * scalarMask, Value * vectorMask, Value *values) {
   values ? ++numUniMaskedStores : ++numUniMaskedLoads;
 
-  // create a mask ptest
-  mask = createPTest(mask, false);
-
-  assert((values && isa<StoreInst>(inst)) || (!values && isa<LoadInst>(inst)));
-
-  // create two new basic blocks
-  BasicBlock *memBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "mem_block",
-                                            &vecInfo.getVectorFunction());
-  BasicBlock *continueBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "cont_block",
-                                                 &vecInfo.getVectorFunction());
   BasicBlock *origBlock = inst->getParent();
+  bool needsGuard = !undeadMasks.isUndead(*scalarMask, *origBlock);
 
-  // conditionally branch to both
-  builder.CreateCondBr(mask, memBlock, continueBlock);
-  builder.SetInsertPoint(memBlock);
+  BasicBlock* memBlock, * continueBlock;
 
+  // prologue (guard branch)
+  if (needsGuard) {
+    // create a mask ptest
+    Value * anyMask = createPTest(vectorMask, false);
+
+    assert((values && isa<StoreInst>(inst)) || (!values && isa<LoadInst>(inst)));
+
+    // create two new basic blocks
+    memBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "mem_block",
+                                              &vecInfo.getVectorFunction());
+    continueBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "cont_block",
+                                                   &vecInfo.getVectorFunction());
+
+    // conditionally branch to both
+    builder.CreateCondBr(anyMask, memBlock, continueBlock);
+    builder.SetInsertPoint(memBlock);
+  }
+
+  //  emit the actual access
   Instruction *vecMem;
   if (values) {
     vecMem = builder.CreateStore(values, addr);
@@ -1456,20 +1466,23 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedTy
     cast<LoadInst>(vecMem)->setAlignment(alignment);
   }
 
-  builder.CreateBr(continueBlock);
-  builder.SetInsertPoint(continueBlock);
+  // epilogue (continue block, joining loaded value)
+  if (needsGuard) {
+    builder.CreateBr(continueBlock);
+    builder.SetInsertPoint(continueBlock);
 
-  BasicBlock *vecOrigBlock = cast<BasicBlock>(getVectorValue(origBlock, true));
-  PHINode *phi = values ? nullptr : builder.CreatePHI(accessedType, 2, "scal_mask_mem_phi");
+    BasicBlock *vecOrigBlock = cast<BasicBlock>(getVectorValue(origBlock, true));
+    PHINode *phi = values ? nullptr : builder.CreatePHI(accessedType, 2, "scal_mask_mem_phi");
 
-  if (phi) {
-    phi->addIncoming(vecMem, memBlock);
-    phi->addIncoming(UndefValue::get(accessedType), vecOrigBlock);
-    vecMem = phi;
+    if (phi) {
+      phi->addIncoming(vecMem, memBlock);
+      phi->addIncoming(UndefValue::get(accessedType), vecOrigBlock);
+      vecMem = phi;
+    }
+
+    mapVectorValue(origBlock, continueBlock);
   }
 
-//  mapVectorValue(origBlock, memBlock);
-  mapVectorValue(origBlock, continueBlock);
   return vecMem;
 }
 
