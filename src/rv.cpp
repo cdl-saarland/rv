@@ -38,6 +38,7 @@
 #include "rv/transform/irPolisher.h"
 #include "rv/transform/bosccTransform.h"
 #include "rv/transform/redOpt.h"
+#include "rv/transform/memCopyElision.h"
 
 #include "native/NatBuilder.h"
 
@@ -304,6 +305,10 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 // flag is set if the env var holds a string that starts on a non-'0' char
 bool
 VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTree, LoopInfo & loopInfo, ScalarEvolution & SE, MemoryDependenceResults & MDR, ValueToValueMapTy * vecInstMap) {
+  // divergent memcpy lowering
+  MemCopyElision mce(platInfo, vecInfo);
+  mce.run();
+
   // split structural allocas
   if (config.enableSplitAllocas) {
     SplitAllocas split(vecInfo);

@@ -66,6 +66,7 @@ add_rv_library(RV
   transform/irPolisher.cpp
   transform/loopExitCanonicalizer.cpp
   transform/maskExpander.cpp
+  transform/memCopyElision.cpp
   transform/redTools.cpp
   transform/redOpt.cpp
   transform/remTransform.cpp
