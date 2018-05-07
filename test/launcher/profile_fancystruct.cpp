@@ -2,6 +2,8 @@
 #include "launcherTools.h"
 #include "timing.h"
 
+#include <random>
+
 struct Point { float x; float y; float z; };
 
 struct T {
@@ -15,12 +17,15 @@ extern "C" float8 foo_SIMD(int i, T * D);
 int main(int argc, char ** argv) {
   const uint numInputs = 100;
 
+  std::mt19937 randSource(42);
+  std::uniform_real_distribution<float> randGen;
+
   const int width = 8;
 
   T d[width];
 
   for (unsigned j = 0; j < sizeof(d); j += 4) {
-    *(((float*) d) + j) = rand();
+    *(((float*) d) + j) = randGen(randSource);
   }
 
   auto vecStart = GetTime();
