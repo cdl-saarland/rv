@@ -15,7 +15,7 @@ For any questions, please get in touch with Simon Moll (moll@cs.uni-saarland.de)
 
 * Support for OpenMP 4.5 `#pragma omp simd` **and** `#pragma omp declare simd` (pass `-fopenmp -Xclang -load libRV.so -mllvm -rv` to Clang and you are set).
 * Implements *Partial Control-Flow Linearization*, S. Moll and S. Hack (PLDI '18), to appear.
-* Automatically uses (SLEEF)[https://github.com/shibatch/sleef] vector math functions.
+* Automatically uses [SLEEF](https://github.com/shibatch/sleef) vector math functions.
 * Whole-Function vectorizer (`min -> min_avx2`).
 * Outer-loop vectorizer.
 
@@ -23,6 +23,7 @@ For any questions, please get in touch with Simon Moll (moll@cs.uni-saarland.de)
 
 RV is an LLVM tool project and integrates into the LLVM build system.
 Clone this repository into llvm/tools/rv where llvm is your LLVM source directory. RV will build along with LLVM.
+Run `git submodule update` to pull the SLEEF submodule.
 To enable vectorized complex arithmetic through compiler-rt checkout compiler-rt in llvm/runtimes and configure RV with `RV_ENABLE_CRT=on`.
 
 ### Build prerequisites 
