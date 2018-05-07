@@ -54,6 +54,7 @@ AllocaSSA::computeLiveness() {
         if (!isa<Instruction>(ptr)) continue;
         PtrProvenance ptrProv = getProvenance(cast<Instruction>(*ptr));
         for (auto * liveAlloc : ptrProv.allocs) { // TODO support for wildcard..
+          IF_DEBUG_LN errs() << "Live " << liveAlloc->getName() << "\n";
           changed |= summary.liveAllocas.insert(liveAlloc).second;
         }
       }
@@ -78,12 +79,14 @@ AllocaSSA::computePointerProvenance() {
   std::vector<const BasicBlock*> worklist;
   worklist.push_back(&region.getRegionEntry());
 
+  std::set<const BasicBlock*> seenBlocks;
+
   while (!worklist.empty()) {
     const auto & currBlock = *worklist.back();
     worklist.pop_back();
 
     // scan through block
-    bool changed = false;
+    bool changed = seenBlocks.insert(&currBlock).second;
     for (auto & inst : currBlock) {
       const AllocaInst * allocInst = dyn_cast<AllocaInst>(&inst);
       // const PHINode * phiNode = dyn_cast<PHINode>(&inst);
