@@ -183,6 +183,13 @@ public:
     else return it->second;
   }
 
+  const Join *
+  getJoinNode(const llvm::BasicBlock & BB) const {
+    const auto * summary = getBlockSummary(BB);
+    if (!summary) return nullptr;
+    return &summary->allocJoin;
+  }
+
   AllocaSSA(Region & _region)
   : region(_region)
   {}

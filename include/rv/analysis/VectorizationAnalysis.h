@@ -37,6 +37,8 @@
 #include "rv/region/Region.h"
 #include "rv/PlatformInfo.h"
 #include "rv/analysis/BranchDependenceAnalysis.h"
+#include "rv/analysis/AllocaSSA.h"
+#include "rv/region/FunctionRegion.h"
 
 namespace llvm {
   class LoopInfo;
@@ -74,6 +76,10 @@ class VectorizationAnalysis {
 
   // Divergence computation:
   BranchDependenceAnalysis BDA;
+
+  FunctionRegion funcRegion;
+  Region funcRegionWrapper;
+  AllocaSSA allocaSSA;
 
   llvm::DenseSet<const llvm::BasicBlock*> mControlDivergentBlocks;
 

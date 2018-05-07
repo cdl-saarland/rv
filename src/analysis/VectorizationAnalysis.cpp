@@ -16,7 +16,6 @@
 #include "utils/rvTools.h"
 #include "utils/mathUtils.h"
 
-#include "rv/region/FunctionRegion.h"
 #include "rv/analysis/AllocaSSA.h"
 #include <numeric>
 
@@ -86,8 +85,15 @@ VectorizationAnalysis::VectorizationAnalysis(Config _config,
           vecInfo(VecInfo),
           layout(platInfo.getDataLayout()),
           mLoopInfo(LoopInfo),
-          BDA(vecInfo.getScalarFunction(), cdg, dfg, LoopInfo)
-{ }
+          BDA(vecInfo.getScalarFunction(), cdg, dfg, LoopInfo),
+          funcRegion(vecInfo.getScalarFunction()),
+          funcRegionWrapper(funcRegion), // FIXME
+          allocaSSA(funcRegionWrapper)
+{
+  // compute pointer provenance
+  allocaSSA.compute();
+  IF_DEBUG_VA allocaSSA.print(errs());
+}
 
 void
 VectorizationAnalysis::updateAnalysis(InstVec & updateList) {
@@ -128,14 +134,6 @@ void
 VectorizationAnalysis::analyze() {
   auto & F = vecInfo.getScalarFunction();
   assert (!F.isDeclaration());
-
-  // compute pointer provenance
-  FunctionRegion wrapperReg(vecInfo.getScalarFunction());
-  Region funcRegion(wrapperReg);
-  AllocaSSA allocaSSA(funcRegion);
-  allocaSSA.compute();
-  allocaSSA.print(errs());
-  abort();
 
   init(F);
   compute(F);
@@ -313,6 +311,14 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
       errs() << "\n\n";
     }
 
+    // induce divergence into allocas
+    const Join * allocaJoin = allocaSSA.getJoinNode(*BB);
+    if (allocaJoin) {
+      for (const auto * allocInst : allocaJoin->provSet.allocs) {
+        updateShape(allocInst, VectorShape::varying());
+      }
+    }
+
     // add LCSSA phis to worklist
     for (auto & inst : *BB) {
       if (!isa<PHINode>(inst)) break;
@@ -326,6 +332,8 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
     }
   }
 
+  // TODO superseeded by AllocaSSA
+#if 0
   for (const auto* BB : BDA.getControlDependentBlocks(*branch)) {
     mControlDivergentBlocks.insert(BB);
     for (const auto& inst : *BB) {
@@ -334,6 +342,7 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
       mWorklist.push(&inst);
     }
   }
+#endif
 }
 
 void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
@@ -668,9 +677,14 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
       const Value* pointer = I->getOperand(0);
       const Value* value = I->getOperand(1);
       auto storeOpShape = VectorShape::join(getShape(value), getShape(pointer));
+
+#if 0
+      // FIXME superseeded by AllocaSSA
+      // query prede
       if (storeOpShape.isUniform() && mControlDivergentBlocks.count(I->getParent())) {
         return VectorShape::varying();
       }
+#endif
       return storeOpShape;
     }
 
