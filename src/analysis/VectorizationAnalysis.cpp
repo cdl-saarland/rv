@@ -331,18 +331,6 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
       };
     }
   }
-
-  // TODO superseeded by AllocaSSA
-#if 0
-  for (const auto* BB : BDA.getControlDependentBlocks(*branch)) {
-    mControlDivergentBlocks.insert(BB);
-    for (const auto& inst : *BB) {
-      if (isa<TerminatorInst>(inst) || !inst.getType()->isVoidTy())
-        continue;
-      mWorklist.push(&inst);
-    }
-  }
-#endif
 }
 
 void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
