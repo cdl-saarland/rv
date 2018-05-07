@@ -66,6 +66,8 @@ public:
             }
         }
     }
+
+    virtual bool isVectorLoop() const = 0;
 };
 
 } // namespace rv

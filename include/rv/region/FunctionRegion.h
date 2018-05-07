@@ -17,7 +17,7 @@
 namespace rv {
 
 // this region object captures the entire CFG of a function
-class FunctionRegion : public RegionImpl
+class FunctionRegion final : public RegionImpl
 {
 private:
   llvm::Function & F;
@@ -30,6 +30,7 @@ public:
   llvm::BasicBlock& getRegionEntry() const override { return F.getEntryBlock(); }
   void getEndingBlocks(llvm::SmallPtrSet<llvm::BasicBlock*, 2>& endingBlocks) const override;
   std::string str() const override;
+  bool isVectorLoop() const override { return false; }
 };
 
 } // namespace rv

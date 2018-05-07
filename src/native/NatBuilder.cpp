@@ -178,7 +178,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   }
 
   // map arguments first
-  if (!region) {
+  if (!region->isVectorLoop()) { // TODO wfv mode check
     unsigned i = 0;
     auto sit = func->arg_begin();
     for (auto it = vecFunc->arg_begin(), et = vecFunc->arg_end();
@@ -200,7 +200,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
 
   // create all BasicBlocks first and map them
   for (auto &block : *func) {
-    if (region && !region->contains(&block)) continue;
+    if (!region->contains(&block)) continue;
 
     BasicBlock *vecBlock = BasicBlock::Create(vecFunc->getContext(), block.getName() + ".rv", vecFunc);
     mapVectorValue(&block, vecBlock);
@@ -208,7 +208,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
 
   // traverse dominator tree in pre-order to ensure all uses have definitions vectorized first
   std::deque<const DomTreeNode *> nodeQueue;
-  const DomTreeNode *rootNode = region ? dominatorTree.getNode(&region->getRegionEntry()) : dominatorTree.getRootNode();
+  const DomTreeNode *rootNode = dominatorTree.getNode(&vecInfo.getEntry());
   nodeQueue.push_back(rootNode);
   while (!nodeQueue.empty()) {
     // FIFO for pre-order
@@ -217,7 +217,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
 
     // vectorize
     BasicBlock *bb = node->getBlock();
-    if (region && !region->contains(bb)) continue;
+    if (!region->contains(bb)) continue;
 
     BasicBlock *vecBlock = cast<BasicBlock>(getVectorValue(bb));
     vectorize(bb, vecBlock);
@@ -234,7 +234,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   // report statistics
   printStatistics();
 
-  if (!region) return;
+  if (!region->isVectorLoop()) return;
 
   // TODO what about outside uses?
 
@@ -2515,7 +2515,7 @@ void NatBuilder::addValuesToPHINodes() {
     auto *sp = reda.getStrideInfo(*scalPhi);
     auto *red = reda.getReductionInfo(*scalPhi);
 
-    bool isVectorLoopHeader = region && &region->getRegionEntry() == scalPhi->getParent();
+    bool isVectorLoopHeader = &vecInfo.getEntry() == scalPhi->getParent();
     IF_DEBUG_NAT {
       errs() << "loopHead: " << isVectorLoopHeader << ": shape " << shape.str() << "red: "; if (red) red->dump(); errs() << "\n";
     }
@@ -2568,7 +2568,7 @@ void NatBuilder::mapVectorValue(const Value *const value, Value *vecValue) {
 
 Value *NatBuilder::getVectorValue(Value *const value, bool getLastBlock) {
   if (isa<BasicBlock>(value)) {
-    if (region && !region->contains(cast<BasicBlock>(value))) {
+    if (!region->contains(cast<BasicBlock>(value))) {
       return value; // preserve BBs outside of the region
     }
 
@@ -2598,9 +2598,10 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
   }
 
   // in case of regions, keep any values that are live into the region
-  if (region && isa<Argument>(value)) {
+  // FIXME make this generic through explicit argument mapping
+  if (region->isVectorLoop() && isa<Argument>(value)) {
     return value;
-  } else if (region && isa<Instruction>(value) && !region->contains(cast<Instruction>(value)->getParent())) {
+  } else if (region->isVectorLoop() && isa<Instruction>(value) && !region->contains(cast<Instruction>(value)->getParent())) {
     return value;
   }
 
@@ -2624,7 +2625,7 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
 BasicBlockVector
 NatBuilder::getMappedBlocks(BasicBlock *const block) {
   auto blockIt = basicBlockMap.find(block);
-  if (region && !region->contains(block)) {
+  if (!region->contains(block)) {
     BasicBlockVector blocks;
     blocks.push_back(const_cast<BasicBlock*>(block));
     return blocks;

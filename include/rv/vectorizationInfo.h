@@ -56,7 +56,7 @@ public:
 
     size_t getVectorWidth() const { return mapping.vectorWidth; }
 
-    VectorizationInfo(VectorMapping _mapping);
+    VectorizationInfo(Region & funcRegion, VectorMapping _mapping);
     VectorizationInfo(llvm::Function& parentFn, uint vectorWidth, Region& _region);
 
     bool hasKnownShape(const llvm::Value& val) const;

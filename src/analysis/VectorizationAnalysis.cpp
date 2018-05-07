@@ -181,7 +181,7 @@ void VectorizationAnalysis::adjustValueShapes(const Function& F) {
   // Arguments
   for (auto& arg : F.args()) {
     if (!vecInfo.hasKnownShape(arg)) {
-      assert(vecInfo.getRegion() && "will only default function args if in region mode");
+      // assert(vecInfo.getRegion() && "will only default function args if in region mode");
       // set argument shapes to uniform if not known better
       vecInfo.setVectorShape(arg, VectorShape::uni());
     } else {

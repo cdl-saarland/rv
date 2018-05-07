@@ -37,6 +37,9 @@ public:
       extraBlocks.insert(&extra);
     }
 
+    // whether the region entry is a loop header thay may contain reduction phis.
+    bool isVectorLoop() const;
+
     // iteratively apply @userFunc to all blocks in the region
     // stop if @userFunc returns false or all blocks have been prosessed, otw carry on
     void for_blocks(std::function<bool(const llvm::BasicBlock& block)> userFunc) const;

@@ -126,8 +126,8 @@ VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, uint vectorWidth,
 }
 
 // VectorizationInfo
-VectorizationInfo::VectorizationInfo(VectorMapping _mapping)
-: mapping(_mapping), region(nullptr)
+VectorizationInfo::VectorizationInfo(Region & funcRegion, VectorMapping _mapping)
+: mapping(_mapping), region(&funcRegion)
 {
   assert(mapping.argShapes.size() == mapping.scalarFn->arg_size());
   auto it = mapping.scalarFn->arg_begin();
@@ -270,8 +270,7 @@ VectorizationInfo::getContext() const { return mapping.scalarFn->getContext(); }
 
 BasicBlock&
 VectorizationInfo::getEntry() const {
-   if (region) return region->getRegionEntry();
-   else return *mapping.scalarFn->begin();
+   return region->getRegionEntry();
  }
 
 

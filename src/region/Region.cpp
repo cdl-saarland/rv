@@ -43,6 +43,9 @@ Region::getEndingBlocks(llvm::SmallPtrSet<BasicBlock*, 2>& endingBlocks) const
     mImpl.getEndingBlocks(endingBlocks);
 }
 
+bool
+Region::isVectorLoop() const { return mImpl.isVectorLoop(); }
+
 void
 Region::for_blocks(std::function<bool(const BasicBlock& block)> userFunc) const {
   mImpl.for_blocks(userFunc);

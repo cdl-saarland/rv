@@ -25,6 +25,7 @@
 
 #include "rvConfig.h"
 #include "rv/rvDebug.h"
+#include "rv/region/FunctionRegion.h"
 
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
@@ -102,7 +103,9 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
   // cdg.create(*F);
   // dfg.create(*F);
 
-  VectorizationInfo vecInfo(wfvJob);
+  FunctionRegion funcRegion(*wfvJob.scalarFn);
+  Region funcRegionWrapper(funcRegion);
+  VectorizationInfo vecInfo(funcRegionWrapper, wfvJob);
 
 // Vectorize
   // vectorizationAnalysis

@@ -47,6 +47,7 @@
 #include "rv/passes.h"
 #include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/region/LoopRegion.h"
+#include "rv/region/FunctionRegion.h"
 #include "rv/region/Region.h"
 #include "rv/rvDebug.h"
 #include "rv/utils.h"
@@ -355,7 +356,9 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     // set-up vecInfo overlay and define vectorization job (mapping)
     rv::VectorMapping targetMapping = vectorizerJob;
     targetMapping.scalarFn = scalarCopy;
-    rv::VectorizationInfo vecInfo(targetMapping);
+    rv::FunctionRegion funcRegion(*scalarCopy);
+    rv::Region funcRegionWrapper(funcRegion);
+    rv::VectorizationInfo vecInfo(funcRegionWrapper, targetMapping);
 
     // transfer extra shapes
     for (auto & it : extraShapes) {
