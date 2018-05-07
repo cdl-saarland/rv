@@ -2,6 +2,7 @@
 #include "rv/region/Region.h"
 
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/IntrinsicInst.h>
 #include <llvm/Support/raw_ostream.h>
 #include <vector>
 
@@ -170,6 +171,36 @@ AllocaSSA::print(raw_ostream & out) const {
   return out;
 }
 
+static bool
+GetWrittenPointers(const Instruction & inst, SmallVector<const Value*, 1> & writtenPtrs) {
+  const auto * storeInst = dyn_cast<StoreInst>(&inst);
+  const auto * memTransInst = dyn_cast<MemTransferInst>(&inst);
+  const auto * callInst = dyn_cast<CallInst>(&inst);
+
+  if (storeInst) {
+    writtenPtrs.push_back(storeInst->getPointerOperand());
+    return true;
+  }
+
+  if (memTransInst) {
+    writtenPtrs.push_back(memTransInst->getDest());
+    return true;
+  }
+
+  if (callInst) {
+    // scan through modified ptrs
+    const auto * callee = dyn_cast<Function>(callInst->getCalledValue());
+    for (const auto & arg : callee->args()) {
+      if (arg.getType()->isPointerTy() && !arg.onlyReadsMemory()) {
+        writtenPtrs.push_back(&arg);
+      }
+    }
+    return !writtenPtrs.empty();
+  }
+
+  return false;
+}
+
 void
 AllocaSSA::compute() {
   computePointerProvenance();
@@ -231,14 +262,16 @@ AllocaSSA::compute() {
 
     // detect instructions that operate on the alloca memory states
     for (const auto & inst : currBlock) {
-      const auto * storeInst = dyn_cast<StoreInst>(&inst);
 
-      // TODO generalize for memcpy, memmov, ..
-
-      if (storeInst) {
-        auto & ptr = *storeInst->getPointerOperand();
-        if (!isa<Instruction>(ptr)) continue; // FIXME for now assume that alloca pointers and other pointer sources do not mix..
-        const auto & ptrProv = getProvenance(cast<Instruction>(ptr));
+      SmallVector<const Value*, 1> writtenPtrs;
+      if (GetWrittenPointers(inst, writtenPtrs)) {
+        // join provenances
+        PtrProvenance joinedProv;
+        for (const auto * ptr : writtenPtrs) {
+          if (!isa<Instruction>(ptr)) continue; // FIXME for now assume that alloca pointers and other pointer sources do not mix..
+          const auto & ptrProv = getProvenance(cast<Instruction>(*ptr));
+          joinedProv.merge(ptrProv);
+        }
 
         // update monadic state of all aliased allocas
         auto itEffect = instMap.find(&inst);
@@ -251,12 +284,12 @@ AllocaSSA::compute() {
           memEffect = itEffect->second;
         }
 
-        if (ptrProv.isTop()) {
+        if (joinedProv.isTop()) {
           for (auto * aliasedAllocs : allocVec) {
             lastDefMap[aliasedAllocs] = memEffect;
           }
         } else {
-          for (auto * aliasedAllocs : ptrProv.allocs) {
+          for (auto * aliasedAllocs : joinedProv.allocs) {
             lastDefMap[aliasedAllocs] = memEffect;
           }
         }
