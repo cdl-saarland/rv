@@ -21,9 +21,9 @@ int main(int argc, char ** argv) {
 
   const uint n = vectorWidth * 800;
 
-  int * A = allocateRandArray<int>(n);
-  int * B = allocateRandArray<int>(n);
-  int * C = allocateRandArray<int>(n);
+  int * A = allocateRandArray<int>(n*2);
+  int * B = allocateRandArray<int>(n*2);
+  int * C = allocateRandArray<int>(n*2);
 
   foo(A, C, B, n);
 
