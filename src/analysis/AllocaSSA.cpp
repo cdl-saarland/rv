@@ -18,7 +18,8 @@ using namespace llvm;
 namespace rv {
 
 // static
-PtrProvenance AllocaSSA::emptyProv;
+PtrProvenance AllocaSSA::emptyProvSingle;
+PtrProvenance AllocaSSA::externalProvSingle(ProvType::External);
 
 const Value*
 GetAccessedPointer(const Instruction & I) {

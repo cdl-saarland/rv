@@ -364,23 +364,6 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
     mWorklist.push(inst);
     IF_DEBUG_VA errs() << "Inserted user of updated " << *V << ":" << *user << "\n";
   }
-
-  const Instruction* I = dyn_cast<Instruction>(V);
-  if (!I || getShape(I).isUniform()) return;
-
-  // Push allocas used by this non-uniform value
-  for (const Value* op : I->operands()) {
-    // Skip GEPs
-    while (auto* gep = dyn_cast<GetElementPtrInst>(op)) op = gep->getPointerOperand();
-
-    if (!isa<AllocaInst>(op))      continue; // Only allocas
-    if (!getShape(op).isUniform()) continue; // Already processed
-
-    // taint the alloca
-    updateShape(op, VectorShape::varying()); // alloca was tainted by divergent accesses (divergent value store or divergent address)
-
-    IF_DEBUG_VA errs() << "Inserted (transitive) alloca operand of " << *V << ":" << *op << "\n";
-  }
 }
 
 VectorShape VectorizationAnalysis::joinIncomingValues(const PHINode& phi) {
@@ -443,7 +426,18 @@ void VectorizationAnalysis::compute(const Function& F) {
       continue;
     } else {
       // Otw, we can compute the instruction shape
-      New = computeShapeForInst(I);
+      SmallValVec taintedPtrOps;
+      New = computeShapeForInst(I, taintedPtrOps);
+
+      // taint allocas
+      for (auto * ptr : taintedPtrOps) {
+        const auto & prov = allocaSSA.getProvenance(*ptr);
+        for (const auto * allocaInst : prov.allocs) {
+          if (updateShape(allocaInst, VectorShape::varying())) {
+            addDependentValuesToWL(allocaInst);
+          }
+        }
+      }
 
       if (config.vaMethod == Config::VA_Karrenberg) {
         // degrade non-cont negatively strided shapes
@@ -510,7 +504,7 @@ HasSideEffects(const Function & func) {
   return true;
 }
 
-VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
+VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I, SmallValVec & taintedOps) {
   // always default to the naive transformer (only top or bottom)
   if (config.vaMethod == Config::VA_TopBot) { return computeGenericArithmeticTransfer(*I); }
 
@@ -632,6 +626,20 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
       const Function * callee = dyn_cast<Function>(calledValue);
       if (!callee) return VectorShape::varying(); // calling a non-function
 
+       // memcpy shape is uniform if src ptr shape is uniform
+      Intrinsic::ID id = callee->getIntrinsicID();
+      if (id == Intrinsic::memcpy) {
+        auto & mcInst = cast<MemCpyInst>(call);
+        auto srcShape = getShape(mcInst.getSource());
+        if (!srcShape.isUniform()) taintedOps.push_back(mcInst.getDest());
+        return srcShape.isUniform() ? srcShape : VectorShape::varying();
+      } else if (id == Intrinsic::memmove) {
+        auto & movInst = cast<MemMoveInst>(call);
+        auto srcShape = getShape(movInst.getSource());
+        if (!srcShape.isUniform()) taintedOps.push_back(movInst.getDest());
+        return srcShape.isUniform() ? srcShape : VectorShape::varying();
+      }
+
       // If the function is rv_align, use the alignment information
       if (callee->getName() == "rv_align") {
         auto shape = getShape(I->getOperand(0));
@@ -674,18 +682,11 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I) {
 
     case Instruction::Store:
     {
-      const Value* pointer = I->getOperand(0);
-      const Value* value = I->getOperand(1);
-      auto storeOpShape = VectorShape::join(getShape(value), getShape(pointer));
-
-#if 0
-      // FIXME superseeded by AllocaSSA
-      // query prede
-      if (storeOpShape.isUniform() && mControlDivergentBlocks.count(I->getParent())) {
-        return VectorShape::varying();
-      }
-#endif
-      return storeOpShape;
+      auto & storeInst = cast<StoreInst>(*I);
+      auto valShape = getShape(storeInst.getValueOperand());
+      auto ptrShape = getShape(storeInst.getPointerOperand());
+      if (!valShape.isUniform()) taintedOps.push_back(storeInst.getPointerOperand());
+      return VectorShape::join(ptrShape, valShape.isUniform() ? valShape : VectorShape::varying());
     }
 
     case Instruction::Select:

@@ -61,6 +61,7 @@ public:
   bool runOnFunction(llvm::Function& F) override;
 };
 
+using SmallValVec = llvm::SmallVector<const llvm::Value*, 2>;
 class VectorizationAnalysis {
   Config config;
   PlatformInfo & platInfo;
@@ -118,7 +119,7 @@ private:
   VectorShape computePHIShape(const llvm::PHINode& phi);
 
   // only call these if all operands have defined shape
-  VectorShape computeShapeForInst(const llvm::Instruction* I);
+  VectorShape computeShapeForInst(const llvm::Instruction* I, SmallValVec & taintedOps);
   VectorShape computeShapeForBinaryInst(const llvm::BinaryOperator* I);
   VectorShape computeShapeForCastInst(const llvm::CastInst* I);
 

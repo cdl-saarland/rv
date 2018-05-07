@@ -119,7 +119,8 @@ struct Effect : public Desc {
 class AllocaSSA {
   Region & region;
   std::map<const llvm::Instruction*, PtrProvenance> provMap;
-  static PtrProvenance emptyProv;
+  static PtrProvenance emptyProvSingle; // bottom element
+  static PtrProvenance externalProvSingle; // provenance object pointing to external source
 
   using DefMap = std::map<const llvm::AllocaInst*, Desc*>;
   struct BlockSummary {
@@ -177,9 +178,12 @@ class AllocaSSA {
 
 public:
   // pointer provenance
-  const auto & getProvenance(const llvm::Instruction& inst) const {
-    auto it = provMap.find(&inst);
-    if (it == provMap.end()) return emptyProv;
+  const auto & getProvenance(const llvm::Value& val) const {
+    const auto * inst = llvm::dyn_cast<const llvm::Instruction>(&val);
+    if (!inst) return externalProvSingle;
+
+    auto it = provMap.find(inst);
+    if (it == provMap.end()) return emptyProvSingle;
     else return it->second;
   }
 
