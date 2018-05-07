@@ -173,7 +173,7 @@ static
 void
 AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
       const VecDesc VecFuncs[] = {
-//        {"ldexpf", "xldexpf_sse2", 4},
+          // {"ldexpf", "xldexpf_sse2", 4},
           {"ilogbf", "xilogbf_sse2", 4},
           {"fmaf", "xfmaf_sse2", 4},
           {"fabsf", "xfabsf_sse2", 4},
@@ -192,7 +192,7 @@ AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
           {"fmodf", "xfmodf_sse2", 4},
           {"modff", "xmodff_sse2", 4},
 
-//        {"ldexp", "xldexp_sse2", 2},
+          // {"ldexp", "xldexp_sse2", 2},
           {"ilogb", "xilogb_sse2", 2},
           {"fma", "xfma_sse2", 2},
           {"fabs", "xfabs_sse2", 2},
@@ -226,8 +226,8 @@ AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
 
       if (allowImprecise) {
         const VecDesc ImprecVecFuncs[] = {
-//          {"sinf", "xsinf_sse2", 4},
-//          {"cosf", "xcosf_sse2", 4},
+            {"sinf", "xsinf_sse2", 4},
+            {"cosf", "xcosf_sse2", 4},
             {"tanf", "xtanf_sse2", 4},
             {"asinf", "xasinf_sse2", 4},
             {"acosf", "xacosf_sse2", 4},
@@ -248,15 +248,15 @@ AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
             {"expm1f", "xexpm1f_sse2", 4},
             {"log10f", "xlog10f_sse2", 4},
             {"log1pf", "xlog1pf_sse2", 4},
-            {"sqrtf", "xsqrtf_u05_sse2", 4},
+            {"sqrtf", "xsqrtf_u35_sse2", 4},
             {"hypotf", "xhypotf_u05_sse2", 4},
             {"lgammaf", "xlgammaf_u1_sse2", 4},
             {"tgammaf", "xtgammaf_u1_sse2", 4},
             {"erff", "xerff_u1_sse2", 4},
             {"erfcf", "xerfcf_u15_sse2", 4},
 
-//          {"sin", "xsin_sse2", 2},
-//          {"cos", "xcos_sse2", 2},
+            {"sin", "xsin_sse2", 2},
+            {"cos", "xcos_sse2", 2},
             {"tan", "xtan_sse2", 2},
             {"asin", "xasin_sse2", 2},
             {"acos", "xacos_sse2", 2},
@@ -277,7 +277,7 @@ AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
             {"expm1", "xexpm1_sse2", 2},
             {"log10", "xlog10_sse2", 2},
             {"log1p", "xlog1p_sse2", 2},
-            {"sqrt", "xsqrt_u05_sse2", 2},
+            {"sqrt", "xsqrt_u35_sse2", 2},
             {"hypot", "xhypot_u05_sse2", 2},
             {"lgamma", "xlgamma_u1_sse2", 2},
             {"tgamma", "xtgamma_u1_sse2", 2},
@@ -289,7 +289,7 @@ AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.log.f32", "xlogf_sse", 4},
             {"llvm.exp.f32", "xexpf_sse", 4},
             {"llvm.pow.f32", "xpowf_sse", 4},
-            {"llvm.sqrt.f32", "xsqrtf_u05_sse", 4},
+            {"llvm.sqrt.f32", "xsqrtf_u35_sse", 4},
             {"llvm.exp2.f32", "xexp2f_sse", 4},
             {"llvm.log10.f32", "xlog10f_sse", 4},
             {"llvm.sin.f64", "xsin_sse", 2},
@@ -297,7 +297,7 @@ AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.log.f64", "xlog_sse", 2},
             {"llvm.exp.f64", "xexp_sse", 2},
             {"llvm.pow.f64", "xpow_sse", 2},
-            {"llvm.sqrt.f64", "xsqrt_u05_sse", 2},
+            {"llvm.sqrt.f64", "xsqrt_u35_sse", 2},
             {"llvm.exp2.f64", "xexp2_sse", 2},
             {"llvm.log10.f64", "xlog10_sse", 2}
         };
@@ -309,7 +309,7 @@ static
 void
 AddMappings_AVX(PlatformInfo & platInfo, bool allowImprecise) {
       const VecDesc VecFuncs[] = {
-//        {"ldexpf", "xldexpf_avx", 8},
+          // {"ldexpf", "xldexpf_avx", 8},
           {"ilogbf", "xilogbf_avx", 8},
           {"fmaf", "xfmaf_avx", 8},
           {"fabsf", "xfabsf_avx", 8},
@@ -328,7 +328,7 @@ AddMappings_AVX(PlatformInfo & platInfo, bool allowImprecise) {
           {"fmodf", "xfmodf_avx", 8},
           {"modff", "xmodff_avx", 8},
 
-//        {"ldexp", "xldexp_avx", 4},
+          // {"ldexp", "xldexp_avx", 4},
           {"ilogb", "xilogb_avx", 4},
           {"fma", "xfma_avx", 4},
           {"fabs", "xfabs_avx", 4},
@@ -362,8 +362,8 @@ AddMappings_AVX(PlatformInfo & platInfo, bool allowImprecise) {
 
       if (allowImprecise) {
         const VecDesc ImprecVecFuncs[] = {
-//          {"sinf", "xsinf_avx", 8},
-//          {"cosf", "xcosf_avx", 8},
+            {"sinf", "xsinf_avx", 8},
+            {"cosf", "xcosf_avx", 8},
             {"tanf", "xtanf_avx", 8},
             {"asinf", "xasinf_avx", 8},
             {"acosf", "xacosf_avx", 8},
@@ -384,15 +384,15 @@ AddMappings_AVX(PlatformInfo & platInfo, bool allowImprecise) {
             {"expm1f", "xexpm1f_avx", 8},
             {"log10f", "xlog10f_avx", 8},
             {"log1pf", "xlog1pf_avx", 8},
-            {"sqrtf", "xsqrtf_u05_avx", 8},
+            {"sqrtf", "xsqrtf_u35_avx", 8},
             {"hypotf", "xhypotf_u05_avx", 8},
             {"lgammaf", "xlgammaf_u1_avx", 8},
             {"tgammaf", "xtgammaf_u1_avx", 8},
             {"erff", "xerff_u1_avx", 8},
             {"erfcf", "xerfcf_u15_avx", 8},
 
-//          {"sin", "xsin_avx", 4},
-//          {"cos", "xcos_avx", 4},
+            {"sin", "xsin_avx", 4},
+            {"cos", "xcos_avx", 4},
             {"tan", "xtan_avx", 4},
             {"asin", "xasin_avx", 4},
             {"acos", "xacos_avx", 4},
@@ -413,7 +413,7 @@ AddMappings_AVX(PlatformInfo & platInfo, bool allowImprecise) {
             {"expm1", "xexpm1_avx", 4},
             {"log10", "xlog10_avx", 4},
             {"log1p", "xlog1p_avx", 4},
-            {"sqrt", "xsqrt_u05_avx", 4},
+            {"sqrt", "xsqrt_u35_avx", 4},
             {"hypot", "xhypot_u05_avx", 4},
             {"lgamma", "xlgamma_u1_avx", 4},
             {"tgamma", "xtgamma_u1_avx", 4},
@@ -425,7 +425,7 @@ AddMappings_AVX(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.log.f32", "xlogf_avx", 8},
             {"llvm.exp.f32", "xexpf_avx", 8},
             {"llvm.pow.f32", "xpowf_avx", 8},
-            {"llvm.sqrt.f32", "xsqrtf_u05_avx", 8},
+            {"llvm.sqrt.f32", "xsqrtf_u35_avx", 8},
             {"llvm.exp2.f32", "xexp2f_avx", 8},
             {"llvm.log10.f32", "xlog10f_avx", 8},
             {"llvm.sin.f64", "xsin_avx", 4},
@@ -433,7 +433,7 @@ AddMappings_AVX(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.log.f64", "xlog_avx", 4},
             {"llvm.exp.f64", "xexp_avx", 4},
             {"llvm.pow.f64", "xpow_avx", 4},
-            {"llvm.sqrt.f64", "xsqrt_u05_avx", 4},
+            {"llvm.sqrt.f64", "xsqrt_u35_avx", 4},
             {"llvm.exp2.f64", "xexp2_avx", 4},
             {"llvm.log10.f64", "xlog10_avx", 4}
         };
@@ -446,7 +446,7 @@ static
 void
 AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
       const VecDesc VecFuncs[] = {
-//        {"ldexpf", "xldexpf_avx2", 8},
+          // {"ldexpf", "xldexpf_avx2", 8},
           {"ilogbf", "xilogbf_avx2", 8},
           {"fmaf", "xfmaf_avx2", 8},
           {"fabsf", "xfabsf_avx2", 8},
@@ -465,7 +465,7 @@ AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
           {"fmodf", "xfmodf_avx2", 8},
           {"modff", "xmodff_avx2", 8},
 
-//        {"ldexp", "xldexp_avx2", 4},
+          // {"ldexp", "xldexp_avx2", 4},
           {"ilogb", "xilogb_avx2", 4},
           {"fma", "xfma_avx2", 4},
           {"fabs", "xfabs_avx2", 4},
@@ -506,8 +506,8 @@ AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
 
       if (allowImprecise) {
         const VecDesc ImprecVecFuncs[] = {
-//          {"sinf", "xsinf_avx2", 8},
-//          {"cosf", "xcosf_avx2", 8},
+            {"sinf", "xsinf_avx2", 8},
+            {"cosf", "xcosf_avx2", 8},
             {"tanf", "xtanf_avx2", 8},
             {"asinf", "xasinf_avx2", 8},
             {"acosf", "xacosf_avx2", 8},
@@ -528,15 +528,15 @@ AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
             {"expm1f", "xexpm1f_avx2", 8},
             {"log10f", "xlog10f_avx2", 8},
             {"log1pf", "xlog1pf_avx2", 8},
-            {"sqrtf", "xsqrtf_u05_avx2", 8},
+            {"sqrtf", "xsqrtf_u35_avx2", 8},
             {"hypotf", "xhypotf_u05_avx2", 8},
             {"lgammaf", "xlgammaf_u1_avx2", 8},
             {"tgammaf", "xtgammaf_u1_avx2", 8},
             {"erff", "xerff_u1_avx2", 8},
             {"erfcf", "xerfcf_u15_avx2", 8},
 
-//          {"sin", "xsin_avx2", 4},
-//          {"cos", "xcos_avx2", 4},
+            {"sin", "xsin_avx2", 4},
+            {"cos", "xcos_avx2", 4},
             {"tan", "xtan_avx2", 4},
             {"asin", "xasin_avx2", 4},
             {"acos", "xacos_avx2", 4},
@@ -557,7 +557,7 @@ AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
             {"expm1", "xexpm1_avx2", 4},
             {"log10", "xlog10_avx2", 4},
             {"log1p", "xlog1p_avx2", 4},
-            {"sqrt", "xsqrt_u05_avx2", 4},
+            {"sqrt", "xsqrt_u35_avx2", 4},
             {"hypot", "xhypot_u05_avx2", 4},
             {"lgamma", "xlgamma_u1_avx2", 4},
             {"tgamma", "xtgamma_u1_avx2", 4},
@@ -569,7 +569,7 @@ AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.log.f32", "xlogf_avx2", 8},
             {"llvm.exp.f32", "xexpf_avx2", 8},
             {"llvm.pow.f32", "xpowf_avx2", 8},
-            {"llvm.sqrt.f32", "xsqrtf_u05_avx2", 8},
+            {"llvm.sqrt.f32", "xsqrtf_u35_avx2", 8},
             {"llvm.exp2.f32", "xexp2f_avx2", 8},
             {"llvm.log10.f32", "xlog10f_avx2", 8},
             {"llvm.sin.f64", "xsin_avx2", 4},
@@ -577,7 +577,7 @@ AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.log.f64", "xlog_avx2", 4},
             {"llvm.exp.f64", "xexp_avx2", 4},
             {"llvm.pow.f64", "xpow_avx2", 4},
-            {"llvm.sqrt.f64", "xsqrt_u05_avx2", 4},
+            {"llvm.sqrt.f64", "xsqrt_u35_avx2", 4},
             {"llvm.exp2.f64", "xexp2_avx2", 4},
             {"llvm.log10.f64", "xlog10_avx2", 4}
         };
@@ -589,7 +589,7 @@ static
 void
 AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
       const VecDesc VecFuncs[] = {
-//        {"ldexpf", "xldexpf_avx512", 16},
+          // {"ldexpf", "xldexpf_avx512", 16},
           {"ilogbf", "xilogbf_avx512", 16},
           {"fmaf", "xfmaf_avx512", 16},
           {"fabsf", "xfabsf_avx512", 16},
@@ -608,7 +608,7 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
           {"fmodf", "xfmodf_avx512", 16},
           {"modff", "xmodff_avx512", 16},
 
-//        {"ldexp", "xldexp_avx512", 8},
+          // {"ldexp", "xldexp_avx512", 8},
           {"ilogb", "xilogb_avx512", 8},
           {"fma", "xfma_avx512", 8},
           {"fabs", "xfabs_avx512", 8},
@@ -649,8 +649,8 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
 
       if (allowImprecise) {
         const VecDesc ImprecVecFuncs[] = {
-//          {"sinf", "xsinf_avx512", 16},
-//          {"cosf", "xcosf_avx512", 16},
+            {"sinf", "xsinf_avx512", 16},
+            {"cosf", "xcosf_avx512", 16},
             {"tanf", "xtanf_avx512", 16},
             {"asinf", "xasinf_avx512", 16},
             {"acosf", "xacosf_avx512", 16},
@@ -671,15 +671,15 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
             {"expm1f", "xexpm1f_avx512", 16},
             {"log10f", "xlog10f_avx512", 16},
             {"log1pf", "xlog1pf_avx512", 16},
-            {"sqrtf", "xsqrtf_u05_avx512", 16},
+            {"sqrtf", "xsqrtf_u35_avx512", 16},
             {"hypotf", "xhypotf_u05_avx512", 16},
             {"lgammaf", "xlgammaf_u1_avx512", 16},
             {"tgammaf", "xtgammaf_u1_avx512", 16},
             {"erff", "xerff_u1_avx512", 16},
             {"erfcf", "xerfcf_u15_avx512", 16},
 
-//          {"sin", "xsin_avx512", 8},
-//          {"cos", "xcos_avx512", 8},
+            {"sin", "xsin_avx512", 8},
+            {"cos", "xcos_avx512", 8},
             {"tan", "xtan_avx512", 8},
             {"asin", "xasin_avx512", 8},
             {"acos", "xacos_avx512", 8},
@@ -700,7 +700,7 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
             {"expm1", "xexpm1_avx512", 8},
             {"log10", "xlog10_avx512", 8},
             {"log1p", "xlog1p_avx512", 8},
-            {"sqrt", "xsqrt_u05_avx512", 8},
+            {"sqrt", "xsqrt_u35_avx512", 8},
             {"hypot", "xhypot_u05_avx512", 8},
             {"lgamma", "xlgamma_u1_avx512", 8},
             {"tgamma", "xtgamma_u1_avx512", 8},
@@ -712,7 +712,7 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.log.f32", "xlogf_avx512", 16},
             {"llvm.exp.f32", "xexpf_avx512", 16},
             {"llvm.pow.f32", "xpowf_avx512", 16},
-            {"llvm.sqrt.f32", "xsqrtf_u05_avx512", 16},
+            {"llvm.sqrt.f32", "xsqrtf_u35_avx512", 16},
             {"llvm.exp2.f32", "xexp2f_avx512", 16},
             {"llvm.log10.f32", "xlog10f_avx512", 16},
             {"llvm.sin.f64", "xsin_avx512", 8},
@@ -720,7 +720,7 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.log.f64", "xlog_avx512", 8},
             {"llvm.exp.f64", "xexp_avx512", 8},
             {"llvm.pow.f64", "xpow_avx512", 8},
-            {"llvm.sqrt.f64", "xsqrt_u05_avx512", 8},
+            {"llvm.sqrt.f64", "xsqrt_u35_avx512", 8},
             {"llvm.exp2.f64", "xexp2_avx512", 8},
             {"llvm.log10.f64", "xlog10_avx512", 8}
         };
@@ -732,7 +732,7 @@ static
 void
 AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
       const VecDesc VecFuncs[] = {
-//        {"ldexpf", "xldexpf_advsimd", 2},
+          // {"ldexpf", "xldexpf_advsimd", 2},
           {"ilogbf", "xilogbf_advsimd", 2},
           {"fmaf", "xfmaf_advsimd", 2},
           {"fabsf", "xfabsf_advsimd", 2},
@@ -751,7 +751,7 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
           {"fmodf", "xfmodf_advsimd", 2},
           {"modff", "xmodff_advsimd", 2},
 
-//        {"ldexp", "xldexp_advsimd", 8},
+          // {"ldexp", "xldexp_advsimd", 8},
           {"ilogb", "xilogb_advsimd", 8},
           {"fma", "xfma_advsimd", 8},
           {"fabs", "xfabs_advsimd", 8},
@@ -792,8 +792,8 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
 
       if (allowImprecise) {
         const VecDesc ImprecVecFuncs[] = {
-//          {"sinf", "xsinf_advsimd", 4},
-//          {"cosf", "xcosf_advsimd", 4},
+            {"sinf", "xsinf_advsimd", 4},
+            {"cosf", "xcosf_advsimd", 4},
             {"tanf", "xtanf_advsimd", 4},
             {"asinf", "xasinf_advsimd", 4},
             {"acosf", "xacosf_advsimd", 4},
@@ -814,15 +814,15 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
             {"expm1f", "xexpm1f_advsimd", 4},
             {"log10f", "xlog10f_advsimd", 4},
             {"log1pf", "xlog1pf_advsimd", 4},
-            {"sqrtf", "xsqrtf_u05_advsimd", 4},
+            {"sqrtf", "xsqrtf_u35_advsimd", 4},
             {"hypotf", "xhypotf_u05_advsimd", 4},
             {"lgammaf", "xlgammaf_u1_advsimd", 4},
             {"tgammaf", "xtgammaf_u1_advsimd", 4},
             {"erff", "xerff_u1_advsimd", 4},
             {"erfcf", "xerfcf_u15_advsimd", 4},
 
-//          {"sin", "xsin_advsimd", 2},
-//          {"cos", "xcos_advsimd", 2},
+            {"sin", "xsin_advsimd", 2},
+            {"cos", "xcos_advsimd", 2},
             {"tan", "xtan_advsimd", 2},
             {"asin", "xasin_advsimd", 2},
             {"acos", "xacos_advsimd", 2},
@@ -843,7 +843,7 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
             {"expm1", "xexpm1_advsimd", 2},
             {"log10", "xlog10_advsimd", 2},
             {"log1p", "xlog1p_advsimd", 2},
-            {"sqrt", "xsqrt_u05_advsimd", 2},
+            {"sqrt", "xsqrt_u35_advsimd", 2},
             {"hypot", "xhypot_u05_advsimd", 2},
             {"lgamma", "xlgamma_u1_advsimd", 2},
             {"tgamma", "xtgamma_u1_advsimd", 2},
@@ -855,7 +855,7 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.log.f32", "xlogf_advsimd", 4},
             {"llvm.exp.f32", "xexpf_advsimd", 4},
             {"llvm.pow.f32", "xpowf_advsimd", 4},
-            {"llvm.sqrt.f32", "xsqrtf_u05_advsimd", 4},
+            {"llvm.sqrt.f32", "xsqrtf_u35_advsimd", 4},
             {"llvm.exp2.f32", "xexp2f_advsimd", 4},
             {"llvm.log10.f32", "xlog10f_advsimd", 4},
             {"llvm.sin.f64", "xsin_advsimd", 2},
@@ -863,7 +863,7 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.log.f64", "xlog_advsimd", 2},
             {"llvm.exp.f64", "xexp_advsimd", 2},
             {"llvm.pow.f64", "xpow_advsimd", 2},
-            {"llvm.sqrt.f64", "xsqrt_u05_advsimd", 2},
+            {"llvm.sqrt.f64", "xsqrt_u35_advsimd", 2},
             {"llvm.exp2.f64", "xexp2_advsimd", 2},
             {"llvm.log10.f64", "xlog10_advsimd", 2}
         };
