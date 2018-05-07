@@ -13,6 +13,8 @@
 #include <cmath>
 #include <limits>
 
+#include <random>
+
 #include "launcherTools.h"
 
 extern "C" float foo(int u, float t);
@@ -38,12 +40,15 @@ int main(int argc, char ** argv) {
   const uint vectorWidth = 8;
   const uint numVectors = 100;
 
+  std::mt19937 randSource(42);
+  std::uniform_real_distribution<float> fRand;
+
   for (unsigned i = 0; i < numVectors; ++i) {
     int a = i;
     float b[8];
 
     for (uint i = 0; i < vectorWidth; ++i) {
-      b[i] = (float) rand();
+      b[i] = fRand(randSource);
     }
 
     float8 rVec = foo_SIMD(a, *((float8*) &b));
