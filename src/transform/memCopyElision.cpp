@@ -8,10 +8,16 @@
 // #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/IntrinsicInst.h>
 
+#include "rvConfig.h"
+
 using namespace rv;
 using namespace llvm;
 
+#if 1
+#define IF_DEBUG_MCE IF_DEBUG
+#else
 #define IF_DEBUG_MCE if (true)
+#endif
 
 bool
 MemCopyElision::IsDivergent(Instruction & inst) const {
