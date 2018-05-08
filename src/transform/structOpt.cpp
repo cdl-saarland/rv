@@ -21,7 +21,7 @@ using namespace llvm;
 #if 1
 #define IF_DEBUG_SO IF_DEBUG
 #else
-#define IF_DEBUG_SO if (false)
+#define IF_DEBUG_SO if (true)
 #endif
 
 namespace rv {
@@ -183,7 +183,7 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
     auto * load = dyn_cast<LoadInst>(inst);
     auto * gep = dyn_cast<GetElementPtrInst>(inst);
     auto * phi = dyn_cast<PHINode>(inst);
-    auto * cast = dyn_cast<CastInst>(inst);
+    auto * castInst = dyn_cast<CastInst>(inst);
 
   // transform this (final) gep
     if (load || store) {
@@ -235,20 +235,27 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       continue; // skip lifetime/BC users
 
     } else if (IsLoadStoreIntrinsicUse(inst)) {
+      IRBuilder<> builder(inst->getParent(), inst->getIterator());
       for (size_t i = 0, n = inst->getNumOperands(); i < n; ++i) {
-        if (transformMap.count(inst->getOperand(i)) != 0)
-          inst->setOperand(i, transformMap[inst->getOperand(i)]);
+        if (transformMap.count(inst->getOperand(i)) == 0) continue;
+        auto vecPtrVal = transformMap[inst->getOperand(i)];
+        auto * vecElemTy = cast<VectorType>(vecPtrVal->getType()->getPointerElementType());
+        auto * plainElemTy = vecElemTy->getElementType();
+        auto * castElemVal = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
+        const uint alignment = layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
+        vecInfo.setVectorShape(*castElemVal, VectorShape::uni(alignment));
+        inst->setOperand(i, castElemVal);
       }
 
       RemapLoadStoreIntrinsicShape(inst, vecInfo);
       continue;
 
-    } else if (cast) {
-      auto vecTy = vectorizeType(*cast->getDestTy()->getPointerElementType());
-      auto vecPtrTy = PointerType::get(vecTy, cast->getDestTy()->getPointerAddressSpace());
-      auto vecBitCast = CastInst::CreatePointerCast(transformMap[cast->getOperand(0)], vecPtrTy, cast->getName(), cast);
-      vecInfo.setVectorShape(*vecBitCast, VectorShape::uni());
-      transformMap[cast] = vecBitCast;
+    } else if (castInst) {
+      auto vecTy = vectorizeType(*castInst->getDestTy()->getPointerElementType());
+      auto vecPtrTy = PointerType::get(vecTy, castInst->getDestTy()->getPointerAddressSpace());
+      auto vecBitCast = CastInst::CreatePointerCast(transformMap[castInst->getOperand(0)], vecPtrTy, castInst->getName(), castInst);
+      vecInfo.setVectorShape(*vecBitCast, VectorShape::cont()); // TODO alignment
+      transformMap[castInst] = vecBitCast;
     } else {
       assert(isa<AllocaInst>(inst) && "unexpected instruction in alloca transformation");
     }
