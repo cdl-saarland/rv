@@ -139,6 +139,7 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
 
   auto isReduceOr = startsWith(callee->getName().data(), "rv_reduce_or");
   auto isReduceAnd = startsWith(callee->getName().data(), "rv_reduce_and");
+  auto isGather = startsWith(callee->getName().data(), "llvm.masked.gather");
 
   // Insert instructions after the current one
   if (isReduceOr || isReduceAnd) {
@@ -149,6 +150,85 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
     return isReduceOr
       ? builder.CreateICmpNE(castedArg, Constant::getNullValue(castTy))
       : builder.CreateICmpEQ(castedArg, Constant::getAllOnesValue(castTy));
+  }
+
+  // Replace LLVM's gather intrinsic by an AVX2 gather
+  if (isGather) {
+    // Only support 32bit gathers
+    auto vecTy = callInst->getType();
+    if (vecTy->getVectorNumElements() != 8 ||
+        vecTy->getScalarSizeInBits() != 32)
+      return nullptr;
+
+    // Only support pointers of the form base + index
+    auto gepVal = dyn_cast<GetElementPtrInst>(callInst->getOperand(0));
+    if (!gepVal || gepVal->getNumIndices() != 2)
+      return nullptr;
+    // First index must be zero
+    if (!isa<Constant>(gepVal->getOperand(1)) ||
+        !cast<Constant>(gepVal->getOperand(1))->isNullValue())
+      return nullptr;
+
+    // Find base pointer
+    auto basePtr = gepVal->getPointerOperand();
+    auto baseGep = gepVal;
+    uint64_t offset = 0;
+    uint64_t scale  = 4;
+    uint32_t multiplier = 1;
+    // Only look for one structure level
+    // TODO: handle an indefinite number of structure levels
+    if (basePtr->getType()->isVectorTy()) {
+      baseGep = dyn_cast<GetElementPtrInst>(basePtr);
+      if (!baseGep || baseGep->getNumIndices() != 2 || !gepVal->hasAllConstantIndices())
+        return nullptr;
+      auto structTy = basePtr->getType()->getVectorElementType()->getPointerElementType();
+      if (!structTy->isStructTy() || !cast<Constant>(baseGep->getOperand(1))->isNullValue())
+        return nullptr;
+
+      DataLayout dataLayout(callInst->getModule());
+      auto structLayout = dataLayout.getStructLayout(cast<StructType>(structTy));
+      auto elem = cast<ConstantInt>(gepVal->getOperand(2))->getZExtValue();
+      multiplier = structLayout->getSizeInBytes();
+      offset  = structLayout->getElementOffset(elem);
+      scale   = 1;
+      basePtr = baseGep->getOperand(0);
+      if (basePtr->getType()->isVectorTy())
+        return nullptr;
+    }
+
+    // Only support 32bit indices
+    auto idxVal = baseGep->getOperand(2);
+    if (idxVal->getType()->getScalarSizeInBits() > 32) {
+      // Tolerate sign extensions for indices
+      if (dyn_cast<CastInst>(idxVal) &&
+          cast<CastInst>(idxVal)->getOpcode() == Instruction::CastOps::SExt &&
+          cast<CastInst>(idxVal)->getOperand(0)->getType()->getScalarSizeInBits() <= 32) {
+        idxVal = cast<CastInst>(idxVal)->getOperand(0);
+      } else {
+        return nullptr;
+      }
+    }
+
+    // Convert to an AVX2 gather
+    IRBuilder<> builder(callInst);
+    auto func = Intrinsic::getDeclaration(callInst->getModule(), Intrinsic::x86_avx2_gather_d_ps_256);
+    auto idxTy = VectorType::get(builder.getInt32Ty(), 8);
+    auto valTy = VectorType::get(builder.getFloatTy(), 8);
+    auto ptrTy = PointerType::get(builder.getInt8Ty(), 0);
+    auto maskVal = builder.CreateBitCast(getMaskForValueOrInst(builder, callInst->getOperand(2), 32), valTy);
+    auto extIdx = idxVal->getType()->getScalarSizeInBits() != 32
+      ? builder.CreateSExt(idxVal, idxTy)
+      : idxVal;
+    auto gatherVal = builder.CreateCall(func, {
+      UndefValue::get(valTy),
+      builder.CreatePointerCast(basePtr, ptrTy),
+      builder.CreateAdd(
+        builder.CreateMul(extIdx, builder.CreateVectorSplat(8, builder.getInt32(multiplier))),
+        builder.CreateVectorSplat(8, builder.getInt32(offset))),
+      maskVal,
+      builder.getInt8(scale)
+    });
+    return builder.CreateBitCast(gatherVal, callInst->getType());
   }
   return nullptr;
 }
