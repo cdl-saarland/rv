@@ -39,8 +39,9 @@ Install LLVM+RV, go to rv/test/ and run ./test_rv.py.
 
 ## RV's Outer-Loop Vectorizer
 
-RV ships with an Outer-Loop Vectorizer that picks up on SIMD pragmas in your code.
-RV is designed to deal with any control flow inside those loops. However, the annotated loops themselves need to be parallel counting loops.
+RV ships with frontend passes for Outer-Loop and Whole-Function Vectorization.
+The passes pick up on SIMD pragmas in your code to vectorize the region (loop or function) in question.
+RV is designed to deal with any control flow inside those regions. However, in case of loop vectorization the annotated loops themselves need to be parallel counting loops.
 RV supports a range of value reductions and recurrences, including conditional ones (e.g. `if (i % 3 == 0) a += A[i];` ).
 Be aware that RV will exactly do as you annotated. Specifically, RV does not perform exhaustive legality checks nor is there cost modelling of any kind.
 You'll get what you ordered.
@@ -70,7 +71,7 @@ The command line tester (tool/rvTool.cpp) is a good starting point to learn how 
 
 RV's diagnostic output can be configured through a couple of environment variables. These will be read by the Outer-Loop Vectorizer and rvTool.
 To get a short diagnostic report from every transformation in RV, set the environment variable `RV_REPORT` to any value but `0`.
-To also get a report from RV's Outer-Loop Vectorizer, set the environment variable `LV_DIAG` to a non-`0` value to get feedback.
+To also get a report from RV's Outer-Loop Vectorizer, set the environment variable `LV_DIAG` to a non-`0` value.
 
 ### cmake options
 
