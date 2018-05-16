@@ -24,6 +24,7 @@
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/region/Region.h"
 #include "rv/rvDebug.h"
+#include "rv/intrinsics.h"
 
 #include "rvConfig.h"
 #include "ShuffleBuilder.h"
@@ -326,34 +327,24 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       else vectorizeMemoryInstruction(inst);
     else if (call) {
       // calls need special treatment
-      auto * callee = dyn_cast<Function>(call->getCalledValue());
-      if (callee && callee->getName() == "rv_any")
-        vectorizeReductionCall(call, false);
-      else if (callee && callee->getName() == "rv_all")
-        vectorizeReductionCall(call, true);
-      else if (callee && callee->getName() == "rv_extract")
-        vectorizeExtractCall(call);
-      else if (callee && callee->getName() == "rv_insert")
-        vectorizeInsertCall(call);
-      else if (callee && callee->getName() == "rv_load")
-        vectorizeLoadCall(call);
-      else if (callee && callee->getName() == "rv_store")
-        vectorizeStoreCall(call);
-      else if (callee && callee->getName() == "rv_shuffle")
-        vectorizeShuffleCall(call);
-      else if (callee && callee->getName() == "rv_ballot")
-        vectorizeBallotCall(call);
-      else if (callee && callee->getName() == "rv_align")
-        vectorizeAlignCall(call);
-      else
-        if (config.enableInterleaved) addLazyInstruction(inst);
-        else {
-          if (shouldVectorize(call))
-            vectorizeCallInstruction(call);
+      switch (GetIntrinsicID(*call)) {
+        case RVIntrinsic::Any: vectorizeReductionCall(call, false); break;
+        case RVIntrinsic::All: vectorizeReductionCall(call, true); break;
+        case RVIntrinsic::Extract: vectorizeExtractCall(call); break;
+        case RVIntrinsic::Insert: vectorizeInsertCall(call); break;
+        case RVIntrinsic::VecLoad: vectorizeLoadCall(call); break;
+        case RVIntrinsic::VecStore: vectorizeStoreCall(call); break;
+        case RVIntrinsic::Shuffle: vectorizeShuffleCall(call); break;
+        case RVIntrinsic::Ballot: vectorizeBallotCall(call); break;
+        case RVIntrinsic::Align: vectorizeAlignCall(call); break;
+        default: {
+          if (config.enableInterleaved) addLazyInstruction(inst);
           else {
-            copyCallInstruction(call);
+            if (shouldVectorize(call)) vectorizeCallInstruction(call);
+            else copyCallInstruction(call);
           }
         }
+      }
     } else if (phi)
       // phis need special treatment as they might contain not-yet mapped instructions
       vectorizePHIInstruction(phi);

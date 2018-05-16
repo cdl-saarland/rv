@@ -21,6 +21,7 @@
 #include "rv/rv.h"
 #include "rv/analysis/DFG.h"
 #include "rv/analysis/VectorizationAnalysis.h"
+#include "rv/intrinsics.h"
 
 #include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/transform/divLoopTrans.h"
@@ -65,90 +66,107 @@ VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo, Config _confi
 
 void
 VectorizerInterface::addIntrinsics() {
-    for (Function & func : platInfo.getModule()) {
-        if (func.getName() == "rv_any" ||
-            func.getName() == "rv_all") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying()}
+  for (Function & func : platInfo.getModule()) {
+    switch (GetIntrinsicID(func)) {
+      case RVIntrinsic::Any:
+      case RVIntrinsic::All: {
+        VectorMapping mapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::varying()}
+        );
+        platInfo.addMapping(mapping);
+      } break;
+
+      case RVIntrinsic::Extract: {
+        VectorMapping mapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::varying(), VectorShape::uni()}
+        );
+        platInfo.addMapping(mapping);
+      } break;
+
+      case RVIntrinsic::Insert: {
+        VectorMapping mapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::varying(),
+          {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
+        );
+        platInfo.addMapping(mapping);
+      } break;
+
+      case RVIntrinsic::VecLoad: {
+        VectorMapping mapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::varying(), VectorShape::uni()}
+        );
+        platInfo.addMapping(mapping);
+      } break;
+
+      case RVIntrinsic::VecStore: {
+        VectorMapping mapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
+        );
+        platInfo.addMapping(mapping);
+      } break;
+
+      case RVIntrinsic::Shuffle: {
+        VectorMapping mapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::uni(), VectorShape::uni()}
+        );
+        platInfo.addMapping(mapping);
+      } break;
+
+      case RVIntrinsic::Ballot: {
+        VectorMapping mapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::varying()}
           );
-          platInfo.addMapping(mapping);
-        } else if (func.getName() == "rv_extract") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying(), VectorShape::uni()}
+        platInfo.addMapping(mapping);
+      } break;
+
+      case RVIntrinsic::Align: {
+        VectorMapping mapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::undef(),
+          {VectorShape::undef(), VectorShape::uni()}
           );
-          platInfo.addMapping(mapping);
-        } else if (func.getName() == "rv_insert") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::varying(),
-            {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
-          );
-          platInfo.addMapping(mapping);
-        } else if (func.getName() == "rv_load") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying(), VectorShape::uni()}
-          );
-          platInfo.addMapping(mapping);
-        } else if (func.getName() == "rv_store") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
-          );
-          platInfo.addMapping(mapping);
-        } else if (func.getName() == "rv_shuffle") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::uni(), VectorShape::uni()}
-          );
-          platInfo.addMapping(mapping);
-        } else if (func.getName() == "rv_ballot") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying()}
-            );
-          platInfo.addMapping(mapping);
-        } else if (func.getName() == "rv_align") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::undef(),
-            {VectorShape::undef(), VectorShape::uni()}
-            );
-          platInfo.addMapping(mapping);
-        }
+        platInfo.addMapping(mapping);
+      } break;
+      default: break;
     }
+  }
 }
 
 static void

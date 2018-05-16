@@ -38,6 +38,7 @@ add_rv_library(RV
   analysis/DivPathDecider.cpp
   config.cpp
   init.cpp
+  intrinsics.cpp
   native/MemoryAccessGrouper.cpp
   native/NatBuilder.cpp
   native/ShuffleBuilder.cpp

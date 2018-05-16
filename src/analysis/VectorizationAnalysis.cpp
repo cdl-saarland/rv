@@ -11,6 +11,7 @@
 //
 
 #include "rv/analysis/VectorizationAnalysis.h"
+#include "rv/intrinsics.h"
 
 #include "rvConfig.h"
 #include "utils/rvTools.h"
@@ -629,7 +630,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I, Sma
       }
 
       // If the function is rv_align, use the alignment information
-      if (callee->getName() == "rv_align") {
+      if (IsIntrinsic(call, RVIntrinsic::Align)) {
         auto shape = getShape(I->getOperand(0));
         shape.setAlignment(cast<ConstantInt>(I->getOperand(1))->getZExtValue());
         return shape;
