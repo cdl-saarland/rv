@@ -717,7 +717,7 @@ int main(int argc, char** argv)
     }
     else
     {
-      rv::Dump(*mod);
+      mod->print(llvm::outs(), nullptr, false, true);
     }
 
     return 0;
