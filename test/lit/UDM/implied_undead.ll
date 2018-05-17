@@ -1,5 +1,6 @@
 ; RUN: rvTool -wfv -lower -i %s -k implied_undead -s T_U_U -w 8  | FileCheck %s
-; CHECK: define void @implied_undead_SIMD
+; RUN: rvTool -wfv -lower -i %s -k implied_undead_neg -s T_U_U -w 8  | FileCheck %s
+
 ; CHECK-NOT: mem_block:
 
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
@@ -16,6 +17,23 @@ onAnyTrue:
   br i1 %mask, label %onTrue, label %exit
 
 onTrue:
+  store i32 %uniVal, i32* %uniPtr
+  br label %exit
+
+exit:
+  ret void
+}
+
+define void @implied_undead_neg(i1 %mask, i32* %uniPtr, i32 %uniVal) {
+entry:
+  %negMask = xor i1 %mask, true
+  %any = call i1 @rv_any(i1 %negMask)
+  br i1 %any, label %onAnyFalse, label %exit
+
+onAnyFalse:
+  br i1 %mask, label %exit, label %onFalse
+
+onFalse:
   store i32 %uniVal, i32* %uniPtr
   br label %exit
 
