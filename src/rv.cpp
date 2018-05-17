@@ -153,6 +153,18 @@ VectorizerInterface::addIntrinsics() {
         platInfo.addMapping(mapping);
       } break;
 
+      case RVIntrinsic::PopCount: {
+        VectorMapping mapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::varying()}
+          );
+        platInfo.addMapping(mapping);
+      } break;
+
       case RVIntrinsic::Align: {
         VectorMapping mapping(
           &func,
@@ -382,21 +394,26 @@ static void lowerIntrinsicCall(CallInst* call, Impl impl) {
   call->eraseFromParent();
 }
 
-static void lowerIntrinsicCall(CallInst* call) {
-  auto * callee = call->getCalledFunction();
-  if (callee->getName() == "rv_any" ||
-      callee->getName() == "rv_all" ||
-      callee->getName() == "rv_extract" ||
-      callee->getName() == "rv_shuffle" ||
-      callee->getName() == "rv_align") {
-    lowerIntrinsicCall(call, [] (const CallInst* call) {
-      return call->getOperand(0);
-    });
-  } else if (callee->getName() == "rv_insert") {
-    lowerIntrinsicCall(call, [] (const CallInst* call) {
-      return call->getOperand(2);
-    });
-  } else if (callee->getName() == "rv_load") {
+static void
+lowerIntrinsicCall(CallInst* call) {
+  switch (GetIntrinsicID(*call)) {
+    case RVIntrinsic::Any:
+    case RVIntrinsic::All:
+    case RVIntrinsic::Extract:
+    case RVIntrinsic::Shuffle:
+    case RVIntrinsic::Align: {
+      lowerIntrinsicCall(call, [] (const CallInst* call) {
+        return call->getOperand(0);
+      });
+    } break;
+
+    case RVIntrinsic::Insert: {
+      lowerIntrinsicCall(call, [] (const CallInst* call) {
+        return call->getOperand(2);
+      });
+    } break;
+
+    case RVIntrinsic::VecLoad: {
     lowerIntrinsicCall(call, [] (CallInst* call) {
       IRBuilder<> builder(call);
       auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
@@ -404,7 +421,9 @@ static void lowerIntrinsicCall(CallInst* call) {
       auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
       return builder.CreateLoad(gep);
     });
-  } else if (callee->getName() == "rv_store") {
+                               } break;
+
+    case RVIntrinsic::VecStore: {
     lowerIntrinsicCall(call, [] (CallInst* call) {
       IRBuilder<> builder(call);
       auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
@@ -412,16 +431,22 @@ static void lowerIntrinsicCall(CallInst* call) {
       auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
       return builder.CreateStore(call->getOperand(2), gep);
     });
-  } else if (callee->getName() == "rv_ballot") {
-    lowerIntrinsicCall(call, [] (CallInst* call) {
-      IRBuilder<> builder(call);
-      return builder.CreateZExt(call->getOperand(0), builder.getInt32Ty());
-    });
+  } break;
+
+    case RVIntrinsic::Ballot:
+    case RVIntrinsic::PopCount: {
+      lowerIntrinsicCall(call, [] (CallInst* call) {
+        IRBuilder<> builder(call);
+        return builder.CreateZExt(call->getOperand(0), builder.getInt32Ty());
+      });
+    } break;
+  default: break;
   }
 }
 
 void
 lowerIntrinsics(Module & mod) {
+  // TODO re-implement using RVIntrinsic enum
   const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align"};
   for (int i = 0, n = sizeof(names) / sizeof(names[0]); i < n; i++) {
     auto func = mod.getFunction(names[i]);

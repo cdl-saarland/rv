@@ -17,6 +17,7 @@
 #include <rv/vectorizationInfo.h>
 #include <rv/PlatformInfo.h>
 #include "rv/config.h"
+#include "rv/intrinsics.h"
 
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
 #include <llvm/IR/Dominators.h>
@@ -113,7 +114,11 @@ namespace native {
     void vectorizeStoreCall(llvm::CallInst *rvCall);
     void vectorizeShuffleCall(llvm::CallInst *rvCall);
     void vectorizeBallotCall(llvm::CallInst *rvCall);
+    void vectorizePopCountCall(llvm::CallInst *rvCall);
     void vectorizeAlignCall(llvm::CallInst *rvCall);
+
+    // implement the mask summary function @mode (ballot/popcount) of @vecVal with @builder
+    llvm::Value* createVectorMaskSummary(llvm::Value * vecVal, llvm::IRBuilder<> & builder, rv::RVIntrinsic mode);
 
     void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
     void copyCallInstruction(llvm::CallInst *const scalCall, unsigned laneIdx = 0);
