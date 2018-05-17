@@ -1,12 +1,10 @@
 *.ninja
-*.ll
 **/*.o
 **/*.swp
 lib
 
 **/*.bc
 **/*.so
-test*.ll
 *.cbp
 
 cmake_install.cmake
