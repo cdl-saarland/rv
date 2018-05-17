@@ -33,11 +33,9 @@ namespace rv {
   class ReductionAnalysis;
   class Reduction;
   class StridePattern;
-}
 
-using ValVec = llvm::SmallVector<llvm::Value*, 16>;
+  using ValVec = llvm::SmallVector<llvm::Value*, 16>;
 
-namespace native {
   typedef std::map<const llvm::Function *, const rv::VectorMapping *> VectorMappingMap;
   typedef std::vector<llvm::Value *> LaneValueVector;
   typedef std::vector<llvm::BasicBlock *> BasicBlockVector;

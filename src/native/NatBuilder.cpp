@@ -31,9 +31,9 @@
 
 #define IF_DEBUG_NAT  IF_DEBUG
 
-using namespace native;
 using namespace llvm;
-using namespace rv;
+
+namespace rv {
 
 unsigned numMaskedGather, numMaskedScatter, numGather, numScatter, numPseudoMaskedLoads, numPseudoMaskedStores,
     numInterMaskedLoads, numInterMaskedStores, numPseudoLoads, numPseudoStores, numInterLoads, numInterStores,
@@ -3024,3 +3024,5 @@ void NatBuilder::visitMemInstructions() {
     }
   }
 }
+
+} // namespace rv

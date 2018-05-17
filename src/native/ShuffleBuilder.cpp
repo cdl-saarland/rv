@@ -11,8 +11,9 @@
 #include "ShuffleBuilder.h"
 #include "Utils.h"
 
-using namespace native;
 using namespace llvm;
+
+namespace rv {
 
 void ShuffleBuilder::prepareCroppedVector(IRBuilder<> &builder) {
   Value *croppedVector = inputVectors.back();
@@ -210,3 +211,5 @@ Value *ShuffleBuilder::extractVector(IRBuilder<> &builder, unsigned index, unsig
 
   return builder.CreateShuffleVector(vec, UndefValue::get(vec->getType()), shuffleMask, "extract_shuffle");
 }
+
+} // namespace rv

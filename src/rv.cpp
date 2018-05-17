@@ -368,7 +368,7 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTre
   if (hostLoop) reda.analyze(*hostLoop);
 
 // vectorize with native
-  native::NatBuilder natBuilder(config, platInfo, vecInfo, domTree, MDR, SE, reda);
+  NatBuilder natBuilder(config, platInfo, vecInfo, domTree, MDR, SE, reda);
   natBuilder.vectorize(true, vecInstMap);
 
   // IR Polish phase: promote i1 vectors and perform early instruction (read: intrinsic) selection
