@@ -701,6 +701,7 @@ int main(int argc, char** argv)
 
     } // !finish
 
+    if (OnlyAnalyze) return 0;
 
     //output
     if (hasOutFile)
