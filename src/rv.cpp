@@ -19,7 +19,6 @@
 #include <llvm/Analysis/BranchProbabilityInfo.h>
 
 #include "rv/rv.h"
-#include "rv/analysis/DFG.h"
 #include "rv/analysis/VectorizationAnalysis.h"
 #include "rv/intrinsics.h"
 
@@ -28,7 +27,6 @@
 
 #include "rv/PlatformInfo.h"
 #include "rv/vectorizationInfo.h"
-#include "rv/analysis/DFG.h"
 #include "rv/analysis/reductionAnalysis.h"
 
 #include "rv/transform/Linearizer.h"

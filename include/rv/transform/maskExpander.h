@@ -6,7 +6,6 @@
 
 #include "rv/vectorizationInfo.h"
 #include "llvm/Analysis/PostDominators.h"
-#include "rv/analysis/DFG.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Constants.h"
