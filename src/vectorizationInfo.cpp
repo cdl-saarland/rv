@@ -47,12 +47,16 @@ VectorizationInfo::remapPredicate(Value& dest, Value& old)
 
 void
 VectorizationInfo::dump(const Value * val) const {
-  llvm::raw_ostream & out = llvm::errs();
+  print(val, errs());
+}
+
+void
+VectorizationInfo::print(const Value * val, llvm::raw_ostream & out) const {
   if (!val) return;
 
   auto * block = dyn_cast<const BasicBlock>(val);
   if (block && inRegion(*block)) {
-    dumpBlockInfo(*block);
+    printBlockInfo(*block, out);
   }
 
   if (hasKnownShape(*val)) {
@@ -64,7 +68,11 @@ VectorizationInfo::dump(const Value * val) const {
 
 void
 VectorizationInfo::dumpBlockInfo(const BasicBlock & block) const {
-  llvm::raw_ostream & out = llvm::errs();
+  printBlockInfo(block, errs());
+}
+
+void
+VectorizationInfo::printBlockInfo(const BasicBlock & block, llvm::raw_ostream & out) const {
   const Value * predicate = getPredicate(block);
 
   out << "Block ";
@@ -74,13 +82,16 @@ VectorizationInfo::dumpBlockInfo(const BasicBlock & block) const {
   out << "\n";
 
   for (const Instruction & inst : block) {
-    dump(&inst);
+    print(&inst, out);
   }
   out << "\n";
 }
 
 void VectorizationInfo::dumpArguments() const {
-  llvm::raw_ostream& out = llvm::errs();
+  printArguments(errs());
+}
+
+void VectorizationInfo::printArguments(llvm::raw_ostream & out) const {
   const Function* F = mapping.scalarFn;
 
   out << "\nArguments:\n";
@@ -93,9 +104,13 @@ void VectorizationInfo::dumpArguments() const {
 }
 
 void
-VectorizationInfo::dump() const
+VectorizationInfo::dump() const {
+  print(errs());
+}
+
+void
+VectorizationInfo::print(llvm::raw_ostream & out) const
 {
-    llvm::raw_ostream& out = llvm::errs();
     out << "VectorizationInfo ";
 
     if (region) {
@@ -105,11 +120,11 @@ VectorizationInfo::dump() const
         out << "for function " << mapping.scalarFn->getName() << "\n";
     }
 
-    dumpArguments();
+    printArguments(out);
 
     for (const BasicBlock & block : *mapping.scalarFn) {
       if (!inRegion(block)) continue;
-      dumpBlockInfo(block);
+      printBlockInfo(block, out);
     }
 
     out << "}\n";

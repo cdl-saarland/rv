@@ -56,6 +56,8 @@
 #include "rv/vectorizationInfo.h"
 
 
+static bool OnlyAnalyze = false;
+
 static const char LISTSEPERATOR = '_';
 static const char RETURNSHAPESEPERATOR = 'r';
 
@@ -232,6 +234,11 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     // vectorizationAnalysis
     vectorizer.analyze(vecInfo, domTree, postDomTree, loopInfo);
 
+    if (OnlyAnalyze) {
+      vecInfo.print(outs());
+      return;
+    }
+
     // control conversion
     vectorizer.linearize(vecInfo, domTree, postDomTree, loopInfo);
     // if (!maskEx) fail("mask generation failed.");
@@ -398,6 +405,10 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
 
     // vectorizationAnalysis
     vectorizer.analyze(vecInfo, domTree, postDomTree, loopInfo);
+    if (OnlyAnalyze) {
+      vecInfo.print(outs());
+      return;
+    }
 
     // mask generator
     vectorizer.linearize(vecInfo, domTree, postDomTree, loopInfo);
@@ -493,6 +504,7 @@ PrintHelp() {
             << "[-o OUTPUT_LL] [-w 8] [-s SHAPES] [-x GV_SHAPES]\n"
             << "commands:\n"
             << "-wfv/-loopvec : vectorize a whole-function or an outer loop\n"
+            << "-analyze      : normalize, print vectorization analysis results and exit.\n"
             << "-lower        : lower predicate intrinsics in scalar kernel.\n"
             << "-normalize    : normalize kernel and quit.\n"
             << "options:\n"
@@ -518,6 +530,7 @@ int main(int argc, char** argv)
     std::string kernelName;
     bool hasKernelName = reader.readOption<std::string>("-k", kernelName);
 
+    OnlyAnalyze = reader.hasOption("-analyze"); // global
     bool wfvMode = reader.hasOption("-wfv");
     bool loopVecMode = reader.hasOption("-loopvec");
 
