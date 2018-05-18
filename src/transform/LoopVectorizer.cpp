@@ -271,24 +271,14 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     // LI->verify(*DT); // FIXME unreachable blocks
   }
 
-  // Domin Frontier Graph
-  DFG dfg(*DT);
-  dfg.create(*F);
-
-  // Control Dependence Graph
-  CDG cdg(*PDT);
-  cdg.create(*F);
-
 // early math func lowering
   vectorizer->lowerRuntimeCalls(vecInfo, *LI);
   DT->recalculate(*F);
   PDT->recalculate(*F);
-  cdg.create(*F);
-  dfg.create(*F);
 
 // Vectorize
   // vectorizationAnalysis
-  vectorizer->analyze(vecInfo, cdg, dfg, *LI);
+  vectorizer->analyze(vecInfo, *DT, *PDT, *LI);
 
   if (enableDiagOutput) {
     errs() << "-- VA result --\n";
@@ -300,7 +290,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   assert(L.getLoopPreheader());
 
   // control conversion
-  vectorizer->linearize(vecInfo, cdg, dfg, *LI, *PDT, *DT, PB);
+  vectorizer->linearize(vecInfo, *DT, *PDT, *LI);
 
 
   DominatorTree domTreeNew(

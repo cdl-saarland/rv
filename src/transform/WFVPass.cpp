@@ -88,14 +88,6 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
   PDT.recalculate(*scalarCopy);
   LoopInfo LI(DT);
 
-  // Domin Frontier Graph
-  DFG dfg(DT);
-  dfg.create(*scalarCopy);
-
-  // Control Dependence Graph
-  CDG cdg(PDT);
-  cdg.create(*scalarCopy);
-
 // early math func lowering
   // vectorizer.lowerRuntimeCalls(vecInfo, LI);
   // DT->recalculate(*F);
@@ -109,7 +101,7 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
 
 // Vectorize
   // vectorizationAnalysis
-  vectorizer.analyze(vecInfo, cdg, dfg, LI); // TODO can be shared across jobs
+  vectorizer.analyze(vecInfo, DT, PDT, LI); // TODO can be shared across jobs
 
   if (enableDiagOutput) {
     errs() << "-- VA result --\n";
@@ -120,7 +112,7 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
   IF_DEBUG Dump(*scalarCopy);
 
   // control conversion
-  vectorizer.linearize(vecInfo, cdg, dfg, LI, PDT, DT, nullptr);
+  vectorizer.linearize(vecInfo, DT, PDT, LI, nullptr);
 
   DominatorTree domTreeNew(
       *vecInfo.getMapping().scalarFn); // Control conversion does not preserve

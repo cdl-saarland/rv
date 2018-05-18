@@ -17,6 +17,9 @@
 #include "utils/rvTools.h"
 #include "utils/mathUtils.h"
 
+#include "llvm/IR/Dominators.h"
+#include "llvm/Analysis/PostDominators.h"
+
 #include "rv/analysis/AllocaSSA.h"
 #include <numeric>
 
@@ -51,8 +54,8 @@ char VAWrapperPass::ID = 0;
 
 void
 VAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
-  Info.addRequired<DFGBaseWrapper<true>>();
-  Info.addRequired<DFGBaseWrapper<false>>();
+  Info.addRequired<DominatorTreeWrapperPass>();
+  Info.addRequired<PostDominatorTreeWrapperPass>();
   Info.addRequired<LoopInfoWrapperPass>();
   Info.addRequired<VectorizationInfoProxyPass>();
 
@@ -64,11 +67,11 @@ VAWrapperPass::runOnFunction(Function& F) {
   auto& Vecinfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
   auto& platInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
 
-  const CDG& cdg = *getAnalysis<CDGWrapper>().getDFG();
-  const DFG& dfg = *getAnalysis<DFGWrapper>().getDFG();
+  const auto& domTree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+  const auto& postDomTree = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
   const LoopInfo& LoopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 
-  VectorizationAnalysis vea(config, platInfo, Vecinfo, cdg, dfg, LoopInfo);
+  VectorizationAnalysis vea(config, platInfo, Vecinfo, domTree, postDomTree, LoopInfo);
   vea.analyze();
 
   return false;
@@ -77,8 +80,8 @@ VAWrapperPass::runOnFunction(Function& F) {
 VectorizationAnalysis::VectorizationAnalysis(Config _config,
                                              PlatformInfo& platInfo,
                                              VectorizationInfo& VecInfo,
-                                             const CDG& cdg,
-                                             const DFG& dfg,
+                                             const DominatorTree & domTree,
+                                             const PostDominatorTree& postDomTree,
                                              const LoopInfo& LoopInfo)
 
         : config(_config),
@@ -86,7 +89,7 @@ VectorizationAnalysis::VectorizationAnalysis(Config _config,
           vecInfo(VecInfo),
           layout(platInfo.getDataLayout()),
           mLoopInfo(LoopInfo),
-          BDA(vecInfo.getScalarFunction(), cdg, dfg, LoopInfo),
+          BDA(*vecInfo.getRegion(), domTree, postDomTree, LoopInfo),
           funcRegion(vecInfo.getScalarFunction()),
           funcRegionWrapper(funcRegion), // FIXME
           allocaSSA(funcRegionWrapper)
@@ -292,7 +295,7 @@ void VectorizationAnalysis::analyzeDivergence(const BranchInst* const branch) {
 
   // Find out which regions diverge because of this non-uniform branch
   // The branch is regarded as varying, even if its condition is only strided
-  for (const auto* BB : BDA.getEffectedBlocks(*branch)) {
+  for (const auto* BB : BDA.join_blocks(*branch)) {
     if (!vecInfo.inRegion(*BB) || getShape(BB).isVarying()) {
       continue;
     } // filter out irrelevant nodes (FIXME filter out directly in BDA)

@@ -10,7 +10,6 @@
 #define RV_RV_H
 
 #include "rv/PlatformInfo.h"
-#include "rv/analysis/DFG.h"
 #include "rv/transform/maskExpander.h"
 #include "rv/config.h"
 
@@ -57,8 +56,8 @@ public:
     // (see VectorizationInfo).
     //
     void analyze(VectorizationInfo& vecInfo,
-                 const rv::CDG& cdg,
-                 const rv::DFG& dfg,
+                 const llvm::DominatorTree & domTree,
+                 const llvm::PostDominatorTree & postDomTree,
                  const llvm::LoopInfo& loopInfo);
 
     //
@@ -67,11 +66,9 @@ public:
     //
     bool
     linearize(VectorizationInfo& vecInfo,
-              rv::CDG& cdg,
-              rv::DFG& dfg,
-              llvm::LoopInfo& loopInfo,
-              llvm::PostDominatorTree& postDomTree,
               llvm::DominatorTree& domTree,
+              llvm::PostDominatorTree& postDomTree,
+              llvm::LoopInfo& loopInfo,
               llvm::BranchProbabilityInfo * pbInfo = nullptr);
 
     //

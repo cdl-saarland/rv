@@ -121,8 +121,8 @@ normalizeFunction(Function& F)
 }
 
 void
-vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopInfo, rv::DFG& dfg,
-              rv::CDG& cdg, DominatorTree& domTree, PostDominatorTree& postDomTree)
+vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopInfo,
+              DominatorTree& domTree, PostDominatorTree& postDomTree)
 {
     // assert: function is already normalized
     Module& mod = *parentFn.getParent();
@@ -224,18 +224,16 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     vectorizer.lowerRuntimeCalls(vecInfo, loopInfo);
     domTree.recalculate(parentFn);
     postDomTree.recalculate(parentFn);
-    cdg.create(parentFn);
-    dfg.create(parentFn);
 
     loopInfo.print(errs());
     loopInfo.verify(domTree);
 
 
     // vectorizationAnalysis
-    vectorizer.analyze(vecInfo, cdg, dfg, loopInfo);
+    vectorizer.analyze(vecInfo, domTree, postDomTree, loopInfo);
 
     // control conversion
-    vectorizer.linearize(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
+    vectorizer.linearize(vecInfo, domTree, postDomTree, loopInfo);
     // if (!maskEx) fail("mask generation failed.");
 #if 0
 
@@ -279,18 +277,9 @@ vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
         return;
     }
 
-    // Dominance Frontier Graph
-    rv::DFG dfg(domTree);
-    dfg.create(parentFn);
-
     // post dom
     PostDominatorTree postDomTree;
-
-    // Control Dependence Graph
     postDomTree.recalculate(parentFn);
-    rv::CDG cdg(postDomTree);
-    cdg.create(parentFn);
-
 
     // dump normalized function
     IF_VERBOSE {
@@ -299,7 +288,7 @@ vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
     }
 
     auto* firstLoop = *loopInfo.begin();
-    vectorizeLoop(parentFn, *firstLoop, vectorWidth, loopInfo, dfg, cdg, domTree, postDomTree);
+    vectorizeLoop(parentFn, *firstLoop, vectorWidth, loopInfo, domTree, postDomTree);
 
     // mark region
     // run RV
@@ -387,18 +376,11 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     MemoryDependenceAnalysis mdAnalysis;
     MemoryDependenceResults MDR = mdAnalysis.run(*scalarCopy, fam);
 
-    // Dominance Frontier Graph
-    rv::DFG dfg(domTree);
-    dfg.create(*scalarCopy);
-
     // post dom
     PostDominatorTree postDomTree;
     postDomTree.recalculate(*scalarCopy);
 
     // Control Dependence Graph
-    rv::CDG cdg(postDomTree);
-    cdg.create(*scalarCopy);
-
 
     // dump normalized function
     IF_VERBOSE {
@@ -410,17 +392,15 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     vectorizer.lowerRuntimeCalls(vecInfo, loopInfo);
     domTree.recalculate(*scalarCopy);
     postDomTree.recalculate(*scalarCopy);
-    cdg.create(*scalarCopy);
-    dfg.create(*scalarCopy);
 
     loopInfo.print(errs());
     loopInfo.verify(domTree);
 
     // vectorizationAnalysis
-    vectorizer.analyze(vecInfo, cdg, dfg, loopInfo);
+    vectorizer.analyze(vecInfo, domTree, postDomTree, loopInfo);
 
     // mask generator
-    vectorizer.linearize(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
+    vectorizer.linearize(vecInfo, domTree, postDomTree, loopInfo);
     // if (!maskEx) fail("mask generation failed.");
 
 #if 0

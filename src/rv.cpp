@@ -258,8 +258,8 @@ VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, LoopInfo & l
 
 void
 VectorizerInterface::analyze(VectorizationInfo& vecInfo,
-                             const CDG& cdg,
-                             const DFG& dfg,
+                             const DominatorTree & domTree,
+                             const PostDominatorTree& postDomTree,
                              const LoopInfo& loopInfo)
 {
     IF_DEBUG {
@@ -268,17 +268,15 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
     }
 
     // determines value and control shapes
-    VectorizationAnalysis vea(config, platInfo, vecInfo, cdg, dfg, loopInfo);
+    VectorizationAnalysis vea(config, platInfo, vecInfo, domTree, postDomTree, loopInfo);
     vea.analyze();
 }
 
 bool
 VectorizerInterface::linearize(VectorizationInfo& vecInfo,
-                 CDG& cdg,
-                 DFG& dfg,
-                 LoopInfo& loopInfo,
-                 PostDominatorTree& postDomTree,
                  DominatorTree& domTree,
+                 PostDominatorTree& postDomTree,
+                 LoopInfo& loopInfo,
                  BranchProbabilityInfo * pbInfo)
 {
     // use a fresh domtree here

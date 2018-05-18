@@ -28,8 +28,6 @@
 #include "llvm/Support/GenericDomTree.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "DFG.h"
-
 #include "rv/config.h"
 #include "rv/vectorizationInfo.h"
 #include "rv/vectorMapping.h"
@@ -88,8 +86,8 @@ public:
   VectorizationAnalysis(Config config,
                         PlatformInfo & platInfo,
                         VectorizationInfo& VecInfo,
-                        const CDG& cdg,
-                        const DFG& dfg,
+                        const llvm::DominatorTree & domTree,
+                        const llvm::PostDominatorTree & postDomTree,
                         const llvm::LoopInfo& LoopInfo);
 
   VectorizationAnalysis(const VectorizationAnalysis&) = delete;

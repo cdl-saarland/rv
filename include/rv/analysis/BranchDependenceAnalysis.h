@@ -14,8 +14,9 @@
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/Analysis/LoopInfo.h>
 
-#include "rv/analysis/DFG.h"
-#include "rv/analysis/DivPathDecider.h"
+#include "rv/region/Region.h"
+
+#include <map>
 
 namespace llvm {
   class Function;
@@ -26,11 +27,10 @@ namespace llvm {
   struct PostDominatorTree;
 }
 
+namespace rv {
+
 using ConstBlockSet = llvm::SmallPtrSet<const llvm::BasicBlock*, 4>;
 
-using Edge = llvm::LoopBase<llvm::BasicBlock, llvm::Loop>::Edge;
-
-namespace rv {
 
 /// BranchDependenceAnalysis
 ///
@@ -54,37 +54,24 @@ namespace rv {
 /// This is directly used by the VectorizationAnalysis to propagate control-induced value divergence.
 ///
 class BranchDependenceAnalysis {
-  static ConstBlockSet emptySet;
+  static ConstBlockSet emptyBlockSet;
 
-  mutable DivPathDecider DPD;
-
-  // iterated post dominance frontier
-  llvm::DenseMap<const llvm::BasicBlock*, ConstBlockSet> pdClosureMap;
-  llvm::DenseMap<const llvm::BasicBlock*, ConstBlockSet> domClosureMap;
-
-  llvm::DenseMap<const llvm::TerminatorInst*, ConstBlockSet> effectedBlocks_old;
-  mutable llvm::DenseMap<const llvm::TerminatorInst*, ConstBlockSet> effectedBlocks_new;
-  const CDG & cdg;
-  const DFG & dfg;
+  rv::Region & region;
+  const llvm::DominatorTree & domTree;
+  const llvm::PostDominatorTree & postDomTree;
   const llvm::LoopInfo & loopInfo;
 
-  void computePostDomClosure(const llvm::BasicBlock & x, ConstBlockSet & closure);
-  void computeDomClosure(const llvm::BasicBlock & b, ConstBlockSet & closure);
+  std::map<const llvm::TerminatorInst*, ConstBlockSet*> cachedJoinBlocks;
 
 public:
-  BranchDependenceAnalysis(llvm::Function & F,
-                           const CDG & cdg,
-                           const DFG & dfg,
+  ~BranchDependenceAnalysis();
+  BranchDependenceAnalysis(Region & region,
+                           const llvm::DominatorTree & domTree,
+                           const llvm::PostDominatorTree & postDomTree,
                            const llvm::LoopInfo & loopInfo);
 
   /// \brief returns the set of blocks whose PHI nodes become divergent if @branch is divergent
-  const ConstBlockSet & getEffectedBlocks(const llvm::TerminatorInst & term) const;
-
-  const ConstBlockSet& getEffectedBlocks_old(const llvm::TerminatorInst & term) const {
-    auto it = effectedBlocks_old.find(&term);
-    if (it == effectedBlocks_old.end()) return emptySet;
-    return it->second;
-  }
+  const ConstBlockSet & join_blocks(const llvm::TerminatorInst & term);
 };
 
 } // namespace rv
