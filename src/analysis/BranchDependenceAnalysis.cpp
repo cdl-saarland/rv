@@ -35,69 +35,6 @@ namespace rv {
 
 ConstBlockSet BranchDependenceAnalysis::emptyBlockSet;
 
-inline
-void
-IntersectInPlace(ConstBlockSet & x, const ConstBlockSet & y) {
-  for (auto a : x) {
-    if (!y.count(a)) x.erase(a);
-  }
-}
-
-inline
-ConstBlockSet
-Intersect(const ConstBlockSet & x, const ConstBlockSet & y) {
-  ConstBlockSet res;
-  for (auto a : x) {
-    if (y.count(a)) res.insert(a);
-  }
-  for (auto b : y) {
-    if (x.count(b)) res.insert(b);
-  }
-  return res;
-}
-
-inline
-void MergeIn(ConstBlockSet & m, ConstBlockSet & other) {
-  for (auto b : other) m.insert(b);
-}
-
-inline
-void
-IntersectAndMerge(ConstBlockSet & accu, const ConstBlockSet & a, const ConstBlockSet & b) {
-  for (auto x : a) {
-    if (b.count(x)) {
-      accu.insert(x);
-    }
-  }
-}
-
-inline
-void
-Subtract(ConstBlockSet & a, const ConstBlockSet & b) {
-  for (auto y : b) {
-    a.erase(y);
-  }
-}
-
-inline
-void
-DumpSet(const ConstBlockSet & blocks) {
-  errs() << "{";
-  for (const auto * bb : blocks) {
-    errs() << ", " << bb->getName();
-  }
-  errs() << "}";
-}
-
-inline
-void
-GetDomRegion(DomTreeNodeBase<BasicBlock> & domNode, ConstBlockSet & domRegion) {
-  domRegion.insert(domNode.getBlock());
-  for (auto it = domNode.begin(); it != domNode.end(); ++it) {
-    GetDomRegion(**it, domRegion);
-  }
-}
-
 BranchDependenceAnalysis::BranchDependenceAnalysis(Region & _region,
                            const llvm::DominatorTree & _domTree,
                            const llvm::PostDominatorTree & _postDomTree,
@@ -153,11 +90,16 @@ BranchDependenceAnalysis::join_blocks(const llvm::TerminatorInst & term) {
   // loop exits
   llvm::SmallPtrSet<const BasicBlock*, 4> exitBlocks;
 
+  // immediate successor blocks (of @term)
+  SmallPtrSet<const BasicBlock*, 2> succBlocks;
+
   // bootstrap with branch targets
   for (const auto * succBlock : successors(term.getParent())) {
     if (!region.contains(succBlock)) continue;
 
     auto itPair = defMap.emplace(succBlock, succBlock);
+
+    succBlocks.insert(succBlock);
 
     // immediate loop exit from @term
     const auto * succLoop = loopInfo.getLoopFor(succBlock);
@@ -221,12 +163,14 @@ BranchDependenceAnalysis::join_blocks(const llvm::TerminatorInst & term) {
       const auto * lastSuccDef = itLastDef->second;
 
       // control flow join (establish new def)
-      if (lastSuccDef != defBlock) {
-        IF_DEBUG_BDA { errs() << "\t join @ " << succBlock->getName() << ".\n"; }
-        auto itNewDef = defMap.emplace(succBlock, succBlock).first;
-        worklist.push_back(itNewDef);
-
-        joinBlocks->insert(succBlock);
+      if ((lastSuccDef != defBlock) ||
+          ((defBlock == succBlock) && succBlocks.count(defBlock))
+      ) {
+        if (joinBlocks->insert(succBlock).second) {
+          IF_DEBUG_BDA { errs() << "\t join @ " << succBlock->getName() << ".\n"; }
+          auto itNewDef = defMap.emplace(succBlock, succBlock).first;
+          worklist.push_back(itNewDef);
+        }
       }
     }
   }
