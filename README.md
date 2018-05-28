@@ -14,7 +14,7 @@ For any questions, please get in touch with Simon Moll (moll@cs.uni-saarland.de)
 ## Features
 
 * Support for OpenMP 4.5 `#pragma omp simd` **and** `#pragma omp declare simd` (pass `-fopenmp -Xclang -load libRV.so -mllvm -rv` to Clang and you are set).
-* Implements *Partial Control-Flow Linearization*, S. Moll and S. Hack (PLDI '18), to appear.
+* Implements [*Partial Control-Flow Linearization*](http://compilers.cs.uni-saarland.de/papers/moll_parlin_pldi18.pdf), S. Moll and S. Hack (PLDI '18), to appear.
 * Automatically uses [SLEEF](https://github.com/shibatch/sleef) vector math functions.
 * Whole-Function vectorizer (`min -> min_avx2`).
 * Outer-loop vectorizer.
