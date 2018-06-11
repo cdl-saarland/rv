@@ -25,6 +25,7 @@ RV is an LLVM tool project and integrates into the LLVM build system.
 Clone this repository into llvm/tools/rv where llvm is your LLVM source directory. RV will build along with LLVM.
 Run `git submodule update --init` to pull the SLEEF submodule.
 To enable vectorized complex arithmetic through compiler-rt checkout compiler-rt in llvm/runtimes and configure RV with `RV_ENABLE_CRT=on`.
+RV requires a C++14 build of LLVM (cmake option `-DLLVM_ENABLE_CXX1Y=on`).
 
 ### Build prerequisites 
 
