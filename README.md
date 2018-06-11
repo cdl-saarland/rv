@@ -74,12 +74,12 @@ RV's diagnostic output can be configured through a couple of environment variabl
 To get a short diagnostic report from every transformation in RV, set the environment variable `RV_REPORT` to any value but `0`.
 To also get a report from RV's Outer-Loop Vectorizer, set the environment variable `LV_DIAG` to a non-`0` value.
 
-### cmake options
+### Optional cmake flags
 
 * `RV_ENABLE_CRT:BOOL`
 whether RV should inline and vectorize complex math functions. This makes use of the complex arithmetic in compiler-rt. Defaults to OFF.
 * `RV_TARGETS_TO_BUILD:ListOfTargets`
-List of LLVM targets, for which the SLEEF vector math library should be build. Same format as LLVM_TARGETS_TO_BUILD. RV uses SLEEF to vectorize math functions. Clang has to be able to (cross-)compile for all of these targets or the build will fail. Defaults to "Native", the host target.
+List of LLVM targets, for which the SLEEF vector math library should be built. Same format as `LLVM_TARGETS_TO_BUILD`. RV uses SLEEF to vectorize math functions. Clang has to be able to (cross-)compile for all of these targets or the build will fail. Defaults to "Native", the host target.
 * `RV_DEBUG:BOOL`
 If enabled, RV will produce (very) verbose debug output and run additional consistency checks. Make sure you compile with assertions. Recommended for debugging only. Defaults to OFF.
 
