@@ -758,7 +758,7 @@ NatBuilder::vectorizeLoadCall(CallInst *rvCall) {
     auto * uniVal = requestScalarValue(vecPtr);
     auto addressSpace = uniVal->getType()->getPointerAddressSpace();
     auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
-    auto * gepPtr = builder.CreateGEP(castPtr, { laneId });
+    auto * gepPtr = builder.CreateGEP(castPtr, laneId);
     auto * loadVal = builder.CreateLoad(gepPtr);
     mapScalarValue(rvCall, loadVal);
     return;
@@ -788,7 +788,7 @@ NatBuilder::vectorizeStoreCall(CallInst *rvCall) {
     auto * uniVal = requestScalarValue(vecPtr);
     auto addressSpace = uniVal->getType()->getPointerAddressSpace();
     auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
-    auto * gepPtr = builder.CreateGEP(castPtr, { laneId });
+    auto * gepPtr = builder.CreateGEP(castPtr, laneId );
     auto * store = builder.CreateStore(elemVal, gepPtr);
     mapScalarValue(rvCall, store);
     return;
@@ -968,13 +968,14 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   StringRef calleeName = callee->getName();
   Function * calledFunction = dyn_cast<Function>(callee);
 
+  VectorShapeVec callArgShapes;
+  for (int i = 0; i < (int) scalCall->getNumArgOperands(); ++i) {
+    auto argShape = vecInfo.getVectorShape(*scalCall->getArgOperand(i));
+    callArgShapes.push_back(argShape);
+  }
+
   // look for (proper) mappings with arg shapes
   if (calledFunction) {
-    VectorShapeVec callArgShapes;
-    for (int i = 0; i < (int) scalCall->getNumArgOperands(); ++i) {
-      auto argShape = vecInfo.getVectorShape(*scalCall->getArgOperand(i));
-      callArgShapes.push_back(argShape);
-    }
     bool needsPredication = false; // FIXME query block predicate
     VecMappingShortVec matchVec;
     platInfo.getMappingsForCall(matchVec, *calledFunction, callArgShapes, vecInfo.getVectorWidth(), needsPredication);
@@ -1004,15 +1005,17 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
 
   // TODO re-factor the remainder of this function
   // if calledFunction is vectorizable (standard mapping exists for given vector width), create new call to vector calledFunction
-  if (calledFunction && platInfo.isFunctionVectorizable(calledFunction->getName(), vectorWidth())) {
+  std::unique_ptr<FunctionResolver> funcResolver = nullptr;
+  if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth());
+  if (funcResolver) {
+    errs() << "FOUND RESOLVER!\n";
     CallInst *call = cast<CallInst>(scalCall->clone());
     bool doublePrecision = false;
     if (call->getNumArgOperands() > 0)
       doublePrecision = call->getArgOperand(0)->getType()->isDoubleTy();
-    Module *mod = vecInfo.getMapping().vectorFn->getParent();
-    Function *simdFunc = platInfo.requestVectorizedFunction(calleeName, vectorWidth(), mod, doublePrecision);
-    call->setCalledFunction(simdFunc);
-    call->mutateType(simdFunc->getReturnType());
+    Function &simdFunc = funcResolver->requestVectorized();
+    call->setCalledFunction(&simdFunc);
+    call->mutateType(simdFunc.getReturnType());
     mapOperandsInto(scalCall, call, true);
     mapVectorValue(scalCall, call);
     builder.Insert(call, scalCall->getName());
@@ -1021,22 +1024,22 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
 
   } else {
     // try if we can semi-vectorize the call by replication a smaller vectorized version
-    bool replicate = true;
-    unsigned vecWidth;
-    for (vecWidth = vectorWidth() / 2; calledFunction && vecWidth >= 2; vecWidth /= 2) {
-      if (platInfo.isFunctionVectorizable(calleeName, vecWidth)) {
-        replicate = false;
-        break;
-      }
+    unsigned vecWidth = vectorWidth() / 2;
+    std::unique_ptr<FunctionResolver> funcResolver = nullptr;
+    for (; calledFunction && vecWidth >= 2; vecWidth /= 2) {
+      // FIXME update alignment in callArgShapes
+      funcResolver = platInfo.getResolver(calleeName, *calledFunction->getFunctionType(), callArgShapes, vecWidth);
+      if (funcResolver) break;
     }
+    bool replicate = !funcResolver;
 
     if (!replicate) {
       unsigned replicationFactor = vectorWidth() / vecWidth;
       bool doublePrecision = false;
       if (scalCall->getNumArgOperands() > 0)
         doublePrecision = scalCall->getArgOperand(0)->getType()->isDoubleTy();
-      Module *mod = vecInfo.getMapping().vectorFn->getParent();
-      Function *simdFunc = platInfo.requestVectorizedFunction(calleeName, vecWidth, mod, doublePrecision);
+      Function &simdFunc = funcResolver->requestVectorized();
+
       ShuffleBuilder appender(vectorWidth());
       ShuffleBuilder extractor(vecWidth);
 
@@ -1050,8 +1053,8 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       // replicate vector call
       for (unsigned i = 0; i < replicationFactor; ++i) {
         CallInst *call = cast<CallInst>(scalCall->clone());
-        call->setCalledFunction(simdFunc);
-        call->mutateType(simdFunc->getReturnType());
+        call->setCalledFunction(&simdFunc);
+        call->mutateType(simdFunc.getReturnType());
 
         // insert arguments into call
         for (unsigned j = 0; j < scalCall->getNumArgOperands(); ++j) {
@@ -1125,7 +1128,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     return fallbackVectorize(inst);
   }
 
-  const auto & block = *inst->getParent();
   LoadInst *load = dyn_cast<LoadInst>(inst);
   StoreInst *store = dyn_cast<StoreInst>(inst);
 

@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include <llvm/ADT/StringRef.h>
 #include <llvm/Support/raw_ostream.h>
 
 namespace llvm {
@@ -81,6 +82,11 @@ public:
                                        const VectorShape &shape) {
     return O << shape.str();
   }
+
+  std::string serialize() const;
+  // parse the next shape in @text (starting from nextPos) and return the parsed shape
+  // (setting @nextPos on the next position after the last used character)
+  static VectorShape parse(llvm::StringRef text, int & nextPos);
 };
 
 typedef std::vector<VectorShape> VectorShapeVec;

@@ -15,12 +15,10 @@
 #include "llvm/Analysis/TargetLibraryInfo.h"
 
 namespace rv {
-  // add sleef vector math library
-  bool addSleefMappings(const Config & config, PlatformInfo &platformInfo, bool useImpreciseFunctions);
+  // function resolver for SLEEF
+  void addSleefResolver(const Config & config, PlatformInfo & platInfo, bool allowImprecise);
 
-  llvm::Function *
-  requestSleefFunction(const llvm::StringRef &funcName, llvm::StringRef &vecFuncName, llvm::Module *insertInto, bool doublePrecision);
-
+  // link the compiler-rt code for the specified complex arithmetic function @funcName with @funcTy into @insertInto
   llvm::Function *
   requestScalarImplementation(const llvm::StringRef & funcName, llvm::FunctionType & funcTy, llvm::Module &insertInto);
 }

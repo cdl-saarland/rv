@@ -184,7 +184,7 @@ WFVPass::runOnModule(Module & M) {
   rvConfig.useSLEEF = true;
   PlatformInfo platInfo(M, &TTI, &TLI);
   const bool useImpreciseFunctions = true; // FIXME only in fast-math mode
-  addSleefMappings(rvConfig, platInfo, useImpreciseFunctions);
+  addSleefResolver(rvConfig, platInfo, useImpreciseFunctions);
 
   // add mappings for recursive vectorization
   for (auto & job : wfvJobs) {

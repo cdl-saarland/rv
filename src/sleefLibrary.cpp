@@ -4,10 +4,9 @@
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
-//
-// @author montada
 
 #include "rv/sleefLibrary.h"
+
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Transforms/Utils/Cloning.h>
@@ -15,12 +14,32 @@
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Module.h>
 
+#include "rv/PlatformInfo.h"
 #include "utils/rvTools.h"
 #include "rvConfig.h"
+#include "rv/rv.h"
 
 #include <llvm/IR/Verifier.h>
+#include <vector>
+#include <sstream>
 
+#if 0
+#define IF_DEBUG_SLEEF IF_DEBUG
+#else
+#define IF_DEBUG_SLEEF if (true)
+#endif
+
+
+// used for on-demand mappings
+//
 using namespace llvm;
+
+// vector-length agnostic
+extern const unsigned char * vla_sp_Buffer;
+extern const size_t vla_sp_BufferLen;
+
+extern const unsigned char * vla_dp_Buffer;
+extern const size_t vla_dp_BufferLen;
 
 #ifdef RV_ENABLE_ADVSIMD
 extern const unsigned char * advsimd_sp_Buffer;
@@ -111,28 +130,54 @@ extern const unsigned char * crt_Buffer;
 extern const size_t crt_BufferLen;
 #endif
 
-
 namespace rv {
+
+  // forward decls
+  GlobalValue & cloneGlobalIntoModule(GlobalValue &gv, Module &cloneInto);
+  Constant & cloneConstant(Constant& constVal, Module & cloneInto);
+  Function &cloneFunctionIntoModule(Function &func, Module &cloneInto, StringRef name);
+
+
+
+
+// internal structures for named mappings (without fancily shaped arguments)
+struct PlainVecDesc {
+  std::string scalarFnName;
+  std::string vectorFnName;
+  int vectorWidth;
+
+  PlainVecDesc(std::string _scalarName, std::string _vectorName, int _width)
+  : scalarFnName(_scalarName), vectorFnName(_vectorName), vectorWidth(_width)
+  {}
+};
+using PlainVecDescVector = std::vector<PlainVecDesc>;
+
+using AddToListFuncType = std::function<void(const PlainVecDescVector&, bool)>;
+
   enum SleefISA {
-    SLEEF_SSE  = 0,
-    SLEEF_AVX  = 1,
-    SLEEF_AVX2 = 2,
-    SLEEF_AVX512 = 3,
-    SLEEF_ADVSIMD = 4
+    SLEEF_VLA  = 0,
+    SLEEF_SSE  = 1,
+    SLEEF_AVX  = 2,
+    SLEEF_AVX2 = 3,
+    SLEEF_AVX512 = 4,
+    SLEEF_ADVSIMD = 5,
+    SLEEF_Enum_Entries = 6
   };
 
   inline int sleefModuleIndex(SleefISA isa, bool doublePrecision) {
-    return int(isa) + (doublePrecision ? 5 : 0);
+    return int(isa) + (doublePrecision ? (int) SLEEF_Enum_Entries : 0);
   }
 
 
   static const size_t sleefModuleBufferLens[] = {
+      vla_sp_BufferLen,
       sse_sp_BufferLen,
       avx_sp_BufferLen,
       avx2_sp_BufferLen,
       avx512_sp_BufferLen,
       advsimd_sp_BufferLen,
 
+      vla_dp_BufferLen,
       sse_dp_BufferLen,
       avx_dp_BufferLen,
       avx2_dp_BufferLen,
@@ -141,12 +186,14 @@ namespace rv {
   };
 
   static const unsigned char** sleefModuleBuffers[] = {
+      &vla_sp_Buffer,
       &sse_sp_Buffer,
       &avx_sp_Buffer,
       &avx2_sp_Buffer,
       &avx512_sp_Buffer,
       &advsimd_sp_Buffer,
 
+      &vla_dp_Buffer,
       &sse_dp_Buffer,
       &avx_dp_Buffer,
       &avx2_dp_Buffer,
@@ -155,6 +202,7 @@ namespace rv {
   };
 
   static const size_t extraModuleBufferLens[] = {
+      0, // VLA
       0, // SSE
       0, // AVX
       avx2_extras_BufferLen,
@@ -163,6 +211,7 @@ namespace rv {
   };
 
   static const unsigned char** extraModuleBuffers[] = {
+      nullptr, // VLA
       nullptr, // SSE
       nullptr, // AVX
       &avx2_extras_Buffer,
@@ -171,8 +220,8 @@ namespace rv {
   };
 static
 void
-AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
-      const VecDesc VecFuncs[] = {
+AddMappings_SSE(AddToListFuncType addToList, bool allowImprecise) {
+      PlainVecDescVector VecFuncs = {
           // {"ldexpf", "xldexpf_sse2", 4},
           {"ilogbf", "xilogbf_sse2", 4},
           {"fmaf", "xfmaf_sse2", 4},
@@ -222,10 +271,10 @@ AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
           {"llvm.fmin.f64", "xfmin_sse", 2},
           {"llvm.fmax.f64", "xfmax_sse", 2}
       };
-      platInfo.addVectorizableFunctions(VecFuncs, true);
+      addToList(VecFuncs, true);
 
       if (allowImprecise) {
-        const VecDesc ImprecVecFuncs[] = {
+        PlainVecDescVector ImprecVecFuncs = {
             {"sinf", "xsinf_sse2", 4},
             {"cosf", "xcosf_sse2", 4},
             {"tanf", "xtanf_sse2", 4},
@@ -301,14 +350,14 @@ AddMappings_SSE(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.exp2.f64", "xexp2_sse", 2},
             {"llvm.log10.f64", "xlog10_sse", 2}
         };
-        platInfo.addVectorizableFunctions(ImprecVecFuncs, true);
+        addToList(ImprecVecFuncs, true);
       }
 }
 
 static
 void
-AddMappings_AVX(PlatformInfo & platInfo, bool allowImprecise) {
-      const VecDesc VecFuncs[] = {
+AddMappings_AVX(AddToListFuncType addToList, bool allowImprecise) {
+      PlainVecDescVector VecFuncs = {
           // {"ldexpf", "xldexpf_avx", 8},
           {"ilogbf", "xilogbf_avx", 8},
           {"fmaf", "xfmaf_avx", 8},
@@ -358,10 +407,10 @@ AddMappings_AVX(PlatformInfo & platInfo, bool allowImprecise) {
           {"llvm.minnum.f64", "xfmin_avx", 4},
           {"llvm.maxnum.f64", "xfmax_avx", 4}
       };
-      platInfo.addVectorizableFunctions(VecFuncs, true);
+      addToList(VecFuncs, true);
 
       if (allowImprecise) {
-        const VecDesc ImprecVecFuncs[] = {
+        PlainVecDescVector ImprecVecFuncs = {
             {"sinf", "xsinf_avx", 8},
             {"cosf", "xcosf_avx", 8},
             {"tanf", "xtanf_avx", 8},
@@ -437,15 +486,15 @@ AddMappings_AVX(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.exp2.f64", "xexp2_avx", 4},
             {"llvm.log10.f64", "xlog10_avx", 4}
         };
-        platInfo.addVectorizableFunctions(ImprecVecFuncs, true);
+        addToList(ImprecVecFuncs, true);
       }
 }
 
 
 static
 void
-AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
-      const VecDesc VecFuncs[] = {
+AddMappings_AVX2(AddToListFuncType addToList, bool allowImprecise) {
+      PlainVecDescVector VecFuncs = {
           // {"ldexpf", "xldexpf_avx2", 8},
           {"ilogbf", "xilogbf_avx2", 8},
           {"fmaf", "xfmaf_avx2", 8},
@@ -497,7 +546,7 @@ AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
           {"drand48", "vrand_extra_avx2", 4},
           {"frand48", "vrandf_extra_avx2", 8}
       };
-      platInfo.addVectorizableFunctions(VecFuncs, true);
+      addToList(VecFuncs, true);
 
 
 
@@ -505,7 +554,7 @@ AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
 
 
       if (allowImprecise) {
-        const VecDesc ImprecVecFuncs[] = {
+        PlainVecDescVector ImprecVecFuncs = {
             {"sinf", "xsinf_avx2", 8},
             {"cosf", "xcosf_avx2", 8},
             {"tanf", "xtanf_avx2", 8},
@@ -581,14 +630,14 @@ AddMappings_AVX2(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.exp2.f64", "xexp2_avx2", 4},
             {"llvm.log10.f64", "xlog10_avx2", 4}
         };
-        platInfo.addVectorizableFunctions(ImprecVecFuncs, true);
+        addToList(ImprecVecFuncs, true);
       }
 }
 
 static
 void
-AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
-      const VecDesc VecFuncs[] = {
+AddMappings_AVX512(AddToListFuncType addToList, bool allowImprecise) {
+      PlainVecDescVector VecFuncs = {
           // {"ldexpf", "xldexpf_avx512", 16},
           {"ilogbf", "xilogbf_avx512", 16},
           {"fmaf", "xfmaf_avx512", 16},
@@ -640,7 +689,7 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
           {"drand48", "vrand_extra_avx512", 8},
           {"frand48", "vrandf_extra_avx512", 16}
       };
-      platInfo.addVectorizableFunctions(VecFuncs, true);
+      addToList(VecFuncs, true);
 
 
 
@@ -648,7 +697,7 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
 
 
       if (allowImprecise) {
-        const VecDesc ImprecVecFuncs[] = {
+        PlainVecDescVector ImprecVecFuncs = {
             {"sinf", "xsinf_avx512", 16},
             {"cosf", "xcosf_avx512", 16},
             {"tanf", "xtanf_avx512", 16},
@@ -724,14 +773,14 @@ AddMappings_AVX512(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.exp2.f64", "xexp2_avx512", 8},
             {"llvm.log10.f64", "xlog10_avx512", 8}
         };
-        platInfo.addVectorizableFunctions(ImprecVecFuncs, true);
+        addToList(ImprecVecFuncs, true);
       }
 }
 
 static
 void
-AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
-      const VecDesc VecFuncs[] = {
+AddMappings_ADVSIMD(AddToListFuncType addToList, bool allowImprecise) {
+      PlainVecDescVector VecFuncs = {
           // {"ldexpf", "xldexpf_advsimd", 2},
           {"ilogbf", "xilogbf_advsimd", 2},
           {"fmaf", "xfmaf_advsimd", 2},
@@ -783,7 +832,7 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
           {"drand48", "vrand_extra_advsimd", 2},
           {"frand48", "vrand_extra_advsimd", 4}
       };
-      platInfo.addVectorizableFunctions(VecFuncs, true);
+      addToList(VecFuncs, true);
 
 
 
@@ -791,7 +840,7 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
 
 
       if (allowImprecise) {
-        const VecDesc ImprecVecFuncs[] = {
+        PlainVecDescVector ImprecVecFuncs = {
             {"sinf", "xsinf_advsimd", 4},
             {"cosf", "xcosf_advsimd", 4},
             {"tanf", "xtanf_advsimd", 4},
@@ -867,239 +916,380 @@ AddMappings_ADVSIMD(PlatformInfo & platInfo, bool allowImprecise) {
             {"llvm.exp2.f64", "xexp2_advsimd", 2},
             {"llvm.log10.f64", "xlog10_advsimd", 2}
         };
-        platInfo.addVectorizableFunctions(ImprecVecFuncs, true);
+        addToList(ImprecVecFuncs, true);
       }
 }
 
-  static Module const *sleefModules[5 * 2];
-  static Module const *extraModules[5 * 2];
+static Module const *sleefModules[SLEEF_Enum_Entries * 2];
+static Module const *extraModules[SLEEF_Enum_Entries * 2];
 
 #ifdef RV_ENABLE_CRT
   static Module* scalarModule; // scalar implementations to be inlined
 #endif
 
-  bool addSleefMappings(const Config & config,
-                        PlatformInfo &platInfo,
-                        bool allowImprecise) {
-    if (!config.useSLEEF)
-      return false;
 
-#ifdef RV_ENABLE_BUILTINS
+class SleefResolverService : public ResolverService {
+  PlainVecDescVector commonVectorMappings;
+  PlatformInfo & platInfo;
+  Config config;
+
+  void addNamedMappings(const PlainVecDescVector & funcs, bool givePrecedence) {
+    auto itInsert = givePrecedence ? commonVectorMappings.begin() : commonVectorMappings.end();
+    commonVectorMappings.insert(itInsert, funcs.begin(), funcs.end());
+  }
+
+public:
+  SleefResolverService(PlatformInfo & _platInfo, const Config & _config, bool allowImprecise)
+  : platInfo(_platInfo)
+  , config(_config)
+  {
+    AddToListFuncType addToListFunc = [this](const PlainVecDescVector & funcDescs, bool givePrecedence) {
+        addNamedMappings(funcDescs, givePrecedence);
+    };
+
     if (config.useADVSIMD) {
-      AddMappings_ADVSIMD(platInfo, allowImprecise);
+      AddMappings_ADVSIMD(addToListFunc, allowImprecise);
     } else {
       // TODO add neon32 mappings
     }
 
     if (config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) {
-      AddMappings_SSE(platInfo, allowImprecise);
+      AddMappings_SSE(addToListFunc, allowImprecise);
     }
 
     if (config.useAVX) {
-      AddMappings_AVX(platInfo, allowImprecise);
+      AddMappings_AVX(addToListFunc, allowImprecise);
     }
 
     if (config.useAVX2 || config.useAVX512) {
-      AddMappings_AVX2(platInfo, allowImprecise);
+      AddMappings_AVX2(addToListFunc, allowImprecise);
     }
     if (config.useAVX512) {
-      AddMappings_AVX512(platInfo, allowImprecise);
+      AddMappings_AVX512(addToListFunc, allowImprecise);
     }
+  }
 
-    // TODO generic mappings
+  ~SleefResolverService() {}
 
-    return config.useAVX || config.useAVX2 || config.useSSE || config.useAVX512 || config.useADVSIMD;
+  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule);
 
-#else
+protected:
+  bool
+  isFunctionVectorizable(llvm::StringRef funcName, llvm::FunctionType & scaFuncType, int vectorWidth) const {
+    IF_DEBUG_SLEEF { errs() << "SLEEFResolver: " << funcName << " for width " << vectorWidth << "\n"; }
+    // query custom mappings with precedence
+    std::string funcNameStr = funcName.str();
+    for (const auto & vd : commonVectorMappings) {
+       IF_DEBUG_SLEEF { errs() << "LISTED " << vd.scalarFnName << " " << vd.vectorWidth << " : " << vd.vectorFnName << "\n"; }
+       if (vd.scalarFnName == funcNameStr && vd.vectorWidth == vectorWidth) {
+         return true;
+       }
+    };
     return false;
-#endif
+  }
+};
+
+
+
+
+
+
+
+
+
+// existing vectorized function wrapper
+class ExistingResolver : public FunctionResolver {
+  Function & vecFunc;
+  VectorShape retShape;
+
+public:
+  ExistingResolver(Module & destModule, Function & _vecFunc, VectorShape _retShape)
+  : FunctionResolver(destModule)
+  , vecFunc(_vecFunc)
+  , retShape(_retShape)
+  {}
+
+  llvm::Function& requestVectorized() {
+    return vecFunc;
   }
 
-  // forward decls
-  GlobalValue & cloneGlobalIntoModule(GlobalValue &gv, Module &cloneInto);
-  Constant & cloneConstant(Constant& constVal, Module & cloneInto);
-  Function &cloneFunctionIntoModule(Function &func, Module &cloneInto, StringRef name);
+  // result shape of function @funcName in target module @module
+  VectorShape requestResultShape() {
+  }
+};
 
+// simply links-in the pre-vectorized SLEEF function
+class SleefLookupResolver : public FunctionResolver {
+  Function & vecFunc;
+  StringRef destFuncName;
 
-  Constant & cloneConstant(Constant& constVal, Module & cloneInto) {
-    if (isa<GlobalValue>(constVal)) {
-      return cloneGlobalIntoModule(cast<GlobalValue>(constVal), cloneInto);
-    }
-    auto * expr = dyn_cast<ConstantExpr>(&constVal);
-    if (!expr) return constVal;
+  public:
+    SleefLookupResolver(Module & _targetModule, Function & _vecFunc, StringRef _destFuncName)
+    : FunctionResolver(_targetModule)
+    , vecFunc(_vecFunc)
+    , destFuncName(_destFuncName)
+  {}
 
-    // descend into operands and replicate
-    const ConstantExpr & constExpr = *expr;
-
-    SmallVector<Constant*, 4> clonedOps;
-    for (size_t i = 0; i < constExpr.getNumOperands(); ++i) {
-      const Constant & cloned = cloneConstant(*constExpr.getOperand(i), cloneInto);
-      clonedOps.push_back(const_cast<Constant*>(&cloned));
-    }
-
-    return *constExpr.getWithOperands(clonedOps);
+  llvm::Function&
+  requestVectorized() {
+    auto * existingFunc = targetModule.getFunction(destFuncName);
+    if (existingFunc) return *existingFunc;
+    return cloneFunctionIntoModule(vecFunc, targetModule, destFuncName);
   }
 
-  GlobalValue & cloneGlobalIntoModule(GlobalValue &gv, Module &cloneInto) {
-    if (isa<Function>(gv)) {
-      auto & func = cast<Function>(gv);
-      return cloneFunctionIntoModule(func, cloneInto, func.getName());
+  // result shape of function @funcName in target module @module
+  VectorShape requestResultShape() { return VectorShape::varying(); }
+};
 
-    } else {
-      assert(isa<GlobalVariable>(gv));
-      auto & global = cast<GlobalVariable>(gv);
-      auto * clonedGv = cloneInto.getGlobalVariable(global.getName());
-      if (clonedGv) return *clonedGv;
 
-      // clone initializer (could depend on other constants)
-      auto * initConst = const_cast<Constant*>(global.getInitializer());
-      Constant * clonedInitConst = initConst;
-      if (initConst) {
-        clonedInitConst = &cloneConstant(*initConst, cloneInto);
-      }
+static
+std::string
+MangleFunction(StringRef sleefName, const VectorShapeVec & argShapes, int vectorWidth) {
+  std::stringstream ss;
+  ss << sleefName.str() << "_v" << vectorWidth << "_";
+  for (const auto & argShape : argShapes) {
+    ss << argShape.serialize();
+  }
+  return ss.str();
+}
 
-      auto * clonedGlobal = cast<GlobalVariable>(cloneInto.getOrInsertGlobal(global.getName(), global.getValueType()));
-      clonedGlobal->setInitializer(clonedInitConst);
-      clonedGlobal->setThreadLocalMode(global.getThreadLocalMode());
-      // TODO set alignment, attributes, ...
-      return *clonedGlobal;
-    }
+// on-the-fly vectorizing resolver
+struct SleefVLAResolver : public FunctionResolver {
+  VectorizerInterface vectorizer;
+  std::unique_ptr<VectorizationInfo> vecInfo;
 
-    // unsupported global value
+  Function & scaFunc;
+  VectorShapeVec argShapes;
+  int vectorWidth;
+
+  std::string vecFuncName;
+
+  SleefVLAResolver(PlatformInfo & platInfo, StringRef sleefName, Config config, Function & _scaFunc, const VectorShapeVec & _argShapes, int _vectorWidth)
+  : FunctionResolver(platInfo.getModule())
+  , vectorizer(platInfo, config)
+  , vecInfo(nullptr)
+  , scaFunc(_scaFunc)
+  , argShapes(_argShapes)
+  , vectorWidth(_vectorWidth)
+  , vecFuncName(MangleFunction(sleefName, argShapes, vectorWidth))
+  {
+    IF_DEBUG_SLEEF { errs() << "VLA: " << vecFuncName << "\n"; }
+  }
+
+  // materialized the vectorized function in the module @insertInto and returns a reference to it
+  llvm::Function& requestVectorized() {
     abort();
   }
 
-  Function &cloneFunctionIntoModule(Function &func, Module &cloneInto, StringRef name) {
-#if 0
-    if (func.isIntrinsic()) {
-
-      // decode ambiguous type arguments
-      auto id = func.getIntrinsicID();
-      auto * funcTy = func.getFunctionType();
-      SmallVector<Intrinsic::IITDescriptor, 4> paramDescs;
-      Intrinsic::getIntrinsicInfoTableEntries(id, paramDescs);
-      SmallVector<Type*,4> overloadedTypes;
-
-      // append ambiguous types
-      SmallSet<uint, 4> mangledArgs;
-      for (auto desc : paramDescs) {
-        if (desc.Kind != Intrinsic::IITDescriptor::Argument) continue;
-        switch (desc.getArgumentKind()) {
-          case llvm::Intrinsic::IITDescriptor::AK_Any:
-            break;
-          default:
-            uint argIdx = desc.getArgumentNumber();
-            if (!mangledArgs.insert(argIdx).second) continue; // already mangled that arg
-            overloadedTypes.push_back(funcTy->getParamType(argIdx));
-            break;
-        }
-      }
-
-      return *Intrinsic::getDeclaration(&cloneInto, func.getIntrinsicID(), overloadedTypes);
+  // result shape of function @funcName in target module @module
+  VectorShape requestResultShape() {
+    // TODO run VA
+    for (const auto & argShape : argShapes) {
+      if (!argShape.isUniform()) return VectorShape::varying();
     }
-#endif
-
-    // eg already migrated
-    auto * existingFn = cloneInto.getFunction(func.getName());
-    if (existingFn && (func.isDeclaration() == existingFn->isDeclaration())) {
-      return *existingFn;
-    }
-
-    // create function in new module, create the argument mapping, clone function into new function body, return
-    Function & clonedFn = *Function::Create(func.getFunctionType(), Function::LinkageTypes::ExternalLinkage,
-                                          name, &cloneInto);
-    clonedFn.copyAttributesFrom(&func);
-
-    // external decl
-    if (func.isDeclaration()) return clonedFn;
-
-    ValueToValueMapTy VMap;
-    auto CI = clonedFn.arg_begin();
-    for (auto I = func.arg_begin(), E = func.arg_end(); I != E; ++I, ++CI) {
-      Argument *arg = &*I, *carg = &*CI;
-      carg->setName(arg->getName());
-      VMap[arg] = carg;
-    }
-    // remap constants
-    for (auto I = inst_begin(func), E = inst_end(func); I != E; ++I) {
-      for (size_t i = 0; i < I->getNumOperands(); ++i) {
-        auto * usedConstant = dyn_cast<Constant>(I->getOperand(i));
-        if (!usedConstant) continue;
-
-        auto & clonedConstant = cloneConstant(*usedConstant, cloneInto);
-        VMap[usedConstant] = &clonedConstant;
-      }
-    }
-
-    SmallVector<ReturnInst *, 1> Returns; // unused
-
-    CloneFunctionInto(&clonedFn, &func, VMap, false, Returns);
-    return clonedFn;
+    return VectorShape::uni();
   }
 
-  Function *
-  requestScalarImplementation(const StringRef & funcName, FunctionType & funcTy, Module &insertInto) {
-#ifdef RV_ENABLE_CRT
-    if (!scalarModule) {
-      scalarModule = createModuleFromBuffer(reinterpret_cast<const char*>(&crt_Buffer), crt_BufferLen, insertInto.getContext());
-    }
+  // whether this resolver can provide a vectorized version ofthis function
+  bool isVectorizable(const VectorShapeVec & argShapes, int vectorWidth) {
+    return true;
+  }
+};
 
-    if (!scalarModule) return nullptr; // could not load module
+// used for shape-based call mappings
+using VecMappingShortVec = llvm::SmallVector<VectorMapping, 4>;
+using VectorFuncMap = std::map<const llvm::Function *, VecMappingShortVec*>;
 
-    auto * scalarFn = scalarModule->getFunction(funcName);
-    if (!scalarFn) return nullptr;
-    return &cloneFunctionIntoModule(*scalarFn, insertInto, funcName);
-#else
-    return nullptr; // compiler-rt not available as bc module
-#endif
+std::unique_ptr<FunctionResolver>
+SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) {
+  // query custom mappings with precedence
+  llvm::StringRef vecFuncName = "";
+  std::string funcNameStr = funcName.str();
+  for (const auto & vd : commonVectorMappings) {
+     if (vd.scalarFnName == funcNameStr && vd.vectorWidth == vectorWidth) {
+       vecFuncName = vd.vectorFnName;
+       break;
+     }
+  };
+  if (vecFuncName.empty()) return nullptr;
+
+  // decode bitwidth (for module lookup)
+  bool doublePrecision = false;
+  for (const auto * argTy : scaFuncTy.params()) {
+    doublePrecision |= argTy->isDoubleTy();
   }
 
-  Function *
-  requestSleefFunction(const StringRef &funcName, StringRef &vecFuncName, Module *insertInto, bool doublePrecision) {
-#ifndef RV_ENABLE_BUILTINS
-    assert(false && "SLEEF not builtin");
-    return nullptr;
-#endif
-    auto & context = insertInto->getContext();
-    // if function already cloned, return
-    Function *clonedFn = insertInto->getFunction(vecFuncName);
-    if (clonedFn) return clonedFn;
+  auto & context = destModule.getContext();
 
-    // remove the trailing isa specifier (_avx2/_avx/_sse/..)
-    std::string sleefName = vecFuncName.substr(0, vecFuncName.rfind('_'));
+  // remove the trailing isa specifier (_avx2/_avx/_sse/..)
+  std::string sleefName = vecFuncName.substr(0, vecFuncName.rfind('_'));
 
-    SleefISA isa;
-    if (vecFuncName.count("avx512")) isa = SLEEF_AVX512;
-    else if (vecFuncName.count("avx2")) isa = SLEEF_AVX2;
-    else if (vecFuncName.count("avx")) isa = SLEEF_AVX;
-    else if (vecFuncName.count("sse")) isa = SLEEF_SSE;
-    else if (vecFuncName.count("advsimd")) isa = SLEEF_ADVSIMD;
-    else return nullptr;
+  SleefISA isa;
+  if (vecFuncName.count("vla")) isa = SLEEF_VLA;
+  else if (vecFuncName.count("avx512")) isa = SLEEF_AVX512;
+  else if (vecFuncName.count("avx2")) isa = SLEEF_AVX2;
+  else if (vecFuncName.count("avx")) isa = SLEEF_AVX;
+  else if (vecFuncName.count("sse")) isa = SLEEF_SSE;
+  else if (vecFuncName.count("advsimd")) isa = SLEEF_ADVSIMD;
+  else abort(); // unrecognized module
 
-    bool isExtraFunc = vecFuncName.count("_extra");
-    if (isExtraFunc) {
-      int modIdx = (int) isa;
-      auto *& mod = extraModules[modIdx];
-      if (!mod) mod = createModuleFromBuffer(reinterpret_cast<const char*>(extraModuleBuffers[modIdx]), extraModuleBufferLens[modIdx], context);
-      Function *vecFunc = mod->getFunction(sleefName);
-      assert(vecFunc && "mapped extra function not found in module!");
-      return &cloneFunctionIntoModule(*vecFunc, *insertInto, vecFuncName);
+  // TODO factor out
+  bool isExtraFunc = vecFuncName.count("_extra");
+  if (isExtraFunc) {
+    int modIdx = (int) isa;
+    auto *& mod = extraModules[modIdx];
+    if (!mod) mod = createModuleFromBuffer(reinterpret_cast<const char*>(extraModuleBuffers[modIdx]), extraModuleBufferLens[modIdx], context);
+    Function *vecFunc = mod->getFunction(sleefName);
+    assert(vecFunc && "mapped extra function not found in module!");
+    return std::make_unique<SleefLookupResolver>(destModule, *vecFunc, vecFuncName);
+  }
+
+  // Look in SLEEF module
+  auto modIndex = sleefModuleIndex(isa, doublePrecision);
+  const llvm::Module*& mod = sleefModules[modIndex];
+  if (!mod) {
+    mod = createModuleFromBuffer(reinterpret_cast<const char*>(sleefModuleBuffers[modIndex]), sleefModuleBufferLens[modIndex], context);
+
+    IF_DEBUG {
+      bool brokenMod = verifyModule(*mod, &errs());
+      if (brokenMod) abort();
     }
+  }
 
-    // Look in SLEEF module
-    auto modIndex = sleefModuleIndex(isa, doublePrecision);
-    const llvm::Module*& mod = sleefModules[modIndex];
-    if (!mod) {
-      mod = createModuleFromBuffer(reinterpret_cast<const char*>(sleefModuleBuffers[modIndex]), sleefModuleBufferLens[modIndex], context);
+  if (isa == SLEEF_VLA) {
+    // on-the-fly vectorization module
+    Function *vlaFunc = mod->getFunction(sleefName);
+    return std::make_unique<SleefVLAResolver>(platInfo, sleefName, config, *vlaFunc, argShapes, vectorWidth);
 
-      IF_DEBUG {
-        bool brokenMod = verifyModule(*mod, &errs());
-        if (brokenMod) abort();
-      }
-    }
-
+  } else {
+    // we'll have to link in the function
     Function *vecFunc = mod->getFunction(sleefName);
     assert(vecFunc && "mapped SLEEF function not found in module!");
-    return &cloneFunctionIntoModule(*vecFunc, *insertInto, vecFuncName);
+    return std::make_unique<SleefLookupResolver>(destModule, *vecFunc, vecFuncName);
   }
 }
+
+
+
+
+void
+addSleefResolver(const Config & config, PlatformInfo & platInfo, bool allowImprecise) {
+  auto sleefRes = std::make_unique<SleefResolverService>(platInfo, config, allowImprecise);
+  platInfo.addResolverService(std::move(sleefRes), true);
+}
+
+
+
+
+
+
+// TODO move into separate file
+Constant & cloneConstant(Constant& constVal, Module & cloneInto) {
+  if (isa<GlobalValue>(constVal)) {
+    return cloneGlobalIntoModule(cast<GlobalValue>(constVal), cloneInto);
+  }
+  auto * expr = dyn_cast<ConstantExpr>(&constVal);
+  if (!expr) return constVal;
+
+  // descend into operands and replicate
+  const ConstantExpr & constExpr = *expr;
+
+  SmallVector<Constant*, 4> clonedOps;
+  for (size_t i = 0; i < constExpr.getNumOperands(); ++i) {
+    const Constant & cloned = cloneConstant(*constExpr.getOperand(i), cloneInto);
+    clonedOps.push_back(const_cast<Constant*>(&cloned));
+  }
+
+  return *constExpr.getWithOperands(clonedOps);
+}
+
+GlobalValue & cloneGlobalIntoModule(GlobalValue &gv, Module &cloneInto) {
+  if (isa<Function>(gv)) {
+    auto & func = cast<Function>(gv);
+    return cloneFunctionIntoModule(func, cloneInto, func.getName());
+
+  } else {
+    assert(isa<GlobalVariable>(gv));
+    auto & global = cast<GlobalVariable>(gv);
+    auto * clonedGv = cloneInto.getGlobalVariable(global.getName());
+    if (clonedGv) return *clonedGv;
+
+    // clone initializer (could depend on other constants)
+    auto * initConst = const_cast<Constant*>(global.getInitializer());
+    Constant * clonedInitConst = initConst;
+    if (initConst) {
+      clonedInitConst = &cloneConstant(*initConst, cloneInto);
+    }
+
+    auto * clonedGlobal = cast<GlobalVariable>(cloneInto.getOrInsertGlobal(global.getName(), global.getValueType()));
+    clonedGlobal->setInitializer(clonedInitConst);
+    clonedGlobal->setThreadLocalMode(global.getThreadLocalMode());
+    // TODO set alignment, attributes, ...
+    return *clonedGlobal;
+  }
+
+  // unsupported global value
+  abort();
+}
+
+Function &cloneFunctionIntoModule(Function &func, Module &cloneInto, StringRef name) {
+  // eg already migrated
+  auto * existingFn = cloneInto.getFunction(func.getName());
+  if (existingFn && (func.isDeclaration() == existingFn->isDeclaration())) {
+    return *existingFn;
+  }
+
+  // create function in new module, create the argument mapping, clone function into new function body, return
+  Function & clonedFn = *Function::Create(func.getFunctionType(), Function::LinkageTypes::ExternalLinkage,
+                                        name, &cloneInto);
+  clonedFn.copyAttributesFrom(&func);
+
+  // external decl
+  if (func.isDeclaration()) return clonedFn;
+
+  ValueToValueMapTy VMap;
+  auto CI = clonedFn.arg_begin();
+  for (auto I = func.arg_begin(), E = func.arg_end(); I != E; ++I, ++CI) {
+    Argument *arg = &*I, *carg = &*CI;
+    carg->setName(arg->getName());
+    VMap[arg] = carg;
+  }
+  // remap constants
+  for (auto I = inst_begin(func), E = inst_end(func); I != E; ++I) {
+    for (size_t i = 0; i < I->getNumOperands(); ++i) {
+      auto * usedConstant = dyn_cast<Constant>(I->getOperand(i));
+      if (!usedConstant) continue;
+
+      auto & clonedConstant = cloneConstant(*usedConstant, cloneInto);
+      VMap[usedConstant] = &clonedConstant;
+    }
+  }
+
+  SmallVector<ReturnInst *, 1> Returns; // unused
+
+  CloneFunctionInto(&clonedFn, &func, VMap, false, Returns);
+  return clonedFn;
+}
+
+
+// compiler-rt early inlining
+Function *
+requestScalarImplementation(const StringRef & funcName, FunctionType & funcTy, Module &insertInto) {
+#ifdef RV_ENABLE_CRT
+  if (!scalarModule) {
+    scalarModule = createModuleFromBuffer(reinterpret_cast<const char*>(&crt_Buffer), crt_BufferLen, insertInto.getContext());
+  }
+
+  if (!scalarModule) return nullptr; // could not load module
+
+  auto * scalarFn = scalarModule->getFunction(funcName);
+  if (!scalarFn) return nullptr;
+  return &cloneFunctionIntoModule(*scalarFn, insertInto, funcName);
+#else
+  return nullptr; // compiler-rt not available as bc module
+#endif
+}
+
+
+
+} // namespace rv
