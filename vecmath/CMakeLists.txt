@@ -206,14 +206,14 @@ if (RV_ENABLE_X86)
   ADD_CUSTOM_COMMAND (
     OUTPUT ${SLEEF_GENBC_VLA_SP}
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
-    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -O3 -fno-vectorize -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -m64 -include ${HELPERVLA_H} -ffp-contract=off -o ${SLEEF_BC_VLA_SP}
+    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsp.c -O3 -fno-vectorize -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -DENABLE_BUILTIN_MATH -m64 -ffp-contract=off -o ${SLEEF_BC_VLA_SP}
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_VLA_SP} \"vla_sp\" ${SLEEF_BC_VLA_SP}
     DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c ${HELPERVLA_H} ${LLVM_TOOL_CLANG}
   )
   ADD_CUSTOM_COMMAND (
     OUTPUT ${SLEEF_GENBC_VLA_DP}
     COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
-    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -O3 -fno-vectorize -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -m64 -include ${HELPERVLA_H} -ffp-contract=off -o ${SLEEF_BC_VLA_DP}
+    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefdp.c -O3 -fno-vectorize -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -DENABLE_BUILTIN_MATH -m64 -ffp-contract=off -o ${SLEEF_BC_VLA_DP}
     COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_VLA_DP} \"vla_dp\" ${SLEEF_BC_VLA_DP}
     DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${HELPERVLA_H} ${LLVM_TOOL_CLANG}
   )
