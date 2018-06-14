@@ -13,11 +13,20 @@
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/Dominators.h>
+#include <llvm/Analysis/PostDominators.h>
+#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/Analysis/ScalarEvolution.h>
+#include <llvm/Analysis/MemoryDependenceAnalysis.h>
+#include <llvm/Analysis/BranchProbabilityInfo.h>
+#include <llvm/Passes/PassBuilder.h>
 
 #include "rv/PlatformInfo.h"
 #include "utils/rvTools.h"
 #include "rvConfig.h"
 #include "rv/rv.h"
+#include "rv/utils.h"
+#include "rv/region/FunctionRegion.h"
 
 #include <llvm/IR/Verifier.h>
 #include <vector>
@@ -920,6 +929,152 @@ AddMappings_ADVSIMD(AddToListFuncType addToList, bool allowImprecise) {
       }
 }
 
+static
+void
+AddMappings_VLA(AddToListFuncType addToList, bool allowImprecise) {
+      PlainVecDescVector VecFuncs = {
+          // {"ldexpf", "xldexpf_vla", 2},
+          {"ilogbf", "xilogbf_vla", -1},
+          {"fmaf", "xfmaf_vla", -1},
+          {"fabsf", "xfabsf_vla", -1},
+          {"copysignf", "xcopysignf_vla", -1},
+          {"fmaxf", "xfmaxf_vla", -1},
+          {"fminf", "xfminf_vla", -1},
+          {"fdimf", "xfdimf_vla", -1},
+          {"truncf", "xtruncf_vla", -1},
+          {"floorf", "xfloorf_vla", -1},
+          {"ceilf", "xceilf_vla", -1},
+          {"roundf", "xroundf_vla", -1},
+          {"rintf", "xrintf_vla", -1},
+          {"nextafterf", "xnextafterf_vla", -1},
+          {"frfrexpf", "xfrfrexpf_vla",  -1},
+          {"expfrexpf", "xexpfrexpf_vla", -1},
+          {"fmodf", "xfmodf_vla", -1},
+          {"modff", "xmodff_vla", -1},
+
+          // {"ldexp", "xldexp_vla", 8},
+          {"ilogb", "xilogb_vla", -1},
+          {"fma", "xfma_vla", -1},
+          {"fabs", "xfabs_vla", -1},
+          {"copysign", "xcopysign_vla", -1},
+          {"fmax", "xfmax_vla", -1},
+          {"fmin", "xfmin_vla", -1},
+          {"fdim", "xfdim_vla", -1},
+          {"trunc", "xtrunc_vla", -1},
+          {"floor", "xfloor_vla", -1},
+          {"ceil", "xceil_vla", -1},
+          {"round", "xround_vla", -1},
+          {"rint", "xrint_vla", -1},
+          {"nextafter", "xnextafter_vla", -1},
+          {"frfrexp", "xfrfrexp_vla", -1},
+          {"expfrexp", "xexpfrexp_vla", -1},
+          {"fmod", "xfmod_vla", -1},
+          {"modf", "xmodf_vla", -1},
+
+          {"llvm.fabs.f32", "xfabsf_vla", -1},
+          {"llvm.copysign.f32", "xcopysignf_vla", -1},
+          {"llvm.minnum.f32", "xfminf_vla", -1},
+          {"llvm.maxnum.f32", "xfmaxf_vla", -1},
+          {"llvm.fabs.f64", "xfabs_vla", -1},
+          {"llvm.copysign.f64", "xcopysign_vla", -1},
+          {"llvm.minnum.f64", "xfmin_vla", -1},
+          {"llvm.maxnum.f64", "xfmax_vla", -1},
+
+#if 0
+        // TODO VLA random number generator
+        // extras
+          {"drand48", "vrand_extra_vla", 2},
+          {"frand48", "vrand_extra_vla", 4}
+#endif
+      };
+      addToList(VecFuncs, true);
+
+
+
+
+
+
+      if (allowImprecise) {
+        PlainVecDescVector ImprecVecFuncs = {
+            {"sinf", "xsinf_vla", -1},
+            {"cosf", "xcosf_vla", -1},
+            {"tanf", "xtanf_vla", -1},
+            {"asinf", "xasinf_vla", -1},
+            {"acosf", "xacosf_vla", -1},
+            {"atanf", "xatanf_vla", -1},
+            {"atan2f", "xatan2f_vla", -1},
+            {"logf", "xlogf_vla", -1},
+            {"cbrtf", "xcbrtf_vla", -1},
+            {"expf", "xexpf_vla", -1},
+            {"powf", "xpowf_vla", -1},
+            {"sinhf", "xsinhf_vla", -1},
+            {"coshf", "xcoshf_vla", -1},
+            {"tanhf", "xtanhf_vla", -1},
+            {"asinhf", "xasinhf_vla", -1},
+            {"acoshf", "xacoshf_vla", -1},
+            {"atanhf", "xatanhf_vla", -1},
+            {"exp2f", "xexp2f_vla", -1},
+            {"exp10f", "xexp10f_vla", -1},
+            {"expm1f", "xexpm1f_vla", -1},
+            {"log10f", "xlog10f_vla", -1},
+            {"log1pf", "xlog1pf_vla", -1},
+            {"sqrtf", "xsqrtf_u35_vla", -1},
+            {"hypotf", "xhypotf_u05_vla",  -1},
+            {"lgammaf", "xlgammaf_u1_vla", -1},
+            {"tgammaf", "xtgammaf_u1_vla", -1},
+            {"erff", "xerff_u1_vla",       -1},
+            {"erfcf", "xerfcf_u15_vla",    -1},
+
+            {"sin", "xsin_vla",            -1},
+            {"cos", "xcos_vla",            -1},
+            {"tan", "xtan_vla",            -1},
+            {"asin", "xasin_vla",          -1},
+            {"acos", "xacos_vla",          -1},
+            {"atan", "xatan_vla",          -1},
+            {"atan2", "xatan2_vla", -1},
+            {"log", "xlog_vla", -1},
+            {"cbrt", "xcbrt_vla", -1},
+            {"exp", "xexp_vla", -1},
+            {"pow", "xpow_vla", -1},
+            {"sinh", "xsinh_vla", -1},
+            {"cosh", "xcosh_vla", -1},
+            {"tanh", "xtanh_vla", -1},
+            {"asinh", "xasinh_vla", -1},
+            {"acosh", "xacosh_vla", -1},
+            {"atanh", "xatanh_vla", -1},
+            {"exp2", "xexp2_vla",   -1},
+            {"exp10", "xexp10_vla", -1},
+            {"expm1", "xexpm1_vla", -1},
+            {"log10", "xlog10_vla", -1},
+            {"log1p", "xlog1p_vla", -1},
+            {"sqrt", "xsqrt_u35_vla", -1},
+            {"hypot", "xhypot_u05_vla", -1},
+            {"lgamma", "xlgamma_u1_vla", -1},
+            {"tgamma", "xtgamma_u1_vla", -1},
+            {"erf", "xerf_u1_vla",     -1},
+            {"erfc", "xerfc_u15_vla", -1},
+
+            {"llvm.sin.f32", "xsinf_vla", -1},
+            {"llvm.cos.f32", "xcosf_vla", -1},
+            {"llvm.log.f32", "xlogf_vla", -1},
+            {"llvm.exp.f32", "xexpf_vla", -1},
+            {"llvm.pow.f32", "xpowf_vla", -1},
+            {"llvm.sqrt.f32", "xsqrtf_u35_vla", -1},
+            {"llvm.exp2.f32", "xexp2f_vla", -1},
+            {"llvm.log10.f32", "xlog10f_vla", -1},
+            {"llvm.sin.f64", "xsin_vla", -1},
+            {"llvm.cos.f64", "xcos_vla", -1},
+            {"llvm.log.f64", "xlog_vla", -1},
+            {"llvm.exp.f64", "xexp_vla", -1},
+            {"llvm.pow.f64", "xpow_vla", -1},
+            {"llvm.sqrt.f64", "xsqrt_u35_vla", -1},
+            {"llvm.exp2.f64", "xexp2_vla", -1},
+            {"llvm.log10.f64", "xlog10_vla", -1}
+        };
+        addToList(ImprecVecFuncs, true);
+      }
+}
+
 static Module const *sleefModules[SLEEF_Enum_Entries * 2];
 static Module const *extraModules[SLEEF_Enum_Entries * 2];
 
@@ -967,6 +1122,9 @@ public:
     if (config.useAVX512) {
       AddMappings_AVX512(addToListFunc, allowImprecise);
     }
+
+    // add vector-length agnostic mappings
+    AddMappings_VLA(addToListFunc, allowImprecise);
   }
 
   ~SleefResolverService() {}
@@ -1015,6 +1173,7 @@ public:
 
   // result shape of function @funcName in target module @module
   VectorShape requestResultShape() {
+    return VectorShape::varying();
   }
 };
 
@@ -1059,7 +1218,10 @@ struct SleefVLAResolver : public FunctionResolver {
   std::unique_ptr<VectorizationInfo> vecInfo;
 
   Function & scaFunc;
+  Function * clonedFunc;
+  Function * vecFunc;
   VectorShapeVec argShapes;
+  VectorShape resShape;
   int vectorWidth;
 
   std::string vecFuncName;
@@ -1069,7 +1231,10 @@ struct SleefVLAResolver : public FunctionResolver {
   , vectorizer(platInfo, config)
   , vecInfo(nullptr)
   , scaFunc(_scaFunc)
+  , clonedFunc(nullptr)
+  , vecFunc(nullptr)
   , argShapes(_argShapes)
+  , resShape(VectorShape::undef())
   , vectorWidth(_vectorWidth)
   , vecFuncName(MangleFunction(sleefName, argShapes, vectorWidth))
   {
@@ -1078,16 +1243,66 @@ struct SleefVLAResolver : public FunctionResolver {
 
   // materialized the vectorized function in the module @insertInto and returns a reference to it
   llvm::Function& requestVectorized() {
-    abort();
+    if (vecFunc) return *vecFunc;
+    vecFunc = targetModule.getFunction(vecFuncName);
+    if (vecFunc) return *vecFunc;
+
+    // need a proper res shape
+    requestResultShape();
+
+    // prepare scalar copy for transforming
+    const int maskPos = -1; // TODO add support for masking
+    clonedFunc = &cloneFunctionIntoModule(scaFunc, targetModule, vecFuncName + ".tmp");
+    assert(clonedFunc);
+
+    // create SIMD declaration
+    vecFunc = createVectorDeclaration(*clonedFunc, resShape, argShapes, vectorWidth);
+    // TODO vecFunc->copyAttributesFrom(callerFunc);
+    vecFunc->setName(vecFuncName);
+
+    VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes);
+    vectorizer.getPlatformInfo().addMapping(mapping); // prevent recursive vectorization
+
+    // set-up vecInfo
+    FunctionRegion funcWrapper(*clonedFunc);
+    Region funcRegion(funcWrapper);
+    VectorizationInfo vecInfo(funcRegion, mapping);
+
+    // compute anlaysis results
+    PassBuilder PB;
+    FunctionAnalysisManager FAM;
+    PB.registerFunctionAnalyses(FAM);
+
+    // compute DT, PDT, LI
+    auto & DT = FAM.getResult<DominatorTreeAnalysis>(*clonedFunc);
+    auto & PDT = FAM.getResult<PostDominatorTreeAnalysis>(*clonedFunc);
+    auto & LI = FAM.getResult<LoopAnalysis>(*clonedFunc);
+    auto & SE = FAM.getResult<ScalarEvolutionAnalysis>(*clonedFunc);
+    auto & MDR = FAM.getResult<MemoryDependenceAnalysis>(*clonedFunc);
+    auto & BPI = FAM.getResult<BranchProbabilityAnalysis>(*clonedFunc);
+
+    // run pipeline
+    vectorizer.analyze(vecInfo, DT, PDT, LI);
+    vectorizer.linearize(vecInfo, DT, PDT, LI, &BPI);
+    vectorizer.vectorize(vecInfo, DT, LI, SE, MDR, nullptr);
+    vectorizer.finalize();
+
+    return *vecFunc;
   }
 
   // result shape of function @funcName in target module @module
   VectorShape requestResultShape() {
+    if (resShape.isDefined()) return resShape;
+
     // TODO run VA
     for (const auto & argShape : argShapes) {
-      if (!argShape.isUniform()) return VectorShape::varying();
+      if (!argShape.isUniform()) {
+        resShape = VectorShape::varying();
+        return resShape;
+      }
     }
-    return VectorShape::uni();
+    resShape = VectorShape::uni();
+    return resShape;
   }
 
   // whether this resolver can provide a vectorized version ofthis function
@@ -1102,15 +1317,20 @@ using VectorFuncMap = std::map<const llvm::Function *, VecMappingShortVec*>;
 
 std::unique_ptr<FunctionResolver>
 SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) {
+  IF_DEBUG_SLEEF { errs() << "SLEEFResolverService: " << funcName << " for width " << vectorWidth << "\n"; }
+
   // query custom mappings with precedence
   llvm::StringRef vecFuncName = "";
   std::string funcNameStr = funcName.str();
   for (const auto & vd : commonVectorMappings) {
-     if (vd.scalarFnName == funcNameStr && vd.vectorWidth == vectorWidth) {
+     if (vd.scalarFnName == funcNameStr &&
+        ((vd.vectorWidth <= 0) || (vd.vectorWidth == vectorWidth)))
+     {
        vecFuncName = vd.vectorFnName;
        break;
      }
   };
+  IF_DEBUG_SLEEF { errs() << "\t n/a\n"; }
   if (vecFuncName.empty()) return nullptr;
 
   // decode bitwidth (for module lookup)
@@ -1234,7 +1454,7 @@ GlobalValue & cloneGlobalIntoModule(GlobalValue &gv, Module &cloneInto) {
 
 Function &cloneFunctionIntoModule(Function &func, Module &cloneInto, StringRef name) {
   // eg already migrated
-  auto * existingFn = cloneInto.getFunction(func.getName());
+  auto * existingFn = cloneInto.getFunction(name);
   if (existingFn && (func.isDeclaration() == existingFn->isDeclaration())) {
     return *existingFn;
   }
