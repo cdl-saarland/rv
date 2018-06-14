@@ -96,7 +96,7 @@ IF (${RV_ENABLE_SLEEF})
   # add SLEEF bc generators as extra source
   ADD_CUSTOM_TARGET ( libsleef_x64 DEPENDS ${RV_GENBC_SOURCES} )
 
-  SET( RVLIB_BUILD_OPTS -O3 -I${RV_LIB_SLEEF_DIR}/../arch -I${RV_LIB_SLEEF_DIR}/../common)
+  SET( RVLIB_BUILD_OPTS -DNDEBUG -O3 -fno-vectorize -I${RV_LIB_SLEEF_DIR}/../arch -I${RV_LIB_SLEEF_DIR}/../common)
   # extra libs
   # Sleef single precision
 ### ADVSIMD

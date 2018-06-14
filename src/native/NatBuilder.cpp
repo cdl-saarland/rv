@@ -502,6 +502,26 @@ NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool pa
    return resultVec;
 }
 
+// TODO don't modify vecCall.. build a new CallInst and build a new parameter vector
+CallInst*
+NatBuilder::vectorizeCallWithFunction(CallInst & scaCall, Function & vecFunc, int maskPos) {
+  assert(maskPos < 0 && "TODO implement predicated calls");
+  int scaIdx = 0; // TODO use for mask skipping
+  auto itVecArg = vecFunc.arg_begin();
+
+  std::vector<Value*> vectorArgs;
+  for (int vecIdx = 0; vecIdx < (int) vecFunc.arg_size(); ++vecIdx, ++scaIdx, ++itVecArg) {
+    Value *op = scaCall.getArgOperand(scaIdx);
+
+    bool vecTypeArg = itVecArg->getType()->isVectorTy();
+    Value *mappedArg = vecTypeArg ? requestVectorValue(op) : requestScalarValue(op);
+    vectorArgs.push_back(mappedArg);
+  }
+  auto * vecCall = builder.CreateCall(&vecFunc, vectorArgs);
+  return vecCall;
+}
+
+// FIXME re-design this!
 /* expects that builder has valid insertion point set */
 void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst, bool vectorizedInst,
                                  unsigned laneIdx) {
@@ -984,18 +1004,9 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       VectorMapping mapping = matchVec[0];
       assert((mapping.maskPos < 0) && "TODO implemented predicated mapped calls.");
 
-      std::vector<Value*> vecCallArgs;
-      auto itVecArg = mapping.vectorFn->arg_begin();
-      for (int i = 0; i < (int) scalCall->getNumArgOperands(); ++i, ++itVecArg) {
-        auto * scalArg = scalCall->getArgOperand(i);
-        if (itVecArg->getType()->isVectorTy()) {
-          vecCallArgs.push_back(requestVectorValue(scalArg));
-        } else {
-          vecCallArgs.push_back(requestScalarValue(scalArg));
-        }
-      }
-
-      auto *vecCall = builder.CreateCall(mapping.vectorFn, vecCallArgs, scalCall->getName() + ".mapped");
+      const int maskPos = -1; // TODO support predicated functions
+      auto * vecCall = vectorizeCallWithFunction(*scalCall, *mapping.vectorFn, maskPos);
+      vecCall->setName(scalCall->getName() + ".mapped");
       mapVectorValue(scalCall, vecCall);
       ++numVecCalls;
       return;
@@ -1008,18 +1019,11 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   std::unique_ptr<FunctionResolver> funcResolver = nullptr;
   if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth());
   if (funcResolver) {
-    errs() << "FOUND RESOLVER!\n";
-    CallInst *call = cast<CallInst>(scalCall->clone());
-    bool doublePrecision = false;
-    if (call->getNumArgOperands() > 0)
-      doublePrecision = call->getArgOperand(0)->getType()->isDoubleTy();
     Function &simdFunc = funcResolver->requestVectorized();
-    call->setCalledFunction(&simdFunc);
-    call->mutateType(simdFunc.getReturnType());
-    mapOperandsInto(scalCall, call, true);
-    mapVectorValue(scalCall, call);
-    builder.Insert(call, scalCall->getName());
-
+    const int maskPos = -1;
+    auto * vecCall = vectorizeCallWithFunction(*scalCall, simdFunc, maskPos);
+    vecCall->setName(scalCall->getName() + ".mapped");
+    mapVectorValue(scalCall, vecCall);
     ++numVecCalls;
 
   } else {

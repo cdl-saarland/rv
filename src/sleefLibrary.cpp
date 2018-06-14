@@ -1287,6 +1287,8 @@ struct SleefVLAResolver : public FunctionResolver {
     vectorizer.vectorize(vecInfo, DT, LI, SE, MDR, nullptr);
     vectorizer.finalize();
 
+    clonedFunc->eraseFromParent();
+
     return *vecFunc;
   }
 
@@ -1434,17 +1436,22 @@ GlobalValue & cloneGlobalIntoModule(GlobalValue &gv, Module &cloneInto) {
     auto * clonedGv = cloneInto.getGlobalVariable(global.getName());
     if (clonedGv) return *clonedGv;
 
+    // clone
+    auto * clonedGlobal = cast<GlobalVariable>(cloneInto.getOrInsertGlobal(global.getName(), global.getValueType()));
+
     // clone initializer (could depend on other constants)
-    auto * initConst = const_cast<Constant*>(global.getInitializer());
-    Constant * clonedInitConst = initConst;
-    if (initConst) {
-      clonedInitConst = &cloneConstant(*initConst, cloneInto);
+    if (global.hasInitializer()) {
+      auto * initConst = const_cast<Constant*>(global.getInitializer());
+      Constant * clonedInitConst = initConst;
+      if (initConst) {
+        clonedInitConst = &cloneConstant(*initConst, cloneInto);
+      }
+      clonedGlobal->setInitializer(clonedInitConst);
     }
 
-    auto * clonedGlobal = cast<GlobalVariable>(cloneInto.getOrInsertGlobal(global.getName(), global.getValueType()));
-    clonedGlobal->setInitializer(clonedInitConst);
     clonedGlobal->setThreadLocalMode(global.getThreadLocalMode());
-    // TODO set alignment, attributes, ...
+    clonedGlobal->setAlignment(global.getAlignment());
+    clonedGlobal->copyAttributesFrom(&global);
     return *clonedGlobal;
   }
 
