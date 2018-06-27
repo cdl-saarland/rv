@@ -18,8 +18,7 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #include "llvm/Analysis/ValueTracking.h"
-#include "llvm/Transforms/Scalar.h"
-#include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
 
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/InstIterator.h"
@@ -539,7 +538,7 @@ bool IRPolisher::polish() {
   FunctionAnalysisManager FAM;
   PassBuilder builder;
   builder.registerFunctionAnalyses(FAM);
-  FPM.addPass(AggressiveInstCombinePass());
+  FPM.addPass(InstCombinePass());
   FPM.run(F, FAM);
 
   visitedInsts.clear();
