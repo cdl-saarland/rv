@@ -102,7 +102,7 @@ writeModuleToFile(Module* mod, const std::string& fileName)
 {
     assert (mod);
     std::error_code EC;
-    raw_fd_ostream file(fileName, EC);
+    raw_fd_ostream file(fileName, EC, sys::fs::OpenFlags::F_RW);
     mod->print(file, nullptr);
     if (EC)
     {
