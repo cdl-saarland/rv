@@ -13,6 +13,7 @@
 namespace rv {
 
 typedef std::vector<bool> BoolVector;
+typedef unsigned int uint;
 
 /*
  * bit operations
