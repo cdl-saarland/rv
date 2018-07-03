@@ -16,7 +16,8 @@
 
 namespace rv {
   // function resolver for SLEEF
-  void addSleefResolver(const Config & config, PlatformInfo & platInfo, bool allowImprecise);
+  // unit for ulpErrorBound is tenth of ULP (a value of 10 implies that an ULP error of <= 1.0 is acceptable)
+  void addSleefResolver(const Config & config, PlatformInfo & platInfo, unsigned ulpErrorBound);
 
   // link the compiler-rt code for the specified complex arithmetic function @funcName with @funcTy into @insertInto
   llvm::Function *

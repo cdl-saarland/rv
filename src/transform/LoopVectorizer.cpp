@@ -373,7 +373,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   config.useSLEEF = true;
 
   bool useImpreciseFunctions = true;
-  addSleefResolver(config, platInfo, useImpreciseFunctions);
+  addSleefResolver(config, platInfo, 35);
   vectorizer.reset(new VectorizerInterface(platInfo, config));
 
 

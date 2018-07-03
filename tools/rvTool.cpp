@@ -178,8 +178,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     MemoryDependenceResults MDR = mdAnalysis.run(parentFn, fam);
 
     // link in SIMD library
-    const bool useImpreciseFunctions = true;
-    addSleefResolver(config, platformInfo, useImpreciseFunctions);
+    addSleefResolver(config, platformInfo, 35);
 
 // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable
@@ -341,11 +340,10 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     // configure RV
     rv::Config config;
     config.useSLEEF = true;
-    const bool useImpreciseFunctions = true;
     config.print(outs());
 
     // link in SIMD library
-    addSleefResolver(config, platformInfo, useImpreciseFunctions);
+    addSleefResolver(config, platformInfo, 35);
 
     rv::VectorizerInterface vectorizer(platformInfo, config);
 
