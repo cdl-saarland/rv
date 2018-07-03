@@ -27,6 +27,7 @@
 #include "rv/rv.h"
 #include "rv/utils.h"
 #include "rv/region/FunctionRegion.h"
+#include "rv/transform/singleReturnTrans.h"
 
 #include <llvm/IR/Verifier.h>
 #include <vector>
@@ -571,6 +572,9 @@ struct SleefVLAResolver : public FunctionResolver {
     FunctionRegion funcWrapper(*clonedFunc);
     Region funcRegion(funcWrapper);
     VectorizationInfo vecInfo(funcRegion, mapping);
+
+    // unify returns (if necessary)
+    SingleReturnTrans::run(funcRegion);
 
     // compute anlaysis results
     PassBuilder PB;

@@ -26,8 +26,6 @@
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
 
-#include <rv/analysis/reductionAnalysis.h>
-
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils.h"
@@ -45,15 +43,18 @@
 #include "rv/vectorMapping.h"
 #include "rv/sleefLibrary.h"
 #include "rv/passes.h"
-#include "rv/transform/loopExitCanonicalizer.h"
-#include "rv/region/LoopRegion.h"
-#include "rv/region/FunctionRegion.h"
-#include "rv/region/Region.h"
 #include "rv/rvDebug.h"
 #include "rv/utils.h"
 
-#include "rv/transform/remTransform.h"
 #include "rv/vectorizationInfo.h"
+#include "rv/region/LoopRegion.h"
+#include "rv/region/FunctionRegion.h"
+#include "rv/region/Region.h"
+
+#include "rv/analysis/reductionAnalysis.h"
+#include "rv/transform/singleReturnTrans.h"
+#include "rv/transform/remTransform.h"
+#include "rv/transform/loopExitCanonicalizer.h"
 
 
 static bool OnlyAnalyze = false;
@@ -120,6 +121,10 @@ normalizeFunction(Function& F)
     FPM.add(createLoopSimplifyPass());
     FPM.add(createLCSSAPass());
     FPM.run(F);
+
+    rv::FunctionRegion funcRegion(F);
+    rv::Region regWrapper(funcRegion);
+    rv::SingleReturnTrans::run(regWrapper);
 }
 
 void

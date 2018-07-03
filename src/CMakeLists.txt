@@ -70,6 +70,7 @@ add_rv_library(RV
   transform/redTools.cpp
   transform/redOpt.cpp
   transform/remTransform.cpp
+  transform/singleReturnTrans.cpp
   transform/srovTransform.cpp
   transform/structOpt.cpp
   transform/splitAllocas.cpp
