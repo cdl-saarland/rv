@@ -38,6 +38,7 @@
 #include "rv/transform/bosccTransform.h"
 #include "rv/transform/redOpt.h"
 #include "rv/transform/memCopyElision.h"
+#include "rv/transform/lowerDivergentSwitches.h"
 
 #include "native/NatBuilder.h"
 
@@ -315,6 +316,13 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     // optimize reduction data flow
     ReductionOptimization redOpt(vecInfo, reda, domTree);
     redOpt.run();
+
+    // late lowering of divergent switch statements
+    LowerDivergentSwitches divSwitchTrans(vecInfo, loopInfo, maskEx);
+    if (divSwitchTrans.run()) {
+      postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+      domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    }
 
     // partially linearize acyclic control in the region
     Linearizer linearizer(vecInfo, maskEx, domTree, loopInfo);
