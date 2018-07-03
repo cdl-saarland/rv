@@ -859,6 +859,7 @@ NatBuilder::createVectorMaskSummary(Value * vecVal, IRBuilder<> & builder, RVInt
   Module *mod = vecInfo.getMapping().vectorFn->getParent();
 
   auto vecWidth = cast<VectorType>(vecVal->getType())->getVectorNumElements();
+  auto * intVecTy = VectorType::get(i32Ty, vecWidth);
 
   Value * result = nullptr;
   switch (mode) {
@@ -884,8 +885,9 @@ NatBuilder::createVectorMaskSummary(Value * vecVal, IRBuilder<> & builder, RVInt
         return builder.CreateOr(up, lowerBallot);
       }
 
-      if (config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) {
-        assert((vecWidth == 4 || vecWidth == 8) && "rv_ballot only supports SSE and AVX instruction sets");
+      // AVX-specific code path
+      if ((config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512)
+        && (vecWidth == 4 || vecWidth == 8)) {
 
       // non-uniform arg
         uint32_t bits = 32;
@@ -903,13 +905,29 @@ NatBuilder::createVectorMaskSummary(Value * vecVal, IRBuilder<> & builder, RVInt
 
         auto movMaskDecl = Intrinsic::getDeclaration(mod, id);
         result = builder.CreateCall(movMaskDecl, simdVal, "rv_ballot");
+
       } else {
-        abort(); // TODO implement for this target
+        // generic emulating code path
+        //
+      // a[lane] == 1 << lane
+        std::vector<Constant*> constants(vecWidth, nullptr);
+        for (unsigned i = 0; i < vecWidth; ++i) {
+          unsigned int val = 1 << i;
+          Constant *constant = ConstantInt::get(i32Ty, val);
+          constants[i] = constant;
+        }
+        auto * flagVec = ConstantVector::get(constants);
+        auto * zeroVec = ConstantVector::getNullValue(intVecTy);
+
+      // select (vecVal[l] ? a[l] : 0)
+        auto * maskedLaneVec = builder.CreateSelect(vecVal, flagVec, zeroVec);
+
+      // reduce_or
+        result = &CreateVectorReduce(builder, RedKind::Or, *maskedLaneVec);
       }
     } break;
 
     case RVIntrinsic::PopCount: {
-      auto * intVecTy = VectorType::get(i32Ty, vecWidth);
       auto * maskedOnes = builder.CreateZExt(vecVal, intVecTy, "rv_ballot");
       result = &CreateVectorReduce(builder, RedKind::Add, *maskedOnes);
     } break;
