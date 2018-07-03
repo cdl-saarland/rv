@@ -652,18 +652,31 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I, Sma
 
       bool isUniformCall = allArgsUniform && !HasSideEffects(*callee);
 
-      // query available vector mappings
+      // query available user mappings (vla aware simd mappings of scalar functions)
       bool needsPredication = false; // FIXME whether the call needs predication due to the call context
       VecMappingShortVec matchVec;
       platInfo.getMappingsForCall(matchVec, *callee, callArgShapes, vecInfo.getVectorWidth(), needsPredication);
 
       // pick mapping with the most precise result shape
-      VectorShape bestResultShape = isUniformCall ? VectorShape::uni() : VectorShape::varying();
-      for (const auto & mapping : matchVec) {
-        bestResultShape = mapping.resultShape < bestResultShape ? mapping.resultShape : bestResultShape;
+      if (!matchVec.empty()) {
+        VectorShape bestResultShape = isUniformCall ? VectorShape::uni() : VectorShape::varying();
+        for (const auto & mapping : matchVec) {
+          bestResultShape = mapping.resultShape < bestResultShape ? mapping.resultShape : bestResultShape;
+        }
+
+        return bestResultShape;
       }
 
-      return bestResultShape;
+      // default behavior for non-VLA functions
+      if (isUniformCall) return VectorShape::uni();
+
+      // next: query resolver mechanism // TODO account for predicate
+      auto resolver = platInfo.getResolver(callee->getName(), *callee->getFunctionType(), callArgShapes, vecInfo.getVectorWidth());
+      if (resolver) {
+        return resolver->requestResultShape();
+      }
+
+      return VectorShape::varying();
     }
 
     case Instruction::Load:
