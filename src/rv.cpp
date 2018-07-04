@@ -282,6 +282,13 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     // DominatorTree fixedDomTree(vecInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
     domTree.recalculate(vecInfo.getScalarFunction());
 
+    // early lowering of divergent switch statements
+    LowerDivergentSwitches divSwitchTrans(vecInfo, loopInfo);
+    if (divSwitchTrans.run()) {
+      postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+      domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    }
+
     // lazy mask generator
     MaskExpander maskEx(vecInfo, domTree, postDomTree, loopInfo);
 
@@ -316,13 +323,6 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     // optimize reduction data flow
     ReductionOptimization redOpt(vecInfo, reda, domTree);
     redOpt.run();
-
-    // late lowering of divergent switch statements
-    LowerDivergentSwitches divSwitchTrans(vecInfo, loopInfo, maskEx);
-    if (divSwitchTrans.run()) {
-      postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-      domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-    }
 
     // partially linearize acyclic control in the region
     Linearizer linearizer(vecInfo, maskEx, domTree, loopInfo);

@@ -6,22 +6,22 @@
 namespace llvm {
   class SwitchInst;
   class LoopInfo;
+  class BasicBlock;
 }
 
 namespace rv {
 
-class MaskExpander;
 class VectorizationInfo;
 
 class LowerDivergentSwitches {
   VectorizationInfo & vecInfo;
   llvm::LoopInfo & LI;
-  MaskExpander & maskEx;
 
   void lowerSwitch(llvm::SwitchInst & swInst);
+  void replaceIncoming(llvm::BasicBlock & phiBlock, llvm::BasicBlock & oldIncoming, llvm::BasicBlock & newIncoming);
 
 public:
-  LowerDivergentSwitches(VectorizationInfo & _vecInfo, llvm::LoopInfo & _LI, MaskExpander & _maskEx);
+  LowerDivergentSwitches(VectorizationInfo & _vecInfo, llvm::LoopInfo & _LI);
   bool run();
 };
 

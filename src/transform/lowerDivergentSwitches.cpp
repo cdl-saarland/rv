@@ -1,7 +1,7 @@
 #include "rv/transform/lowerDivergentSwitches.h"
 #include "rv/vectorizationInfo.h"
-#include "rv/transform/maskExpander.h"
 
+#include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/Analysis/LoopInfo.h>
 
@@ -11,14 +11,15 @@ using namespace llvm;
 
 namespace rv {
 
-static void
-ReplaceIncoming(BasicBlock & phiBlock, BasicBlock & oldIncoming, BasicBlock & newIncoming) {
+void
+LowerDivergentSwitches::replaceIncoming(BasicBlock & phiBlock, BasicBlock & oldIncoming, BasicBlock & newIncoming) {
   for (auto & inst : phiBlock) {
     if (!isa<PHINode>(inst)) break;
     auto & phi = cast<PHINode>(inst);
     for (int i = 0; i < (int) phi.getNumIncomingValues(); ++i) {
       if (phi.getIncomingBlock(i) != &oldIncoming) continue;
       phi.setIncomingBlock(i, &newIncoming);
+      assert(vecInfo.getVectorShape(phi).isVarying() && "undetected divergent phi");
     }
   }
 }
@@ -43,11 +44,7 @@ LowerDivergentSwitches::lowerSwitch(SwitchInst & switchInst) {
     // first default block (actual switch default case)
     if (!defaultBlock) {
       defaultBlock = switchInst.getDefaultDest();
-      // update maskExpander
-      auto * edgeMask = maskEx.getEdgeMask(switchBlock, *defaultBlock);
-      // TODO implement: maskEx.dropEdgeMask(switchBlock, *defaultBlock);
-      maskEx.setEdgeMask(*branchBlock, 1, *edgeMask); // target on false
-      ReplaceIncoming(*defaultBlock, switchBlock, *defaultBlock);
+      replaceIncoming(*defaultBlock, switchBlock, *defaultBlock);
     }
 
     // create case branch
@@ -60,12 +57,7 @@ LowerDivergentSwitches::lowerSwitch(SwitchInst & switchInst) {
     vecInfo.setVectorShape(*caseCond, VectorShape::varying());
 
     // update incoming edges from switchBlock -> branchBlock
-    ReplaceIncoming(*caseBlock, switchBlock, *branchBlock);
-
-    // update maskExpander
-    auto * edgeMask = maskEx.getEdgeMask(switchBlock, *caseBlock);
-    // TODO implement: maskEx.dropEdgeMask(switchBlock, *caseBlock);
-    maskEx.setEdgeMask(*branchBlock, 0, *edgeMask); // target on true
+    replaceIncoming(*caseBlock, switchBlock, *branchBlock);
 
     // new default
     defaultBlock = branchBlock;
@@ -77,10 +69,9 @@ LowerDivergentSwitches::lowerSwitch(SwitchInst & switchInst) {
   switchInst.eraseFromParent();
 }
 
-LowerDivergentSwitches::LowerDivergentSwitches(VectorizationInfo & _vecInfo, LoopInfo & _LI, MaskExpander & _maskEx)
+LowerDivergentSwitches::LowerDivergentSwitches(VectorizationInfo & _vecInfo, LoopInfo & _LI)
 : vecInfo(_vecInfo)
 , LI(_LI)
-, maskEx(_maskEx)
 {}
 
 bool
