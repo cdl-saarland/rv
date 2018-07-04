@@ -44,24 +44,24 @@ int main(int argc, char ** argv) {
   std::uniform_real_distribution<float> fRand;
 
   for (unsigned i = 0; i < numVectors; ++i) {
-    int a = i;
+    int u = i;
     float b[8];
 
     for (uint i = 0; i < vectorWidth; ++i) {
       b[i] = fRand(randSource);
     }
 
-    float8 rVec = foo_SIMD(a, *((float8*) &b));
+    float8 rVec = foo_SIMD(u, *((float8*) &b));
     float r[8];
     toArray(rVec, r);
 
 
     for (uint i = 0; i < vectorWidth; ++i) {
-      float expectedRes = foo(a, b[i]);
+      float expectedRes = foo(u, b[i]);
 
       if (!IsClose(r[i], expectedRes)) {
         std::cerr << "MISMATCH!\n";
-        std::cerr << i << " : a = " << a << " b = " << b[i] << " expected result (close to) " << expectedRes << " but was " << r[i] << "\n";
+        std::cerr << i << " : u = " << u << " b = " << b[i] << " expected result (close to) " << expectedRes << " but was " << r[i] << "\n";
         dumpArray(b, vectorWidth); std::cerr << "\n";
         dumpArray(r, vectorWidth); std::cerr << "\n";
         return -1;
