@@ -172,71 +172,78 @@ using PlainVecDescVector = std::vector<PlainVecDesc>;
 
 using AddToListFuncType = std::function<void(const PlainVecDescVector&, bool)>;
 
-  enum SleefISA {
-    SLEEF_VLA  = 0,
-    SLEEF_SSE  = 1,
-    SLEEF_AVX  = 2,
-    SLEEF_AVX2 = 3,
-    SLEEF_AVX512 = 4,
-    SLEEF_ADVSIMD = 5,
-    SLEEF_Enum_Entries = 6
-  };
+enum SleefISA {
+  SLEEF_VLA  = 0,
+  SLEEF_SSE  = 1,
+  SLEEF_AVX  = 2,
+  SLEEF_AVX2 = 3,
+  SLEEF_AVX512 = 4,
+  SLEEF_ADVSIMD = 5,
+  SLEEF_Enum_Entries = 6
+};
 
-  inline int sleefModuleIndex(SleefISA isa, bool doublePrecision) {
-    return int(isa) + (doublePrecision ? (int) SLEEF_Enum_Entries : 0);
-  }
+inline int sleefModuleIndex(SleefISA isa, bool doublePrecision) {
+  return int(isa) + (doublePrecision ? (int) SLEEF_Enum_Entries : 0);
+}
+
+static const size_t sleefModuleBufferLens[] = {
+    vla_sp_BufferLen,
+    sse_sp_BufferLen,
+    avx_sp_BufferLen,
+    avx2_sp_BufferLen,
+    avx512_sp_BufferLen,
+    advsimd_sp_BufferLen,
+
+    vla_dp_BufferLen,
+    sse_dp_BufferLen,
+    avx_dp_BufferLen,
+    avx2_dp_BufferLen,
+    avx512_dp_BufferLen,
+    advsimd_dp_BufferLen,
+};
+
+static const unsigned char** sleefModuleBuffers[] = {
+    &vla_sp_Buffer,
+    &sse_sp_Buffer,
+    &avx_sp_Buffer,
+    &avx2_sp_Buffer,
+    &avx512_sp_Buffer,
+    &advsimd_sp_Buffer,
+
+    &vla_dp_Buffer,
+    &sse_dp_Buffer,
+    &avx_dp_Buffer,
+    &avx2_dp_Buffer,
+    &avx512_dp_Buffer,
+    &advsimd_dp_Buffer,
+};
+
+static const size_t extraModuleBufferLens[] = {
+    0, // VLA
+    0, // SSE
+    0, // AVX
+    avx2_extras_BufferLen,
+    avx512_extras_BufferLen,
+    advsimd_extras_BufferLen,
+};
+
+static const unsigned char** extraModuleBuffers[] = {
+    nullptr, // VLA
+    nullptr, // SSE
+    nullptr, // AVX
+    &avx2_extras_Buffer,
+    &avx512_extras_Buffer,
+    &advsimd_extras_Buffer,
+};
 
 
-  static const size_t sleefModuleBufferLens[] = {
-      vla_sp_BufferLen,
-      sse_sp_BufferLen,
-      avx_sp_BufferLen,
-      avx2_sp_BufferLen,
-      avx512_sp_BufferLen,
-      advsimd_sp_BufferLen,
 
-      vla_dp_BufferLen,
-      sse_dp_BufferLen,
-      avx_dp_BufferLen,
-      avx2_dp_BufferLen,
-      avx512_dp_BufferLen,
-      advsimd_dp_BufferLen,
-  };
+static Module *sleefModules[SLEEF_Enum_Entries * 2];
+static Module *extraModules[SLEEF_Enum_Entries * 2];
 
-  static const unsigned char** sleefModuleBuffers[] = {
-      &vla_sp_Buffer,
-      &sse_sp_Buffer,
-      &avx_sp_Buffer,
-      &avx2_sp_Buffer,
-      &avx512_sp_Buffer,
-      &advsimd_sp_Buffer,
-
-      &vla_dp_Buffer,
-      &sse_dp_Buffer,
-      &avx_dp_Buffer,
-      &avx2_dp_Buffer,
-      &avx512_dp_Buffer,
-      &advsimd_dp_Buffer,
-  };
-
-  static const size_t extraModuleBufferLens[] = {
-      0, // VLA
-      0, // SSE
-      0, // AVX
-      avx2_extras_BufferLen,
-      avx512_extras_BufferLen,
-      advsimd_extras_BufferLen,
-  };
-
-  static const unsigned char** extraModuleBuffers[] = {
-      nullptr, // VLA
-      nullptr, // SSE
-      nullptr, // AVX
-      &avx2_extras_Buffer,
-      &avx512_extras_Buffer,
-      &advsimd_extras_Buffer,
-  };
-
+#ifdef RV_ENABLE_CRT
+  static Module* scalarModule; // scalar implementations to be inlined
+#endif
 
 static
 void
@@ -372,12 +379,6 @@ InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleW
         };
         archMappings.insert(archMappings.end(), VecFuncs.begin(), VecFuncs.end());
 }
-static Module *sleefModules[SLEEF_Enum_Entries * 2];
-static Module *extraModules[SLEEF_Enum_Entries * 2];
-
-#ifdef RV_ENABLE_CRT
-  static Module* scalarModule; // scalar implementations to be inlined
-#endif
 
 
 class SleefResolverService : public ResolverService {
