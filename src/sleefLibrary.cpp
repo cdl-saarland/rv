@@ -28,6 +28,7 @@
 #include "rv/utils.h"
 #include "rv/region/FunctionRegion.h"
 #include "rv/transform/singleReturnTrans.h"
+#include "rv/transform/loopExitCanonicalizer.h"
 #include "report.h"
 
 #include <llvm/IR/Verifier.h>
@@ -605,6 +606,14 @@ struct SleefVLAResolver : public FunctionResolver {
     auto & SE = FAM.getResult<ScalarEvolutionAnalysis>(*clonedFunc);
     auto & MDR = FAM.getResult<MemoryDependenceAnalysis>(*clonedFunc);
     auto & BPI = FAM.getResult<BranchProbabilityAnalysis>(*clonedFunc);
+
+    // normalize loop exits (TODO make divLoopTrans work without this)
+    {
+      LoopInfo tmpLoopInfo(DT);
+      LoopExitCanonicalizer canonicalizer(tmpLoopInfo);
+      canonicalizer.canonicalize(*clonedFunc);
+      DT.recalculate(*clonedFunc);
+    }
 
     // run pipeline
     vectorizer.analyze(vecInfo, DT, PDT, LI);
