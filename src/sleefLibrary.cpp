@@ -28,12 +28,13 @@
 #include "rv/utils.h"
 #include "rv/region/FunctionRegion.h"
 #include "rv/transform/singleReturnTrans.h"
+#include "report.h"
 
 #include <llvm/IR/Verifier.h>
 #include <vector>
 #include <sstream>
 
-#if 0
+#if 1
 #define IF_DEBUG_SLEEF IF_DEBUG
 #else
 #define IF_DEBUG_SLEEF if (true)
@@ -405,44 +406,60 @@ class SleefResolverService : public ResolverService {
 
 
 public:
+  void reportConfig() const {
+    Report() << "SLEEFResolver:\n"
+             << "\tULP error bound is " << (maxULPError / 10) << '.' << (maxULPError % 10) << "\n"
+             << "\tarch order: ";
+
+    bool later = false;
+    for (const auto * archList : archLists) {
+      if (later) { ReportContinue() << ","; }
+      later = true;
+      ReportContinue() << archList->archSuffix;
+    }
+    ReportContinue() << "\n";
+  }
+
   SleefResolverService(PlatformInfo & _platInfo, const Config & _config, unsigned _maxULPError)
   : platInfo(_platInfo)
   , maxULPError(_maxULPError)
   , config(_config)
   {
-    // fall back to automatic vectorization of scalar implementations (baseline)
-    auto * vlaArch = new ArchFunctionList(SleefISA::SLEEF_VLA, "vla");
-    InitSleefMappings(vlaArch->commonVectorMappings, -1, -1);
-    archLists.push_back(vlaArch);
-
+  // ARM
     if (config.useADVSIMD) {
       auto * advSimdArch = new ArchFunctionList(SleefISA::SLEEF_ADVSIMD, "advsimd");
       InitSleefMappings(advSimdArch->commonVectorMappings, 4, 2);
       archLists.push_back(advSimdArch);
     }
 
+  // x86
+    if (config.useAVX512) {
+      auto * avx512Arch = new ArchFunctionList(SleefISA::SLEEF_AVX512, "avx512");
+      InitSleefMappings(avx512Arch->commonVectorMappings, 16, 8);
+      archLists.push_back(avx512Arch);
+    }
+    if (config.useAVX2 || config.useAVX512) {
+      auto * avx2Arch = new ArchFunctionList(SleefISA::SLEEF_AVX2, "avx2");
+      InitSleefMappings(avx2Arch->commonVectorMappings, 8, 4);
+      archLists.push_back(avx2Arch);
+    }
+    if (config.useAVX) {
+      auto * avxArch = new ArchFunctionList(SleefISA::SLEEF_AVX, "avx");
+      InitSleefMappings(avxArch->commonVectorMappings, 8, 4);
+      archLists.push_back(avxArch);
+    }
     if (config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) {
       auto * sseArch = new ArchFunctionList(SleefISA::SLEEF_SSE, "sse");
       InitSleefMappings(sseArch->commonVectorMappings, 4, 2);
       archLists.push_back(sseArch);
     }
 
-    if (config.useAVX) {
-      auto * avxArch = new ArchFunctionList(SleefISA::SLEEF_AVX, "avx");
-      InitSleefMappings(avxArch->commonVectorMappings, 8, 4);
-      archLists.push_back(avxArch);
-    }
+  // generic
+    // fall back to automatic vectorization of scalar implementations (baseline)
+    auto * vlaArch = new ArchFunctionList(SleefISA::SLEEF_VLA, "vla");
+    InitSleefMappings(vlaArch->commonVectorMappings, -1, -1);
+    archLists.push_back(vlaArch);
 
-    if (config.useAVX2 || config.useAVX512) {
-      auto * avx2Arch = new ArchFunctionList(SleefISA::SLEEF_AVX2, "avx2");
-      InitSleefMappings(avx2Arch->commonVectorMappings, 8, 4);
-      archLists.push_back(avx2Arch);
-    }
-    if (config.useAVX512) {
-      auto * avx512Arch = new ArchFunctionList(SleefISA::SLEEF_AVX512, "avx512");
-      InitSleefMappings(avx512Arch->commonVectorMappings, 16, 8);
-      archLists.push_back(avx512Arch);
-    }
   }
 
   ~SleefResolverService() {
@@ -701,6 +718,8 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
          break;
        }
     };
+
+    if (archList) break;
   }
   IF_DEBUG_SLEEF { errs() << "\t n/a\n"; }
   if (!archList) return nullptr;
@@ -761,6 +780,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
 void
 addSleefResolver(const Config & config, PlatformInfo & platInfo, unsigned maxULPError) {
   auto sleefRes = std::make_unique<SleefResolverService>(platInfo, config, maxULPError);
+  sleefRes->reportConfig();
   platInfo.addResolverService(std::move(sleefRes), true);
 }
 
