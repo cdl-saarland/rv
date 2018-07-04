@@ -339,6 +339,7 @@ TransformSession::transformLoop() {
 
      } else {
        // mask was set explicitely
+       assert(!exitBuilder.GetInsertBlock()->getTerminator() && "not in loop exit normal form");
        exitBr = exitBuilder.CreateBr(&exitBlock);
        branchShape = VectorShape::uni(); // single successor
      }
