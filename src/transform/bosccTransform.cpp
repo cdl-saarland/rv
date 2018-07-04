@@ -323,7 +323,12 @@ getBlockScore(BasicBlock & entry) {
       auto * callee = call->getCalledFunction();
       if (!callee) { score += 8; continue; }
 
-      if (!platInfo.isFunctionVectorizable(callee->getName(), vecInfo.getVectorWidth())) {
+      VectorShapeVec argShapeVec;
+      for (const auto & arg : call->arg_operands()) {
+        argShapeVec.push_back(vecInfo.getVectorShape(*arg.getUser()));
+      }
+
+      if (!platInfo.getResolver(callee->getName(), *callee->getFunctionType(), argShapeVec, vecInfo.getVectorWidth())) {
         score += 2;
       }
       score += 1;

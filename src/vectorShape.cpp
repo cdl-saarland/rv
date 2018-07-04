@@ -217,5 +217,59 @@ VectorShape truncateToTypeSize(const VectorShape &a, unsigned typeSize) {
   return a;
 }
 
+std::string
+VectorShape::serialize() const {
+  std::stringstream ss;
+  if (isVarying()) {
+    ss << "v";
+  } else {
+    ss << "l" << getStride();
+  }
+  if (getAlignmentFirst() > 1) {
+    ss << "a" << getAlignmentFirst();
+  }
+  return ss.str();
+}
+
+static int
+ParseInt(StringRef text, int & nextPos) {
+  int sign = 1;
+  if (text[nextPos] == 'n') {
+    nextPos++;
+    sign = -1; // negative stride
+  }
+
+  int r = 0;
+  while (((size_t) nextPos < text.size()) &&
+         ('0' <= text[nextPos] && text[nextPos] <= '9')) {
+    int d = text[nextPos++] - '0';
+    r = 10 * r + d;
+  }
+  return r * sign;
+}
+
+static int
+ParseAlignment(StringRef text, int & nextPos) {
+  if (((size_t) nextPos) >= text.size()) return 1;
+  if (text[nextPos] != 'a') return 1;
+  nextPos++;
+  return ParseInt(text, nextPos);
+}
+
+VectorShape
+VectorShape::parse(StringRef text, int & nextPos) {
+  switch(text[nextPos++]) {
+    case 'v': {
+      int a = ParseAlignment(text, nextPos);
+      return VectorShape::varying(a);
+    } break;
+    case 'l': {
+      int s = ParseInt(text, nextPos);
+      int a = ParseAlignment(text, nextPos);
+      return VectorShape::strided(s, a);
+    }
+    default: abort();
+  }
+}
 
 }

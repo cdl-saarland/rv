@@ -34,7 +34,6 @@ add_rv_library(RV
   analysis/VectorizationAnalysis.cpp
   analysis/reductionAnalysis.cpp
   analysis/reductions.cpp
-  analysis/DivPathDecider.cpp
   analysis/UndeadMaskAnalysis.cpp
   config.cpp
   init.cpp
@@ -66,11 +65,13 @@ add_rv_library(RV
   transform/divLoopTrans.cpp
   transform/irPolisher.cpp
   transform/loopExitCanonicalizer.cpp
+  transform/lowerDivergentSwitches.cpp
   transform/maskExpander.cpp
   transform/memCopyElision.cpp
   transform/redTools.cpp
   transform/redOpt.cpp
   transform/remTransform.cpp
+  transform/singleReturnTrans.cpp
   transform/srovTransform.cpp
   transform/structOpt.cpp
   transform/splitAllocas.cpp

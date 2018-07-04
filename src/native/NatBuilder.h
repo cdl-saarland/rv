@@ -128,6 +128,7 @@ namespace rv {
 
     void addValuesToPHINodes();
 
+    llvm::CallInst* vectorizeCallWithFunction(llvm::CallInst & scaCall, llvm::Function & vecFunc, int maskPos);
     void mapOperandsInto(llvm::Instruction *const scalInst, llvm::Instruction *inst, bool vectorizedInst,
                          unsigned laneIdx = 0);
 

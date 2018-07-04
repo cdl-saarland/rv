@@ -617,7 +617,7 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
       replVec.push_back(laneRepl);
     }
 
-  } else if (inst.isBinaryOp() && vecTy) {
+  } else { // generic replication
     auto * flatTy = vecTy->getElementType();
 
     std::vector<Instruction*> repls;
@@ -640,10 +640,6 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
       builder.Insert(repls[c], ".r");
       replVec.push_back(repls[c]);
     }
-
-  } else {
-    assert(false && "un-replicatable operation");
-    abort();
   }
 
 // register replcate

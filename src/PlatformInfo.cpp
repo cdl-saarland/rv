@@ -16,6 +16,59 @@ using namespace llvm;
 
 namespace rv {
 
+// result shape of function @funcName in target module @module
+VectorShape
+FunctionResolver::ComputeShape(const VectorShapeVec & argShapes) {
+  // TODO run VA
+  for (const auto & argShape : argShapes) {
+    if (!argShape.isUniform()) return VectorShape::varying();
+  }
+  return VectorShape::uni();
+}
+
+class TLIFuncResolver : public FunctionResolver {
+  TargetLibraryInfo & TLI;
+  llvm::StringRef funcName;
+  llvm::FunctionType & scaFuncTy;
+  int vectorWidth;
+
+public:
+  TLIFuncResolver(Module & _destModule, TargetLibraryInfo & _TLI, llvm::StringRef _funcName, llvm::FunctionType & _scaFuncTy, int _vectorWidth)
+  : FunctionResolver(_destModule)
+  , TLI(_TLI)
+  , funcName(_funcName)
+  , scaFuncTy(_scaFuncTy)
+  , vectorWidth(_vectorWidth)
+  {}
+
+  VectorShape
+  requestResultShape() { return VectorShape::varying(); }
+
+  Function& requestVectorized() {
+    // TODO actually emit a SIMD declaration for this function
+    StringRef tliFnName = TLI.getVectorizedFunction(funcName, vectorWidth);
+    return *targetModule.getFunction(tliFnName);
+  }
+};
+
+class TLIResolverService : public ResolverService {
+  TargetLibraryInfo & TLI;
+
+public:
+  TLIResolverService(TargetLibraryInfo & _TLI)
+  : TLI(_TLI)
+  {}
+
+  std::unique_ptr<FunctionResolver>
+  resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) {
+    StringRef tliFnName = TLI.getVectorizedFunction(funcName, vectorWidth);
+    if (!tliFnName.empty()) {
+      return std::make_unique<TLIFuncResolver>(destModule, TLI, funcName, scaFuncTy, vectorWidth);
+    }
+    return nullptr;
+  }
+};
+
 void
 PlatformInfo::registerDeclareSIMDFunction(Function & F) {
   auto attribSet = F.getAttributes().getFnAttributes();
@@ -57,57 +110,28 @@ TargetTransformInfo *PlatformInfo::getTTI() { return mTTI; }
 
 TargetLibraryInfo *PlatformInfo::getTLI() { return mTLI; }
 
-void PlatformInfo::addVectorizableFunctions(ArrayRef<VecDesc> funcs, bool givePrecedence) {
-  auto itInsert = givePrecedence ? commonVectorMappings.begin() : commonVectorMappings.end();
-  commonVectorMappings.insert(itInsert, funcs.begin(), funcs.end());
+void
+PlatformInfo::addResolverService(std::unique_ptr<ResolverService>&& newResolver, bool givePrecedence) {
+  auto itInsert = givePrecedence ? resolverServices.begin() : resolverServices.end();
+  resolverServices.insert(itInsert, std::move(newResolver));
 }
 
-bool PlatformInfo::isFunctionVectorizable(StringRef funcName,
-                                          unsigned vectorWidth) {
-  return !getVectorizedFunction(funcName, vectorWidth).empty();
-}
-
-StringRef PlatformInfo::getVectorizedFunction(StringRef funcName,
-                                              unsigned vectorWidth,
-                                              bool *isInTLI) {
-  if (funcName.empty())
-    return funcName;
-
-  // query custom mappings with precedence
-  std::string funcNameStr = funcName.str();
-  for (const auto & vd : commonVectorMappings) {
-     if (vd.scalarFnName == funcNameStr && vd.vectorWidth == vectorWidth) return vd.vectorFnName;
-  };
-
-  // query TLI
-  StringRef tliFnName = mTLI->getVectorizedFunction(funcName, vectorWidth);
-  if (!tliFnName.empty()) {
-    if (isInTLI)
-      *isInTLI = true;
-    return tliFnName;
+std::unique_ptr<FunctionResolver>
+PlatformInfo::getResolver(StringRef funcName,
+                          FunctionType & scaFuncTy,
+                          const VectorShapeVec & argShapes,
+                          int vectorWidth) const {
+  for (const auto & resolver : resolverServices) {
+    std::unique_ptr<FunctionResolver> funcResolver = resolver->resolve(funcName, scaFuncTy, argShapes, vectorWidth, mod);
+    if (funcResolver) return funcResolver;
   }
-
-  // no mapping
-  return StringRef();
+  return nullptr;
 }
 
-Function *PlatformInfo::requestVectorizedFunction(StringRef funcName,
-                                                  unsigned vectorWidth,
-                                                  Module *insertInto,
-                                                  bool doublePrecision) {
-  bool isInTLI = false;
-  StringRef vecFuncName =
-      getVectorizedFunction(funcName, vectorWidth, &isInTLI);
-  if (vecFuncName.empty())
-    return nullptr;
 
-  if (isInTLI)
-    return insertInto->getFunction(vecFuncName);
-  else
-    return requestSleefFunction(funcName, vecFuncName, insertInto,
-                                doublePrecision);
-}
 
+
+// shape based mappings
 bool
 PlatformInfo::addMapping(rv::VectorMapping &mapping) {
   auto it = funcMappings.find(mapping.scalarFn);

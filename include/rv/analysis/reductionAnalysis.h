@@ -23,7 +23,8 @@ namespace rv {
 using InstSet = std::set<llvm::Instruction*>;
 
 // stride recurrence
-struct StridePattern {
+class StridePattern {
+  public:
   int loopInitIdx;
   int latchIdx;
   llvm::PHINode * phi;
@@ -40,7 +41,8 @@ struct StridePattern {
 };
 
 // general reduction pattern
-struct Reduction {
+class Reduction {
+public:
   // all users outside of @levelLoop may reduce any of the instructions in @elements using a @kind reduction
   llvm::Loop * levelLoop;
   // the kind of reduction pattern

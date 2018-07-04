@@ -23,7 +23,7 @@ static double __complex__
 cmul(double __complex__ a, double __complex__ b) {
   double r = __real__ a * __real__ b - (__imag__ a * __imag__  b);
   double i = __real__ a * __imag__ b + __imag__ a * __real__ b;
-  return r + r * I;
+  return r + i * I;
 }
 
 static int

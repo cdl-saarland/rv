@@ -12,25 +12,44 @@
 
 namespace rv {
 
-struct VecDesc {
-  std::string scalarFnName;
-  std::string vectorFnName;
-  unsigned vectorWidth;
+// resolver service
+class
+FunctionResolver {
+protected:
+  llvm::Module & targetModule;
 
-  VecDesc(std::string _scalarName, std::string _vectorName, unsigned _width)
-  : scalarFnName(_scalarName), vectorFnName(_vectorName), vectorWidth(_width)
+public:
+  static VectorShape ComputeShape(const VectorShapeVec & argShapes);
+
+  FunctionResolver(llvm::Module & _targetModule)
+  : targetModule(_targetModule)
   {}
+
+  virtual ~FunctionResolver() {}
+
+  // materialized the vectorized function in the module @insertInto and returns a reference to it
+  virtual llvm::Function& requestVectorized() = 0;
+
+  // result shape of function @funcName in target module @module
+  virtual VectorShape requestResultShape() = 0;
 };
+
+// abstract function resolver interface
+class
+ResolverService {
+public:
+  virtual std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) = 0;
+};
+
 
 // used for shape-based call mappings
 using VecMappingShortVec = llvm::SmallVector<VectorMapping, 4>;
 using VectorFuncMap = std::map<const llvm::Function *, VecMappingShortVec*>;
 
-// used for on-demand mappings
-using VecDescVector = std::vector<VecDesc>;
-
 class PlatformInfo {
+  std::vector<std::unique_ptr<ResolverService>> resolverServices;
   void registerDeclareSIMDFunction(llvm::Function & F);
+
 public:
   PlatformInfo(llvm::Module &mod, llvm::TargetTransformInfo *TTI,
                llvm::TargetLibraryInfo *TLI);
@@ -47,12 +66,16 @@ public:
   llvm::TargetTransformInfo *getTTI();
   llvm::TargetLibraryInfo *getTLI();
 
-  // add a batch of SIMD function mappings to this platform
-  // these will be used during code generation
-  // if @givePrecedence is true prefer these new mappings over existing ones (the opposite if !givePrecedence)
-  void addVectorizableFunctions(llvm::ArrayRef<VecDesc> funcs, bool givePrecedence);
-  bool isFunctionVectorizable(llvm::StringRef funcName, unsigned vectorWidth);
+  // insert a new function resolver into the resolver chain
+  void addResolverService(std::unique_ptr<ResolverService>&& newResolver, bool givePrecedence);
 
+  std::unique_ptr<FunctionResolver>
+  getResolver(llvm::StringRef funcName,
+              llvm::FunctionType & scaFuncTy,
+              const VectorShapeVec & argShapes,
+              int vectorWidth) const;
+
+#if 0
   llvm::StringRef getVectorizedFunction(llvm::StringRef func,
                                         unsigned vectorWidth,
                                         bool *isInTLI = nullptr);
@@ -61,6 +84,7 @@ public:
                                             unsigned vectorWidth,
                                             llvm::Module *insertInto,
                                             bool doublePrecision);
+#endif
 
   // query available vector mappings for a given vector call signature
   bool
@@ -91,7 +115,6 @@ private:
   llvm::TargetTransformInfo *mTTI;
   llvm::TargetLibraryInfo *mTLI;
   VectorFuncMap funcMappings;
-  VecDescVector commonVectorMappings;
 };
 }
 

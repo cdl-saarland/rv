@@ -70,7 +70,7 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
     if (IsCriticalSection(*callee)) return maxWidth;
 
     VectorShapeVec botArgVec;
-    for (int i = 0; i < call->getNumArgOperands(); ++i) {
+    for (int i = 0; i < (int) call->getNumArgOperands(); ++i) {
       botArgVec.push_back(VectorShape::undef());
     }
 
@@ -82,7 +82,7 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
       VecMappingShortVec matchVec;
       const bool needsPredication = false; // FIXME
       if (platInfo.getMappingsForCall(matchVec, *callee, botArgVec, sampleWidth, needsPredication)) break;
-      if (platInfo.isFunctionVectorizable(calleeName, sampleWidth)) {
+      if (platInfo.getResolver(calleeName, *callee->getFunctionType(), botArgVec, sampleWidth)) {
         break;
       }
     }

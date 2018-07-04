@@ -502,6 +502,26 @@ NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool pa
    return resultVec;
 }
 
+// TODO don't modify vecCall.. build a new CallInst and build a new parameter vector
+CallInst*
+NatBuilder::vectorizeCallWithFunction(CallInst & scaCall, Function & vecFunc, int maskPos) {
+  assert(maskPos < 0 && "TODO implement predicated calls");
+  int scaIdx = 0; // TODO use for mask skipping
+  auto itVecArg = vecFunc.arg_begin();
+
+  std::vector<Value*> vectorArgs;
+  for (int vecIdx = 0; vecIdx < (int) vecFunc.arg_size(); ++vecIdx, ++scaIdx, ++itVecArg) {
+    Value *op = scaCall.getArgOperand(scaIdx);
+
+    bool vecTypeArg = itVecArg->getType()->isVectorTy();
+    Value *mappedArg = vecTypeArg ? requestVectorValue(op) : requestScalarValue(op);
+    vectorArgs.push_back(mappedArg);
+  }
+  auto * vecCall = builder.CreateCall(&vecFunc, vectorArgs);
+  return vecCall;
+}
+
+// FIXME re-design this!
 /* expects that builder has valid insertion point set */
 void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst, bool vectorizedInst,
                                  unsigned laneIdx) {
@@ -758,7 +778,7 @@ NatBuilder::vectorizeLoadCall(CallInst *rvCall) {
     auto * uniVal = requestScalarValue(vecPtr);
     auto addressSpace = uniVal->getType()->getPointerAddressSpace();
     auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
-    auto * gepPtr = builder.CreateGEP(castPtr, { laneId });
+    auto * gepPtr = builder.CreateGEP(castPtr, laneId);
     auto * loadVal = builder.CreateLoad(gepPtr);
     mapScalarValue(rvCall, loadVal);
     return;
@@ -788,7 +808,7 @@ NatBuilder::vectorizeStoreCall(CallInst *rvCall) {
     auto * uniVal = requestScalarValue(vecPtr);
     auto addressSpace = uniVal->getType()->getPointerAddressSpace();
     auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
-    auto * gepPtr = builder.CreateGEP(castPtr, { laneId });
+    auto * gepPtr = builder.CreateGEP(castPtr, laneId );
     auto * store = builder.CreateStore(elemVal, gepPtr);
     mapScalarValue(rvCall, store);
     return;
@@ -839,6 +859,7 @@ NatBuilder::createVectorMaskSummary(Value * vecVal, IRBuilder<> & builder, RVInt
   Module *mod = vecInfo.getMapping().vectorFn->getParent();
 
   auto vecWidth = cast<VectorType>(vecVal->getType())->getVectorNumElements();
+  auto * intVecTy = VectorType::get(i32Ty, vecWidth);
 
   Value * result = nullptr;
   switch (mode) {
@@ -864,8 +885,9 @@ NatBuilder::createVectorMaskSummary(Value * vecVal, IRBuilder<> & builder, RVInt
         return builder.CreateOr(up, lowerBallot);
       }
 
-      if (config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) {
-        assert((vecWidth == 4 || vecWidth == 8) && "rv_ballot only supports SSE and AVX instruction sets");
+      // AVX-specific code path
+      if ((config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512)
+        && (vecWidth == 4 || vecWidth == 8)) {
 
       // non-uniform arg
         uint32_t bits = 32;
@@ -883,13 +905,29 @@ NatBuilder::createVectorMaskSummary(Value * vecVal, IRBuilder<> & builder, RVInt
 
         auto movMaskDecl = Intrinsic::getDeclaration(mod, id);
         result = builder.CreateCall(movMaskDecl, simdVal, "rv_ballot");
+
       } else {
-        abort(); // TODO implement for this target
+        // generic emulating code path
+        //
+      // a[lane] == 1 << lane
+        std::vector<Constant*> constants(vecWidth, nullptr);
+        for (unsigned i = 0; i < vecWidth; ++i) {
+          unsigned int val = 1 << i;
+          Constant *constant = ConstantInt::get(i32Ty, val);
+          constants[i] = constant;
+        }
+        auto * flagVec = ConstantVector::get(constants);
+        auto * zeroVec = ConstantVector::getNullValue(intVecTy);
+
+      // select (vecVal[l] ? a[l] : 0)
+        auto * maskedLaneVec = builder.CreateSelect(vecVal, flagVec, zeroVec);
+
+      // reduce_or
+        result = &CreateVectorReduce(builder, RedKind::Or, *maskedLaneVec);
       }
     } break;
 
     case RVIntrinsic::PopCount: {
-      auto * intVecTy = VectorType::get(i32Ty, vecWidth);
       auto * maskedOnes = builder.CreateZExt(vecVal, intVecTy, "rv_ballot");
       result = &CreateVectorReduce(builder, RedKind::Add, *maskedOnes);
     } break;
@@ -968,13 +1006,14 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   StringRef calleeName = callee->getName();
   Function * calledFunction = dyn_cast<Function>(callee);
 
+  VectorShapeVec callArgShapes;
+  for (int i = 0; i < (int) scalCall->getNumArgOperands(); ++i) {
+    auto argShape = vecInfo.getVectorShape(*scalCall->getArgOperand(i));
+    callArgShapes.push_back(argShape);
+  }
+
   // look for (proper) mappings with arg shapes
   if (calledFunction) {
-    VectorShapeVec callArgShapes;
-    for (int i = 0; i < (int) scalCall->getNumArgOperands(); ++i) {
-      auto argShape = vecInfo.getVectorShape(*scalCall->getArgOperand(i));
-      callArgShapes.push_back(argShape);
-    }
     bool needsPredication = false; // FIXME query block predicate
     VecMappingShortVec matchVec;
     platInfo.getMappingsForCall(matchVec, *calledFunction, callArgShapes, vecInfo.getVectorWidth(), needsPredication);
@@ -983,18 +1022,9 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       VectorMapping mapping = matchVec[0];
       assert((mapping.maskPos < 0) && "TODO implemented predicated mapped calls.");
 
-      std::vector<Value*> vecCallArgs;
-      auto itVecArg = mapping.vectorFn->arg_begin();
-      for (int i = 0; i < (int) scalCall->getNumArgOperands(); ++i, ++itVecArg) {
-        auto * scalArg = scalCall->getArgOperand(i);
-        if (itVecArg->getType()->isVectorTy()) {
-          vecCallArgs.push_back(requestVectorValue(scalArg));
-        } else {
-          vecCallArgs.push_back(requestScalarValue(scalArg));
-        }
-      }
-
-      auto *vecCall = builder.CreateCall(mapping.vectorFn, vecCallArgs, scalCall->getName() + ".mapped");
+      const int maskPos = -1; // TODO support predicated functions
+      auto * vecCall = vectorizeCallWithFunction(*scalCall, *mapping.vectorFn, maskPos);
+      vecCall->setName(scalCall->getName() + ".mapped");
       mapVectorValue(scalCall, vecCall);
       ++numVecCalls;
       return;
@@ -1004,39 +1034,34 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
 
   // TODO re-factor the remainder of this function
   // if calledFunction is vectorizable (standard mapping exists for given vector width), create new call to vector calledFunction
-  if (calledFunction && platInfo.isFunctionVectorizable(calledFunction->getName(), vectorWidth())) {
-    CallInst *call = cast<CallInst>(scalCall->clone());
-    bool doublePrecision = false;
-    if (call->getNumArgOperands() > 0)
-      doublePrecision = call->getArgOperand(0)->getType()->isDoubleTy();
-    Module *mod = vecInfo.getMapping().vectorFn->getParent();
-    Function *simdFunc = platInfo.requestVectorizedFunction(calleeName, vectorWidth(), mod, doublePrecision);
-    call->setCalledFunction(simdFunc);
-    call->mutateType(simdFunc->getReturnType());
-    mapOperandsInto(scalCall, call, true);
-    mapVectorValue(scalCall, call);
-    builder.Insert(call, scalCall->getName());
-
+  std::unique_ptr<FunctionResolver> funcResolver = nullptr;
+  if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth());
+  if (funcResolver) {
+    Function &simdFunc = funcResolver->requestVectorized();
+    const int maskPos = -1;
+    auto * vecCall = vectorizeCallWithFunction(*scalCall, simdFunc, maskPos);
+    vecCall->setName(scalCall->getName() + ".mapped");
+    mapVectorValue(scalCall, vecCall);
     ++numVecCalls;
 
   } else {
     // try if we can semi-vectorize the call by replication a smaller vectorized version
-    bool replicate = true;
-    unsigned vecWidth;
-    for (vecWidth = vectorWidth() / 2; calledFunction && vecWidth >= 2; vecWidth /= 2) {
-      if (platInfo.isFunctionVectorizable(calleeName, vecWidth)) {
-        replicate = false;
-        break;
-      }
+    unsigned vecWidth = vectorWidth() / 2;
+    std::unique_ptr<FunctionResolver> funcResolver = nullptr;
+    for (; calledFunction && vecWidth >= 2; vecWidth /= 2) {
+      // FIXME update alignment in callArgShapes
+      funcResolver = platInfo.getResolver(calleeName, *calledFunction->getFunctionType(), callArgShapes, vecWidth);
+      if (funcResolver) break;
     }
+    bool replicate = !funcResolver;
 
     if (!replicate) {
       unsigned replicationFactor = vectorWidth() / vecWidth;
       bool doublePrecision = false;
       if (scalCall->getNumArgOperands() > 0)
         doublePrecision = scalCall->getArgOperand(0)->getType()->isDoubleTy();
-      Module *mod = vecInfo.getMapping().vectorFn->getParent();
-      Function *simdFunc = platInfo.requestVectorizedFunction(calleeName, vecWidth, mod, doublePrecision);
+      Function &simdFunc = funcResolver->requestVectorized();
+
       ShuffleBuilder appender(vectorWidth());
       ShuffleBuilder extractor(vecWidth);
 
@@ -1050,8 +1075,8 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       // replicate vector call
       for (unsigned i = 0; i < replicationFactor; ++i) {
         CallInst *call = cast<CallInst>(scalCall->clone());
-        call->setCalledFunction(simdFunc);
-        call->mutateType(simdFunc->getReturnType());
+        call->setCalledFunction(&simdFunc);
+        call->mutateType(simdFunc.getReturnType());
 
         // insert arguments into call
         for (unsigned j = 0; j < scalCall->getNumArgOperands(); ++j) {
@@ -1125,7 +1150,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     return fallbackVectorize(inst);
   }
 
-  const auto & block = *inst->getParent();
   LoadInst *load = dyn_cast<LoadInst>(inst);
   StoreInst *store = dyn_cast<StoreInst>(inst);
 

@@ -38,6 +38,7 @@
 #include "rv/transform/bosccTransform.h"
 #include "rv/transform/redOpt.h"
 #include "rv/transform/memCopyElision.h"
+#include "rv/transform/lowerDivergentSwitches.h"
 
 #include "native/NatBuilder.h"
 
@@ -280,6 +281,13 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     // use a fresh domtree here
     // DominatorTree fixedDomTree(vecInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
     domTree.recalculate(vecInfo.getScalarFunction());
+
+    // early lowering of divergent switch statements
+    LowerDivergentSwitches divSwitchTrans(vecInfo, loopInfo);
+    if (divSwitchTrans.run()) {
+      postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+      domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    }
 
     // lazy mask generator
     MaskExpander maskEx(vecInfo, domTree, postDomTree, loopInfo);

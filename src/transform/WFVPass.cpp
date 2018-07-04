@@ -22,6 +22,7 @@
 #include "rv/analysis/costModel.h"
 #include "rv/transform/remTransform.h"
 #include "rv/utils.h"
+#include "rv/transform/singleReturnTrans.h"
 
 #include "rvConfig.h"
 #include "rv/rvDebug.h"
@@ -82,6 +83,13 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
   Function* scalarCopy = CloneFunction(wfvJob.scalarFn, cloneMap, nullptr);
   wfvJob.scalarFn = scalarCopy;
 
+  // regino setup
+  FunctionRegion funcRegion(*wfvJob.scalarFn);
+  Region funcRegionWrapper(funcRegion);
+
+  // unify returns as necessary
+  SingleReturnTrans::run(funcRegionWrapper);
+
   // prepare analyses
   DominatorTree DT(*scalarCopy);
   PostDominatorTree PDT;
@@ -95,8 +103,6 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
   // cdg.create(*F);
   // dfg.create(*F);
 
-  FunctionRegion funcRegion(*wfvJob.scalarFn);
-  Region funcRegionWrapper(funcRegion);
   VectorizationInfo vecInfo(funcRegionWrapper, wfvJob);
 
 // Vectorize
@@ -183,8 +189,7 @@ WFVPass::runOnModule(Module & M) {
   // configure platInfo
   rvConfig.useSLEEF = true;
   PlatformInfo platInfo(M, &TTI, &TLI);
-  const bool useImpreciseFunctions = true; // FIXME only in fast-math mode
-  addSleefMappings(rvConfig, platInfo, useImpreciseFunctions);
+  addSleefResolver(rvConfig, platInfo, 35);
 
   // add mappings for recursive vectorization
   for (auto & job : wfvJobs) {
