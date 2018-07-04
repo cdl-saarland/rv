@@ -249,7 +249,6 @@ static
 void
 InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleWidth) {
       PlainVecDescVector VecFuncs = {
-          // {"ldexpf", "xldexpf", floatWidth},
           {"ilogbf", "xilogbf", floatWidth},
           {"fmaf", "xfmaf", floatWidth},
           {"fabsf", "xfabsf", floatWidth},
@@ -268,7 +267,6 @@ InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleW
           {"fmodf", "xfmodf", floatWidth},
           {"modff", "xmodff", floatWidth},
 
-          // {"ldexp", "xldexp_vla", 8},
           {"ilogb", "xilogb", doubleWidth},
           {"fma", "xfma", doubleWidth},
           {"fabs", "xfabs", doubleWidth},
@@ -460,6 +458,10 @@ public:
     // fall back to automatic vectorization of scalar implementations (baseline)
     auto * vlaArch = new ArchFunctionList(SleefISA::SLEEF_VLA, "vla");
     InitSleefMappings(vlaArch->commonVectorMappings, -1, -1);
+
+    vlaArch->commonVectorMappings.emplace_back("ldexpf", "xldexpf", -1);
+    vlaArch->commonVectorMappings.emplace_back("ldexp", "xldexp", -1);
+
     archLists.push_back(vlaArch);
 
   }
