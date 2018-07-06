@@ -1778,8 +1778,6 @@ NatBuilder::requestVectorValue(Value *const value) {
 
   } else {
     vecValue = getScalarValue(value);
-
-    // check shape for value. if there is one and it is contiguous, cast to vector and add <0,1,2,...,n-1>
     Instruction *vecInst = dyn_cast<Instruction>(vecValue);
 
     if (vecInst) {
@@ -1795,35 +1793,7 @@ NatBuilder::requestVectorValue(Value *const value) {
       }
     }
 
-    // create a vector GEP to widen pointers
-    if (value->getType()->isPointerTy()) {
-      auto * scalarPtrTy = vecValue->getType();
-      auto * intTy = builder.getInt32Ty();
-      auto * ptrElemTy = GetPointerElementType(scalarPtrTy);
-      int scalarBytes = static_cast<int>(layout.getTypeStoreSize(ptrElemTy));
-
-      // vecValue is a single pointer and has to be broadcasted to a vector of pointers first
-      vecValue = builder.CreateVectorSplat(vectorWidth(), vecValue);
-      Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, shape.getStride() / scalarBytes);
-      vecValue = builder.CreateGEP(vecValue, contVec, "widen_ptr");
-
-    } else {
-      if (isa<Constant>(vecValue)) {
-        vecValue = getConstantVector(vectorWidth(), cast<Constant>(vecValue));
-      } else {
-        vecValue = builder.CreateVectorSplat(vectorWidth(), vecValue);
-      }
-      assert(value->getType()->isIntegerTy() || value->getType()->isFloatingPointTy());
-
-      if (shape.isContiguous() || shape.isStrided()) {
-        auto *laneTy = vecValue->getType()->getVectorElementType();
-        Value *contVec = createContiguousVector(vectorWidth(), laneTy, 0, shape.getStride());
-        vecValue = laneTy->isFloatingPointTy() ? builder.CreateFAdd(vecValue, contVec, "contiguous_add")
-                                               : builder.CreateAdd(vecValue, contVec, "contiguous_add");
-      }
-    }
-
-    // if (vecInst)
+    vecValue = &widenScalar(*vecValue, shape);
   }
 
   // recover insertpoint
@@ -1832,6 +1802,47 @@ NatBuilder::requestVectorValue(Value *const value) {
   mapVectorValue(value, vecValue);
   return vecValue;
 }
+
+Value&
+NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
+  Value * vecValue = nullptr;
+
+  // create a vector GEP to widen pointers
+  if (scaValue.getType()->isPointerTy()) {
+    auto * scalarPtrTy = scaValue.getType();
+    auto * intTy = builder.getInt32Ty();
+    auto * ptrElemTy = GetPointerElementType(scalarPtrTy);
+    int scalarBytes = static_cast<int>(layout.getTypeStoreSize(ptrElemTy));
+
+    // vecValue is a single pointer and has to be broadcasted to a vector of pointers first
+    vecValue = builder.CreateVectorSplat(vectorWidth(), &scaValue);
+
+    if (!vecShape.isUniform()) { // stride != 0
+      assert(vecShape.getStride() % scalarBytes == 0);
+      Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride() / scalarBytes);
+      vecValue = builder.CreateGEP(vecValue, contVec, "widen_ptr");
+    }
+
+  } else {
+    if (isa<Constant>(scaValue)) {
+      vecValue = getConstantVector(vectorWidth(), &cast<Constant>(scaValue));
+    } else {
+      vecValue = builder.CreateVectorSplat(vectorWidth(), &scaValue);
+    }
+
+    if (!vecShape.isUniform()) {
+      assert(scaValue.getType()->isIntegerTy() || scaValue.getType()->isFloatingPointTy());
+
+      auto *laneTy = scaValue.getType();
+      Value *contVec = createContiguousVector(vectorWidth(), laneTy, 0, vecShape.getStride());
+      vecValue = laneTy->isFloatingPointTy() ? builder.CreateFAdd(vecValue, contVec, "contiguous_add")
+                                             : builder.CreateAdd(vecValue, contVec, "contiguous_add");
+    }
+  }
+
+  return *vecValue;
+}
+
 
 Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool skipMapping) {
   if (isa<GetElementPtrInst>(value))
