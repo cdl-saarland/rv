@@ -164,6 +164,18 @@ VectorizerInterface::addIntrinsics() {
         platInfo.addMapping(mapping);
       } break;
 
+      case RVIntrinsic::Index: {
+        VectorMapping mapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::varying(),
+          {VectorShape::varying()}
+          );
+        platInfo.addMapping(mapping);
+      } break;
+
       case RVIntrinsic::Align: {
         VectorMapping mapping(
           &func,

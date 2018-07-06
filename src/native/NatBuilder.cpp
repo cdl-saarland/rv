@@ -338,6 +338,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         case RVIntrinsic::Shuffle: vectorizeShuffleCall(call); break;
         case RVIntrinsic::Ballot: vectorizeBallotCall(call); break;
         case RVIntrinsic::PopCount: vectorizePopCountCall(call); break;
+        case RVIntrinsic::Index: vectorizeIndexCall(*call); break;
         case RVIntrinsic::Align: vectorizeAlignCall(call); break;
         default: {
           if (config.enableInterleaved) addLazyInstruction(inst);
@@ -964,6 +965,60 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
 }
 
 void
+NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
+  ++numRVIntrinsics;
+
+// avx512vl - expand based implementation
+  if (config.useAVX512) {
+    auto vecWidth = vecInfo.getVectorWidth();
+    assert(vecWidth == 4 || vecWidth == 8);
+
+    Intrinsic::ID id = vecWidth == 8 ? Intrinsic::x86_avx512_mask_expand_pd_512 : Intrinsic::x86_avx512_mask_expand_ps_512;
+
+    assert(rvCall.getNumArgOperands() == 1 && "expected 1 argument for rv_index(mask)");
+
+    Value *condArg = rvCall.getArgOperand(0);
+
+    auto * intLaneTy = IntegerType::getIntNTy(rvCall.getContext(), 512 / vecWidth);
+    bool argUniform = hasUniformPredicate(*rvCall.getParent()) && vecInfo.getVectorShape(*condArg).isUniform();
+
+//   uniform arg
+    if (argUniform) {
+      mapScalarValue(&rvCall, createContiguousVector(vecWidth, intLaneTy, 0, 1));
+      return;
+    }
+
+    auto * maskVec = maskInactiveLanes(requestVectorValue(condArg), rvCall.getParent(), false);
+    auto * contVec = createContiguousVector(vecWidth, intLaneTy, 0, 1);
+
+
+    auto * fpLaneTy = Type::getDoubleTy(rvCall.getContext());
+    auto * fpVecTy = VectorType::get(fpLaneTy, vecWidth);
+    auto * intVecTy = VectorType::get(intLaneTy, vecWidth);
+
+    auto * fpValVec = builder.CreateBitCast(contVec, fpVecTy);
+
+    auto * expandDecl = Intrinsic::getDeclaration(rvCall.getParent()->getParent()->getParent(), id, {});
+
+//   flatten mask (<W x i1> --> <iW>)
+    auto * flatMaskTy = Type::getIntNTy(rvCall.getContext(), vecWidth);
+    auto * flatMask = builder.CreateBitCast(maskVec, flatMaskTy, "flatmask");
+
+//   call expand
+    auto * expandedVec = builder.CreateCall(expandDecl, {fpValVec, Constant::getNullValue(fpVecTy), flatMask}, "psum_bits");
+
+    auto * indexVec = builder.CreateBitCast(expandedVec, intVecTy, "bc_ivec");
+
+    mapVectorValue(&rvCall, indexVec);
+    return;
+  }
+
+// generic implementation
+  assert(config.useAVX512 && "TODO generic implementation (avx512vl only)");
+  abort(); // "TODO generic implementation (avx512vl only)"
+}
+
+void
 NatBuilder::vectorizePopCountCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
@@ -981,6 +1036,7 @@ NatBuilder::vectorizePopCountCall(CallInst *rvCall) {
     return;
   }
 
+  // FIXME mask out inactive threads also for uniform mask
   auto * vecVal = maskInactiveLanes(requestVectorValue(condArg), rvCall->getParent(), false);
   auto * mask = createVectorMaskSummary(vecVal, builder, RVIntrinsic::PopCount);
   mapScalarValue(rvCall, mask);
@@ -2367,6 +2423,12 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
     ptest = builder.CreateNot(ptest, "rvall_not");
 
   return ptest;
+}
+
+bool
+NatBuilder::hasUniformPredicate(const BasicBlock & BB) const {
+  if (!vecInfo.getRegion()->contains(&BB) || !vecInfo.getPredicate(BB)) return true;
+  else return vecInfo.getVectorShape(*vecInfo.getPredicate(BB)).isUniform();
 }
 
 Value *NatBuilder::maskInactiveLanes(Value *const value, const BasicBlock* const block, bool invert) {

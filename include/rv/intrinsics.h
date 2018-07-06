@@ -17,6 +17,7 @@ namespace rv {
     Any = 1, // rv_any(V) implies that at least one bit in the predicate V is set
     Ballot = 2, // rv_ballot(V) returns the boolean vector predicate V as bits in an integer value (movmsk)
     PopCount = 3, // rv_popcount(V) returns the number of set bits in the predicate V
+    Index = 4, // prefix sum of mask vector (only defined where the mask is set)
 
   // data intrinsics
     Extract = 100, // rv_extract(V, L) returns the L-th lane of V as a uniform value (lane broadcast)
