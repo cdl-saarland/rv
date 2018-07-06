@@ -102,8 +102,7 @@ BranchDependenceAnalysis::join_blocks(const llvm::TerminatorInst & term) {
     succBlocks.insert(succBlock);
 
     // immediate loop exit from @term
-    const auto * succLoop = loopInfo.getLoopFor(succBlock);
-    if (termLoop && (!succLoop || !termLoop->contains(succLoop->getHeader()))) {
+    if (termLoop && !termLoop->contains(succBlock)) {
       exitBlocks.insert(succBlock);
       continue;
     }
@@ -141,7 +140,7 @@ BranchDependenceAnalysis::join_blocks(const llvm::TerminatorInst & term) {
       // loop exit (temporal divergence)
       const auto * succLoop = loopInfo.getLoopFor(succBlock);
       if (termLoop &&
-         (!succLoop || !termLoop->contains(succLoop->getHeader())))
+         (!succLoop || !termLoop->contains(succBlock)))
       {
         IF_DEBUG_BDA { errs() << "\t loop exit.\n"; }
         defMap.emplace(succBlock, defBlock);
@@ -175,11 +174,31 @@ BranchDependenceAnalysis::join_blocks(const llvm::TerminatorInst & term) {
     }
   }
 
+  // if the ipd is inside the loop, the definition at the loop header will be the same as at the ipd (no other defs can reach)
+  //
+  // A // loop header
+  // |
+  // B // nested loop header
+  // |
+  // C -> X (exit from B loop) -..-> (A latch)
+  // |
+  // D -> back to B (B latch)
+  // |
+  // proper exit from both loops
+  //
+  // D post-dominates B as it is the only proper exit from the "A loop".
+  // If C has a divergent branch, propagation will therefore stop at D.
+  // That implies that B will never receive a definition.
+  // But that definition can only be the same as at D (D itself in thise case) because all paths to anywhere have to pass through D.
+  //
+  if (termLoop && termLoop->contains(pdBoundBlock)) {
+    defMap[termLoopHeader] = defMap[pdBoundBlock];
+  }
+
   // analyze reached loop exits
   if (!exitBlocks.empty()) {
     assert(termLoop);
-    auto * loopHeader = termLoop->getHeader();
-    const auto * headerDefBlock = defMap[loopHeader];
+    const auto * headerDefBlock = defMap[termLoopHeader];
     assert(headerDefBlock && "no definition in header of carrying loop");
 
     for (const auto * exitBlock : exitBlocks) {
