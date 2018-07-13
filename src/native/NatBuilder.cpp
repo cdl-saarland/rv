@@ -942,6 +942,8 @@ void
 NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
+  auto vecWidth = vecInfo.getVectorWidth();
+  assert((vecWidth == 4 || vecWidth == 8) && "rv_ballot only supports SSE and AVX instruction sets");
   assert(rvCall->getNumArgOperands() == 1 && "expected 1 argument for rv_ballot(cond)");
 
   Value *condArg = rvCall->getArgOperand(0);
@@ -949,13 +951,11 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
 // uniform arg
   if (getVectorShape(*condArg).isUniform()) {
     auto * uniVal = requestScalarValue(condArg);
-    uniVal = builder.CreateZExt(uniVal, i32Ty, "rv_ballot");
+    uniVal = builder.CreateSExt(uniVal, i32Ty, "rv_ballot");
+    uniVal = builder.CreateAnd(uniVal, builder.getInt32((1 << vecWidth) - 1), "rv_ballot");
     mapScalarValue(rvCall, uniVal);
     return;
   }
-
-  auto vecWidth = vecInfo.getVectorWidth();
-  assert((vecWidth == 4 || vecWidth == 8) && "rv_ballot only supports SSE and AVX instruction sets");
 
 // non-uniform arg
   auto * vecVal = maskInactiveLanes(requestVectorValue(condArg), rvCall->getParent(), false);
