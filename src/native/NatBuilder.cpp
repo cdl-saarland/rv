@@ -1333,10 +1333,28 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
   // interleaved case creates mapping
   if (!interleaved && !pseudoInter) {
-    if (addrShape.isUniform())
-      mapScalarValue(inst, vecMem);
-    else
+    if (addrShape.isUniform()) {
+      bool impreciseLoad = load && vecInfo.getVectorShape(*load).isVarying();
+      if (impreciseLoad) {
+        // loads and stores can have a uniform pointer but produce a varying result shape
+        // this is usually an artifact of SROV (if the VA is not re-run afterwards to make shapes more precise..)
+        // v = insertvalue(undef, 0, %unifomPtr) : uniform
+        // v1 = inservalue(%v, 1, %varyingValue) : varying
+        // ...
+        // %notActuallyVaryingPtr = extractvalue(%v1, 0) : varying  <--
+        // ...
+        // %x = load %notActuallyVaryingPtr // before SROC
+        // %x = load %v1 // after SROC
+        Report() << "nat: warning: load from uniform ptr with varing shape! " << *load << "\n";
+        for (int i = 0; i < vectorWidth(); ++i) {
+          mapScalarValue(inst, vecMem, i);
+        }
+      } else {
+        mapScalarValue(inst, vecMem);
+      }
+    } else {
       mapVectorValue(inst, vecMem);
+    }
   }
 
   return;
@@ -2755,7 +2773,8 @@ NatBuilder::getMappedBlocks(BasicBlock *const block) {
   return blockIt->second;
 }
 
-unsigned NatBuilder::vectorWidth() {
+int
+NatBuilder::vectorWidth() const {
   return vecInfo.getMapping().vectorWidth;
 }
 
