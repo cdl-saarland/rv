@@ -22,7 +22,8 @@ using namespace llvm;
 
 namespace {
 
-unsigned getAlignment(const Constant* c) {
+unsigned
+getAlignment(const Constant* c) {
   assert (c);
 
   if (isa<BasicBlock>(c) || isa<Function>(c))
@@ -71,12 +72,12 @@ VectorShape::VectorShape()
     : stride(0), hasConstantStride(false), alignment(0), defined(false) {}
 
 VectorShape::VectorShape(uint _alignment)
-    : stride(0), hasConstantStride(false), alignment(std::max<uint>(1, _alignment)),
+    : stride(0), hasConstantStride(false), alignment(_alignment),
       defined(true) {}
 
 // constant stride constructor
 VectorShape::VectorShape(int _stride, uint _alignment)
-    : stride(_stride), hasConstantStride(true), alignment(std::max<uint>(1, _alignment)),
+    : stride(_stride), hasConstantStride(true), alignment(_alignment),
       defined(true) {}
 
 VectorShape VectorShape::fromConstant(const Constant* C) {
@@ -115,7 +116,13 @@ bool VectorShape::operator!=(const VectorShape &a) const {
   return !(*this == a);
 }
 
-bool VectorShape::operator<(const VectorShape &a) const {
+bool
+VectorShape::contains(const VectorShape & b) const {
+  return join(*this, b) == *this; // TODO efficient implementation
+}
+
+bool
+VectorShape::morePreciseThan(const VectorShape &a) const {
   if (!a.isDefined())
     return false; // Cannot be more precise than bottom
   if (!isDefined())
@@ -125,10 +132,17 @@ bool VectorShape::operator<(const VectorShape &a) const {
     return true; // strided < varying
 
   // If both are of the same shape, decide by alignment
-  if ((!hasConstantStride && !a.hasConstantStride) ||
-      (hasConstantStride && a.hasConstantStride && stride == a.stride))
-    return alignment % a.alignment == 0 && alignment > a.alignment;
+  if ((hasConstantStride != a.hasConstantStride)) {
+    return false; // varying and strided are not comparable
+  } else if (hasConstantStride && stride != a.stride) {
+    return false; // stride mismatch
+  }
 
+  // it comes down to having a coarser alignment
+  return (alignment == 0 && a.alignment > 0) || // @this is the zero shape whereas @a is not
+         (a.alignment > 0 && (alignment % a.alignment == 0)); // the alignment of @this shape is divisible by the alignment of @a
+
+  // either incompatible alignments or @a is zero shape and @this is not
   return false;
 }
 

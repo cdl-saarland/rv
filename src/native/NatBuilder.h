@@ -165,10 +165,11 @@ namespace rv {
     void mapCascadeFunction(unsigned bitWidth, llvm::Function *function, bool store);
     llvm::Function *getCascadeFunction(unsigned bitWidth, bool store);
 
+    llvm::Value& widenScalar(llvm::Value & scaValue, VectorShape vecShape);
     llvm::Value *createPTest(llvm::Value *vector, bool isRv_all);
     llvm::Value *maskInactiveLanes(llvm::Value *const value, const llvm::BasicBlock* const block, bool invert);
 
-    unsigned vectorWidth();
+    int vectorWidth() const;
 
     bool canVectorize(llvm::Instruction *inst);
     bool shouldVectorize(llvm::Instruction *inst);

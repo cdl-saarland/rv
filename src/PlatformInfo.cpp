@@ -168,7 +168,7 @@ PlatformInfo::getMappingsForCall(VecMappingShortVec & matchVec, const llvm::Func
     // check that all arg shapes are compatible with the shapes in the caller
     bool foundIncompatibleShape = false;
     for (int i = 0; i < (int) argShapes.size(); ++i) {
-      if (mapping.argShapes[i] < argShapes[i]) {
+      if (!mapping.argShapes[i].contains(argShapes[i])) {
         foundIncompatibleShape = true;
         break;
       }
