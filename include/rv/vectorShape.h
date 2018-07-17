@@ -65,7 +65,10 @@ public:
 
   bool operator==(const VectorShape &a) const;
   bool operator!=(const VectorShape &a) const;
-  bool operator<(const VectorShape &a) const;
+
+  // lattice order
+  bool morePreciseThan(const VectorShape & a) const; // whether @this is less than @a according to lattice order
+  bool contains(const VectorShape & b) const; // whether join(@this, @b) == @this
 
   friend VectorShape operator-(const VectorShape& a);
   friend VectorShape operator+(const VectorShape& a, const VectorShape& b);

@@ -661,7 +661,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I, Sma
       if (!matchVec.empty()) {
         VectorShape bestResultShape = isUniformCall ? VectorShape::uni() : VectorShape::varying();
         for (const auto & mapping : matchVec) {
-          bestResultShape = mapping.resultShape < bestResultShape ? mapping.resultShape : bestResultShape;
+          bestResultShape = mapping.resultShape.morePreciseThan(bestResultShape) ? mapping.resultShape : bestResultShape;
         }
 
         return bestResultShape;
