@@ -225,14 +225,14 @@ ADD_CUSTOM_COMMAND (
   COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
   COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsp.c -O3 -fno-vectorize -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_VLA} -ffp-contract=off -o ${SLEEF_BC_VLA_SP}
   COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_VLA_SP} \"vla_sp\" ${SLEEF_BC_VLA_SP}
-  DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c ${LLVM_TOOL_CLANG}
+  DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsp.c ${LLVM_TOOL_CLANG}
 )
 ADD_CUSTOM_COMMAND (
   OUTPUT ${SLEEF_GENBC_VLA_DP}
   COMMAND mkdir -p ${RV_LIB_SLEEF_OUT_DIR}
   COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefdp.c -O3 -fno-vectorize -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_VLA} -ffp-contract=off -o ${SLEEF_BC_VLA_DP}
   COMMAND ${GENCPP_TOOL} ${SLEEF_GENBC_VLA_DP} \"vla_dp\" ${SLEEF_BC_VLA_DP}
-  DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
+  DEPENDS ${RV_LIB_SLEEF_DIR}/sleefdp.c ${LLVM_TOOL_CLANG}
 )
 
 IF (RV_ENABLE_CRT) 
