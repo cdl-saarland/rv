@@ -887,9 +887,8 @@ NatBuilder::createVectorMaskSummary(Value * vecVal, IRBuilder<> & builder, RVInt
       }
 
       // AVX-specific code path
-      if ((config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512)
-        && (vecWidth == 4 || vecWidth == 8)) {
-
+      if ((config.useSSE  && vecWidth == 4) ||
+          ((config.useAVX || config.useAVX2 || config.useAVX512) && vecWidth == 8)) {
       // non-uniform arg
         uint32_t bits = 32;
         Intrinsic::ID id;
