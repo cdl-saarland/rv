@@ -796,7 +796,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
 void
 addSleefResolver(const Config & config, PlatformInfo & platInfo, unsigned maxULPError) {
   auto sleefRes = std::make_unique<SleefResolverService>(platInfo, config, maxULPError);
-  sleefRes->reportConfig();
+  IF_DEBUG { sleefRes->reportConfig(); }
   platInfo.addResolverService(std::move(sleefRes), true);
 }
 
