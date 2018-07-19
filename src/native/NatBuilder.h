@@ -117,6 +117,7 @@ namespace rv {
     void vectorizeBallotCall(llvm::CallInst *rvCall);
     void vectorizePopCountCall(llvm::CallInst *rvCall);
     void vectorizeAlignCall(llvm::CallInst *rvCall);
+    void vectorizeIndexCall(llvm::CallInst & rvCall);
 
     // implement the mask summary function @mode (ballot/popcount) of @vecVal with @builder
     llvm::Value* createVectorMaskSummary(llvm::Value * vecVal, llvm::IRBuilder<> & builder, rv::RVIntrinsic mode);
@@ -166,6 +167,7 @@ namespace rv {
     llvm::Function *getCascadeFunction(unsigned bitWidth, bool store);
 
     llvm::Value& widenScalar(llvm::Value & scaValue, VectorShape vecShape);
+    bool hasUniformPredicate(const llvm::BasicBlock & BB) const;
     llvm::Value *createPTest(llvm::Value *vector, bool isRv_all);
     llvm::Value *maskInactiveLanes(llvm::Value *const value, const llvm::BasicBlock* const block, bool invert);
 
