@@ -5,6 +5,8 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Type.h"
 
+#include "llvm/Transforms/Utils/ValueMapper.h"
+
 namespace rv {
 
 class VectorMapping;
@@ -21,6 +23,12 @@ createVectorDeclaration(llvm::Function& scalarFn, VectorShape resShape,
 bool
 parseVectorMapping(llvm::Function & scalarFn, llvm::StringRef & attribText, VectorMapping & mapping, bool createMissingDecl);
 
+template<class T>
+inline
+T&
+LookUp(llvm::ValueToValueMapTy & valMap, T& key) {
+  return *llvm::cast<T>(valMap[&key]);
+}
 
 } // namespace rv
 

@@ -64,6 +64,7 @@ add_rv_library(RV
   transform/cns/llvmDuplication.cpp
   transform/divLoopTrans.cpp
   transform/irPolisher.cpp
+  transform/loopCloner.cpp
   transform/loopExitCanonicalizer.cpp
   transform/lowerDivergentSwitches.cpp
   transform/maskExpander.cpp
