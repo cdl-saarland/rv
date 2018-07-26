@@ -59,6 +59,7 @@ public:
   /// Register all analyses and transformation required.
   void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
+  static const int ParallelDistance = std::numeric_limits<int>::max();
 private:
   Config config;
 
@@ -87,11 +88,10 @@ private:
   int getTripCount(llvm::Loop &L);
   // return the annotated vector width
   // return -1, if unspecified
-  int getVectorWidth(llvm::Loop &L);
+  int getAnnotatedVectorWidth(llvm::Loop &L);
 
   // minimal distance between dependent loop trips
   // returns ParallelDistance for fully parallel loops
-  const int ParallelDistance = std::numeric_limits<int>::max();
   int getDependenceDistance(llvm::Loop & L);
 
   // the trip count of the loop is always a multiple of this value
