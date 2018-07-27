@@ -381,7 +381,7 @@ NatBuilder::scalarize(BasicBlock & scaBlock, Instruction & inst, bool packResult
   Value * accu = packResult ? UndefValue::get(vecTy) : nullptr;
 
   ValVec laneRepls;
-  for (size_t lane = 0; lane < vectorWidth(); ++lane) {
+  for (int lane = 0; lane < vectorWidth(); ++lane) {
     Value *cpInst = genFunc(builder, lane);
     laneRepls.push_back(cpInst);
 
@@ -394,7 +394,7 @@ NatBuilder::scalarize(BasicBlock & scaBlock, Instruction & inst, bool packResult
     if (accu) {
       mapVectorValue(&inst, accu);
     } else {
-      for (size_t l = 0; l < vectorWidth(); ++l) {
+      for (int l = 0; l < vectorWidth(); ++l) {
         mapScalarValue(&inst, laneRepls[l], l);
       }
     }
@@ -433,7 +433,7 @@ NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool pa
    bool producesValue = !inst.getType()->isVoidTy();
 
    // create <vector_width> scalar calls
-   for (size_t lane = 0; lane < vectorWidth(); ++lane) {
+   for (int lane = 0; lane < vectorWidth(); ++lane) {
      auto * condBlock = condBlocks[lane];     // the block with the if
      auto * maskedBlock = maskedBlocks[lane]; // the guarded block (containing the scalarized instructino)
      auto * nextBlock = condBlocks[lane + 1]; // next guard block
@@ -491,7 +491,7 @@ NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool pa
      if (accu) {
        mapVectorValue(&inst, accu);
      } else {
-       for (size_t l = 0; l < vectorWidth(); ++l) {
+       for (int l = 0; l < vectorWidth(); ++l) {
          mapScalarValue(&inst, resultVec[l], l);
        }
      }
@@ -704,8 +704,19 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
 
   Value *reduction;
   if (shape.isVarying()) {
+#if 1
     Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
     reduction = createPTest(vecPredicate, isRv_all);
+#else
+    // Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
+    auto * ballotVal = createVectorMaskSummary(requestVectorValue(predicate), builder, RVIntrinsic::Ballot); // FIXME block predicate
+    if (isRv_all) {
+      uint64_t mask = ((1 << vectorWidth()) - 1);
+      reduction = builder.CreateICmpEQ(ballotVal, ConstantInt::get(ballotVal->getType(), mask, false)); // mask == FullMask
+    } else {
+      reduction = builder.CreateICmpNE(ballotVal, ConstantInt::get(ballotVal->getType(), 0, false)); // mask != 0
+    }
+#endif
   } else {
     reduction = requestScalarValue(predicate);
   }
@@ -847,7 +858,7 @@ NatBuilder::vectorizeShuffleCall(CallInst *rvCall) {
 
   // build shuffle indices
   SmallVector<uint32_t, 32> shflIds(vectorWidth());
-  for (size_t i = 0; i < vectorWidth(); i++) {
+  for (int i = 0; i < vectorWidth(); i++) {
     shflIds[i] = (i + shiftVal) % vectorWidth();
   }
 
@@ -1112,9 +1123,10 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
 
     if (!replicate) {
       unsigned replicationFactor = vectorWidth() / vecWidth;
-      bool doublePrecision = false;
-      if (scalCall->getNumArgOperands() > 0)
-        doublePrecision = scalCall->getArgOperand(0)->getType()->isDoubleTy();
+      //bool doublePrecision = false;
+      //if (scalCall->getNumArgOperands() > 0) {
+        // doublePrecision = scalCall->getArgOperand(0)->getType()->isDoubleTy();
+      // }
       Function &simdFunc = funcResolver->requestVectorized();
 
       ShuffleBuilder appender(vectorWidth());
@@ -1841,7 +1853,7 @@ NatBuilder::requestVectorValue(Value *const value) {
     Value * accu = UndefValue::get(vecTy);
     auto * intTy = Type::getInt32Ty(builder.getContext());
 
-    for (size_t i = 0; i < vectorWidth(); ++i) {
+    for (int i = 0; i < vectorWidth(); ++i) {
       auto * laneVal = getScalarValue(value, i);
       auto * laneInst = dyn_cast<Instruction>(laneVal);
       if (laneInst) SetInsertBeforeTerm(builder, *laneInst->getParent());
@@ -2328,10 +2340,10 @@ Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigne
   Value *resVec = store ? nullptr : UndefValue::get(resType);
 
   // fill cond and load blocks
-  for (unsigned i = 0; i < vectorWidth(); ++i) {
+  for (int i = 0; i < vectorWidth(); ++i) {
     BasicBlock *cond = condBlocks[i];
     BasicBlock *masked = loadBlocks[i];
-    BasicBlock *nextBlock = i == vectorWidth() - 1 ? ret : condBlocks[i + 1];
+    BasicBlock *nextBlock = i == ((int) vectorWidth()) - 1 ? ret : condBlocks[i + 1];
 
     // code for cond block: extract mask lane i, branch to masked or next
     Value *maskLaneVal = builder.CreateExtractElement(mask, ConstantInt::get(i32Ty, i),

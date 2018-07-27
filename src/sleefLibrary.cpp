@@ -426,13 +426,16 @@ public:
   , config(_config)
   {
   // ARM
+#ifdef RV_ENABLE_ADVSIMD
     if (config.useADVSIMD) {
       auto * advSimdArch = new ArchFunctionList(SleefISA::SLEEF_ADVSIMD, "advsimd");
       InitSleefMappings(advSimdArch->commonVectorMappings, 4, 2);
       archLists.push_back(advSimdArch);
     }
+#endif
 
   // x86
+#ifdef RV_ENABLE_X86
     if (config.useAVX512) {
       auto * avx512Arch = new ArchFunctionList(SleefISA::SLEEF_AVX512, "avx512");
       InitSleefMappings(avx512Arch->commonVectorMappings, 16, 8);
@@ -453,6 +456,7 @@ public:
       InitSleefMappings(sseArch->commonVectorMappings, 4, 2);
       archLists.push_back(sseArch);
     }
+#endif
 
   // generic
     // fall back to automatic vectorization of scalar implementations (baseline)
@@ -792,7 +796,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
 void
 addSleefResolver(const Config & config, PlatformInfo & platInfo, unsigned maxULPError) {
   auto sleefRes = std::make_unique<SleefResolverService>(platInfo, config, maxULPError);
-  sleefRes->reportConfig();
+  IF_DEBUG { sleefRes->reportConfig(); }
   platInfo.addResolverService(std::move(sleefRes), true);
 }
 
