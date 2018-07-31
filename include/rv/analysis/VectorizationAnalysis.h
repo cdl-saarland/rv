@@ -12,6 +12,7 @@
 #include <string>
 #include <map>
 #include <queue>
+#include <unordered_set>
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
@@ -69,6 +70,7 @@ class VectorizationAnalysis {
 
   /// Next instructions to handle
   std::queue<const llvm::Instruction*> mWorklist;
+  std::unordered_set<const llvm::Instruction*> visitedMissingShapes;
 
   const llvm::DataLayout& layout;
   const llvm::LoopInfo& mLoopInfo; // Preserves LoopInfo
