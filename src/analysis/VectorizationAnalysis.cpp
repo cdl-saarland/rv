@@ -372,7 +372,7 @@ bool VectorizationAnalysis::pushMissingOperands(const Instruction* I) {
     bool push = isa<Instruction>(op) && !getShape(*op).isDefined();
     if (push) {
       IF_DEBUG_VA { errs() << "\tmissing op shape " << *op << "!\n"; }
-      mWorklist.push(cast<Instruction>(op));
+      if (std::find(visitedMissingShapes.begin(), visitedMissingShapes.end(), cast<Instruction>(op)) == visitedMissingShapes.end()) mWorklist.push(cast<Instruction>(op));
     }
 
     return prevpushed || push;
@@ -400,6 +400,8 @@ void VectorizationAnalysis::compute(const Function& F) {
   while (!mWorklist.empty()) {
     const Instruction* I = mWorklist.front();
     mWorklist.pop();
+    
+    visitedMissingShapes.insert(I);
 
     if (vecInfo.isPinned(*I)) {
       continue;
