@@ -820,26 +820,34 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
         }
       }
 
-      break;
-    }
+    } break;
 
     case Instruction::SDiv:
     case Instruction::UDiv:
     {
-      if (shape1.isUniform() && shape2.isUniform()) return VectorShape::uni(alignment1 / alignment2);
-
       const ConstantInt* constDivisor = dyn_cast<ConstantInt>(op2);
       if (shape1.hasStridedShape() && constDivisor) {
-        const int c = (int) constDivisor->getSExtValue();
-        if (stride1 % c == 0) return VectorShape::strided(stride1 / c, alignment1 / std::abs(c));
+        const int64_t c  = constDivisor->getSExtValue();// FIXME proper code path for UDiv
+
+        if (c == 0) return VectorShape::uni(1); // FIXME divide by zero?
+        if ((alignment1 % c == 0) && // c divides the alignment
+            (stride1 % c == 0))      // c divides the stride
+        {
+          return VectorShape::strided(stride1 / c, alignment1 / std::abs(c));
+        }
       }
 
-      return VectorShape::varying();
+      if (shape1.isUniform() && shape2.isUniform()) {
+        return VectorShape::uni(1); // division destroyes alignment in general
+      }
+
+      return VectorShape::varying(1);
     }
 
     default:
       break;
   }
+
   return GenericTransfer(shape1, shape2);
 }
 
