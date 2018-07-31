@@ -12,6 +12,7 @@
 #include <string>
 #include <map>
 #include <queue>
+#include <unordered_set>
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
@@ -69,6 +70,7 @@ class VectorizationAnalysis {
 
   /// Next instructions to handle
   std::queue<const llvm::Instruction*> mWorklist;
+  std::unordered_set<const llvm::Instruction*> mOnWorklist;
 
   const llvm::DataLayout& layout;
   const llvm::LoopInfo& mLoopInfo; // Preserves LoopInfo
@@ -99,6 +101,13 @@ public:
   void addInitial(const llvm::Instruction* inst, VectorShape shape);
 
 private:
+// worklist manipulation
+  // insert @inst into the worklist if its not already not the list
+  bool putOnWorklist(const llvm::Instruction& inst);
+  // take an element off the worklist, return nullptr if the worklist is empty
+  const llvm::Instruction* takeFromWorklist();
+
+
   /// Get the shape for a value
   //  if loop carried, this is the shape observed within the loop that defines @V
   VectorShape getShape(const llvm::Value& V);
