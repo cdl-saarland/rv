@@ -876,7 +876,9 @@ NatBuilder::createVectorMaskSummary(Value * vecVal, IRBuilder<> & builder, RVInt
   Value * result = nullptr;
   switch (mode) {
     case RVIntrinsic::Ballot: {
-      if (vecWidth > 8) {
+      // If SSE is available, but AVX and above are not, and the vector width is greater than 4, split the vector
+      bool shouldSplitForISA = vecWidth > 4 && config.useSSE && !config.useAVX && !config.useAVX2 && !config.useAVX512;
+      if (vecWidth > 8 || shouldSplitForISA) {
         // split up vector
         std::vector<Constant*> lowerLanes;
         std::vector<Constant*> higherLanes;
@@ -898,8 +900,7 @@ NatBuilder::createVectorMaskSummary(Value * vecVal, IRBuilder<> & builder, RVInt
       }
 
       // AVX-specific code path
-      if ((config.useSSE  && vecWidth == 4) ||
-          ((config.useAVX || config.useAVX2 || config.useAVX512) && vecWidth == 8)) {
+      if (config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) {
       // non-uniform arg
         uint32_t bits = 32;
         Intrinsic::ID id;
