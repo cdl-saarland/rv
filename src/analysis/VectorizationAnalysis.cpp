@@ -99,13 +99,28 @@ VectorizationAnalysis::VectorizationAnalysis(Config _config,
   IF_DEBUG_VA allocaSSA.print(errs());
 }
 
+bool
+VectorizationAnalysis::putOnWorklist(const llvm::Instruction& inst) {
+  if (mOnWorklist.insert(&inst).second) { mWorklist.push(&inst); return true; }
+  else return false;
+}
+
+const Instruction*
+VectorizationAnalysis::takeFromWorklist() {
+  if (mWorklist.empty()) return nullptr;
+  const Instruction* I = mWorklist.front();
+  mWorklist.pop();
+  mOnWorklist.erase(I);
+  return I;
+}
+
 void
 VectorizationAnalysis::updateAnalysis(InstVec & updateList) {
   auto & F = vecInfo.getScalarFunction();
   assert (!F.isDeclaration());
 
   // start from instructions on the update list
-  for (auto * inst : updateList) mWorklist.push(inst);
+  for (auto * inst : updateList) putOnWorklist(*inst);
 
   compute(F);
   fixUndefinedShapes(F);
@@ -221,11 +236,10 @@ void VectorizationAnalysis::init(const Function& F) {
   // - Calls without arguments
 
 // push all users of pinned values
-  std::set<const Instruction*> seen;
   for (auto * val : vecInfo.pinned_values()) {
     for(auto * user : val->users()) {
       auto * inst = dyn_cast<Instruction>(user);
-      if (inst && seen.insert(inst).second) mWorklist.push(inst);
+      if (inst) putOnWorklist(*inst);
     }
   }
 
@@ -239,7 +253,7 @@ void VectorizationAnalysis::init(const Function& F) {
       } else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
         if (call->getNumArgOperands() != 0) continue;
 
-        mWorklist.push(&I);
+        putOnWorklist(I);
 
         IF_DEBUG_VA {
           errs() << "Inserted call in initialization: ";
@@ -248,7 +262,7 @@ void VectorizationAnalysis::init(const Function& F) {
         };
       } else if (isa<PHINode>(I) && any_of(I.operands(), isa<Constant, Use>)) {
         // Phis that depend on constants are added to the WL
-        mWorklist.push(&I);
+        putOnWorklist(I);
 
         IF_DEBUG_VA {
           errs() << "Inserted PHI in initialization: ";
@@ -326,7 +340,7 @@ void VectorizationAnalysis::analyzeDivergence(const TerminatorInst & termInst) {
     // add LCSSA phis to worklist
     for (auto & inst : *BB) {
       if (!isa<PHINode>(inst)) break;
-      mWorklist.push(&inst);
+      putOnWorklist(inst);
 
       IF_DEBUG_VA {
         errs() << "Inserted LCSSA PHI: ";
@@ -353,7 +367,7 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
       }
     }
 
-    mWorklist.push(inst);
+    putOnWorklist(*inst);
     IF_DEBUG_VA errs() << "Inserted user of updated " << *V << ":" << *user << "\n";
   }
 }
@@ -371,8 +385,9 @@ bool VectorizationAnalysis::pushMissingOperands(const Instruction* I) {
   {
     bool push = isa<Instruction>(op) && !getShape(*op).isDefined();
     if (push) {
-      IF_DEBUG_VA { errs() << "\tmissing op shape " << *op << "!\n"; }
-      mWorklist.push(cast<Instruction>(op));
+      auto & opInst = *cast<Instruction>(op);
+      IF_DEBUG_VA { errs() << "\tmissing op shape " << opInst << "!\n"; }
+      putOnWorklist(opInst);
     }
 
     return prevpushed || push;
@@ -395,11 +410,10 @@ VectorShape VectorizationAnalysis::computePHIShape(const PHINode & phi) {
 void VectorizationAnalysis::compute(const Function& F) {
   IF_DEBUG_VA { errs() << "\n\n-- VA::compute() log -- \n"; }
 
-
-  // Main fixed point loop
-  while (!mWorklist.empty()) {
-    const Instruction* I = mWorklist.front();
-    mWorklist.pop();
+  // main fixed point loop
+  while (true) {
+    const Instruction * I = takeFromWorklist();
+    if (!I) break; // worklist is empty
 
     if (vecInfo.isPinned(*I)) {
       continue;
@@ -482,7 +496,7 @@ void VectorizationAnalysis::compute(const Function& F) {
 
     // if shape changed put users on worklist
     update(I, New);
-  }
+  };
 }
 
 
@@ -820,26 +834,34 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
         }
       }
 
-      break;
-    }
+    } break;
 
     case Instruction::SDiv:
     case Instruction::UDiv:
     {
-      if (shape1.isUniform() && shape2.isUniform()) return VectorShape::uni(alignment1 / alignment2);
-
       const ConstantInt* constDivisor = dyn_cast<ConstantInt>(op2);
       if (shape1.hasStridedShape() && constDivisor) {
-        const int c = (int) constDivisor->getSExtValue();
-        if (stride1 % c == 0) return VectorShape::strided(stride1 / c, alignment1 / std::abs(c));
+        const int64_t c  = constDivisor->getSExtValue();// FIXME proper code path for UDiv
+
+        if (c == 0) return VectorShape::uni(1); // FIXME divide by zero?
+        if ((alignment1 % c == 0) && // c divides the alignment
+            (stride1 % c == 0))      // c divides the stride
+        {
+          return VectorShape::strided(stride1 / c, alignment1 / std::abs(c));
+        }
       }
 
-      return VectorShape::varying();
+      if (shape1.isUniform() && shape2.isUniform()) {
+        return VectorShape::uni(1); // division destroyes alignment in general
+      }
+
+      return VectorShape::varying(1);
     }
 
     default:
       break;
   }
+
   return GenericTransfer(shape1, shape2);
 }
 

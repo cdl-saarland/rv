@@ -332,6 +332,7 @@ Linearizer::verifyCompactDominance(BasicBlock & head) {
     if (loop && !loop->contains(&BB)) continue;
 
     if (dt.dominates(&head, &BB)) {
+      assert(hasIndex(BB) && " block missing in blockIndex!");
       int id = getIndex(BB);
       minIndex = std::min<int>(minIndex, id);
       maxIndex = std::max<int>(maxIndex, id);

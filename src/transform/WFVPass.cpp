@@ -158,8 +158,6 @@ WFVPass::collectJobs(Function & F) {
     StringRef attribText = attrib.getKindAsString();
 
     VectorMapping vecMapping;
-    if (attribText.size() < 2) continue;
-
     if (!parseVectorMapping(F, attribText, vecMapping, true)) continue;
     wfvJobs.push_back(vecMapping);
   }
