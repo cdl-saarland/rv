@@ -1,6 +1,7 @@
 #include "rv/transform/loopCloner.h"
 #include "rv/utils.h"
 
+#include <llvm/IR/Constants.h>
 
 using namespace llvm;
 namespace rv {
