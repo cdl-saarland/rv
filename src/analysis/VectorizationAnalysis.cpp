@@ -237,10 +237,7 @@ void VectorizationAnalysis::init(const Function& F) {
 
 // push all users of pinned values
   for (auto * val : vecInfo.pinned_values()) {
-    for(auto * user : val->users()) {
-      auto * inst = dyn_cast<Instruction>(user);
-      if (inst) putOnWorklist(*inst);
-    }
+    addDependentValuesToWL(val);
   }
 
 // push non-user instructions
@@ -368,7 +365,7 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
     }
 
     putOnWorklist(*inst);
-    IF_DEBUG_VA errs() << "Inserted user of updated " << *V << ":" << *user << "\n";
+    IF_DEBUG_VA errs() << "Inserted users of " << *V << ":" << *user << "\n";
   }
 }
 
