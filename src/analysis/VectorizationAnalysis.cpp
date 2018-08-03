@@ -632,7 +632,8 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I, Sma
       const Function * callee = dyn_cast<Function>(calledValue);
       if (!callee) return VectorShape::varying(); // calling a non-function
 
-       // memcpy shape is uniform if src ptr shape is uniform
+      // memcpy shape is uniform if src ptr shape is uniform
+      // TODO re-factor into resolver
       Intrinsic::ID id = callee->getIntrinsicID();
       if (id == Intrinsic::memcpy) {
         auto & mcInst = cast<MemCpyInst>(call);
@@ -673,7 +674,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I, Sma
 
       // pick mapping with the most precise result shape
       if (!matchVec.empty()) {
-        VectorShape bestResultShape = isUniformCall ? VectorShape::uni() : VectorShape::varying();
+        VectorShape bestResultShape = VectorShape::varying();
         for (const auto & mapping : matchVec) {
           bestResultShape = mapping.resultShape.morePreciseThan(bestResultShape) ? mapping.resultShape : bestResultShape;
         }
