@@ -1,54 +1,18 @@
-; RUN: rvTool -wfv -lower -i %s -k implied_undead -s T_U_U -w 8  | FileCheck %s
-; RUN: rvTool -wfv -lower -i %s -k implied_undead_neg -s T_U_U -w 8  | FileCheck %s
-; RUN: rvTool -wfv -lower -i %s -k implied_undead_and -s T_T_U_U -w 8  | FileCheck %s
-
-; CHECK-NOT: mem_block:
+; RUN: rvTool -wfv -lower -i %s -k implied_undead_or -s T_T_U_U -w 8  | FileCheck %s
 
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-linux-gnu"
 
 declare dso_local zeroext i1 @rv_any(i1 zeroext) local_unnamed_addr #2
 
-define void @implied_undead(i1 %mask, i32* %uniPtr, i32 %uniVal) {
+; CHECK: mem_block:
+define void @implied_undead_or(i1 %mask, i1 %distraction, i32* %uniPtr, i32 %uniVal) {
 entry:
-  %any = call i1 @rv_any(i1 %mask)
-  br i1 %any, label %onAnyTrue, label %exit
+  %orMask = or i1 %mask, %distraction
+  %any = call i1 @rv_any(i1 %orMask)
+  br i1 %any, label %onAnyEither, label %exit
 
-onAnyTrue:
-  br i1 %mask, label %onTrue, label %exit
-
-onTrue:
-  store i32 %uniVal, i32* %uniPtr
-  br label %exit
-
-exit:
-  ret void
-}
-
-define void @implied_undead_neg(i1 %mask, i32* %uniPtr, i32 %uniVal) {
-entry:
-  %negMask = xor i1 %mask, true
-  %any = call i1 @rv_any(i1 %negMask)
-  br i1 %any, label %onAnyFalse, label %exit
-
-onAnyFalse:
-  br i1 %mask, label %exit, label %onFalse
-
-onFalse:
-  store i32 %uniVal, i32* %uniPtr
-  br label %exit
-
-exit:
-  ret void
-}
-
-define void @implied_undead_and(i1 %mask, i1 %distraction, i32* %uniPtr, i32 %uniVal) {
-entry:
-  %andMask = and i1 %mask, %distraction
-  %any = call i1 @rv_any(i1 %andMask)
-  br i1 %any, label %onAnyBoth, label %exit
-
-onAnyBoth:
+onAnyEither:
   br i1 %mask, label %onTrue, label %exit
 
 onTrue:
