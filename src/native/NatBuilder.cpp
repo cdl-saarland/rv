@@ -535,11 +535,10 @@ void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst,
   auto * pred = vecInfo.getPredicate(*scalInst->getParent());
   bool isPredicatedDiv = (opCode >= BinaryOperator::UDiv) && (opCode <= BinaryOperator::FDiv) && (pred && !isa<Constant>(pred));
 
-  unsigned e = isa<CallInst>(scalInst) ? inst->getNumOperands() - 1 : inst->getNumOperands();
+  unsigned e = inst->getNumOperands();
   for (unsigned i = 0; i < e; ++i) {
     Value *op = scalInst->getOperand(i);
-    Value *mappedOp = (vectorizedInst || isa<BasicBlock>(op)) ? requestVectorValue(op) : requestScalarValue(op,
-                                                                                                            laneIdx);
+    Value *mappedOp = (vectorizedInst || isa<BasicBlock>(op)) ? requestVectorValue(op) : requestScalarValue(op, laneIdx);
 
     // only have to deal with the 2nd operand
     if (config.useSafeDivisors && (isPredicatedDiv && i > 0)) {
