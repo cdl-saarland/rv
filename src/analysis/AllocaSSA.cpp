@@ -175,7 +175,7 @@ using IntSet = std::set<int>;
 static IntSet
 GetUnwrittenArguments(const CallInst & call) {
   IntSet unwrittenArgs;
-  auto * callee = dyn_cast<const Function>(call.getCalledFunction());
+  auto * callee = dyn_cast<const Function>(call.getCalledValue());
 
   // assume that all arguments are written
   if (!callee) {
