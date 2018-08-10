@@ -1897,12 +1897,13 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
     auto * scalarPtrTy = scaValue.getType();
     auto * intTy = builder.getInt32Ty();
     auto * ptrElemTy = GetPointerElementType(scalarPtrTy);
-    int scalarBytes = static_cast<int>(layout.getTypeStoreSize(ptrElemTy));
 
     // vecValue is a single pointer and has to be broadcasted to a vector of pointers first
     vecValue = builder.CreateVectorSplat(vectorWidth(), &scaValue);
 
     if (!vecShape.isUniform()) { // stride != 0
+      assert(ptrElemTy->isSized() && "byte-stride shape on unsized element type");
+      int scalarBytes = static_cast<int>(layout.getTypeStoreSize(ptrElemTy));
       assert(vecShape.getStride() % scalarBytes == 0);
       Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride() / scalarBytes);
       vecValue = builder.CreateGEP(vecValue, contVec, "widen_ptr");
