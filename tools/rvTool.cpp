@@ -159,6 +159,8 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     rv::ReductionAnalysis reductionAnalysis(parentFn, loopInfo);
     reductionAnalysis.analyze(loop);
 
+    auto * preHeader = loop.getLoopPreheader();
+
     ValueSet uniOverrides;
     rv::RemainderTransform remTrans(parentFn, domTree, postDomTree, loopInfo, reductionAnalysis);
     auto * preparedLoop = remTrans.createVectorizableLoop(loop, uniOverrides, vectorWidth, vectorWidth);
@@ -254,6 +256,11 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     // cleanup
     vectorizer.finalize();
+
+  // insert vector-length update
+    auto * lvlFunc = Intrinsic::getDeclaration(&platformInfo.getModule(), Intrinsic::ve_lvl, {});
+    IRBuilder<> builder(preHeader->getFirstNonPHI());
+    builder.CreateCall(lvlFunc, builder.getInt32(256));
 }
 
 // Use case: Outer-loop Vectorizer

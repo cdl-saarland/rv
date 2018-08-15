@@ -347,6 +347,13 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     }
     errs() << "-- EOF --\n";
   }
+
+// insert vector-length update
+  auto * lvlFunc = Intrinsic::getDeclaration(F->getParent(), Intrinsic::ve_lvl, {});
+  auto * vecHeader = cast<BasicBlock>(vecMap[PreparedLoop->getHeader()]);
+  IRBuilder<> builder(vecHeader->getFirstNonPHI());
+  builder.CreateCall(lvlFunc, builder.getInt32(256));
+
   return true;
 }
 
