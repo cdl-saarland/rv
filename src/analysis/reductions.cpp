@@ -33,16 +33,18 @@ RedKind JoinKinds(RedKind A, RedKind B) {
 StringRef
 to_string(RedKind red) {
   switch (red) {
+    default:
+      llvm_unreachable("unrecognized reduction");
     case RedKind::Bot: return "Bot";
     case RedKind::Top: return "Top";
     case RedKind::Add: return "Add";
     case RedKind::Mul: return "Mul";
     case RedKind::And: return "And";
     case RedKind::Or: return "Or";
-    case RedKind::Max: return "Max";
-    case RedKind::Min: return "Min";
-    default:
-      abort();
+    case RedKind::SMax: return "SMax";
+    case RedKind::UMax: return "UMax";
+    case RedKind::SMin: return "SMin";
+    case RedKind::UMin: return "UMin";
   }
 }
 
@@ -60,27 +62,66 @@ from_string(StringRef redKindText, RedKind & oRedKind) {
   return false;
 }
 
+Constant&
+GetNeutralElement_fp(RedKind redKind, Type & chainTy) {
+  bool isDouble = chainTy.isDoubleTy();
+  const double maxDouble = std::numeric_limits<double>::max();
+  const double minDouble = std::numeric_limits<double>::min();
+  const double maxFloat = std::numeric_limits<float>::max();
+  const double minFloat = std::numeric_limits<float>::min();
+
+  switch(redKind) {
+    default:
+      llvm_unreachable("reduction unsupported for this type");
+    case RedKind::Add:
+      return *ConstantFP::get(&chainTy, 0.0);
+
+    case RedKind::Mul:
+      return *ConstantFP::get(&chainTy, 1.0);
+
+    case RedKind::SMax:
+    case RedKind::UMax:
+      return *ConstantFP::get(&chainTy, isDouble ? minDouble : minFloat);
+
+    case RedKind::SMin:
+    case RedKind::UMin:
+      return *ConstantFP::get(&chainTy, isDouble ? maxDouble : maxFloat);
+
+  }
+}
+
+Constant&
+GetNeutralElement_int(RedKind redKind, Type & chainTy) {
+  uint32_t numBits = chainTy.getIntegerBitWidth();
+  uint64_t highestBitSet = 1 << (numBits - 1);
+
+  switch (redKind) {
+  default:
+    llvm_unreachable("unsupported integer reduction");
+  case RedKind::Add:
+    return *ConstantInt::getNullValue(&chainTy);
+  case RedKind::Mul:
+    return *ConstantInt::get(&chainTy, false, 1);
+  case RedKind::And:
+    return *ConstantInt::getAllOnesValue(&chainTy);
+  case RedKind::Or:
+    return *ConstantInt::getNullValue(&chainTy);
+  case RedKind::UMax:
+    return *ConstantInt::get(&chainTy, 0); // 00..00
+  case RedKind::SMax:
+    return *ConstantInt::get(&chainTy, highestBitSet, true); // 10..00
+  case RedKind::UMin:
+    return *ConstantInt::getAllOnesValue(&chainTy); // 1..11
+  case RedKind::SMin:
+    return *ConstantInt::get(&chainTy, 0 ^ highestBitSet); // 01..11
+  }
+}
 
 Constant&
 GetNeutralElement(RedKind redKind, Type & chainTy) {
-  switch(redKind) {
-    case RedKind::Or:
-      assert(chainTy.isIntegerTy());
-      return *ConstantInt::getNullValue(&chainTy);
-    case RedKind::And:
-      assert(chainTy.isIntegerTy());
-      return *ConstantInt::getAllOnesValue(&chainTy);
-
-    case RedKind::Add:
-      return *(chainTy.isFloatTy() ? ConstantFP::get(&chainTy, 0.0) : ConstantInt::getNullValue(&chainTy));
-
-    case RedKind::Mul:
-      return *(chainTy.isFloatTy() ? ConstantFP::get(&chainTy, 1.0) : ConstantInt::get(&chainTy, 1, false));
-
-    default:
-      IF_DEBUG_RED { errs() << "red: Unknown neutral element for " << to_string(redKind) << "\n"; }
-      abort();
-  }
+  if (chainTy.isFloatingPointTy()) return GetNeutralElement_fp(redKind, chainTy);
+  if (chainTy.isIntegerTy()) return GetNeutralElement_int(redKind, chainTy);
+  llvm_unreachable("unsupported type for reduction");
 }
 
 }

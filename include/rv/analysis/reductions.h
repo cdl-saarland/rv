@@ -20,10 +20,12 @@ enum class RedKind : int64_t {
   Mul = 2,
   And = 3,
   Or = 4,
-  Max = 5,
-  Min = 6,
+  SMax = 5,
+  UMax = 6,
+  SMin = 7,
+  UMin = 8,
 
-  Enum_End = 7
+  Enum_End = 9
 };
 
 // join operator

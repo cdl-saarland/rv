@@ -703,19 +703,8 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
 
   Value *reduction;
   if (shape.isVarying()) {
-#if 1
     Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
     reduction = createPTest(vecPredicate, isRv_all);
-#else
-    // Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
-    auto * ballotVal = createVectorMaskSummary(requestVectorValue(predicate), builder, RVIntrinsic::Ballot); // FIXME block predicate
-    if (isRv_all) {
-      uint64_t mask = ((1 << vectorWidth()) - 1);
-      reduction = builder.CreateICmpEQ(ballotVal, ConstantInt::get(ballotVal->getType(), mask, false)); // mask == FullMask
-    } else {
-      reduction = builder.CreateICmpNE(ballotVal, ConstantInt::get(ballotVal->getType(), 0, false)); // mask != 0
-    }
-#endif
   } else {
     reduction = requestScalarValue(predicate);
   }
@@ -1510,7 +1499,7 @@ NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, u
     auto * activeLaneVec = builder.CreateAnd(sxMask, laneIdxConst);
 
     // horizontal MAX reduction
-    indexVal = &CreateVectorReduce(builder, RedKind::Max, *activeLaneVec);
+    indexVal = &CreateVectorReduce(builder, RedKind::UMax, *activeLaneVec);
 #else
   // compute MSB from leading zeros
     // determine the MS (using the ctlz intrinsic)
@@ -2406,33 +2395,29 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
   assert(cast<VectorType>(vector->getType())->getElementType()->isIntegerTy(1) &&
          "vector elements must have i1 type!");
 
-  const int laneBits = 32;
-  auto * intLaneTy = Type::getIntNTy(vector->getContext(), laneBits);
+// new generic code path
+  if (!config.enableIRPolish) {
+    Intrinsic::ID funcID = isRv_all ? Intrinsic::experimental_vector_reduce_and : Intrinsic::experimental_vector_reduce_or;
+    auto & redFunc = *Intrinsic::getDeclaration(&platInfo.getModule(), funcID, {vector->getType()});
+    return builder.CreateCall(&redFunc, vector, "red_mask");
+  }
 
-  Constant *simdFalseConst = ConstantInt::get(vector->getContext(), APInt::getMinValue(vectorWidth() * laneBits));
-  if (isRv_all)
+// old IR polish based code path
+  if (isRv_all) {
     vector = builder.CreateNot(vector, "rvall_cond_not");
+  }
 
   Value * ptest = nullptr;
   // TODO from LLVM >= 5.0 use reduction intrinsics
   // rv_all(x) == !rv_any(!x)
-  if (config.enableIRPolish) {
-    // this is a workaround until LLVM reduction intrinsics are available
-    // emit a rv_ptest intrinsic
-    auto * redFunc = platInfo.requestVectorMaskReductionFunc("rv_reduce_or", vector->getType()->getVectorNumElements());
-    ptest = builder.CreateCall(redFunc, vector, "ptest");
+  // this is a workaround until LLVM reduction intrinsics are available
+  // emit a rv_ptest intrinsic
+  auto * redFunc = platInfo.requestVectorMaskReductionFunc("rv_reduce_or", vector->getType()->getVectorNumElements());
+  ptest = builder.CreateCall(redFunc, vector, "ptest");
 
-  } else {
-    // idiomatic x86 ptest pattern
-    Type *intVecType = VectorType::get(intLaneTy, vectorWidth());
-    Type *intSIMDType = Type::getIntNTy(vector->getContext(), vectorWidth() * laneBits);
-    Value *zext = builder.CreateSExt(vector, intVecType, "ptest_zext");
-    Value *bc = builder.CreateBitCast(zext, intSIMDType, "ptest_bc");
-    ptest = builder.CreateICmpNE(bc, simdFalseConst, "ptest_comp");
-  }
-
-  if (isRv_all)
+  if (isRv_all) {
     ptest = builder.CreateNot(ptest, "rvall_not");
+  }
 
   return ptest;
 }

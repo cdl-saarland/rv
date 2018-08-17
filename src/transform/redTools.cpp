@@ -6,7 +6,7 @@ namespace rv {
 
 static
 Instruction&
-CreateMinMax(IRBuilder<> & builder, Value & A, Value & B, bool createMin) {
+CreateMinMax(IRBuilder<> & builder, Value & A, Value & B, bool createMin, bool isSigned) {
   auto * aTy = A.getType();
   bool isFloat = aTy->isFPOrFPVectorTy();
 
@@ -14,7 +14,7 @@ CreateMinMax(IRBuilder<> & builder, Value & A, Value & B, bool createMin) {
   if (isFloat) {
     cmpInst = builder.CreateFCmpOGT(&A, &B);
   } else {
-    cmpInst = builder.CreateICmpSGT(&A, &B);
+    cmpInst = isSigned ? builder.CreateICmpSGT(&A, &B) : builder.CreateICmpUGT(&A, &B);
   }
   return *cast<Instruction>(builder.CreateSelect(cmpInst, createMin ? &B : &A, createMin ? &A : &B));
 }
@@ -25,7 +25,6 @@ CreateReductInst(IRBuilder<> & builder, RedKind redKind, Value & firstArg, Value
   auto * argTy = firstArg.getType();
   bool isFloat = argTy->isFPOrFPVectorTy();
 
-  // TODO infer NSW,NUW, fp math flags
   switch (redKind) {
     case RedKind::Add:
       if (isFloat) {
@@ -46,11 +45,13 @@ CreateReductInst(IRBuilder<> & builder, RedKind redKind, Value & firstArg, Value
         return *cast<Instruction>(builder.CreateMul(&firstArg, &secondArg, secondArg.getName() + ".r"));
       }
 
-    case RedKind::Max:
-      return CreateMinMax(builder, firstArg, secondArg, false);
+    case RedKind::UMax:
+    case RedKind::SMax:
+      return CreateMinMax(builder, firstArg, secondArg, false, redKind == RedKind::SMax);
 
-    case RedKind::Min:
-      return CreateMinMax(builder, firstArg, secondArg, true);
+    case RedKind::UMin:
+    case RedKind::SMin:
+      return CreateMinMax(builder, firstArg, secondArg, true, redKind == RedKind::SMin);
 
     default:
       abort(); // unsupported reduction
@@ -70,14 +71,46 @@ GetScalarType(Value & val) {
   else return *valTy;
 }
 
+static
+Intrinsic::ID
+GetIntrinsicID(RedKind kind, Type & elemTy) {
+  switch (kind) {
+    default:
+      return Intrinsic::not_intrinsic;
+    case RedKind::Add: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fadd : Intrinsic::experimental_vector_reduce_add;
+    case RedKind::And: return Intrinsic::experimental_vector_reduce_and;
+    case RedKind::Or: return Intrinsic::experimental_vector_reduce_or;
+    case RedKind::Mul: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmul : Intrinsic::experimental_vector_reduce_mul;
+    case RedKind::SMax: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmax : Intrinsic::experimental_vector_reduce_smax;
+    case RedKind::UMax: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmax : Intrinsic::experimental_vector_reduce_umax;
+    case RedKind::SMin: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmin : Intrinsic::experimental_vector_reduce_smin;
+    case RedKind::UMin: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmin : Intrinsic::experimental_vector_reduce_umin;
+  }
+}
+
 // reduce the vector @vectorVal to a scalar value (using redKind)
 Value &
 CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vecVal, Value * initVal) {
-  uint vecWidth = vecVal.getType()->getVectorNumElements();
+  auto & elemTy = *vecVal.getType()->getVectorElementType();
 
+// use LLVM's experimental intrinsics where possible
+  Intrinsic::ID ID = GetIntrinsicID(redKind, elemTy);
+  if (ID != Intrinsic::not_intrinsic) {
+    auto & mod = *builder.GetInsertBlock()->getParent()->getParent();
+    auto & redFunc = *Intrinsic::getDeclaration(&mod, ID, vecVal.getType());
+    auto & redVal = *builder.CreateCall(&redFunc, &vecVal, "red" + to_string(redKind));
+
+    // add init val (if applicable)
+    if (initVal && initVal != &GetNeutralElement(redKind, elemTy)) {
+      return CreateReductInst(builder, redKind, redVal, *initVal);
+    }
+
+    return redVal;
+  }
+
+// Otw, use fallback code path
   auto * intTy = Type::getInt32Ty(builder.getContext());
-
-  // TODO from LLVM >= 5.0 use reduction intrinsics
+  uint32_t vecWidth = vecVal.getType()->getVectorNumElements();
   if (IsPower2(vecWidth)) {
     auto * accu = &vecVal;
     for (size_t range = vecWidth / 2; range >= 1; range /= 2) {
