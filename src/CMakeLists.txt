@@ -51,11 +51,15 @@ add_rv_library(RV
   rvConfig.cpp
   rvDebug.cpp
   passes.cpp
-  sleefLibrary.cpp
+  resolver/resolver.cpp
+  resolver/listResolver.cpp
+  resolver/sleefResolver.cpp
+  resolver/TLIResolver.cpp
   transform/CNSPass.cpp
   transform/Linearizer.cpp
   transform/LoopVectorizer.cpp
   transform/bosccTransform.cpp
+  transform/crtLowering.cpp
   transform/cns/BlockGraph.cpp
   transform/cns/CNS.cpp
   transform/cns/CNSScoring.cpp
@@ -78,6 +82,7 @@ add_rv_library(RV
   transform/splitAllocas.cpp
   transform/WFVPass.cpp
   utils.cpp
+  utils/rvLinking.cpp
   utils/rvTools.cpp
   vectorMapping.cpp
   vectorShape.cpp

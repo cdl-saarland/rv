@@ -83,7 +83,8 @@ struct VectorMapping {
                  (resultShape == O.resultShape);
         }
 
-	void dump(llvm::raw_ostream & out) const;
+	void dump() const;
+	void print(llvm::raw_ostream & out) const;
 };
 
 

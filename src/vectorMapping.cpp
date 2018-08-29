@@ -9,41 +9,42 @@
 
 #include "rv/vectorMapping.h"
 
-#include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/Function.h>
+#include <llvm/Support/raw_ostream.h>
 
 using namespace llvm;
 
 namespace rv {
 
-
-void
-VectorMapping::dump(llvm::raw_ostream & out) const {
-	out
-		<< "VectorMapping {\n"
-		<< "\tscalarFn = " << (scalarFn ? scalarFn->getName() : "null") << "\n"
-		<< "\tvectorFn = " << (vectorFn ? vectorFn->getName() : "null") << "\n"
-		<< "\tvectorW  = " << vectorWidth << "\n"
-		<< "\tmaskPos  = " << maskPos << "\n"
-		<< "\tresultSh = " << resultShape.str() << "\n"
-		<< "\tparamShs: {\n";
-	auto itScalarArg = scalarFn->arg_begin();
-	auto itVectorArg = vectorFn->arg_begin();
-
-	int i = 0;
-	for (VectorShape argShape : argShapes) {
-          if (i == maskPos) {
-            ++itVectorArg; // skip the vector mask
-          }
-          out << "\t\t(" << i << ") " << *itScalarArg << " -> " << *itVectorArg << " : " << argShape.str() << "\n";
-          ++i; ++itScalarArg; ++itVectorArg;
-	}
-
-	out << "\t}\n";
-	out << "}\n";
+void VectorMapping::dump() const {
+  print(errs());
 }
 
+void VectorMapping::print(llvm::raw_ostream &out) const {
+  out << "VectorMapping {\n"
+      << "\tscalarFn = " << (scalarFn ? scalarFn->getName() : "null") << "\n"
+      << "\tvectorFn = " << (vectorFn ? vectorFn->getName() : "null") << "\n"
+      << "\tvectorW  = " << vectorWidth << "\n"
+      << "\tmaskPos  = " << maskPos << "\n"
+      << "\tresultSh = " << resultShape.str() << "\n"
+      << "\tparamShs: {\n";
+  auto itScalarArg = scalarFn->arg_begin();
+  auto itVectorArg = vectorFn->arg_begin();
+
+  int i = 0;
+  for (VectorShape argShape : argShapes) {
+    if (i == maskPos) {
+      ++itVectorArg; // skip the vector mask
+    }
+    out << "\t\t(" << i << ") " << *itScalarArg << " -> " << *itVectorArg
+        << " : " << argShape.str() << "\n";
+    ++i;
+    ++itScalarArg;
+    ++itVectorArg;
+  }
+
+  out << "\t}\n";
+  out << "}\n";
+}
 
 } /* namespace rv */
-
-

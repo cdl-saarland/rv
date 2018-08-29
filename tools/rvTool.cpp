@@ -41,7 +41,7 @@
 
 #include "rv/rv.h"
 #include "rv/vectorMapping.h"
-#include "rv/sleefLibrary.h"
+#include "rv/resolver/resolvers.h"
 #include "rv/passes.h"
 #include "rv/rvDebug.h"
 #include "rv/utils.h"
@@ -366,7 +366,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
         rv::VectorMapping vecFuncMap(vecFun, vecFun, 0);
         vecFuncMap.resultShape = shape;
         platformInfo.addMapping(vecFuncMap);
-        outs() << "rvTool func mapping: "; vecFuncMap.dump(outs());
+        outs() << "rvTool func mapping: "; vecFuncMap.print(outs());
 
       } else if (gv) {
         // interpret <shape> as shape of gvar address

@@ -17,7 +17,7 @@
 #include "rv/vectorMapping.h"
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
-#include "rv/sleefLibrary.h"
+#include "rv/resolver/resolvers.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/analysis/costModel.h"
 #include "rv/transform/remTransform.h"

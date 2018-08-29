@@ -1078,6 +1078,7 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     callArgShapes.push_back(argShape);
   }
 
+#if 0
   // look for (proper) mappings with arg shapes
   if (calledFunction) {
     bool needsPredication = false; // FIXME query block predicate
@@ -1096,6 +1097,7 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       return;
     }
   }
+#endif
 
 
   // TODO re-factor the remainder of this function
