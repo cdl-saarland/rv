@@ -662,26 +662,6 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I, Sma
         callArgShapes.push_back(argShape);
       }
 
-
-      // query available user mappings (vla aware simd mappings of scalar functions)
-#if 0
-      VecMappingShortVec matchVec;
-      platInfo.getMappingsForCall(matchVec, *callee, callArgShapes, vecInfo.getVectorWidth(), needsPredication);
-
-      // pick mapping with the most precise result shape
-      if (!matchVec.empty()) {
-        VectorShape bestResultShape = VectorShape::varying();
-        for (const auto & mapping : matchVec) {
-          bestResultShape = mapping.resultShape.morePreciseThan(bestResultShape) ? mapping.resultShape : bestResultShape;
-        }
-
-        return bestResultShape;
-      }
-#endif
-
-      // default behavior for non-VLA functions
-      // FIXME use resolver API instead (call could be a source of divergence)
-
       // next: query resolver mechanism // TODO account for predicate
       bool needsPredication = false; // FIXME whether the call needs predication due to the call context
       auto resolver = platInfo.getResolver(callee->getName(), *callee->getFunctionType(), callArgShapes, vecInfo.getVectorWidth());

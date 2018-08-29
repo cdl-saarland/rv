@@ -51,6 +51,7 @@ add_rv_library(RV
   rvConfig.cpp
   rvDebug.cpp
   passes.cpp
+  resolver/recResolver.cpp
   resolver/resolver.cpp
   resolver/listResolver.cpp
   resolver/sleefResolver.cpp

@@ -1078,28 +1078,6 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     callArgShapes.push_back(argShape);
   }
 
-#if 0
-  // look for (proper) mappings with arg shapes
-  if (calledFunction) {
-    bool needsPredication = false; // FIXME query block predicate
-    VecMappingShortVec matchVec;
-    platInfo.getMappingsForCall(matchVec, *calledFunction, callArgShapes, vecInfo.getVectorWidth(), needsPredication);
-
-    if (!matchVec.empty()) {
-      VectorMapping mapping = matchVec[0];
-      assert((mapping.maskPos < 0) && "TODO implemented predicated mapped calls.");
-
-      const int maskPos = -1; // TODO support predicated functions
-      auto * vecCall = vectorizeCallWithFunction(*scalCall, *mapping.vectorFn, maskPos);
-      vecCall->setName(scalCall->getName() + ".mapped");
-      mapVectorValue(scalCall, vecCall);
-      ++numVecCalls;
-      return;
-    }
-  }
-#endif
-
-
   // TODO re-factor the remainder of this function
   // if calledFunction is vectorizable (standard mapping exists for given vector width), create new call to vector calledFunction
   std::unique_ptr<FunctionResolver> funcResolver = nullptr;
