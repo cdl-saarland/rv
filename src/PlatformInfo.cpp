@@ -260,6 +260,9 @@ PlatformInfo::dump() const {
 
 
 void
+PlatformInfo::forgetMapping(const VectorMapping & mapping) { listResolver->forgetMapping(mapping); }
+
+void
 PlatformInfo::forgetAllMappingsFor(const Function & scaFunc) { listResolver->forgetAllMappingsFor(scaFunc); }
 
 void

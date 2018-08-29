@@ -29,18 +29,31 @@ void VectorMapping::print(llvm::raw_ostream &out) const {
       << "\tresultSh = " << resultShape.str() << "\n"
       << "\tparamShs: {\n";
   auto itScalarArg = scalarFn->arg_begin();
-  auto itVectorArg = vectorFn->arg_begin();
 
-  int i = 0;
-  for (VectorShape argShape : argShapes) {
-    if (i == maskPos) {
-      ++itVectorArg; // skip the vector mask
+  if (vectorFn) {
+    // proper vector function
+    auto itVectorArg = vectorFn->arg_begin();
+
+    int i = 0;
+    for (VectorShape argShape : argShapes) {
+      if (i == maskPos) {
+        ++itVectorArg; // skip the vector mask
+      }
+      out << "\t\t(" << i << ") " << *itScalarArg << " -> " << *itVectorArg
+          << " : " << argShape.str() << "\n";
+      ++i;
+      ++itScalarArg;
+      ++itVectorArg;
     }
-    out << "\t\t(" << i << ") " << *itScalarArg << " -> " << *itVectorArg
-        << " : " << argShape.str() << "\n";
-    ++i;
-    ++itScalarArg;
-    ++itVectorArg;
+
+  } else {
+    // no vector function available
+    int i = 0;
+    for (VectorShape argShape : argShapes) {
+      out << "\t\t(" << i << ") " << *itScalarArg << " : " << argShape.str() << "\n";
+      ++i;
+      ++itScalarArg;
+    }
   }
 
   out << "\t}\n";

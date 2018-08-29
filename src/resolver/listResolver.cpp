@@ -202,6 +202,27 @@ ListResolver::print(raw_ostream & out) const {
   out << "}\n";
 }
 
+/// Forget one specific mapping.
+void
+ListResolver::forgetMapping(const VectorMapping & mapping) {
+  auto itFunc = funcMappings.find(mapping.scalarFn);
+  if (itFunc == funcMappings.end()) {
+    return;
+  }
+
+  VecMappingShortVec & vecMappings = *itFunc->second;
+
+  // scan for that mapping
+  auto it = vecMappings.begin();
+  auto itEnd = vecMappings.end();
+  for (;it != itEnd; ++it) {
+    if (!(*it == mapping)) continue;
+
+    // found it!
+    vecMappings.erase(it);
+    break;
+  }
+}
 
 void
 ListResolver::forgetAllMappingsFor(const Function & scaFunc) {

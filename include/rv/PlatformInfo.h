@@ -59,6 +59,7 @@ public:
   void addMapping(VectorMapping&& mapping);
   void addMapping(const VectorMapping& mapping) { addMapping(VectorMapping(mapping)); }
   void forgetAllMappingsFor(const llvm::Function & scaFunc);
+  void forgetMapping(const VectorMapping & mapping);
 
   void dump() const;
   void print(llvm::raw_ostream & out) const;

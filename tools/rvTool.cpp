@@ -184,6 +184,8 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     // link in SIMD library
     addSleefResolver(config, platformInfo, 35);
+    // vectorize recursively
+    addRecursiveResolver(config, platformInfo);
 
 // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable
@@ -343,6 +345,8 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
 
     // link in SIMD library
     addSleefResolver(config, platformInfo, 35);
+    // vectorize recursively
+    addRecursiveResolver(config, platformInfo);
 
     rv::VectorizerInterface vectorizer(platformInfo, config);
 

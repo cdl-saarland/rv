@@ -75,6 +75,7 @@ public:
   {
     ValueToValueMapTy cloneMap;
     Function * clonedFunc = CloneFunction(&scaFunc, cloneMap);
+    recMapping.scalarFn = clonedFunc;
     assert(clonedFunc);
 
 // prepare scalar copy for transforming
@@ -115,53 +116,62 @@ public:
 // run analysis until result shape stabilizes
     // this is an ad-hoc mapping
     VectorShape lastResShape = VectorShape::undef();
-    VectorMapping selfMapping(clonedFunc, clonedFunc, vectorWidth, maskPos, lastResShape, argShapes);
-    bool returnsVoid = scaFunc.getReturnType()->isVoidTy();
-    do {
-      VectorizationInfo selfVecInfo(funcRegion, selfMapping);
-      selfMapping.resultShape = recMapping.resultShape;
 
-      // publish the best known mapping
-      vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
-      vectorizer.getPlatformInfo().addMapping(selfMapping); // prevent recursive vectorization
+    // callMapping will be the proper, final result mapping
+    VectorMapping callMapping(&scaFunc, nullptr, vectorWidth, maskPos, lastResShape, argShapes);
+    bool returnsVoid = scaFunc.getReturnType()->isVoidTy();
+    VectorShape nextResultShape = lastResShape;
+    do {
+      // update & publish the best known mapping
+      vectorizer.getPlatformInfo().forgetMapping(callMapping);
+      callMapping.resultShape = nextResultShape;
+      vectorizer.getPlatformInfo().addMapping(callMapping); // prevent recursive vectorization
+      lastResShape = callMapping.resultShape;
 
       errs() << "RR: analyzing " << scaFunc.getName() << " with res shape " << lastResShape.str() << "\n";
-      lastResShape = recMapping.resultShape;
 
-      // run VA
-      vectorizer.analyze(selfVecInfo, DT, PDT, LI);
+      // run VA (on clonedFunc) -> tempVecInfo
+      VectorizationInfo tempVecInfo(funcRegion, recMapping);
+      vectorizer.analyze(tempVecInfo, DT, PDT, LI);
 
-      // refine the result shape
+      // refine the result shape (from tempVecInfo)
       if (!returnsVoid) {
         funcRegion.for_blocks([&](const BasicBlock & BB) {
           auto * retInst = dyn_cast<ReturnInst>(BB.getTerminator());
           if (!retInst) return true; // continue
 
           // FIXME this assumes that there is actually only one return
-          recMapping.resultShape = selfVecInfo.getVectorShape(*retInst->getReturnValue());
+          // refined shape
+          nextResultShape = tempVecInfo.getVectorShape(*retInst->getReturnValue());
           return false;
         });
       }
+      errs() << "RR: refined result Shape for " << scaFunc.getName() << " to res shape " << callMapping.resultShape.str() << "\n";
 
       // TODO re-run the analysis if the result changed (start with undef shape..)
-    } while (!returnsVoid && (lastResShape != recMapping.resultShape));
+    } while (!returnsVoid && (lastResShape != nextResultShape));
 
 // the return value has stabilized.. no generate code
     // FIXME this assertion will fire on really nastyc call graph SCCs that are nevertheless valid.
     // Would require proper inter-procedural VA to fix this.
-    assert(recMapping.resultShape.isDefined() && "there must be a defined result if (a) any function in this CallGraph SCC returns at all and (b) it returns without further recursive descend..");
-
-    VectorizationInfo vecInfo(funcRegion, recMapping);
 
     // create a proper SIMD declaration with the inferred type
-    auto * vecFunc = createVectorDeclaration(*clonedFunc, recMapping.resultShape, recMapping.argShapes, recMapping.vectorWidth);
+    auto * vecFunc = createVectorDeclaration(*clonedFunc, nextResultShape, callMapping.argShapes, callMapping.vectorWidth);
+    recMapping.resultShape = nextResultShape; //callMapping.resultShape; // final inferred result shape
+    recMapping.vectorFn = vecFunc;
+
+    // TODO copy last round results
+    VectorizationInfo vecInfo(funcRegion, recMapping);
+    vectorizer.analyze(vecInfo, DT, PDT, LI);
+
     vecFunc->copyAttributesFrom(&scaFunc);
     // vecFunc->setName(vecFuncName); // TODO use an OpenMP "pragma omp SIMD" name.
 
     // discard temporary mapping
     vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
     // register final mapping
-    vectorizer.getPlatformInfo().addMapping(recMapping);
+    callMapping.vectorFn = vecFunc;
+    vectorizer.getPlatformInfo().addMapping(callMapping);
 
 // fill in SIMD code
     vectorizer.linearize(vecInfo, DT, PDT, LI, &BPI);
@@ -181,6 +191,7 @@ RecursiveResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType &
 // is this function defined?
   auto * scaFunc = destModule.getFunction(funcName);
   if (!scaFunc) return nullptr;
+  if (scaFunc->isDeclaration()) return nullptr;
   if (!typesMatch(scaFunc->getFunctionType(), &scaFuncTy)) return nullptr;
 
   // FIXME legality?
@@ -195,8 +206,9 @@ RecursiveResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType &
 
 
 void
-addRecursiveResolver(PlatformInfo & platInfo, const Config & config) {
-  platInfo.addResolverService(std::unique_ptr<ResolverService>(new RecursiveResolverService(platInfo, config)), true);
+addRecursiveResolver(const Config & config, PlatformInfo & platInfo) {
+  // recursive vectorize MUST go last to enable caching in platInfo
+  platInfo.addResolverService(std::unique_ptr<ResolverService>(new RecursiveResolverService(platInfo, config)), false);
 }
 
 
