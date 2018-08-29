@@ -508,7 +508,8 @@ PrintHelp() {
             << "commands:\n"
             << "-wfv/-loopvec : vectorize a whole-function or an outer loop\n"
             << "-analyze      : normalize, print vectorization analysis results and exit.\n"
-            << "-lower        : lower predicate intrinsics in scalar kernel.\n"
+            << "-lower-func   : lower predicate intrinsics in scalar kernel.\n"
+            << "-lower        : lower predicate intrinsics in entire module.\n"
             << "-normalize    : normalize kernel and quit.\n"
             << "options:\n"
             << "-i MODULE     : LLVM input module.\n"
@@ -540,7 +541,8 @@ int main(int argc, char** argv)
     std::string targetDeclName;
     bool hasTargetDeclName = reader.readOption<std::string>("-t", targetDeclName);
 
-    bool lowerIntrinsics = reader.hasOption("-lower");
+    bool lowerIntrinsicsFunc = reader.hasOption("-lower-func");
+    bool lowerIntrinsicsMod = reader.hasOption("-lower");
 
     std::string outFile;
     bool hasOutFile = reader.readOption<std::string>("-o", outFile);
@@ -697,9 +699,12 @@ int main(int argc, char** argv)
           vectorizeFirstLoop(*scalarFn, vectorWidth);
       }
 
-      if (lowerIntrinsics) {
+      if (lowerIntrinsicsFunc) {
         IF_VERBOSE errs() << "Lowering intrinsics in function " << scalarFn->getName() << "\n";
         rv::lowerIntrinsics(*scalarFn);
+      } else if (lowerIntrinsicsMod) {
+        IF_VERBOSE errs() << "Lowering intrinsics in module\n";
+        rv::lowerIntrinsics(*mod);
       }
 
     } // !finish
