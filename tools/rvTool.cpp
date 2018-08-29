@@ -245,12 +245,6 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     // control conversion
     vectorizer.linearize(vecInfo, domTree, postDomTree, loopInfo);
     // if (!maskEx) fail("mask generation failed.");
-#if 0
-
-    // control conversion
-    bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskEx, loopInfo, domTree);
-    if (!linearizeOk) fail("linearization failed.");
-#endif
 
     DominatorTree domTreeNew(*vecInfo.getMapping()
                                            .scalarFn); // Control conversion does not preserve the domTree so we have to rebuild it for now
@@ -362,9 +356,21 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     for (auto & it : extraShapes) {
       auto name = it.first;
       auto shape = it.second;
+
       auto * gv = mod.getGlobalVariable(name);
-      if (!gv) fail("could not find global variable ", name, " in test module!");
-      vecInfo.setPinnedShape(*gv, shape);
+      auto * vecFun = mod.getFunction(name);
+
+      if (vecFun) {
+        // interpret <shape> as result shape
+        rv::VectorMapping vecFuncMap(vecFun, vecFun, 0);
+        vecFuncMap.resultShape = shape;
+        platformInfo.addMapping(vecFuncMap);
+        outs() << "rvTool func mapping: "; vecFuncMap.dump(outs());
+
+      } else if (gv) {
+        // interpret <shape> as shape of gvar address
+        vecInfo.setPinnedShape(*gv, shape);
+      }
     }
 
     // build Analysis
@@ -415,12 +421,6 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     // mask generator
     vectorizer.linearize(vecInfo, domTree, postDomTree, loopInfo);
     // if (!maskEx) fail("mask generation failed.");
-
-#if 0
-    // control conversion
-    bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskEx, loopInfo, domTree);
-    if (!linearizeOk) fail("linearization failed.");
-#endif
 
     // Control conversion does not preserve the domTree so we have to rebuild it for now
     DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn);
@@ -515,7 +515,7 @@ PrintHelp() {
             << "-k KERNEL     : name of the function to vectorize/function with loop to vectorize.\n"
             << "-t DECL       : target SIMD declaration (WFV mode only, will be auto generated if missing).\n"
             << "-s SHAPES     : WFV argument shapes.\n"
-            << "-x GVSHAPES   : comma-separates list of global value shapes, e.g. \"gvar=C,gvar2=S4\".\n"
+            << "-x GVSHAPES   : comma-separated list of global value and function-return shapes, e.g. \"gvar=C,func=S4\".\n"
             << "-w WIDTH      : vectorization factor.\n"
             << "-v            : enable verbose output (rvTool level output).\n";
 }

@@ -21,11 +21,10 @@ int foo(Node * nodes, float elem) {
   }
   top = 1;
 
-  // auniform stack usage
+  // uniform stack usage
   int next = 0;
   while (nodes[next].left > 0) {
     stack[top++] = next = nodes[next].right;
-    top++;
   }
 
   // compute stack checksum

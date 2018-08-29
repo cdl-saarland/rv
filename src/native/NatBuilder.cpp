@@ -535,11 +535,10 @@ void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst,
   auto * pred = vecInfo.getPredicate(*scalInst->getParent());
   bool isPredicatedDiv = (opCode >= BinaryOperator::UDiv) && (opCode <= BinaryOperator::FDiv) && (pred && !isa<Constant>(pred));
 
-  unsigned e = isa<CallInst>(scalInst) ? inst->getNumOperands() - 1 : inst->getNumOperands();
+  unsigned e = inst->getNumOperands();
   for (unsigned i = 0; i < e; ++i) {
     Value *op = scalInst->getOperand(i);
-    Value *mappedOp = (vectorizedInst || isa<BasicBlock>(op)) ? requestVectorValue(op) : requestScalarValue(op,
-                                                                                                            laneIdx);
+    Value *mappedOp = (vectorizedInst || isa<BasicBlock>(op)) ? requestVectorValue(op) : requestScalarValue(op, laneIdx);
 
     // only have to deal with the 2nd operand
     if (config.useSafeDivisors && (isPredicatedDiv && i > 0)) {
@@ -1898,12 +1897,13 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
     auto * scalarPtrTy = scaValue.getType();
     auto * intTy = builder.getInt32Ty();
     auto * ptrElemTy = GetPointerElementType(scalarPtrTy);
-    int scalarBytes = static_cast<int>(layout.getTypeStoreSize(ptrElemTy));
 
     // vecValue is a single pointer and has to be broadcasted to a vector of pointers first
     vecValue = builder.CreateVectorSplat(vectorWidth(), &scaValue);
 
     if (!vecShape.isUniform()) { // stride != 0
+      assert(ptrElemTy->isSized() && "byte-stride shape on unsized element type");
+      int scalarBytes = static_cast<int>(layout.getTypeStoreSize(ptrElemTy));
       assert(vecShape.getStride() % scalarBytes == 0);
       Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride() / scalarBytes);
       vecValue = builder.CreateGEP(vecValue, contVec, "widen_ptr");

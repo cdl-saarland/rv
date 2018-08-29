@@ -509,12 +509,14 @@ public:
 
 // simply links-in the pre-vectorized SLEEF function
 class SleefLookupResolver : public FunctionResolver {
+  VectorShape resShape;
   Function & vecFunc;
   std::string destFuncName;
 
   public:
-    SleefLookupResolver(Module & _targetModule, Function & _vecFunc, std::string _destFuncName)
+    SleefLookupResolver(Module & _targetModule, VectorShape resShape, Function & _vecFunc, std::string _destFuncName)
     : FunctionResolver(_targetModule)
+    , resShape(resShape)
     , vecFunc(_vecFunc)
     , destFuncName(_destFuncName)
   {}
@@ -527,7 +529,7 @@ class SleefLookupResolver : public FunctionResolver {
   }
 
   // result shape of function @funcName in target module @module
-  VectorShape requestResultShape() { return VectorShape::varying(); }
+  VectorShape requestResultShape() { return resShape; }
 };
 
 
@@ -720,6 +722,7 @@ std::unique_ptr<FunctionResolver>
 SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) {
   IF_DEBUG_SLEEF { errs() << "SLEEFResolverService: " << funcName << " for width " << vectorWidth << "\n"; }
 
+  // Otw, start looking for a SIMD-ized implementation
   ArchFunctionList * archList = nullptr;
   PlainVecDesc funcDesc;
   for (auto * candList : archLists) {
@@ -761,7 +764,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
     if (!mod) mod = createModuleFromBuffer(reinterpret_cast<const char*>(extraModuleBuffers[modIdx]), extraModuleBufferLens[modIdx], context);
     Function *vecFunc = mod->getFunction(sleefName);
     assert(vecFunc && "mapped extra function not found in module!");
-    return std::make_unique<SleefLookupResolver>(destModule, *vecFunc, funcDesc.vectorFnName);
+    return std::make_unique<SleefLookupResolver>(destModule, /* RNG result */ VectorShape::varying(), *vecFunc, funcDesc.vectorFnName);
   }
 
   // Look in SLEEF module
@@ -783,10 +786,19 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
     return std::make_unique<SleefVLAResolver>(platInfo, baseName, config, vlaFunc, argShapes, vectorWidth);
 
   } else {
+    // these are pure functions
+    VectorShape resShape = VectorShape::uni();
+    for (const auto argShape : argShapes) {
+      if (!argShape.isUniform()) {
+        resShape = VectorShape::varying();
+        break;
+      }
+    }
+
     // we'll have to link in the function
     Function &vecFunc = GetLeastPreciseImpl(*mod, sleefName, maxULPError);
     std::string vecFuncName = vecFunc.getName().str() + "_" + archList->archSuffix;
-    return std::make_unique<SleefLookupResolver>(destModule, vecFunc, vecFuncName);
+    return std::make_unique<SleefLookupResolver>(destModule, resShape, vecFunc, vecFuncName);
   }
 }
 

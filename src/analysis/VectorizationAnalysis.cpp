@@ -237,10 +237,7 @@ void VectorizationAnalysis::init(const Function& F) {
 
 // push all users of pinned values
   for (auto * val : vecInfo.pinned_values()) {
-    for(auto * user : val->users()) {
-      auto * inst = dyn_cast<Instruction>(user);
-      if (inst) putOnWorklist(*inst);
-    }
+    addDependentValuesToWL(val);
   }
 
 // push non-user instructions
@@ -368,7 +365,7 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
     }
 
     putOnWorklist(*inst);
-    IF_DEBUG_VA errs() << "Inserted user of updated " << *V << ":" << *user << "\n";
+    IF_DEBUG_VA errs() << "Inserted users of " << *V << ":" << *user << "\n";
   }
 }
 
@@ -632,7 +629,8 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I, Sma
       const Function * callee = dyn_cast<Function>(calledValue);
       if (!callee) return VectorShape::varying(); // calling a non-function
 
-       // memcpy shape is uniform if src ptr shape is uniform
+      // memcpy shape is uniform if src ptr shape is uniform
+      // TODO re-factor into resolver
       Intrinsic::ID id = callee->getIntrinsicID();
       if (id == Intrinsic::memcpy) {
         auto & mcInst = cast<MemCpyInst>(call);
@@ -673,7 +671,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I, Sma
 
       // pick mapping with the most precise result shape
       if (!matchVec.empty()) {
-        VectorShape bestResultShape = isUniformCall ? VectorShape::uni() : VectorShape::varying();
+        VectorShape bestResultShape = VectorShape::varying();
         for (const auto & mapping : matchVec) {
           bestResultShape = mapping.resultShape.morePreciseThan(bestResultShape) ? mapping.resultShape : bestResultShape;
         }
