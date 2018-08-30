@@ -583,8 +583,11 @@ struct SleefVLAResolver : public FunctionResolver {
 
     // create SIMD declaration
     vecFunc = createVectorDeclaration(*clonedFunc, resShape, argShapes, vectorWidth);
-    // TODO vecFunc->copyAttributesFrom(callerFunc);
     vecFunc->setName(vecFuncName);
+
+    // override with no-recurse flag (so we won't get guards in the vector code)
+    vecFunc->copyAttributesFrom(&scaFunc);
+    vecFunc->setDoesNotRecurse();
 
     VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes);
     vectorizer.getPlatformInfo().addMapping(mapping); // prevent recursive vectorization

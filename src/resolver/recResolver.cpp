@@ -181,7 +181,6 @@ public:
     // TODO copy last round results
     VectorizationInfo vecInfo(funcRegion, recMapping);
     vectorizer.analyze(vecInfo, DT, PDT, LI);
-
     vecFunc->copyAttributesFrom(&scaFunc);
     // vecFunc->setName(vecFuncName); // TODO use an OpenMP "pragma omp SIMD" name.
 
