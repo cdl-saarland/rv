@@ -335,7 +335,7 @@ lowerIntrinsicCall(CallInst* call) {
 void
 lowerIntrinsics(Module & mod) {
   // TODO re-implement using RVIntrinsic enum
-  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align"};
+  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align", "rv_popcount"};
   for (int i = 0, n = sizeof(names) / sizeof(names[0]); i < n; i++) {
     auto func = mod.getFunction(names[i]);
     if (!func) continue;
