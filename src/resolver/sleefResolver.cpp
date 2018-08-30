@@ -518,8 +518,13 @@ class SleefLookupResolver : public FunctionResolver {
   llvm::Function&
   requestVectorized() {
     auto * existingFunc = targetModule.getFunction(destFuncName);
-    if (existingFunc) return *existingFunc;
-    return cloneFunctionIntoModule(vecFunc, targetModule, destFuncName);
+    if (existingFunc) {
+      return *existingFunc;
+    }
+
+    Function & clonedVecFunc = cloneFunctionIntoModule(vecFunc, targetModule, destFuncName);
+    clonedVecFunc.setDoesNotRecurse(); // SLEEF math does not recurse
+    return clonedVecFunc;
   }
 
   // result shape of function @funcName in target module @module
