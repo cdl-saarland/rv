@@ -403,6 +403,53 @@ NatBuilder::scalarize(BasicBlock & scaBlock, Instruction & inst, bool packResult
   return laneRepls;
 }
 
+Value&
+NatBuilder::createAnyGuard(bool instNeedsGuard, BasicBlock & origBlock, Instruction & inst, bool producesValue, std::function<Value*(IRBuilder<>&)> genFunc) {
+  auto * scalarMask = vecInfo.getPredicate(origBlock);
+  // only emit a guard if rv_any(p) may be false AND the emitted instructions will need it.
+  bool needsGuard = instNeedsGuard && !undeadMasks.isUndead(*scalarMask, origBlock);
+
+  BasicBlock* memBlock, * continueBlock;
+
+  // prologue (guard branch)
+  if (needsGuard) {
+    // create a mask ptest
+    Value * anyMask = createPTest(requestVectorValue(scalarMask), false);
+
+    // create two new basic blocks
+    memBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "mem_block",
+                                              &vecInfo.getVectorFunction());
+    continueBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "cont_block",
+                                                   &vecInfo.getVectorFunction());
+
+    // conditionally branch to both
+    builder.CreateCondBr(anyMask, memBlock, continueBlock);
+    builder.SetInsertPoint(memBlock);
+  }
+
+  //  emit the actual access
+  Value *vecMem = genFunc(builder);
+
+  // epilogue (continue block, return value phi)
+  if (needsGuard) {
+    builder.CreateBr(continueBlock);
+    builder.SetInsertPoint(continueBlock);
+
+    BasicBlock *vecOrigBlock = cast<BasicBlock>(getVectorValue(&origBlock, true));
+    PHINode *phi = producesValue ? builder.CreatePHI(vecMem->getType(), 2, "scal_mask_mem_phi") : nullptr;
+
+    if (phi) {
+      phi->addIncoming(vecMem, memBlock);
+      phi->addIncoming(UndefValue::get(vecMem->getType()), vecOrigBlock);
+      vecMem = phi;
+    }
+
+    mapVectorValue(&origBlock, continueBlock);
+  }
+
+  return *vecMem;
+}
+
 ValVec
 NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool packResult, std::function<Value*(IRBuilder<>&,size_t)> genFunc) {
    // check if we need cascade first
@@ -503,14 +550,14 @@ NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool pa
    return resultVec;
 }
 
-// TODO don't modify vecCall.. build a new CallInst and build a new parameter vector
-CallInst*
-NatBuilder::vectorizeCallWithFunction(CallInst & scaCall, Function & vecFunc, int maskPos) {
+/// Request all the vector function arguments for scalling \p vecCall at the (vectorized) call site of \p scaCall.
+// Stores all arranged vector-world arguments in \p vectorArgs.
+void
+NatBuilder::requestVectorCallArgs(CallInst & scaCall, Function & vecFunc, int maskPos, std::vector<Value*> & vectorArgs) {
   assert(maskPos < 0 && "TODO implement predicated calls");
   int scaIdx = 0; // TODO use for mask skipping
   auto itVecArg = vecFunc.arg_begin();
 
-  std::vector<Value*> vectorArgs;
   for (int vecIdx = 0; vecIdx < (int) vecFunc.arg_size(); ++vecIdx, ++scaIdx, ++itVecArg) {
     Value *op = scaCall.getArgOperand(scaIdx);
 
@@ -518,8 +565,6 @@ NatBuilder::vectorizeCallWithFunction(CallInst & scaCall, Function & vecFunc, in
     Value *mappedArg = vecTypeArg ? requestVectorValue(op) : requestScalarValue(op);
     vectorArgs.push_back(mappedArg);
   }
-  auto * vecCall = builder.CreateCall(&vecFunc, vectorArgs);
-  return vecCall;
 }
 
 // FIXME re-design this!
@@ -1066,6 +1111,12 @@ NatBuilder::vectorizeAlignCall(CallInst *rvCall) {
     mapScalarValue(rvCall, requestScalarValue(vecArg));
 }
 
+static
+bool
+MayRecurse(const Function &F) {
+  return !F.doesNotRecurse();
+}
+
 void
 NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   Value * callee = scalCall->getCalledValue();
@@ -1078,20 +1129,32 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     callArgShapes.push_back(argShape);
   }
 
-  // TODO re-factor the remainder of this function
-  // if calledFunction is vectorizable (standard mapping exists for given vector width), create new call to vector calledFunction
+// Vectorize this function using a resolver provided vector function.
   std::unique_ptr<FunctionResolver> funcResolver = nullptr;
   if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth());
   if (funcResolver) {
     Function &simdFunc = funcResolver->requestVectorized();
-    const int maskPos = -1;
-    auto * vecCall = vectorizeCallWithFunction(*scalCall, simdFunc, maskPos);
-    vecCall->setName(scalCall->getName() + ".mapped");
-    mapVectorValue(scalCall, vecCall);
+
+    bool needsPredicate = MayRecurse(simdFunc);
+
+    const int maskPos = -1; // FIXME predication
+    std::vector<Value*> vectorArgs;
+    // request the vector arguments within the current scope
+    requestVectorCallArgs(*scalCall, simdFunc, maskPos, vectorArgs);
+    bool producesValue = !scalCall->getType()->isVoidTy();
+
+    auto & vecCall = createAnyGuard(needsPredicate, *scalCall->getParent(), *scalCall, producesValue,
+      [&](IRBuilder<> & builder) {
+        return builder.CreateCall(&simdFunc, vectorArgs, scalCall->getName() + ".rv");
+      });
+
+    vecCall.setName(scalCall->getName() + ".mapped");
+    mapVectorValue(scalCall, &vecCall);
     ++numVecCalls;
 
   } else {
-    // try if we can semi-vectorize the call by replication a smaller vectorized version
+// Otw, try to semi-vectorize the call by replication a smaller vectorized version
+    // TODO (this is a deprecated code path, we should use a ResolverService for this)
     unsigned vecWidth = vectorWidth() / 2;
     std::unique_ptr<FunctionResolver> funcResolver = nullptr;
     for (; calledFunction && vecWidth >= 2; vecWidth /= 2) {
@@ -1108,7 +1171,6 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
         // doublePrecision = scalCall->getArgOperand(0)->getType()->isDoubleTy();
       // }
       Function &simdFunc = funcResolver->requestVectorized();
-
       ShuffleBuilder appender(vectorWidth());
       ShuffleBuilder extractor(vecWidth);
 
@@ -1522,57 +1584,21 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedTy
                                              Value *addr, Value * scalarMask, Value * vectorMask, Value *values) {
   values ? ++numUniMaskedStores : ++numUniMaskedLoads;
 
-  BasicBlock *origBlock = inst->getParent();
-  bool needsGuard = !undeadMasks.isUndead(*scalarMask, *origBlock);
-
-  BasicBlock* memBlock, * continueBlock;
-
-  // prologue (guard branch)
-  if (needsGuard) {
-    // create a mask ptest
-    Value * anyMask = createPTest(vectorMask, false);
-
-    assert((values && isa<StoreInst>(inst)) || (!values && isa<LoadInst>(inst)));
-
-    // create two new basic blocks
-    memBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "mem_block",
-                                              &vecInfo.getVectorFunction());
-    continueBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "cont_block",
-                                                   &vecInfo.getVectorFunction());
-
-    // conditionally branch to both
-    builder.CreateCondBr(anyMask, memBlock, continueBlock);
-    builder.SetInsertPoint(memBlock);
-  }
-
-  //  emit the actual access
-  Instruction *vecMem;
-  if (values) {
-    vecMem = builder.CreateStore(values, addr);
-    cast<StoreInst>(vecMem)->setAlignment(alignment);
-  } else {
-    vecMem = builder.CreateLoad(addr, "scal_mask_mem");
-    cast<LoadInst>(vecMem)->setAlignment(alignment);
-  }
-
-  // epilogue (continue block, joining loaded value)
-  if (needsGuard) {
-    builder.CreateBr(continueBlock);
-    builder.SetInsertPoint(continueBlock);
-
-    BasicBlock *vecOrigBlock = cast<BasicBlock>(getVectorValue(origBlock, true));
-    PHINode *phi = values ? nullptr : builder.CreatePHI(accessedType, 2, "scal_mask_mem_phi");
-
-    if (phi) {
-      phi->addIncoming(vecMem, memBlock);
-      phi->addIncoming(UndefValue::get(accessedType), vecOrigBlock);
-      vecMem = phi;
+  // emit a scalar memory acccess within a any-guarded section
+  bool needsGuard = true;
+  return &createAnyGuard(needsGuard, *inst->getParent(), *inst, isa<LoadInst>(inst),
+      [=](IRBuilder<> & builder)
+  {
+    Instruction* vecMem;
+    if (values) {
+      vecMem = builder.CreateStore(values, addr);
+      cast<StoreInst>(vecMem)->setAlignment(alignment);
+    } else {
+      vecMem = builder.CreateLoad(addr, "scal_mask_mem");
+      cast<LoadInst>(vecMem)->setAlignment(alignment);
     }
-
-    mapVectorValue(origBlock, continueBlock);
-  }
-
-  return vecMem;
+    return vecMem;
+  });
 }
 
 Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Value *addr, Value *mask,
@@ -1822,7 +1848,7 @@ NatBuilder::requestVectorValue(Value *const value) {
 
   // check if already mapped
   Value *vecValue = getVectorValue(value);
-  if (vecValue)  return vecValue;
+  if (vecValue) return vecValue;
 
   auto oldIP = builder.GetInsertPoint();
   auto oldIB = builder.GetInsertBlock();

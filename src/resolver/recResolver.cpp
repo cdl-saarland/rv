@@ -32,6 +32,12 @@
 
 using namespace llvm;
 
+static bool
+CanVectorizeType(const Type& type) {
+  return type.isVoidTy() || (!type.isVectorTy() && (type.isFloatingPointTy() || type.isIntegerTy()));
+}
+
+
 namespace rv {
 
 
@@ -53,6 +59,7 @@ public:
 
 // FIXME predication
 class RecursiveResolver : public FunctionResolver {
+  bool hasValidVectorFunc;
   VectorizerInterface vectorizer;
   VectorMapping recMapping;
 
@@ -68,8 +75,11 @@ public:
     return recMapping.resultShape;
   }
 
+  bool isValid() const { return hasValidVectorFunc; }
+
   RecursiveResolver(VectorizerInterface & vectorizer, Function & scaFunc, VectorShapeVec argShapes, int vectorWidth)
   : FunctionResolver(*scaFunc.getParent())
+  , hasValidVectorFunc(false)
   , vectorizer(vectorizer)
   , recMapping(&scaFunc, nullptr, vectorWidth, -1, VectorShape::undef(), argShapes)
   {
@@ -155,6 +165,14 @@ public:
     // FIXME this assertion will fire on really nastyc call graph SCCs that are nevertheless valid.
     // Would require proper inter-procedural VA to fix this.
 
+    // bail if the return type did not turn out to be vectorizable
+    if (nextResultShape.isVarying() && !CanVectorizeType(*clonedFunc->getReturnType())) {
+      vectorizer.getPlatformInfo().forgetMapping(callMapping); // this mapping does not actually apply
+      vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
+      hasValidVectorFunc = false;
+      return;
+    }
+
     // create a proper SIMD declaration with the inferred type
     auto * vecFunc = createVectorDeclaration(*clonedFunc, nextResultShape, callMapping.argShapes, callMapping.vectorWidth);
     recMapping.resultShape = nextResultShape; //callMapping.resultShape; // final inferred result shape
@@ -181,7 +199,9 @@ public:
     // can dispose of temporary function now
     clonedFunc->eraseFromParent();
 
+    // success!
     recMapping.vectorFn = vecFunc;
+    hasValidVectorFunc = true;
   }
 };
 
@@ -194,6 +214,12 @@ RecursiveResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType &
   if (scaFunc->isDeclaration()) return nullptr;
   if (!typesMatch(scaFunc->getFunctionType(), &scaFuncTy)) return nullptr;
 
+  // have all varying params vectorizabel types?
+  int i = 0;
+  for (auto * paramTy : scaFuncTy.params()) {
+    if (argShapes[i++].isVarying() && !CanVectorizeType(*paramTy)) return nullptr;
+  }
+
   // FIXME legality?
   // under which circumstances may we vectorize this function?
   if (IsCriticalSection(*scaFunc)) {
@@ -201,7 +227,15 @@ RecursiveResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType &
     return nullptr; // do not vectorize annotated critical sections
   }
 
-  return std::unique_ptr<FunctionResolver>(new RecursiveResolver(vectorizer, *scaFunc, argShapes, vectorWidth));
+  // try to create vector code for this function
+  auto * recResolver = new RecursiveResolver(vectorizer, *scaFunc, argShapes, vectorWidth);
+  // the function could turn out to be unvectorizable (::isValid())
+  if (!recResolver->isValid()) {
+    return nullptr;
+  }
+
+  Report() << "recursively vectorized function " << funcName << "\n";
+  return std::unique_ptr<FunctionResolver>(std::move(recResolver));
 }
 
 
