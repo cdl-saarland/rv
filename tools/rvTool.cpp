@@ -56,6 +56,7 @@
 #include "rv/transform/remTransform.h"
 #include "rv/transform/loopExitCanonicalizer.h"
 
+using namespace llvm;
 
 static bool OnlyAnalyze = false;
 
@@ -88,7 +89,35 @@ fail(std::string arg, Args... rest) {
   fail(rest...);
 }
 
-using namespace llvm;
+
+
+static void
+MaterializeEntryMask(Function & F, rv::PlatformInfo & platInfo) {
+  auto & entryMaskFunc = platInfo.requestRVIntrinsicFunc(rv::RVIntrinsic::EntryMask);
+  auto & entry = F.getEntryBlock();
+
+  // create a new dedicated entry block
+  auto * guardedEntry = entry.splitBasicBlock(entry.begin());
+  entry.getTerminator()->eraseFromParent();
+
+  // insert a dedicated exit block right after @entry.
+  auto itInsertBlock = F.begin(); itInsertBlock++;
+  auto & exitBlock = *BasicBlock::Create(F.getContext(), "", &F, &*itInsertBlock);
+
+  IRBuilder<> builder(&entry);
+  auto * entryMask = builder.CreateCall(&entryMaskFunc, {}, "implicit_wfv_mask");
+  builder.CreateCondBr(entryMask, guardedEntry, &exitBlock);
+
+  // return <undef>
+  auto & retTy = *F.getFunctionType()->getReturnType();
+  builder.SetInsertPoint(&exitBlock);
+  if (retTy.isVoidTy()) {
+    builder.CreateRetVoid();
+  } else {
+    builder.CreateRet(UndefValue::get(&retTy));
+  }
+  // TODO update DT, PDF (in FAM)
+}
 
 Module*
 createModuleFromFile(const std::string& fileName, LLVMContext & context)
@@ -177,15 +206,15 @@ vectorizeLoop(Function& parentFn, Loop& loop, unsigned vectorWidth, LoopInfo& lo
     rv::Region loopRegion(loopRegionImpl);
     rv::VectorizationInfo vecInfo(parentFn, vectorWidth, loopRegion);
 
-    rv::PlatformInfo platformInfo(mod, &tti, &tli);
+    rv::PlatformInfo platInfo(mod, &tti, &tli);
 
     MemoryDependenceAnalysis mdAnalysis;
     MemoryDependenceResults MDR = mdAnalysis.run(parentFn, fam);
 
     // link in SIMD library
-    addSleefResolver(config, platformInfo, 35);
+    addSleefResolver(config, platInfo, 35);
     // vectorize recursively
-    addRecursiveResolver(config, platformInfo);
+    addRecursiveResolver(config, platInfo);
 
 // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable
@@ -226,7 +255,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, unsigned vectorWidth, LoopInfo& lo
   }
 
 
-    rv::VectorizerInterface vectorizer(platformInfo, config);
+    rv::VectorizerInterface vectorizer(platInfo, config);
 
     // early math func lowering
     vectorizer.lowerRuntimeCalls(vecInfo, loopInfo);
@@ -310,9 +339,25 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     Function* scalarFn = vectorizerJob.scalarFn;
     Module& mod = *scalarFn->getParent();
 
+    FunctionAnalysisManager fam;
+    ModuleAnalysisManager mam;
+
+    // platform API
+    TargetIRAnalysis irAnalysis;
+    TargetTransformInfo tti = irAnalysis.run(*scalarFn, fam);
+    TargetLibraryAnalysis libAnalysis;
+    TargetLibraryInfo tli = libAnalysis.run(mod, mam);
+    rv::PlatformInfo platInfo(mod, &tti, &tli);
+
     // clone source function for transformations
     ValueToValueMapTy valueMap;
     Function* scalarCopy = CloneFunction(scalarFn, valueMap, nullptr);
+
+    // emit a rv_entry_mask call to get a hold off the "future" function entry mask
+    // (which will ultimately be available as a function argument in the vectorized function we are about to generate).
+    if (vectorizerJob.maskPos >= 0) {
+      MaterializeEntryMask(*scalarCopy, platInfo);
+    }
 
     assert (scalarCopy);
     scalarCopy->setCallingConv(scalarFn->getCallingConv());
@@ -323,20 +368,11 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
 
     // normalize
     normalizeFunction(*scalarCopy);
-    FunctionAnalysisManager fam;
-    ModuleAnalysisManager mam;
 
     // setup LLVM analysis infrastructure
     PassBuilder PB;
     PB.registerFunctionAnalyses(fam);
     PB.registerModuleAnalyses(mam);
-
-    // platform API
-    TargetIRAnalysis irAnalysis;
-    TargetTransformInfo tti = irAnalysis.run(*scalarCopy, fam);
-    TargetLibraryAnalysis libAnalysis;
-    TargetLibraryInfo tli = libAnalysis.run(*scalarCopy->getParent(), mam);
-    rv::PlatformInfo platformInfo(mod, &tti, &tli);
 
     // configure RV
     rv::Config config;
@@ -344,11 +380,11 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     config.print(outs());
 
     // link in SIMD library
-    addSleefResolver(config, platformInfo, 35);
+    addSleefResolver(config, platInfo, 35);
     // vectorize recursively
-    addRecursiveResolver(config, platformInfo);
+    addRecursiveResolver(config, platInfo);
 
-    rv::VectorizerInterface vectorizer(platformInfo, config);
+    rv::VectorizerInterface vectorizer(platInfo, config);
 
     // set-up vecInfo overlay and define vectorization job (mapping)
     rv::VectorMapping targetMapping = vectorizerJob;
@@ -369,7 +405,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
         // interpret <shape> as result shape
         rv::VectorMapping vecFuncMap(vecFun, vecFun, 0);
         vecFuncMap.resultShape = shape;
-        platformInfo.addMapping(vecFuncMap);
+        platInfo.addMapping(vecFuncMap);
         outs() << "rvTool func mapping: "; vecFuncMap.print(outs());
 
       } else if (gv) {
@@ -521,6 +557,7 @@ PrintHelp() {
             << "-k KERNEL     : name of the function to vectorize/function with loop to vectorize.\n"
             << "-t DECL       : target SIMD declaration (WFV mode only, will be auto generated if missing).\n"
             << "-s SHAPES     : WFV argument shapes.\n"
+            << "-m MaskPos    : (wfv only) mask argument position.\n"
             << "-x GVSHAPES   : comma-separated list of global value and function-return shapes, e.g. \"gvar=C,func=S4\".\n"
             << "-w WIDTH      : vectorization factor.\n"
             << "-v            : enable verbose output (rvTool level output).\n";
@@ -547,6 +584,8 @@ int main(int argc, char** argv)
 
     bool lowerIntrinsicsFunc = reader.hasOption("-lower-func");
     bool lowerIntrinsicsMod = reader.hasOption("-lower");
+    int maskPos = -1;
+    reader.readOption<int>("-m", maskPos);
 
     std::string outFile;
     bool hasOutFile = reader.readOption<std::string>("-o", outFile);
@@ -673,7 +712,7 @@ int main(int argc, char** argv)
           Function* vectorFn = nullptr;
           if (!hasTargetDeclName)
           {
-              vectorFn = rv::createVectorDeclaration(*scalarFn, resShape, argShapes, vectorWidth);
+              vectorFn = rv::createVectorDeclaration(*scalarFn, resShape, argShapes, vectorWidth, maskPos);
           }
           else
           {
@@ -688,7 +727,7 @@ int main(int argc, char** argv)
           }
           assert(vectorFn);
 
-          rv::VectorMapping vectorizerJob(scalarFn, vectorFn, vectorWidth, -1, resShape, argShapes);
+          rv::VectorMapping vectorizerJob(scalarFn, vectorFn, vectorWidth, maskPos, resShape, argShapes);
 
           // Vectorize
           IF_VERBOSE errs() << "\nVectorizing kernel \"" << vectorizerJob.scalarFn->getName()
