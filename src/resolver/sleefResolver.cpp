@@ -238,10 +238,6 @@ static const unsigned char** extraModuleBuffers[] = {
 static Module *sleefModules[SLEEF_Enum_Entries * 2];
 static Module *extraModules[SLEEF_Enum_Entries * 2];
 
-#ifdef RV_ENABLE_CRT
-  static Module* scalarModule; // scalar implementations to be inlined
-#endif
-
 static
 void
 InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleWidth) {
@@ -471,7 +467,7 @@ public:
     for (auto * archList : archLists) delete archList;
   }
 
-  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule);
+  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule);
 };
 
 
@@ -483,6 +479,7 @@ public:
 
 
 // existing vectorized function wrapper
+#if 0
 class ExistingResolver : public FunctionResolver {
   Function & vecFunc;
   VectorShape retShape;
@@ -494,6 +491,16 @@ public:
   , retShape(_retShape)
   {}
 
+  CallPredicateMode getCallSitePredicateMode() {
+    // FIXME this is not entirely true for vector math
+    return CallSitePredicate::SafeWithoutPredicate;
+  }
+
+  // mask position (if any)
+  int getMaskPos() {
+    return -1; // FIXME vector math is unpredicated
+  }
+
   llvm::Function& requestVectorized() {
     return vecFunc;
   }
@@ -503,6 +510,7 @@ public:
     return VectorShape::varying();
   }
 };
+#endif
 
 // simply links-in the pre-vectorized SLEEF function
 class SleefLookupResolver : public FunctionResolver {
@@ -517,6 +525,16 @@ class SleefLookupResolver : public FunctionResolver {
     , vecFunc(_vecFunc)
     , destFuncName(_destFuncName)
   {}
+
+  CallPredicateMode getCallSitePredicateMode() {
+    // FIXME this is not entirely true for vector math
+    return CallPredicateMode::SafeWithoutPredicate;
+  }
+
+  // mask position (if any)
+  int getMaskPos() {
+    return -1; // FIXME vector math is unpredicated
+  }
 
   llvm::Function&
   requestVectorized() {
@@ -575,6 +593,16 @@ struct SleefVLAResolver : public FunctionResolver {
     IF_DEBUG_SLEEF { errs() << "VLA: " << vecFuncName << "\n"; }
   }
 
+  CallPredicateMode getCallSitePredicateMode() {
+    // FIXME this is not entirely true for vector math
+    return CallPredicateMode::SafeWithoutPredicate;
+  }
+
+  // mask position (if any)
+  int getMaskPos() {
+    return -1; // FIXME vector math is unpredicated
+  }
+
   // materialized the vectorized function in the module @insertInto and returns a reference to it
   llvm::Function& requestVectorized() {
     if (vecFunc) return *vecFunc;
@@ -585,19 +613,19 @@ struct SleefVLAResolver : public FunctionResolver {
     requestResultShape();
 
     // prepare scalar copy for transforming
-    const int maskPos = -1; // TODO add support for masking
     clonedFunc = &cloneFunctionIntoModule(scaFunc, targetModule, vecFuncName + ".tmp");
     assert(clonedFunc);
 
     // create SIMD declaration
-    vecFunc = createVectorDeclaration(*clonedFunc, resShape, argShapes, vectorWidth);
+    const int maskPos = -1; // TODO add support for masking
+    vecFunc = createVectorDeclaration(*clonedFunc, resShape, argShapes, vectorWidth, maskPos);
     vecFunc->setName(vecFuncName);
 
     // override with no-recurse flag (so we won't get guards in the vector code)
     vecFunc->copyAttributesFrom(&scaFunc);
     vecFunc->setDoesNotRecurse();
 
-    VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes);
+    VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes, CallPredicateMode::SafeWithoutPredicate);
     vectorizer.getPlatformInfo().addMapping(mapping); // prevent recursive vectorization
 
     // set-up vecInfo
@@ -727,8 +755,10 @@ GetLeastPreciseImpl(Module & mod, const std::string & funcPrefix, const unsigned
 }
 
 std::unique_ptr<FunctionResolver>
-SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) {
+SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule) {
   IF_DEBUG_SLEEF { errs() << "SLEEFResolverService: " << funcName << " for width " << vectorWidth << "\n"; }
+
+  (void) hasPredicate; // FIXME use predicated versions
 
   // Otw, start looking for a SIMD-ized implementation
   ArchFunctionList * archList = nullptr;

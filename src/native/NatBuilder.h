@@ -59,6 +59,9 @@ namespace rv {
 
     rv::Region *region;
 
+    // the predicate argument in the vector function (WFV mode)
+    llvm::Value * vecMaskArg;
+
     void printStatistics();
 
     rv::VectorShape getVectorShape(const llvm::Value &val);
@@ -145,6 +148,7 @@ namespace rv {
 
     void addLazyInstruction(llvm::Instruction *const instr);
     void requestLazyInstructions(llvm::Instruction *const upToInstruction);
+    llvm::Value* requestVectorPredicate(const llvm::BasicBlock& scaBlock);
     llvm::Value *requestVectorValue(llvm::Value *const value);
     llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
                                     bool skipMapping = false);
@@ -201,6 +205,7 @@ namespace rv {
     llvm::Value *createContiguousLoad(llvm::Value *ptr, unsigned alignment, llvm::Value *mask, llvm::Value *passThru);
 
     void visitMemInstructions();
+
 
   };
 }

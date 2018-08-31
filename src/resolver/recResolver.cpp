@@ -45,7 +45,7 @@ class RecursiveResolverService : public ResolverService {
   VectorizerInterface vectorizer;
 
 public:
-  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule);
+  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule);
 
   RecursiveResolverService(PlatformInfo & platInfo, Config config)
   : vectorizer(platInfo, config)
@@ -75,21 +75,29 @@ public:
     return recMapping.resultShape;
   }
 
+  // how the vector function of \p requestVectorized() should be called in a predicated context.
+  CallPredicateMode getCallSitePredicateMode() { return recMapping.predMode; }
+
+  // mask position (if any)
+  int getMaskPos() { return recMapping.maskPos; }
+
   bool isValid() const { return hasValidVectorFunc; }
 
-  RecursiveResolver(VectorizerInterface & vectorizer, Function & scaFunc, VectorShapeVec argShapes, int vectorWidth)
+  RecursiveResolver(VectorizerInterface & vectorizer, Function & scaFunc, VectorShapeVec argShapes, int vectorWidth, bool hasCallSitePredicate)
   : FunctionResolver(*scaFunc.getParent())
   , hasValidVectorFunc(false)
   , vectorizer(vectorizer)
-  , recMapping(&scaFunc, nullptr, vectorWidth, -1, VectorShape::undef(), argShapes)
+  , recMapping(&scaFunc, nullptr, vectorWidth, hasCallSitePredicate ? 0 : -1, VectorShape::undef(), argShapes, hasCallSitePredicate ? CallPredicateMode::PredicateArg : CallPredicateMode::Unpredicated)
   {
+// create scalar copy
     ValueToValueMapTy cloneMap;
     Function * clonedFunc = CloneFunction(&scaFunc, cloneMap);
+    if (recMapping.maskPos >= 0) {
+      MaterializeEntryMask(*clonedFunc, vectorizer.getPlatformInfo());
+    }
+
     recMapping.scalarFn = clonedFunc;
     assert(clonedFunc);
-
-// prepare scalar copy for transforming
-    const int maskPos = -1; // TODO add support for masking
 
 // run the analysis
     // use a preliminary self-mapping (this makes sure that we will not spawn
@@ -128,7 +136,8 @@ public:
     VectorShape lastResShape = VectorShape::undef();
 
     // callMapping will be the proper, final result mapping
-    VectorMapping callMapping(&scaFunc, nullptr, vectorWidth, maskPos, lastResShape, argShapes);
+    // CallPredicateMode predMode = recMapping.maskPos >= 0 ? CallPredicateMode::PredicateArg : CallPredicateMode::SafeWithoutPredicate;
+    VectorMapping callMapping(&scaFunc, nullptr, recMapping.vectorWidth, recMapping.maskPos, lastResShape, argShapes, recMapping.predMode);
     bool returnsVoid = scaFunc.getReturnType()->isVoidTy();
     VectorShape nextResultShape = lastResShape;
     do {
@@ -174,7 +183,7 @@ public:
     }
 
     // create a proper SIMD declaration with the inferred type
-    auto * vecFunc = createVectorDeclaration(*clonedFunc, nextResultShape, callMapping.argShapes, callMapping.vectorWidth);
+    auto * vecFunc = createVectorDeclaration(*clonedFunc, nextResultShape, callMapping.argShapes, callMapping.vectorWidth, callMapping.maskPos);
     recMapping.resultShape = nextResultShape; //callMapping.resultShape; // final inferred result shape
     recMapping.vectorFn = vecFunc;
 
@@ -206,7 +215,7 @@ public:
 
 
 std::unique_ptr<FunctionResolver>
-RecursiveResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) {
+RecursiveResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule) {
 // is this function defined?
   auto * scaFunc = destModule.getFunction(funcName);
   if (!scaFunc) return nullptr;
@@ -227,7 +236,7 @@ RecursiveResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType &
   }
 
   // try to create vector code for this function
-  auto * recResolver = new RecursiveResolver(vectorizer, *scaFunc, argShapes, vectorWidth);
+  auto * recResolver = new RecursiveResolver(vectorizer, *scaFunc, argShapes, vectorWidth, hasPredicate);
   // the function could turn out to be unvectorizable (::isValid())
   if (!recResolver->isValid()) {
     return nullptr;

@@ -240,7 +240,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 // start vectorizing the prepared loop
   IF_DEBUG { errs() << "rv: Vectorizing loop " << L.getName() << "\n"; }
 
-  VectorMapping targetMapping(F, F, VectorWidth);
+  VectorMapping targetMapping(F, F, VectorWidth, CallPredicateMode::SafeWithoutPredicate);
   LoopRegion LoopRegionImpl(*PreparedLoop);
   Region LoopRegion(LoopRegionImpl);
 

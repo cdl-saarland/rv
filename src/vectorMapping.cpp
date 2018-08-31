@@ -16,6 +16,16 @@ using namespace llvm;
 
 namespace rv {
 
+std::string
+to_string(CallPredicateMode PredMode) {
+  switch (PredMode) {
+    default: llvm_unreachable("unrecognized call predicate");
+    case CallPredicateMode::Unpredicated: return "Unpredicated";
+    case CallPredicateMode::PredicateArg: return "PredicateArg";
+    case CallPredicateMode::SafeWithoutPredicate: return "SafeWithoutPredicate";
+  }
+}
+
 void VectorMapping::dump() const {
   print(errs());
 }
@@ -25,6 +35,7 @@ void VectorMapping::print(llvm::raw_ostream &out) const {
       << "\tscalarFn = " << (scalarFn ? scalarFn->getName() : "null") << "\n"
       << "\tvectorFn = " << (vectorFn ? vectorFn->getName() : "null") << "\n"
       << "\tvectorW  = " << vectorWidth << "\n"
+      << "\tpredMode = " << to_string(predMode) << "\n"
       << "\tmaskPos  = " << maskPos << "\n"
       << "\tresultSh = " << resultShape.str() << "\n"
       << "\tparamShs: {\n";
@@ -58,6 +69,11 @@ void VectorMapping::print(llvm::raw_ostream &out) const {
 
   out << "\t}\n";
   out << "}\n";
+}
+
+bool
+VectorMapping::supportsPredicatedCall() const {
+  return (maskPos >= 0) || (predMode == CallPredicateMode::SafeWithoutPredicate);
 }
 
 } /* namespace rv */

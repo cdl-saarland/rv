@@ -42,119 +42,10 @@ PlatformInfo::addMapping(VectorMapping&& mapping) { listResolver->addMapping(std
 void
 PlatformInfo::addIntrinsicMappings() {
   for (Function & func : getModule()) {
-    switch (GetIntrinsicID(func)) {
-      case RVIntrinsic::Any:
-      case RVIntrinsic::All: {
-        addMapping(VectorMapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::varying()}
-        ));
-      } break;
-
-      case RVIntrinsic::Extract: {
-        addMapping(VectorMapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::varying(), VectorShape::uni()}
-        ));
-      } break;
-
-      case RVIntrinsic::Insert: {
-        addMapping(VectorMapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::varying(),
-          {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
-        ));
-      } break;
-
-      case RVIntrinsic::VecLoad: {
-        addMapping(VectorMapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::varying(), VectorShape::uni()}
-        ));
-      } break;
-
-      case RVIntrinsic::VecStore: {
-        addMapping(VectorMapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
-        ));
-      } break;
-
-      case RVIntrinsic::Shuffle: {
-        addMapping(VectorMapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::uni(), VectorShape::uni()}
-        ));
-      } break;
-
-      case RVIntrinsic::Ballot: {
-        addMapping(VectorMapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::varying()}
-          ));
-      } break;
-
-      case RVIntrinsic::PopCount: {
-        addMapping(VectorMapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::varying()}
-          ));
-      } break;
-
-      case RVIntrinsic::Index: {
-        addMapping(VectorMapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::varying(),
-          {VectorShape::varying()}
-          ));
-      } break;
-
-      case RVIntrinsic::Align: {
-        addMapping(VectorMapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::undef(),
-          {VectorShape::undef(), VectorShape::uni()}
-          ));
-      } break;
-      default: break;
-    }
+    RVIntrinsic id = GetIntrinsicID(func);
+    if (id == RVIntrinsic::Unknown) continue;
+    auto vecMapping = GetIntrinsicMapping(func, id);
+    addMapping(std::move(vecMapping));
   }
 }
 
@@ -198,15 +89,28 @@ std::unique_ptr<FunctionResolver>
 PlatformInfo::getResolver(StringRef funcName,
                           FunctionType & scaFuncTy,
                           const VectorShapeVec & argShapes,
-                          int vectorWidth) const {
+                          int vectorWidth,
+                          bool hasPredicate) const {
   for (const auto & resolver : resolverServices) {
-    std::unique_ptr<FunctionResolver> funcResolver = resolver->resolve(funcName, scaFuncTy, argShapes, vectorWidth, mod);
+    std::unique_ptr<FunctionResolver> funcResolver = resolver->resolve(funcName, scaFuncTy, argShapes, vectorWidth, hasPredicate, mod);
     if (funcResolver) return funcResolver;
   }
   return nullptr;
 }
 
+llvm::Function &
+PlatformInfo::requestRVIntrinsicFunc(RVIntrinsic rvIntrin) {
+  auto * func = mod.getFunction(GetIntrinsicName(rvIntrin));
+  if (func) return *func;
 
+  // create a legal declaration
+  func = &DeclareIntrinsic(rvIntrin, mod);
+
+  // add VA mappings
+  auto vecMapping = GetIntrinsicMapping(*func, rvIntrin);
+  addMapping(vecMapping);
+  return *func;
+}
 
 
 Function*
@@ -220,22 +124,6 @@ PlatformInfo::requestVectorMaskReductionFunc(const std::string &name, size_t wid
   auto *vecBoolTy = VectorType::get(boolTy, width);
   auto *funcTy = FunctionType::get(boolTy, vecBoolTy, false);
   redFunc = Function::Create(funcTy, GlobalValue::ExternalLinkage, mangledName, &mod);
-  redFunc->setDoesNotAccessMemory();
-  redFunc->setDoesNotThrow();
-  redFunc->setConvergent();
-  redFunc->setDoesNotRecurse();
-  return redFunc; // TODO add SIMD mapping
-}
-
-Function*
-PlatformInfo::requestMaskReductionFunc(const std::string &name) {
-  auto *redFunc = mod.getFunction(name);
-  if (redFunc)
-    return redFunc;
-  auto &context = mod.getContext();
-  auto *boolTy = Type::getInt1Ty(context);
-  auto *funcTy = FunctionType::get(boolTy, boolTy, false);
-  redFunc = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, &mod);
   redFunc->setDoesNotAccessMemory();
   redFunc->setDoesNotThrow();
   redFunc->setConvergent();

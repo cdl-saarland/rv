@@ -80,9 +80,9 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
     for (; sampleWidth > 1; sampleWidth /= 2) {
 
       // VecMappingShortVec matchVec;
-      const bool needsPredication = false; // FIXME
+      const bool needsPredicate = false; // FIXME
       // if (platInfo.getMappingsForCall(matchVec, *callee, botArgVec, sampleWidth, needsPredication)) break; // FIXME deprecated
-      if (platInfo.getResolver(calleeName, *callee->getFunctionType(), botArgVec, sampleWidth)) {
+      if (platInfo.getResolver(calleeName, *callee->getFunctionType(), botArgVec, sampleWidth, needsPredicate)) {
         break;
       }
     }

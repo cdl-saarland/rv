@@ -83,6 +83,10 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
   Function* scalarCopy = CloneFunction(wfvJob.scalarFn, cloneMap, nullptr);
   wfvJob.scalarFn = scalarCopy;
 
+  if (wfvJob.maskPos >= 0) {
+    MaterializeEntryMask(*scalarCopy, vectorizer.getPlatformInfo());
+  }
+
   // regino setup
   FunctionRegion funcRegion(*wfvJob.scalarFn);
   Region funcRegionWrapper(funcRegion);

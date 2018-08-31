@@ -60,6 +60,7 @@ ListResolver::inferMapping(llvm::Function &scalarFnc,
       argShapes.push_back(VectorShape::uni()); // unaligned
     } else {
       argShapes.push_back(VectorShape::varying());
+      // TODO infer vector width from vector types
     }
 
     ++itScalarArg;
@@ -69,12 +70,13 @@ ListResolver::inferMapping(llvm::Function &scalarFnc,
   assert(itScalarArg == scalarFnc.arg_end());
   assert(itSimdArg == simdFnc.arg_end());
 
+  auto predMode = maskPos >= 0 ? CallPredicateMode::PredicateArg : CallPredicateMode::SafeWithoutPredicate;
   int vecWidth = 0; // FIXME
   return rv::VectorMapping(&scalarFnc, &simdFnc,
                                vecWidth, // if all arguments have shapes this
                                          // function is suitable for all
                                          // possible widths
-                               maskPos, resultShape, argShapes);
+                               maskPos, resultShape, argShapes, predMode);
 }
 
 // shape based mappings
@@ -101,7 +103,7 @@ ListResolver::addMapping(rv::VectorMapping &&mapping) {
 
 // query available vector mappings for a given vector call signature
 void
-ListResolver::ForAll_MappingsForCall(std::function<bool(const VectorMapping&)> MatchFunc, const llvm::Function & scalarFn, const VectorShapeVec & argShapes, unsigned vectorWidth, bool needsPredication) {
+ListResolver::ForAll_MappingsForCall(std::function<bool(const VectorMapping&)> MatchFunc, const llvm::Function & scalarFn, const VectorShapeVec & argShapes, unsigned vectorWidth, bool hasCallSitePredicate) {
 // register user shapes
   auto it = funcMappings.find(&scalarFn);
   if (it == funcMappings.end()) return;
@@ -109,7 +111,7 @@ ListResolver::ForAll_MappingsForCall(std::function<bool(const VectorMapping&)> M
 
   for (auto & mapping : allMappings) {
     if (mapping.vectorWidth > 1 && (mapping.vectorWidth != vectorWidth)) continue;
-    if (mapping.maskPos < 0 && needsPredication) continue;
+    if (hasCallSitePredicate && !mapping.supportsPredicatedCall()) continue;
 
     // check that all arg shapes are compatible with the shapes in the caller
     bool foundIncompatibleShape = false;
@@ -136,6 +138,11 @@ public:
   , mapping(mapping)
   {}
 
+  CallPredicateMode getCallSitePredicateMode() { return mapping.predMode; }
+
+  // mask position (if any)
+  int getMaskPos() { return mapping.maskPos; }
+
   // materialized the vectorized function in the module @insertInto and returns a reference to it.
   llvm::Function& requestVectorized() {
     return *mapping.vectorFn;
@@ -150,7 +157,7 @@ public:
 
 // result shape of function @funcName in target module @module.
 std::unique_ptr<FunctionResolver>
-ListResolver::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) {
+ListResolver::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule) {
   IF_DEBUG { errs() << "ListResolverService: " << funcName << " for width " << vectorWidth << "\n"; }
 
   // scalar function not available
@@ -165,8 +172,6 @@ ListResolver::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, 
     IF_DEBUG { errs() << "\tListR: type mismatch!\n"; }
     return nullptr;
   }
-
-  bool needsPredication = false; // FIXME
 
   // look-up mapping
   VectorShape bestResultShape = VectorShape::varying();
@@ -185,7 +190,7 @@ ListResolver::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, 
 
       // keep looking for a better mapping
       return true;
-  }, *scaFunc, argShapes, vectorWidth, needsPredication);
+  }, *scaFunc, argShapes, vectorWidth, hasPredicate);
 
   if (!bestMapping) return nullptr;
   return std::unique_ptr<FunctionResolver>(new MappedFunctionResolver(*bestMapping));

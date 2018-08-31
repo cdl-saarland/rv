@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <llvm/ADT/StringRef.h>
 
+#include "rv/vectorMapping.h"
 #include "rv/vectorShape.h"
 #include <memory>
 
@@ -46,6 +47,12 @@ public:
   // materialized the vectorized function in the module @insertInto and returns a reference to it.
   virtual llvm::Function& requestVectorized() = 0;
 
+  // how the vector function of \p requestVectorized() should be called in a predicated context.
+  virtual CallPredicateMode getCallSitePredicateMode() = 0;
+
+  // mask position (if any)
+  virtual int getMaskPos() = 0;
+
   // result shape of function @funcName in target module @module.
   virtual VectorShape requestResultShape() = 0;
 };
@@ -55,7 +62,7 @@ class
 ResolverService {
 public:
   virtual ~ResolverService();
-  virtual std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) = 0;
+  virtual std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule) = 0;
 
   void dump() const;
   virtual void print(llvm::raw_ostream & out) const;

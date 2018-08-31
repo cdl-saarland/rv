@@ -663,8 +663,8 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I, Sma
       }
 
       // next: query resolver mechanism // TODO account for predicate
-      bool needsPredication = false; // FIXME whether the call needs predication due to the call context
-      auto resolver = platInfo.getResolver(callee->getName(), *callee->getFunctionType(), callArgShapes, vecInfo.getVectorWidth());
+      bool hasBlockPredicate = true; // FIXME whether the call needs predication due to the call context
+      auto resolver = platInfo.getResolver(callee->getName(), *callee->getFunctionType(), callArgShapes, vecInfo.getVectorWidth(), hasBlockPredicate);
       if (resolver) {
         return resolver->requestResultShape();
       }
