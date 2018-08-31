@@ -83,7 +83,7 @@ ListResolver::addMapping(rv::VectorMapping &&mapping) {
   auto it = funcMappings.find(mapping.scalarFn);
   VecMappingShortVec * vecMappings = nullptr;
   if (it == funcMappings.end()) {
-    auto ItInserted = funcMappings.emplace(mapping.scalarFn, new VecMappingShortVec);
+    auto ItInserted = funcMappings.emplace(mapping.scalarFn, std::unique_ptr<VecMappingShortVec>(new VecMappingShortVec));
     vecMappings = &*ItInserted.first->second;
   } else {
     vecMappings = &*it->second;
