@@ -104,7 +104,11 @@ SET ( RV_LIB_SLEEF_OUT_DIR ${VECMATH_LIB_DIR} )
 SET ( GENCPP_TOOL "${RV_SOURCE_DIR}/tools/gen_cpp.py" )
 
 IF (${RV_ENABLE_SLEEF})
-  SET(LLVM_TOOL_CLANG ${RV_BINARY_DIR}/../../bin/clang)
+  IF(TARGET clang)
+    SET(LLVM_TOOL_CLANG clang)
+  ELSE(TARGET clang)
+    SET(LLVM_TOOL_CLANG ${RV_BINARY_DIR}/../../bin/clang)
+  ENDIF(TARGET clang)
   # add SLEEF bc generators as extra source
   MESSAGE("-- rv: Building with SLEEF")
 
