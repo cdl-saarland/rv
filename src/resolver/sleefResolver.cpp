@@ -46,6 +46,8 @@
 using namespace llvm;
 
 // vector-length agnostic
+extern "C" {
+
 extern const unsigned char * vla_sp_Buffer;
 extern const size_t vla_sp_BufferLen;
 
@@ -135,6 +137,8 @@ const size_t avx2_extras_BufferLen = 0;
 const unsigned char * avx512_extras_Buffer = nullptr;
 const size_t avx512_extras_BufferLen = 0;
 #endif
+
+} // extern "C"
 
 namespace rv {
 
