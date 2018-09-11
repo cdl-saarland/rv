@@ -9,7 +9,7 @@
 
 namespace rv {
 
-class VectorMapping;
+struct VectorMapping;
 
 llvm::Type*
 vectorizeType(llvm::Type* scalarTy, rv::VectorShape shape, unsigned vectorWidth);

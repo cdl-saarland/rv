@@ -23,7 +23,6 @@ namespace llvm {
   class Loop;
   class LoopInfo;
   class DominatorTree;
-  class PostDominatorTree;
   class ScalarEvolution;
   struct PostDominatorTree;
   class MemoryDependenceResults;
