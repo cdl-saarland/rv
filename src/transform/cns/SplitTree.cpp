@@ -17,7 +17,7 @@ void SplitTree::addChild(SplitTree *child) { children.insert(child); }
 void SplitTree::removeChild(SplitTree *child) { children.erase(child); }
 
 SplitTree::SplitTree(SplitTree *_parent, BlockGraph::SubgraphMask _mask,
-                     BlockGraph _graph, uint _splitNode, int _depth)
+                     BlockGraph _graph, unsigned _splitNode, int _depth)
     : parent(_parent), mask(_mask), graph(_graph), splitNode(_splitNode),
       depth(_depth) {}
 
@@ -27,7 +27,7 @@ SplitTree::~SplitTree() {
 }
 
 SplitTree *SplitTree::pushSplit(BlockGraph::SubgraphMask mask, BlockGraph graph,
-                                uint splitNode) {
+                                unsigned splitNode) {
   SplitTree *tree = new SplitTree(this, mask, graph, splitNode, getDepth() + 1);
 
   if (parent) {
@@ -39,9 +39,9 @@ SplitTree *SplitTree::pushSplit(BlockGraph::SubgraphMask mask, BlockGraph graph,
 
 std::set<SplitTree *> &SplitTree::getChildren() { return children; }
 
-uint SplitTree::getNumChildren() { return children.size(); }
+unsigned SplitTree::getNumChildren() { return children.size(); }
 
-uint SplitTree::getSplitNode() const { return splitNode; }
+unsigned SplitTree::getSplitNode() const { return splitNode; }
 
 bool SplitTree::isRoot() const { return parent == NULL; }
 

@@ -207,9 +207,9 @@ void VectorizationAnalysis::adjustValueShapes(const Function& F) {
       // Adjust pointer argument alignment
       if (arg.getType()->isPointerTy()) {
         VectorShape argShape = vecInfo.getVectorShape(arg);
-        uint minAlignment = getBaseAlignment(arg, layout);
+        unsigned minAlignment = getBaseAlignment(arg, layout);
         // max is the more precise one
-        argShape.setAlignment(std::max<uint>(minAlignment, argShape.getAlignmentFirst()));
+        argShape.setAlignment(std::max<unsigned>(minAlignment, argShape.getAlignmentFirst()));
         vecInfo.setVectorShape(arg, argShape);
       }
     }
@@ -481,8 +481,8 @@ void VectorizationAnalysis::compute(const Function& F) {
     // shape is non-bottom. Apply general refinement rules.
     if (I->getType()->isPointerTy()) {
       // adjust result type to match alignment
-      uint minAlignment = getBaseAlignment(*I, layout);
-      New.setAlignment(std::max<uint>(minAlignment, New.getAlignmentFirst()));
+      unsigned minAlignment = getBaseAlignment(*I, layout);
+      New.setAlignment(std::max<unsigned>(minAlignment, New.getAlignmentFirst()));
     } else if (I->getType()->isFloatingPointTy()) {
       // allow strided/aligned fp values only in fast math mode
       FastMathFlags flags = I->getFastMathFlags();
@@ -732,7 +732,7 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I, Sma
 VectorShape VectorizationAnalysis::computeGenericArithmeticTransfer(const Instruction & I) {
   assert(I.getNumOperands() > 0 && "can not compute arithmetic transfer for instructions w/o operands");
   // generic transfer function
-  for (uint i = 0; i < I.getNumOperands(); ++i) {
+  for (unsigned i = 0; i < I.getNumOperands(); ++i) {
     if (!getShape(*I.getOperand(i)).isUniform()) return VectorShape::varying();
   }
   return VectorShape::uni();
@@ -790,7 +790,7 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
       // this holds e.g. for: <4, 6, 8, 10> | 1 = <5, 7, 9, 11>
       if (!isa<ConstantInt>(op2)) break;
 
-      uint orConst = cast<ConstantInt>(op2)->getZExtValue();
+      unsigned orConst = cast<ConstantInt>(op2)->getZExtValue();
       VectorShape otherShape = getShape(*op1);
 
       if (orConst == 0) {
@@ -798,11 +798,11 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
         return otherShape;
       }
 
-      uint laneAlignment = otherShape.getAlignmentGeneral();
+      unsigned laneAlignment = otherShape.getAlignmentGeneral();
       if (laneAlignment <= 1) break;
 
       // all bits above constTopBit are zero
-      uint constTopBit = static_cast<uint>(highest_bit(orConst));
+      unsigned constTopBit = static_cast<unsigned>(highest_bit(orConst));
 
     // there is an overlap between the bits of the constant and a possible lane value
       if (constTopBit >= laneAlignment) {
@@ -812,11 +812,11 @@ VectorShape VectorizationAnalysis::computeShapeForBinaryInst(const BinaryOperato
     // from this point we know that the Or behaves like an Add
       if (otherShape.hasStridedShape()) {
         // the Or operates like an Add with an uniform value
-        auto resAlignment = gcd<uint>(orConst, otherShape.getAlignmentFirst());
+        auto resAlignment = gcd<unsigned>(orConst, otherShape.getAlignmentFirst());
         return VectorShape::strided(otherShape.getStride(), resAlignment);
 
       } else {
-        return VectorShape::varying(gcd<uint>(laneAlignment, orConst));
+        return VectorShape::varying(gcd<unsigned>(laneAlignment, orConst));
       }
 
       break;
