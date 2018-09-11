@@ -39,10 +39,6 @@ public:
               const VectorShapeVec & argShapes,
               int vectorWidth) const;
 
-  // query available vector mappings for a given vector call signature
-  // bool
-  // getMappingsForCall(VecMappingShortVec & possibleMappings, const llvm::Function & scalarFn, const VectorShapeVec & argShapes, uint vectorWidth, bool needsPredication);
-
   llvm::Module &getModule() const { return mod; }
   llvm::LLVMContext &getContext() const { return mod.getContext(); }
 

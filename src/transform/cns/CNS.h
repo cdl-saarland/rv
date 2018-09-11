@@ -16,10 +16,10 @@ namespace rv {
 
 namespace cns {
 struct SED {
-  uint iDom;
+  unsigned iDom;
   BlockGraph::SubgraphMask mask;
 
-  SED(uint _iDom, BlockGraph::SubgraphMask _mask) : iDom(_iDom), mask(_mask) {}
+  SED(unsigned _iDom, BlockGraph::SubgraphMask _mask) : iDom(_iDom), mask(_mask) {}
 };
 
 typedef std::vector<BlockGraph::SubgraphMask> MaskVector;
@@ -48,7 +48,7 @@ void minimizeGraph(BlockGraph::SubgraphMask &mask, BlockGraph &graph);
  */
 BlockGraph::SubgraphMask
 computeDominanceRegion(const BlockGraph::SubgraphMask &mask,
-                       const BlockGraph &graph, uint node);
+                       const BlockGraph &graph, unsigned node);
 }
 }
 
