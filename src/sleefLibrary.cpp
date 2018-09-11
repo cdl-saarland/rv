@@ -47,6 +47,8 @@
 using namespace llvm;
 
 // vector-length agnostic
+extern "C" {
+
 extern const unsigned char * vla_sp_Buffer;
 extern const size_t vla_sp_BufferLen;
 
@@ -142,6 +144,7 @@ extern const unsigned char * crt_Buffer;
 extern const size_t crt_BufferLen;
 #endif
 
+} // extern "C"
 namespace rv {
 
   // forward decls

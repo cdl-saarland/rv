@@ -24,7 +24,7 @@ def encodeByte(byte):
 stream = open(bcFile, 'rb')
 with open(cppFileName, 'w') as out:
   # prologue
-  out.write("#include<string>\nextern const unsigned char {}_Buffer[] = {}".format(bufferName, "{")) 
+  out.write("#include<string>\nextern \"C\" const unsigned char {}_Buffer[] = {}".format(bufferName, "{"))
 
   # transcode file
   later = False
@@ -41,4 +41,4 @@ with open(cppFileName, 'w') as out:
     out.write("0x{:02X}".format(ord(byte[0])))
 
   # epilogue
-  out.write("{0};\nextern const size_t {1}_BufferLen = sizeof({1}_Buffer);\n".format("}", bufferName))
+  out.write("{0};\nextern \"C\" size_t {1}_BufferLen = sizeof({1}_Buffer);\n".format("}", bufferName))
