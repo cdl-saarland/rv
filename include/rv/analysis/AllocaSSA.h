@@ -131,8 +131,8 @@ class AllocaSSA {
 
     DefMap lastDef; // live out definitions
 
-    BlockSummary(const llvm::BasicBlock & _BB)
-    : BB(_BB)
+    BlockSummary(const llvm::BasicBlock & _bb)
+    : BB(_bb)
     , allocJoin()
     {}
   };
