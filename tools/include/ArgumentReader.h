@@ -34,7 +34,7 @@ public:
 	// will collect repeated occurrences of "-name PARAM"
 	// maxTimes 0: collect all , n>0: only collect n times
 	template<class T>
-	bool collectOption(const std::string & name, int len, std::vector<T> & oParams, uint maxTimes = 0)
+	bool collectOption(const std::string & name, int len, std::vector<T> & oParams, unsigned maxTimes = 0)
 	{
 		int times = maxTimes > 0 ? maxTimes : getNumArgs();
 
