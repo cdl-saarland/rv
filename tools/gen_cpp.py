@@ -1,44 +1,38 @@
-#!/usr/bin/env python2.7
+
 import sys
 
-cppFileName = sys.argv[1]
-bufferName = sys.argv[2]
-bcFile = sys.argv[3]
+cppFileName, bufferName, bcFile = sys.argv[1:4]
 
+if (sys.version_info > (3, 0)):
+    cbyte = lambda x: x
+else:
+    cbyte = lambda x: ord(x)
 
-def encodeByte(byte):
-  return "{}".format(byte)
+def bytes_from_file(filename, chunksize=8192):
+    with open(filename, "rb") as f:
+        while True:
+            chunk = f.read(chunksize)
+            if chunk:
+                for b in chunk:
+                    yield cbyte(b)
+            else:
+                break
 
-  if byte == '\\':
-    return "\\\\"
-  elif byte == '\"':
-    return "\\\""
-  elif byte == '\n':
-    return "\\n"
-  elif byte == '\t':
-    return "\\t"
-  else:
-    return byte
-
-
-stream = open(bcFile, 'rb')
 with open(cppFileName, 'w') as out:
-  # prologue
-  out.write("#include<string>\nextern \"C\" const unsigned char {}_Buffer[] = {}".format(bufferName, "{"))
+    # prologue
+    out.write('#include<string>\n')
+    out.write('extern "C" const unsigned char %s_Buffer[] = {' % bufferName)
 
-  # transcode file
-  later = False
+    for idx, byte in enumerate(bytes_from_file(bcFile)):
+        # transcode file
+        if idx > 0:
+            out.write(',')
+        if idx % 16 == 0:
+            out.write('\n')
 
-  while True:
-    byte = stream.read(1)
-    if not byte:
-      break
+        out.write("0x{:02X}".format(byte))
 
-    if later:
-      out.write(',')
-
-    later = True
-    out.write("0x{:02X}".format(ord(byte[0])))
-
-  # epilogue
-  out.write("{0};\nextern \"C\" const size_t {1}_BufferLen = sizeof({1}_Buffer);\n".format("}", bufferName))
+    # epilogue
+    out.write("\n")
+    out.write("};\n")
+    out.write('extern "C" const size_t %s_BufferLen = sizeof(%s_Buffer);\n' % (bufferName, bufferName))
