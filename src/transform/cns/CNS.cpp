@@ -26,7 +26,7 @@ detectCandidateNodes(const BlockGraph::SubgraphMask &mask,
 
     BlockGraph::SubgraphMask sccRest = sccMask;
 
-    for (uint h = 0; h < headers.size(); ++h) {
+    for (unsigned h = 0; h < headers.size(); ++h) {
       if (headers[h]) {
         BlockGraph::SubgraphMask domRegion =
             cns::computeDominanceRegion(mask, graph, h);
@@ -58,13 +58,13 @@ detectCandidateNodes(const BlockGraph::SubgraphMask &mask,
 }
 
 void minimizeGraph(BlockGraph::SubgraphMask &mask, BlockGraph &graph) {
-  uint size = graph.getSize();
+  unsigned size = graph.getSize();
 
   // T2 - Transform (ignore self-loops)
   bool contracted;
   do {
     contracted = false;
-    for (uint index = 0; index < size; ++index) {
+    for (unsigned index = 0; index < size; ++index) {
       if (mask[index]) {
         int pred = graph.getSinglePredecessorNonReflexive(mask, index);
         if (pred > -1) {
@@ -78,7 +78,7 @@ void minimizeGraph(BlockGraph::SubgraphMask &mask, BlockGraph &graph) {
   } while (contracted);
 
   // T1 - Transform
-  for (uint index = 0; index < size; ++index) {
+  for (unsigned index = 0; index < size; ++index) {
     if (graph.getEdge(mask, index, index)) {
       graph.setEdge(index, index, false);
     }
@@ -90,10 +90,10 @@ void minimizeGraph(BlockGraph::SubgraphMask &mask, BlockGraph &graph) {
  */
 
 struct SCCFrame {
-  uint node;
+  unsigned node;
   int streakColor;
 
-  SCCFrame(uint _node, int _streakColor)
+  SCCFrame(unsigned _node, int _streakColor)
       : node(_node), streakColor(_streakColor) {}
 };
 
@@ -124,7 +124,7 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
 
   int nextFreeColor = 0;
 
-  uint firstNode = 0;
+  unsigned firstNode = 0;
   for (; firstNode < graph.getSize() && !mask[firstNode];)
     continue;
   if (firstNode >= graph.getSize())
@@ -140,7 +140,7 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
       SCCFrame frame = stack.top();
       stack.pop();
 
-      uint node = frame.node;
+      unsigned node = frame.node;
       int streakColor = frame.streakColor;
       IF_DEBUG_CNS {
         std::cerr << "stack top " << node << " with color " << streakColor
@@ -163,7 +163,7 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
             streakColor = nextFreeColor++;
           }
 
-          for (uint i = 0; i < loopMask.size(); ++i)
+          for (unsigned i = 0; i < loopMask.size(); ++i)
             if (loopMask[i])
               color[i] = streakColor;
 
@@ -186,7 +186,7 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
           BlockGraph::SubgraphMask oldMask = result[streakColor];
           result[streakColor] = OR(oldMask, loopMask);
 
-          for (uint i = 0; i < loopMask.size(); ++i)
+          for (unsigned i = 0; i < loopMask.size(); ++i)
             if (loopMask[i])
               color[i] = streakColor;
 
@@ -195,7 +195,7 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
           trace[node] = true;
           prefix[node] = trace;
 
-          uint firstSucc = 0;
+          unsigned firstSucc = 0;
           for (; (firstSucc < graph.getSize()) &&
                  !graph.getEdge(mask, firstSucc, node);
                ++firstSucc)
@@ -225,8 +225,8 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
         if (!stack.empty()) {
 
           SCCFrame parentFrame = stack.top();
-          uint base = parentFrame.node;
-          uint nextNode = frame.node + 1;
+          unsigned base = parentFrame.node;
+          unsigned nextNode = frame.node + 1;
 
           for (; nextNode < graph.getSize() &&
                  !graph.getEdge(mask, nextNode, base);
@@ -268,14 +268,14 @@ computeSCCs(const BlockGraph::SubgraphMask &mask, const BlockGraph &graph) {
  */
 BlockGraph::SubgraphMask
 computeDominanceRegion(const BlockGraph::SubgraphMask &mask,
-                       const BlockGraph &graph, uint node) {
+                       const BlockGraph &graph, unsigned node) {
   BlockGraph invGraph = graph.transposed();
 
   BlockGraph::SubgraphMask dom(graph.getSize(), false);
   BlockGraph::SubgraphMask nextDom = dom;
   nextDom[node] = true;
 
-  uint it = 0;
+  unsigned it = 0;
   do {
     dom = nextDom;
     nextDom = AND(mask, OR(dom, invGraph.mergedPredecessors(dom))); // successors
@@ -288,7 +288,7 @@ computeDominanceRegion(const BlockGraph::SubgraphMask &mask,
       dumpVector(nextDom);
     }
 
-    for (uint i = 0; i < graph.getSize(); ++i) {
+    for (unsigned i = 0; i < graph.getSize(); ++i) {
       if (i == node) {
         nextDom[i] = true;
       } else if (nextDom[i]) {

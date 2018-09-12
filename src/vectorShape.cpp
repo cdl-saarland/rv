@@ -71,12 +71,12 @@ namespace rv {
 VectorShape::VectorShape()
     : stride(0), hasConstantStride(false), alignment(0), defined(false) {}
 
-VectorShape::VectorShape(uint _alignment)
+VectorShape::VectorShape(unsigned _alignment)
     : stride(0), hasConstantStride(false), alignment(_alignment),
       defined(true) {}
 
 // constant stride constructor
-VectorShape::VectorShape(int _stride, uint _alignment)
+VectorShape::VectorShape(int _stride, unsigned _alignment)
     : stride(_stride), hasConstantStride(true), alignment(_alignment),
       defined(true) {}
 

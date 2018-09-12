@@ -32,23 +32,23 @@ private:
 
   BlockGraph(DirectedGraph _graph, BlockVector _labels);
 
-  void resetGraph(uint size);
+  void resetGraph(unsigned size);
 
-  BlockGraph(uint size) { resetGraph(size); }
+  BlockGraph(unsigned size) { resetGraph(size); }
 
-  DirectedGraph createExtendedGraph(SubgraphMask &mask, uint size) const;
-  static void copyLeavingEdges(DirectedGraph &destGraph, uint destNode,
-                               DirectedGraph sourceGraph, uint sourceNode);
-  static void copyIncomingEdges(DirectedGraph &destGraph, uint destNode,
-                                DirectedGraph sourceGraph, uint sourceNode);
+  DirectedGraph createExtendedGraph(SubgraphMask &mask, unsigned size) const;
+  static void copyLeavingEdges(DirectedGraph &destGraph, unsigned destNode,
+                               DirectedGraph sourceGraph, unsigned sourceNode);
+  static void copyIncomingEdges(DirectedGraph &destGraph, unsigned destNode,
+                                DirectedGraph sourceGraph, unsigned sourceNode);
 
 public:
-  inline void setLabel(uint index, llvm::BasicBlock *_label) {
+  inline void setLabel(unsigned index, llvm::BasicBlock *_label) {
     assert(index < labels.size());
     labels[index] = _label;
   }
 
-  inline llvm::BasicBlock *getLabel(uint index) const {
+  inline llvm::BasicBlock *getLabel(unsigned index) const {
     assert(index < labels.size());
     return labels[index];
   }
@@ -56,7 +56,7 @@ public:
   inline BlockGraph::SubgraphMask mergedPredecessors(SubgraphMask mask) const {
     SubgraphMask result(getSize(), false);
 
-    for (uint i = 0; i < getSize(); ++i) {
+    for (unsigned i = 0; i < getSize(); ++i) {
       if (mask[i]) {
         result = OR(result, graph[i]);
       }
@@ -68,7 +68,7 @@ public:
   inline BlockGraph::SubgraphMask mergedSuccessors(SubgraphMask mask) const {
     SubgraphMask result(getSize(), false);
 
-    for (uint i = 0; i < getSize(); ++i) {
+    for (unsigned i = 0; i < getSize(); ++i) {
       if (!mask[i] && EXISTS(AND(graph[i], mask))) {
         result[i] = true;
       }
@@ -76,39 +76,39 @@ public:
 
     return result;
   }
-  inline bool getEdge(const SubgraphMask &mask, uint from, uint to) const {
+  inline bool getEdge(const SubgraphMask &mask, unsigned from, unsigned to) const {
     return mask[to] && mask[from] && graph[to][from];
   }
 
-  inline void setEdge(uint from, uint to, bool value) {
+  inline void setEdge(unsigned from, unsigned to, bool value) {
     graph[to][from] = value;
   }
 
   inline void setAllEdges(const SubgraphMask &sources,
                           const SubgraphMask &targets, bool value) {
-    for (uint in = 0; in < sources.size(); ++in)
+    for (unsigned in = 0; in < sources.size(); ++in)
       if (sources[in])
-        for (uint out = 0; out < targets.size(); ++out)
+        for (unsigned out = 0; out < targets.size(); ++out)
           if (targets[out])
             setEdge(in, out, value);
   }
 
-  inline void setAllEdges(uint source, const SubgraphMask &targets,
+  inline void setAllEdges(unsigned source, const SubgraphMask &targets,
                           bool value) {
-    for (uint out = 0; out < targets.size(); ++out)
+    for (unsigned out = 0; out < targets.size(); ++out)
       if (targets[out])
         setEdge(source, out, value);
   }
 
-  inline void setAllEdges(const SubgraphMask &sources, uint target,
+  inline void setAllEdges(const SubgraphMask &sources, unsigned target,
                           bool value) {
-    for (uint in = 0; in < sources.size(); ++in)
+    for (unsigned in = 0; in < sources.size(); ++in)
       if (sources[in])
         setEdge(in, target, value);
   }
 
-  llvm::BasicBlock *getBasicBlock(uint index);
-  std::string getNodeName(uint index) const;
+  llvm::BasicBlock *getBasicBlock(unsigned index);
+  std::string getNodeName(unsigned index) const;
   SubgraphMask createMask() const;
 
   // BlockGraph(llvm::Function & func);
@@ -122,33 +122,33 @@ public:
    * splits the node at @index in the graph. @mask will be adapted to the
    * returned graph
    */
-  BlockGraph createSplitGraph(SubgraphMask &mask, uint index);
+  BlockGraph createSplitGraph(SubgraphMask &mask, unsigned index);
 
-  uint getSize(const SubgraphMask &mask) const;
-  uint getSize() const;
+  unsigned getSize(const SubgraphMask &mask) const;
+  unsigned getSize() const;
 
-  inline SubgraphMask getPredecessors(SubgraphMask mask, uint node) const {
+  inline SubgraphMask getPredecessors(SubgraphMask mask, unsigned node) const {
     return AND(mask, graph[node]);
   }
 
-  uint getNumPredecessors(const SubgraphMask &mask, uint index) const;
-  uint getNumPredecessorsNonReflexive(const SubgraphMask &mask,
-                                      uint index) const;
+  unsigned getNumPredecessors(const SubgraphMask &mask, unsigned index) const;
+  unsigned getNumPredecessorsNonReflexive(const SubgraphMask &mask,
+                                      unsigned index) const;
 
-  uint getNumSuccessors(const SubgraphMask &mask, uint index) const;
+  unsigned getNumSuccessors(const SubgraphMask &mask, unsigned index) const;
   // uint getNumSuccessorsNonReflexive(const SubgraphMask & mask, uint index)
   // const;
   /*
    * returns -1 if there is not a unique incoming edge
    */
   int getSinglePredecessorNonReflexive(const SubgraphMask &mask,
-                                       uint index) const;
+                                       unsigned index) const;
   int getSingleSuccessorNonReflexive(const SubgraphMask &mask,
-                                     uint index) const;
+                                     unsigned index) const;
 
   // transformations
-  void removeNode(SubgraphMask &mask, uint index) const;
-  void contractNode(SubgraphMask &mask, uint mergedNode, uint destNode);
+  void removeNode(SubgraphMask &mask, unsigned index) const;
+  void contractNode(SubgraphMask &mask, unsigned mergedNode, unsigned destNode);
 
   /*
    * removes all edges from the E that contain vertices not occurring in the

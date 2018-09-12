@@ -72,7 +72,7 @@ static bool verbose = false;
 #define IF_VERBOSE if (verbose)
 
 
-static void fail() LLVM_ATTRIBUTE_NORETURN;
+static void LLVM_ATTRIBUTE_NORETURN fail();
 
 static void fail() {
   std::cerr << '\n';
@@ -127,7 +127,7 @@ normalizeFunction(Function& F)
 }
 
 void
-vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopInfo,
+vectorizeLoop(Function& parentFn, Loop& loop, unsigned vectorWidth, LoopInfo& loopInfo,
               DominatorTree& domTree, PostDominatorTree& postDomTree)
 {
     // assert: function is already normalized
@@ -257,7 +257,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
 // Use case: Outer-loop Vectorizer
 void
-vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
+vectorizeFirstLoop(Function& parentFn, unsigned vectorWidth)
 {
     // normalize
     normalizeFunction(parentFn);
@@ -657,7 +657,7 @@ int main(int argc, char** argv)
         }
       }
 
-      uint vectorWidth = reader.getOption<uint>("-w", 8);
+      unsigned vectorWidth = reader.getOption<unsigned>("-w", 8);
 
       if (wfvMode)
       {

@@ -88,7 +88,7 @@ public:
 
   // query available vector mappings for a given vector call signature
   bool
-  getMappingsForCall(VecMappingShortVec & possibleMappings, const llvm::Function & scalarFn, const VectorShapeVec & argShapes, uint vectorWidth, bool needsPredication);
+  getMappingsForCall(VecMappingShortVec & possibleMappings, const llvm::Function & scalarFn, const VectorShapeVec & argShapes, unsigned vectorWidth, bool needsPredication);
 
   VectorFuncMap &getFunctionMappings() { return funcMappings; }
 
