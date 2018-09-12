@@ -41,4 +41,4 @@ with open(cppFileName, 'w') as out:
     out.write("0x{:02X}".format(ord(byte[0])))
 
   # epilogue
-  out.write("{0};\nextern \"C\" size_t {1}_BufferLen = sizeof({1}_Buffer);\n".format("}", bufferName))
+  out.write("{0};\nextern \"C\" const size_t {1}_BufferLen = sizeof({1}_Buffer);\n".format("}", bufferName))
