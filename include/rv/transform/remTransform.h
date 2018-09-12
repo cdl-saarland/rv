@@ -10,7 +10,7 @@ namespace llvm {
   class LoopInfo;
   class Loop;
   class DominatorTree;
-  class PostDominatorTree;
+  struct PostDominatorTree;
   class BranchProbabilityInfo;
 }
 

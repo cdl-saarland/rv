@@ -267,7 +267,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
       continue; // keep old region
     }
     auto &termInst = *BB.getTerminator();
-    for (uint i = 0; i < termInst.getNumOperands(); ++i) {
+    for (unsigned i = 0; i < termInst.getNumOperands(); ++i) {
       auto *termOp = termInst.getOperand(i);
       auto *branchTarget = dyn_cast<BasicBlock>(termOp);
       if (!branchTarget) continue;

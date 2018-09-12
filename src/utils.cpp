@@ -80,7 +80,7 @@ parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & 
 }
 
 Type*
-vectorizeType(Type* scalarTy, VectorShape shape, uint vectorWidth)
+vectorizeType(Type* scalarTy, VectorShape shape, unsigned vectorWidth)
 {
     if (scalarTy->isVoidTy()) return scalarTy;
     if (!shape.isDefined() || shape.hasStridedShape()) return scalarTy;
@@ -90,7 +90,7 @@ vectorizeType(Type* scalarTy, VectorShape shape, uint vectorWidth)
 
 Function*
 createVectorDeclaration(Function& scalarFn, VectorShape resShape,
-                        const VectorShapeVec& argShapes, uint vectorWidth,
+                        const VectorShapeVec& argShapes, unsigned vectorWidth,
                         int maskPos)
 {
     auto* scalarFnTy = scalarFn.getFunctionType();
