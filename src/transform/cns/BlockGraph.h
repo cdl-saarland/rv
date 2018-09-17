@@ -136,7 +136,7 @@ public:
                                       unsigned index) const;
 
   unsigned getNumSuccessors(const SubgraphMask &mask, unsigned index) const;
-  // uint getNumSuccessorsNonReflexive(const SubgraphMask & mask, uint index)
+  // unsigned getNumSuccessorsNonReflexive(const SubgraphMask & mask, unsigned index)
   // const;
   /*
    * returns -1 if there is not a unique incoming edge

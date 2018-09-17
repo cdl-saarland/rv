@@ -40,7 +40,7 @@ ListResolver::inferMapping(llvm::Function &scalarFnc,
 
   for (size_t i = 0; i < simdFnc.arg_size(); ++i) {
     // mask special case
-    if (maskPos >= 0 && (i == (uint)maskPos)) {
+    if (maskPos >= 0 && (i == (unsigned)maskPos)) {
       argShapes.push_back(VectorShape::varying());
       ++itSimdArg;
       continue;
@@ -101,7 +101,7 @@ ListResolver::addMapping(rv::VectorMapping &&mapping) {
 
 // query available vector mappings for a given vector call signature
 void
-ListResolver::ForAll_MappingsForCall(std::function<bool(const VectorMapping&)> MatchFunc, const llvm::Function & scalarFn, const VectorShapeVec & argShapes, uint vectorWidth, bool needsPredication) {
+ListResolver::ForAll_MappingsForCall(std::function<bool(const VectorMapping&)> MatchFunc, const llvm::Function & scalarFn, const VectorShapeVec & argShapes, unsigned vectorWidth, bool needsPredication) {
 // register user shapes
   auto it = funcMappings.find(&scalarFn);
   if (it == funcMappings.end()) return;

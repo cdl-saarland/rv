@@ -20,7 +20,7 @@ using VectorFuncMap = std::map<const llvm::Function *, std::unique_ptr<VecMappin
 class ListResolver : public ResolverService {
   VectorMapping inferMapping(llvm::Function &scalarFnc,
                               llvm::Function &simdFnc, int maskPos);
-  void ForAll_MappingsForCall(std::function<bool(const VectorMapping &)> MatchFunc, const llvm::Function & scalarFn, const VectorShapeVec & argShapes, uint vectorWidth, bool needsPredication);
+  void ForAll_MappingsForCall(std::function<bool(const VectorMapping &)> MatchFunc, const llvm::Function & scalarFn, const VectorShapeVec & argShapes, unsigned vectorWidth, bool needsPredication);
 
 public:
   ListResolver(llvm::Module & destModule)
