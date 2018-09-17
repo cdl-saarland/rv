@@ -483,7 +483,7 @@ void VectorizationAnalysis::compute(const Function& F) {
       // adjust result type to match alignment
       unsigned minAlignment = getBaseAlignment(*I, layout);
       New.setAlignment(std::max<unsigned>(minAlignment, New.getAlignmentFirst()));
-    } else if (I->getType()->isFloatingPointTy()) {
+    } else if (isa<FPMathOperator>(I)) {
       // allow strided/aligned fp values only in fast math mode
       FastMathFlags flags = I->getFastMathFlags();
       if (!flags.isFast() && !New.isUniform()) {
