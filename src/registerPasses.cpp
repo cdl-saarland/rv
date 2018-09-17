@@ -11,28 +11,36 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-#include "llvm/Transforms/Scalar.h"
-#include "llvm/Transforms/IPO/AlwaysInliner.h"
-#include "rv/transform/loopExitCanonicalizer.h"
 
 using namespace llvm;
 
 cl::OptionCategory rvCategory("RV Options",
-                                 "Configure the rv-based loop vectorizer");
+                                 "Configure the Region Vectorizer");
 
 
 static cl::opt<bool>
-    rvLoopVecEnabled("rv-loopvec", cl::desc("Enable RV's outer-loop vectorizer"),
+    rvLoopVecEnabled("rv-loopvec", cl::desc("Enable RV's outer-loop vectorizer."),
                  cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static cl::opt<bool>
-    rvOnlyPolish("rv-polish", cl::desc("Only run RV's polish phase"),
+    rvWFVEnabled("rv-wfv", cl::desc("Enable RV's whole-function vectorizer."),
                  cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
-
 
 static cl::opt<bool>
-    rvOnlyCNS("rv-cns", cl::desc("Only run RV's Irreducible Loop Normalizer"),
+    rvOnlyPolish("rv-polish", cl::desc("Only run RV's polish phase."),
                  cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+
+static cl::opt<bool>
+    rvVectorizeEnabled("rv", cl::desc("Enable Whole-Function and Outer-Loop Vectorization with RV (implies -rv-wfv and -rv-loopvec)."),
+                 cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+
+static cl::opt<bool>
+    rvOnlyCNS("rv-cns", cl::desc("Only run RV's Irreducible Loop Normalizer."),
+                 cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+
+static bool mayVectorize() { return rvWFVEnabled || rvLoopVecEnabled || rvVectorizeEnabled; }
+static bool shouldRunWFVPass() { return rvWFVEnabled || rvVectorizeEnabled; }
+static bool shouldRunLoopVecPass() { return rvLoopVecEnabled || rvVectorizeEnabled; }
 
 static void
 registerRVPasses(const llvm::PassManagerBuilder &Builder,
@@ -47,8 +55,19 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
     return;
   }
 
-  if (rvLoopVecEnabled) {
+  if (mayVectorize()) {
+    rv::addPreparatoryPasses(PM);
+  }
+
+  if (shouldRunWFVPass()) {
+    rv::addWholeFunctionVectorizer(PM);
+  }
+  if (shouldRunLoopVecPass()) {
     rv::addOuterLoopVectorizer(PM);
+  }
+
+  if (mayVectorize()) {
+    rv::addCleanupPasses(PM);
   }
 }
 

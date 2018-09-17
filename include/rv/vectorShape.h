@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include <llvm/ADT/StringRef.h>
 #include <llvm/Support/raw_ostream.h>
 
 namespace llvm {
@@ -25,7 +26,7 @@ namespace rv {
 class VectorShape {
   int stride;
   bool hasConstantStride;
-  uint alignment; // NOTE: General alignment if not hasConstantStride, else alignment of first
+  unsigned alignment; // NOTE: General alignment if not hasConstantStride, else alignment of first
   bool defined;
 
   VectorShape(unsigned _alignment);              // varying
@@ -43,7 +44,7 @@ public:
 
   void setAlignment(unsigned newAlignment) { alignment = newAlignment; }
   void setStride(int newStride) { hasConstantStride = true; stride = newStride; }
-  void setVarying(uint newAlignment) { hasConstantStride = false; alignment = newAlignment; }
+  void setVarying(unsigned newAlignment) { hasConstantStride = false; alignment = newAlignment; }
 
   bool isVarying() const { return defined && !hasConstantStride; }
   bool hasStridedShape() const { return defined && hasConstantStride; }
@@ -64,7 +65,10 @@ public:
 
   bool operator==(const VectorShape &a) const;
   bool operator!=(const VectorShape &a) const;
-  bool operator<(const VectorShape &a) const;
+
+  // lattice order
+  bool morePreciseThan(const VectorShape & a) const; // whether @this is less than @a according to lattice order
+  bool contains(const VectorShape & b) const; // whether join(@this, @b) == @this
 
   friend VectorShape operator-(const VectorShape& a);
   friend VectorShape operator+(const VectorShape& a, const VectorShape& b);
@@ -81,6 +85,11 @@ public:
                                        const VectorShape &shape) {
     return O << shape.str();
   }
+
+  std::string serialize() const;
+  // parse the next shape in @text (starting from nextPos) and return the parsed shape
+  // (setting @nextPos on the next position after the last used character)
+  static VectorShape parse(llvm::StringRef text, int & nextPos);
 };
 
 typedef std::vector<VectorShape> VectorShapeVec;

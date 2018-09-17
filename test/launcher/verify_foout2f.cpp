@@ -10,6 +10,7 @@
 #include <iostream>
 
 #include <cassert>
+#include <random>
 
 #include "launcherTools.h"
 
@@ -20,12 +21,15 @@ int main(int argc, char ** argv) {
   const uint vectorWidth = 8;
   const uint numVectors = 100;
 
+  std::mt19937 randSource(42);
+  std::uniform_real_distribution<float> randGen;
+
   for (unsigned i = 0; i < numVectors; ++i) {
-    float a = rand();
+    float a = randGen(randSource);
     float b[8];
 
     for (uint i = 0; i < vectorWidth; ++i) {
-      b[i] = (float) rand();
+      b[i] = randGen(randSource);
       // std::cerr << b[i] << " ; ";
     }
 
@@ -36,9 +40,9 @@ int main(int argc, char ** argv) {
     for (uint i = 0; i < vectorWidth; ++i) {
       float expectedRes = foo(a, b[i]);
 
-        if (getenv("DUMP_RESULT") ) { dumpArray(r, vectorWidth); std::cerr << "\n"; }
+      if (getenv("DUMP_RESULT") ) { dumpArray(r, vectorWidth); std::cerr << "\n"; }
 
-      if (r[i] != expectedRes) {
+      if (!isWithinPrecisionInterval(r[i], expectedRes, 4)) {
         std::cerr << "MISMATCH!\n";
         std::cerr << i << " : a = " << a << " b = " << b[i] << " expected result " << expectedRes << " but was " << r[i] << "\n";
         dumpArray(b, vectorWidth); std::cerr << "\n";

@@ -134,53 +134,6 @@ Linearizer::scheduleLoop(Loop * loop, std::string padStr, RPOT::rpo_iterator itS
       scheduleDomRegion(BB, parentLoop, padStr + "  ", it, itEnd);;
     }
   }
-#if 0
-
-  // schedule all dominated parts in the parent loop that reach the outside loop
-  scheduleDomRegion(loopHeader, loop->getParentLoop(), loop, itStart, itEnd);
-#endif
-
-#if 0
-  SmallVector<BasicBlock*, 4> exitingBlocks;
-  loop->getExitingBlocks(exitingBlocks);
-
-// schedule all (immediately) dominated loop exits
-  // only consider loop exits that reside in the immediate parent loop of this loop
-  std::set<BasicBlock*> pendingExits;
-
-  for (auto * exitingBlock : exitingBlocks) {
-    auto * exitingDom = dt.getNode(exitingBlock);
-
-    auto itSucc = succ_begin(exitingBlock);
-    auto itEnd = succ_end(exitingBlock);
-
-    for (;itSucc != itEnd; ++itSucc) {
-      auto * exitBlock = *itSucc;
-
-      // only consider exits to the immediate parent loop
-      if (loop->getParentLoop() != li.getLoopFor(exitBlock)) continue;
-
-      auto * exitNode = dt.getNode(exitBlock);
-
-      // exiting block is idom of exit block
-      if (exitNode->getIDom() == exitingDom) {
-        pendingExits.insert(exitBlock);
-      }
-    }
-  }
-
-  // visit exiting blocks in RPOT order
-  for (auto it = itStart; it != itEnd; ++it) {
-    BasicBlock * exitBlock = *it;
-    // this exit as an idom of a loop exit
-    if (pendingExits.count(exitBlock)) {
-      errs() << "\t eligible exit " << exitBlock->getName() << "\n";
-      scheduleDomRegion(exitBlock, loop->getParentLoop(), nullptr, it, itEnd);
-    // idom
-    } else if(dt.getNode(dt).getIDom() == headerNode) {
-    }
-  }
-#endif
 }
 
 void
@@ -195,95 +148,6 @@ Linearizer::buildBlockIndex() {
 
   scheduleDomRegion(&entryBlock, topLoop, "", rpot.begin(), rpot.end());
   return;
-#if 0
-
-  // FIXME this will diverge for non-canonical (LoopInfo) loops
-  std::vector<BasicBlock*> stack;
-  std::set<Loop*> pushedLoops;
-
-  for (auto & block : func) {
-    // seek unprocessed blocks
-    if (!inRegion(block)) continue; // FIXME we need a Region::blocks-in-the-region iterator
-    if (blockIndex.count(&block)) continue; // already indexed this block
-    stack.push_back(&block);
-
-    // process blocks
-    while (!stack.empty()) {
-      BasicBlock * block = stack.back();
-      if (blockIndex.count(block)) {
-        stack.pop_back();
-        continue; // already indexed this block
-      }
-
-      auto * loop = li.getLoopFor(block);
-
-      // we are seeing this loop for the first time
-      // drop this block
-      // push first the latch and than all predecessors of the header on top
-      if (loop && pushedLoops.insert(loop).second) {
-        stack.pop_back(); // forget how we entered this loop
-
-        auto & latch = *loop->getLoopLatch();
-        stack.push_back(&latch);
-
-        // push all header predecessors on top of the latch
-        for (auto * pred : predecessors(loop->getHeader())) {
-          if (!inRegion(*pred)) continue;
-
-          // do not descend into the latch
-          if (loop->contains(pred)) continue;
-
-          // Otw, check if dependencies are satifised
-          if (!blockIndex.count(pred)) {
-            stack.push_back(pred);
-          }
-        }
-
-        // start processing the loop
-        continue;
-      }
-
-      // filter out all dependences to loop-carried blocks if we are looking at the loop header
-      Loop * filterLoop = nullptr;
-      if (loop && loop->getHeader() == block) {
-        filterLoop = loop;
-      }
-
-      bool allDone = true;
-
-      for (auto * pred : predecessors(block)) {
-        if (!inRegion(*pred)) continue;
-
-        // do not descend into the latch
-        if (filterLoop && filterLoop->contains(pred)) continue;
-
-        // Otw, check if dependencies are satifised
-        if (!blockIndex.count(pred)) {
-          stack.push_back(pred);
-          allDone = false;
-        }
-      }
-
-      // all dependences satisfied -> assign topo index
-      if (allDone) {
-        // assign an id
-        stack.pop_back();
-        assert(!blockIndex.count(block));
-        addToBlockIndex(*block);
-
-        // if we are re-vising the loop header all dependences outside of the loop have been scheduled
-        // now its time to schedule the remainder of the loop before any other outside block
-        if (filterLoop) {
-          auto * loopLatch = filterLoop->getLoopLatch();
-          assert(loopLatch && "loop does not have a latch");
-          if (!blockIndex.count(loopLatch)) {
-            stack.push_back(loopLatch);
-          }
-        }
-      }
-    }
-  }
-#endif
 }
 
 Value&
@@ -468,6 +332,7 @@ Linearizer::verifyCompactDominance(BasicBlock & head) {
     if (loop && !loop->contains(&BB)) continue;
 
     if (dt.dominates(&head, &BB)) {
+      assert(hasIndex(BB) && " block missing in blockIndex!");
       int id = getIndex(BB);
       minIndex = std::min<int>(minIndex, id);
       maxIndex = std::max<int>(maxIndex, id);
@@ -525,7 +390,7 @@ Linearizer::needsFolding(PHINode & phi) {
   }
 
   // or incoming blocks in the PHI node are no longer predecessors
-  for (uint i = 0; i < phi.getNumIncomingValues(); ++i) {
+  for (unsigned i = 0; i < phi.getNumIncomingValues(); ++i) {
     if (!predSet.count(phi.getIncomingBlock(i))) { return true; }
   }
 
@@ -1146,8 +1011,8 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   ++numFoldedBranches;
 
 // order successors by global topologic order
-  uint firstSuccIdx = 0;
-  uint secondSuccIdx = 1;
+  unsigned firstSuccIdx = 0;
+  unsigned secondSuccIdx = 1;
 
   if (getIndex(*branch->getSuccessor(firstSuccIdx)) > getIndex(*branch->getSuccessor(secondSuccIdx))) {
     std::swap<>(firstSuccIdx, secondSuccIdx);
@@ -1368,7 +1233,7 @@ Linearizer::verify() {
   }
 
   // check whether the on-the-fly domTree repair worked
-  dt.verifyDomTree();
+  dt.verify();
 
   // generic verification passes
   llvm::verifyFunction(func, &errs());
@@ -1399,7 +1264,7 @@ Linearizer::cleanup() {
 
     bool allSame = true;
     BasicBlock * singleSucc = nullptr;
-    for (uint i = 0; i < term->getNumSuccessors(); ++i) {
+    for (unsigned i = 0; i < term->getNumSuccessors(); ++i) {
       if (!singleSucc) {
         singleSucc = term->getSuccessor(i);
       } else if (singleSucc != term->getSuccessor(i)) {

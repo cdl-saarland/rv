@@ -12,6 +12,7 @@
 #include <string>
 #include <map>
 #include <queue>
+#include <unordered_set>
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
@@ -28,8 +29,6 @@
 #include "llvm/Support/GenericDomTree.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "DFG.h"
-
 #include "rv/config.h"
 #include "rv/vectorizationInfo.h"
 #include "rv/vectorMapping.h"
@@ -37,6 +36,8 @@
 #include "rv/region/Region.h"
 #include "rv/PlatformInfo.h"
 #include "rv/analysis/BranchDependenceAnalysis.h"
+#include "rv/analysis/AllocaSSA.h"
+#include "rv/region/FunctionRegion.h"
 
 namespace llvm {
   class LoopInfo;
@@ -59,23 +60,27 @@ public:
   bool runOnFunction(llvm::Function& F) override;
 };
 
+using SmallValVec = llvm::SmallVector<const llvm::Value*, 2>;
 class VectorizationAnalysis {
   Config config;
+  PlatformInfo & platInfo;
 
   /// In- and output
-  VectorizationInfo& mVecinfo;
+  VectorizationInfo& vecInfo;
 
   /// Next instructions to handle
   std::queue<const llvm::Instruction*> mWorklist;
+  std::unordered_set<const llvm::Instruction*> mOnWorklist;
 
   const llvm::DataLayout& layout;
   const llvm::LoopInfo& mLoopInfo; // Preserves LoopInfo
 
-  // Shape computation:
-  const VectorFuncMap& mFuncinfo;
-
   // Divergence computation:
   BranchDependenceAnalysis BDA;
+
+  FunctionRegion funcRegion;
+  Region funcRegionWrapper;
+  AllocaSSA allocaSSA;
 
   llvm::DenseSet<const llvm::BasicBlock*> mControlDivergentBlocks;
 
@@ -83,8 +88,8 @@ public:
   VectorizationAnalysis(Config config,
                         PlatformInfo & platInfo,
                         VectorizationInfo& VecInfo,
-                        const CDG& cdg,
-                        const DFG& dfg,
+                        const llvm::DominatorTree & domTree,
+                        const llvm::PostDominatorTree & postDomTree,
                         const llvm::LoopInfo& LoopInfo);
 
   VectorizationAnalysis(const VectorizationAnalysis&) = delete;
@@ -96,9 +101,16 @@ public:
   void addInitial(const llvm::Instruction* inst, VectorShape shape);
 
 private:
+// worklist manipulation
+  // insert @inst into the worklist if its not already not the list
+  bool putOnWorklist(const llvm::Instruction& inst);
+  // take an element off the worklist, return nullptr if the worklist is empty
+  const llvm::Instruction* takeFromWorklist();
+
+
   /// Get the shape for a value
   //  if loop carried, this is the shape observed within the loop that defines @V
-  VectorShape getShape(const llvm::Value* const V);
+  VectorShape getShape(const llvm::Value& V);
 
   // Initialize all statically known shapes (constants, arguments via argument mapping,
   // shapes set by the user)
@@ -114,7 +126,7 @@ private:
   VectorShape computePHIShape(const llvm::PHINode& phi);
 
   // only call these if all operands have defined shape
-  VectorShape computeShapeForInst(const llvm::Instruction* I);
+  VectorShape computeShapeForInst(const llvm::Instruction* I, SmallValVec & taintedOps);
   VectorShape computeShapeForBinaryInst(const llvm::BinaryOperator* I);
   VectorShape computeShapeForCastInst(const llvm::CastInst* I);
 
@@ -126,7 +138,7 @@ private:
 
   // Returns true iff the shape has been changed
   bool updateShape(const llvm::Value* const V, VectorShape AT);
-  void analyzeDivergence(const llvm::BranchInst* const branch);
+  void analyzeDivergence(const llvm::TerminatorInst& termInst);
 
   // Adds all dependent values of V to the worklist:
   // - Any user of this value in the region (minus void-returning calls)

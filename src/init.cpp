@@ -27,6 +27,7 @@ public:
     llvm::initializeLoopVectorizerPass(Registry);
     llvm::initializeIRPolisherWrapperPass(Registry);
     llvm::initializeCNSPass(Registry);
+    llvm::initializeWFVPassPass(Registry);
   }
 };
 static StaticInitializer InitializeEverything;

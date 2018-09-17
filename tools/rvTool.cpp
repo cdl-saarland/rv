@@ -26,10 +26,9 @@
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
 
-#include <rv/analysis/reductionAnalysis.h>
-
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Passes/PassBuilder.h"
@@ -42,16 +41,23 @@
 
 #include "rv/rv.h"
 #include "rv/vectorMapping.h"
-#include "rv/sleefLibrary.h"
+#include "rv/resolver/resolvers.h"
 #include "rv/passes.h"
-#include "rv/transform/loopExitCanonicalizer.h"
-#include "rv/region/LoopRegion.h"
-#include "rv/region/Region.h"
 #include "rv/rvDebug.h"
+#include "rv/utils.h"
 
-#include "rv/transform/remTransform.h"
 #include "rv/vectorizationInfo.h"
+#include "rv/region/LoopRegion.h"
+#include "rv/region/FunctionRegion.h"
+#include "rv/region/Region.h"
 
+#include "rv/analysis/reductionAnalysis.h"
+#include "rv/transform/singleReturnTrans.h"
+#include "rv/transform/remTransform.h"
+#include "rv/transform/loopExitCanonicalizer.h"
+
+
+static bool OnlyAnalyze = false;
 
 static const char LISTSEPERATOR = '_';
 static const char RETURNSHAPESEPERATOR = 'r';
@@ -67,7 +73,7 @@ static bool verbose = false;
 #define IF_VERBOSE if (verbose)
 
 
-static void fail() LLVM_ATTRIBUTE_NORETURN;
+static void LLVM_ATTRIBUTE_NORETURN fail();
 
 static void fail() {
   std::cerr << '\n';
@@ -97,7 +103,7 @@ writeModuleToFile(Module* mod, const std::string& fileName)
 {
     assert (mod);
     std::error_code EC;
-    raw_fd_ostream file(fileName, EC, sys::fs::OpenFlags::F_RW);
+    raw_fd_ostream file(fileName, EC);
     mod->print(file, nullptr);
     if (EC)
     {
@@ -115,11 +121,15 @@ normalizeFunction(Function& F)
     FPM.add(createLoopSimplifyPass());
     FPM.add(createLCSSAPass());
     FPM.run(F);
+
+    rv::FunctionRegion funcRegion(F);
+    rv::Region regWrapper(funcRegion);
+    rv::SingleReturnTrans::run(regWrapper);
 }
 
 void
-vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopInfo, rv::DFG& dfg,
-              rv::CDG& cdg, DominatorTree& domTree, PostDominatorTree& postDomTree)
+vectorizeLoop(Function& parentFn, Loop& loop, unsigned vectorWidth, LoopInfo& loopInfo,
+              DominatorTree& domTree, PostDominatorTree& postDomTree)
 {
     // assert: function is already normalized
     Module& mod = *parentFn.getParent();
@@ -173,8 +183,9 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     MemoryDependenceResults MDR = mdAnalysis.run(parentFn, fam);
 
     // link in SIMD library
-    const bool useImpreciseFunctions = true;
-    addSleefMappings(config, platformInfo, useImpreciseFunctions);
+    addSleefResolver(config, platformInfo, 35);
+    // vectorize recursively
+    addRecursiveResolver(config, platformInfo);
 
 // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable
@@ -221,25 +232,22 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
     vectorizer.lowerRuntimeCalls(vecInfo, loopInfo);
     domTree.recalculate(parentFn);
     postDomTree.recalculate(parentFn);
-    cdg.create(parentFn);
-    dfg.create(parentFn);
 
     loopInfo.print(errs());
     loopInfo.verify(domTree);
 
 
     // vectorizationAnalysis
-    vectorizer.analyze(vecInfo, cdg, dfg, loopInfo);
+    vectorizer.analyze(vecInfo, domTree, postDomTree, loopInfo);
+
+    if (OnlyAnalyze) {
+      vecInfo.print(outs());
+      return;
+    }
 
     // control conversion
-    vectorizer.linearize(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
+    vectorizer.linearize(vecInfo, domTree, postDomTree, loopInfo);
     // if (!maskEx) fail("mask generation failed.");
-#if 0
-
-    // control conversion
-    bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskEx, loopInfo, domTree);
-    if (!linearizeOk) fail("linearization failed.");
-#endif
 
     DominatorTree domTreeNew(*vecInfo.getMapping()
                                            .scalarFn); // Control conversion does not preserve the domTree so we have to rebuild it for now
@@ -252,7 +260,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
 // Use case: Outer-loop Vectorizer
 void
-vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
+vectorizeFirstLoop(Function& parentFn, unsigned vectorWidth)
 {
     // normalize
     normalizeFunction(parentFn);
@@ -276,18 +284,9 @@ vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
         return;
     }
 
-    // Dominance Frontier Graph
-    rv::DFG dfg(domTree);
-    dfg.create(parentFn);
-
     // post dom
     PostDominatorTree postDomTree;
-
-    // Control Dependence Graph
     postDomTree.recalculate(parentFn);
-    rv::CDG cdg(postDomTree);
-    cdg.create(parentFn);
-
 
     // dump normalized function
     IF_VERBOSE {
@@ -296,7 +295,7 @@ vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
     }
 
     auto* firstLoop = *loopInfo.begin();
-    vectorizeLoop(parentFn, *firstLoop, vectorWidth, loopInfo, dfg, cdg, domTree, postDomTree);
+    vectorizeLoop(parentFn, *firstLoop, vectorWidth, loopInfo, domTree, postDomTree);
 
     // mark region
     // run RV
@@ -342,26 +341,41 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     // configure RV
     rv::Config config;
     config.useSLEEF = true;
-    const bool useImpreciseFunctions = true;
     config.print(outs());
 
     // link in SIMD library
-    addSleefMappings(config, platformInfo, useImpreciseFunctions);
+    addSleefResolver(config, platformInfo, 35);
+    // vectorize recursively
+    addRecursiveResolver(config, platformInfo);
 
     rv::VectorizerInterface vectorizer(platformInfo, config);
 
     // set-up vecInfo overlay and define vectorization job (mapping)
     rv::VectorMapping targetMapping = vectorizerJob;
     targetMapping.scalarFn = scalarCopy;
-    rv::VectorizationInfo vecInfo(targetMapping);
+    rv::FunctionRegion funcRegion(*scalarCopy);
+    rv::Region funcRegionWrapper(funcRegion);
+    rv::VectorizationInfo vecInfo(funcRegionWrapper, targetMapping);
 
     // transfer extra shapes
     for (auto & it : extraShapes) {
       auto name = it.first;
       auto shape = it.second;
+
       auto * gv = mod.getGlobalVariable(name);
-      if (!gv) fail("could not find global variable ", name, " in test module!");
-      vecInfo.setPinnedShape(*gv, shape);
+      auto * vecFun = mod.getFunction(name);
+
+      if (vecFun) {
+        // interpret <shape> as result shape
+        rv::VectorMapping vecFuncMap(vecFun, vecFun, 0);
+        vecFuncMap.resultShape = shape;
+        platformInfo.addMapping(vecFuncMap);
+        outs() << "rvTool func mapping: "; vecFuncMap.print(outs());
+
+      } else if (gv) {
+        // interpret <shape> as shape of gvar address
+        vecInfo.setPinnedShape(*gv, shape);
+      }
     }
 
     // build Analysis
@@ -382,18 +396,11 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     MemoryDependenceAnalysis mdAnalysis;
     MemoryDependenceResults MDR = mdAnalysis.run(*scalarCopy, fam);
 
-    // Dominance Frontier Graph
-    rv::DFG dfg(domTree);
-    dfg.create(*scalarCopy);
-
     // post dom
     PostDominatorTree postDomTree;
     postDomTree.recalculate(*scalarCopy);
 
     // Control Dependence Graph
-    rv::CDG cdg(postDomTree);
-    cdg.create(*scalarCopy);
-
 
     // dump normalized function
     IF_VERBOSE {
@@ -405,24 +412,20 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     vectorizer.lowerRuntimeCalls(vecInfo, loopInfo);
     domTree.recalculate(*scalarCopy);
     postDomTree.recalculate(*scalarCopy);
-    cdg.create(*scalarCopy);
-    dfg.create(*scalarCopy);
 
     loopInfo.print(errs());
     loopInfo.verify(domTree);
 
     // vectorizationAnalysis
-    vectorizer.analyze(vecInfo, cdg, dfg, loopInfo);
+    vectorizer.analyze(vecInfo, domTree, postDomTree, loopInfo);
+    if (OnlyAnalyze) {
+      vecInfo.print(outs());
+      return;
+    }
 
     // mask generator
-    vectorizer.linearize(vecInfo, cdg, dfg, loopInfo, postDomTree, domTree);
+    vectorizer.linearize(vecInfo, domTree, postDomTree, loopInfo);
     // if (!maskEx) fail("mask generation failed.");
-
-#if 0
-    // control conversion
-    bool linearizeOk = vectorizer.linearizeCFG(vecInfo, *maskEx, loopInfo, domTree);
-    if (!linearizeOk) fail("linearization failed.");
-#endif
 
     // Control conversion does not preserve the domTree so we have to rebuild it for now
     DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn);
@@ -433,37 +436,6 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
     vectorizer.finalize();
 
     scalarCopy->eraseFromParent();
-}
-
-Type*
-vectorizeType(Type* scalarTy, rv::VectorShape shape, uint vectorWidth)
-{
-    if (scalarTy->isVoidTy()) return scalarTy;
-    if (!shape.isDefined() || shape.hasStridedShape()) return scalarTy;
-
-    return VectorType::get(scalarTy, vectorWidth);
-}
-
-Function*
-createVectorDeclaration(Function& scalarFn, rv::VectorShape resShape,
-                        const rv::VectorShapeVec& argShapes, uint vectorWidth)
-{
-    auto* scalarFnTy = scalarFn.getFunctionType();
-
-    auto* vectorRetTy = vectorizeType(scalarFnTy->getReturnType(), resShape, vectorWidth);
-
-    std::vector<Type*> vectorArgTys;
-    for (uint i = 0; i < scalarFnTy->getNumParams(); ++i)
-    {
-        auto* scalarArgTy = scalarFnTy->getParamType(i);
-        rv::VectorShape argShape = argShapes[i];
-        vectorArgTys.push_back(vectorizeType(scalarArgTy, argShape, vectorWidth));
-    }
-
-    auto* vectorFnTy = FunctionType::get(vectorRetTy, vectorArgTys, false);
-
-    return llvm::Function::Create(vectorFnTy, scalarFn.getLinkage(), scalarFn.getName() + "_SIMD",
-                                  scalarFn.getParent());
 }
 
 unsigned readNumber(std::stringstream& shapeText)
@@ -539,7 +511,9 @@ PrintHelp() {
             << "[-o OUTPUT_LL] [-w 8] [-s SHAPES] [-x GV_SHAPES]\n"
             << "commands:\n"
             << "-wfv/-loopvec : vectorize a whole-function or an outer loop\n"
-            << "-lower        : lower predicate intrinsics in scalar kernel.\n"
+            << "-analyze      : normalize, print vectorization analysis results and exit.\n"
+            << "-lower-func   : lower predicate intrinsics in scalar kernel.\n"
+            << "-lower        : lower predicate intrinsics in entire module.\n"
             << "-normalize    : normalize kernel and quit.\n"
             << "options:\n"
             << "-i MODULE     : LLVM input module.\n"
@@ -547,7 +521,7 @@ PrintHelp() {
             << "-k KERNEL     : name of the function to vectorize/function with loop to vectorize.\n"
             << "-t DECL       : target SIMD declaration (WFV mode only, will be auto generated if missing).\n"
             << "-s SHAPES     : WFV argument shapes.\n"
-            << "-x GVSHAPES   : comma-separates list of global value shapes, e.g. \"gvar=C,gvar2=S4\".\n"
+            << "-x GVSHAPES   : comma-separated list of global value and function-return shapes, e.g. \"gvar=C,func=S4\".\n"
             << "-w WIDTH      : vectorization factor.\n"
             << "-v            : enable verbose output (rvTool level output).\n";
 }
@@ -564,13 +538,15 @@ int main(int argc, char** argv)
     std::string kernelName;
     bool hasKernelName = reader.readOption<std::string>("-k", kernelName);
 
+    OnlyAnalyze = reader.hasOption("-analyze"); // global
     bool wfvMode = reader.hasOption("-wfv");
     bool loopVecMode = reader.hasOption("-loopvec");
 
     std::string targetDeclName;
     bool hasTargetDeclName = reader.readOption<std::string>("-t", targetDeclName);
 
-    bool lowerIntrinsics = reader.hasOption("-lower");
+    bool lowerIntrinsicsFunc = reader.hasOption("-lower-func");
+    bool lowerIntrinsicsMod = reader.hasOption("-lower");
 
     std::string outFile;
     bool hasOutFile = reader.readOption<std::string>("-o", outFile);
@@ -688,7 +664,7 @@ int main(int argc, char** argv)
         }
       }
 
-      uint vectorWidth = reader.getOption<uint>("-w", 8);
+      unsigned vectorWidth = reader.getOption<unsigned>("-w", 8);
 
       if (wfvMode)
       {
@@ -697,7 +673,7 @@ int main(int argc, char** argv)
           Function* vectorFn = nullptr;
           if (!hasTargetDeclName)
           {
-              vectorFn = createVectorDeclaration(*scalarFn, resShape, argShapes, vectorWidth);
+              vectorFn = rv::createVectorDeclaration(*scalarFn, resShape, argShapes, vectorWidth);
           }
           else
           {
@@ -727,13 +703,17 @@ int main(int argc, char** argv)
           vectorizeFirstLoop(*scalarFn, vectorWidth);
       }
 
-      if (lowerIntrinsics) {
+      if (lowerIntrinsicsFunc) {
         IF_VERBOSE errs() << "Lowering intrinsics in function " << scalarFn->getName() << "\n";
         rv::lowerIntrinsics(*scalarFn);
+      } else if (lowerIntrinsicsMod) {
+        IF_VERBOSE errs() << "Lowering intrinsics in module\n";
+        rv::lowerIntrinsics(*mod);
       }
 
     } // !finish
 
+    if (OnlyAnalyze) return 0;
 
     //output
     if (hasOutFile)
@@ -743,7 +723,7 @@ int main(int argc, char** argv)
     }
     else
     {
-      rv::Dump(*mod);
+      mod->print(llvm::outs(), nullptr, false, true);
     }
 
     return 0;

@@ -7,30 +7,22 @@
 
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include <rv/vectorMapping.h>
+#include "rv/vectorMapping.h"
+#include "rv/resolver/resolver.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace rv {
 
-struct VecDesc {
-  const char *scalarFnName;
-  const char *vectorFnName;
-  unsigned vectorWidth;
-};
-
-using VectorFuncMap = std::map<const llvm::Function *, const VectorMapping *>;
-using VecDescVector = std::vector<VecDesc>;
+class ListResolver;
 
 class PlatformInfo {
+  void registerDeclareSIMDFunction(llvm::Function & F);
+  void addIntrinsicMappings();
+
 public:
   PlatformInfo(llvm::Module &mod, llvm::TargetTransformInfo *TTI,
                llvm::TargetLibraryInfo *TLI);
   ~PlatformInfo();
-
-  void addMapping(const llvm::Function *function, const VectorMapping *mapping);
-
-  void removeMappingIfPresent(const llvm::Function *function);
-  const VectorMapping *
-  getMappingByFunction(const llvm::Function *function) const;
 
   void setTTI(llvm::TargetTransformInfo *TTI);
   void setTLI(llvm::TargetLibraryInfo *TLI);
@@ -38,32 +30,17 @@ public:
   llvm::TargetTransformInfo *getTTI();
   llvm::TargetLibraryInfo *getTLI();
 
-  // add a batch of SIMD function mappings to this platform
-  // these will be used during code generation
-  // if @givePrecedence is true prefer these new mappings over existing ones (the opposite if !givePrecedence)
-  void addVectorizableFunctions(llvm::ArrayRef<VecDesc> funcs, bool givePrecedence);
-  bool isFunctionVectorizable(llvm::StringRef funcName, unsigned vectorWidth);
+  // insert a new function resolver into the resolver chain
+  void addResolverService(std::unique_ptr<ResolverService>&& newResolver, bool givePrecedence);
 
-  llvm::StringRef getVectorizedFunction(llvm::StringRef func,
-                                        unsigned vectorWidth,
-                                        bool *isInTLI = nullptr);
-
-  llvm::Function *requestVectorizedFunction(llvm::StringRef funcName,
-                                            unsigned vectorWidth,
-                                            llvm::Module *insertInto,
-                                            bool doublePrecision);
-
-  VectorFuncMap &getFunctionMappings() { return funcMappings; }
+  std::unique_ptr<FunctionResolver>
+  getResolver(llvm::StringRef funcName,
+              llvm::FunctionType & scaFuncTy,
+              const VectorShapeVec & argShapes,
+              int vectorWidth) const;
 
   llvm::Module &getModule() const { return mod; }
   llvm::LLVMContext &getContext() const { return mod.getContext(); }
-
-  // add a new SIMD function mapping
-  bool addSIMDMapping(rv::VectorMapping &mapping);
-
-  bool addSIMDMapping(const llvm::Function &scalarFunction,
-                      const llvm::Function &simdFunction,
-                      const int maskPosition, const bool mayHaveSideEffects);
 
   const llvm::DataLayout &getDataLayout() const { return mod.getDataLayout(); }
 
@@ -73,16 +50,24 @@ public:
   size_t getMaxVectorWidth() const;
   size_t getMaxVectorBits() const;
 
-private:
-  VectorMapping *inferMapping(llvm::Function &scalarFnc,
-                              llvm::Function &simdFnc, int maskPos);
+  // allow quick access to the builtin resolver
+  ListResolver& getListResolver() { return *listResolver; }
+  void addMapping(VectorMapping&& mapping);
+  void addMapping(const VectorMapping& mapping) { addMapping(VectorMapping(mapping)); }
+  void forgetAllMappingsFor(const llvm::Function & scaFunc);
+  void forgetMapping(const VectorMapping & mapping);
 
+  void dump() const;
+  void print(llvm::raw_ostream & out) const;
+private:
+  // Direct access to builtin list resolver.
   llvm::Module &mod;
   llvm::TargetTransformInfo *mTTI;
   llvm::TargetLibraryInfo *mTLI;
-  VectorFuncMap funcMappings;
-  VecDescVector commonVectorMappings;
+  std::vector<std::unique_ptr<ResolverService>> resolverServices;
+  ListResolver * listResolver;
 };
-}
+
+} // namespace rv
 
 #endif // RV_PLATFORMINFO_H

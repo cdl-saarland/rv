@@ -2,6 +2,8 @@
 #define LAUNCHERTOOLS_H_
 
 #include <stdlib.h>
+#include <cmath>
+#include <limits>
 
 template<typename D>
 static D * allocateRandArray(int n) {
@@ -84,6 +86,27 @@ static void dumpArray(S * A, uint n) {
     std::cerr<< " " << A[i];
   }
   std::cerr << "]";
+}
+
+template<typename TReal>
+static bool isWithinPrecisionInterval(TReal a, TReal b, unsigned int interval_size = 1)
+{
+  if (!std::isfinite(a) && !std::isfinite(b)) return true;
+
+  if (a > b) return isWithinPrecisionInterval(b, a, interval_size);
+
+  float h = a;
+  for (int i = 0; i < (int) interval_size ; ++i) {
+    h = std::nexttoward(h, b);
+    if (b <= h) return true;
+  }
+
+  return b <= h;
+}
+
+static bool IsClose(float a, float b) {
+  const unsigned interval_size = 3;
+  return isWithinPrecisionInterval(a, b, interval_size);
 }
 
 #endif

@@ -73,7 +73,7 @@ GetScalarType(Value & val) {
 // reduce the vector @vectorVal to a scalar value (using redKind)
 Value &
 CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vecVal, Value * initVal) {
-  uint vecWidth = vecVal.getType()->getVectorNumElements();
+  unsigned vecWidth = vecVal.getType()->getVectorNumElements();
 
   auto * intTy = Type::getInt32Ty(builder.getContext());
 

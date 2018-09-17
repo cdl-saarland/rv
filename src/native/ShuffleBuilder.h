@@ -15,12 +15,12 @@
 
 #include <vector>
 
-namespace native {
+namespace rv {
   class ShuffleBuilder {
     unsigned vectorWidth;
     std::vector<llvm::Value *> inputVectors;
     bool cropped;
-    
+
     void prepareCroppedVector(llvm::IRBuilder<> &builder);
 
   public:

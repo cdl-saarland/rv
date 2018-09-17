@@ -1,7 +1,6 @@
 #ifndef RV_TRANSFORM_REMTRANSFORM_H
 #define RV_TRANSFORM_REMTRANSFORM_H
 
-#include "llvm/Transforms/Utils/ValueMapper.h"
 #include "llvm/Analysis/BranchProbabilityInfo.h"
 #include "llvm/IR/Function.h"
 
@@ -11,16 +10,10 @@ namespace llvm {
   class LoopInfo;
   class Loop;
   class DominatorTree;
-  class PostDominatorTree;
+  struct PostDominatorTree;
   class BranchProbabilityInfo;
 }
 
-template<class T>
-inline
-T&
-LookUp(llvm::ValueToValueMapTy & valMap, T& key) {
-  return *llvm::cast<T>(valMap[&key]);
-}
 
 
 using ValueSet = std::set<llvm::Value*>;

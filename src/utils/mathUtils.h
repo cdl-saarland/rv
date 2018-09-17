@@ -22,6 +22,9 @@
 
 template<typename N>
 static N gcd(N a, N b) {
+  if (a == 0) return b;
+  else if (b == 0) return a;
+
   if (a > b) std::swap(a, b);
 
   while (a) {

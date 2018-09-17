@@ -1,4 +1,4 @@
-//===- Region.h -----------------------------===//
+//===- LoopRegion.h -----------------------------===//
 //
 //                     The Region Vectorizer
 //
@@ -23,7 +23,7 @@ namespace rv {
 // The region represented this way has control flow
 // possibly diverge after the entry but reconverge
 // at the exit
-class LoopRegion : public RegionImpl
+class LoopRegion final : public RegionImpl
 {
 private:
     llvm::Loop& loop;
@@ -36,6 +36,7 @@ public:
     llvm::BasicBlock& getRegionEntry() const override;
     void getEndingBlocks(llvm::SmallPtrSet<llvm::BasicBlock*, 2>& endingBlocks) const override;
     std::string str() const override;
+    bool isVectorLoop() const override { return true; }
 };
 
 } // namespace rv

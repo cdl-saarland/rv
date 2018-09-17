@@ -17,7 +17,7 @@
 #include "rv/vectorMapping.h"
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
-#include "rv/sleefLibrary.h"
+#include "rv/resolver/resolvers.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/analysis/costModel.h"
 #include "rv/transform/remTransform.h"
@@ -66,7 +66,7 @@ bool LoopVectorizer::canVectorizeLoop(Loop &L) {
 
 int
 LoopVectorizer::getDependenceDistance(Loop & L) {
-  int vectorWidth = getVectorWidth(L);
+  int vectorWidth = getAnnotatedVectorWidth(L);
   if (vectorWidth > 0) return vectorWidth;
 
   if (!canVectorizeLoop(L)) return 1;
@@ -101,7 +101,7 @@ LoopVectorizer::getTripCount(Loop &L) {
   return BTCVal + 1;
 }
 
-int LoopVectorizer::getVectorWidth(Loop &L) {
+int LoopVectorizer::getAnnotatedVectorWidth(Loop &L) {
   auto *LID = L.getLoopID();
 
   // try to recover from latch
@@ -111,7 +111,9 @@ int LoopVectorizer::getVectorWidth(Loop &L) {
     if (LID) IF_DEBUG { errs() << "Recovered loop MD from latch!\n"; }
   }
 
-  if (!LID) return -1;
+  if (!LID) return 0;
+
+  bool hasVectorizeEnable = false;
 
   for (int i = 0, e = LID->getNumOperands(); i < e; i++) {
     const MDOperand &Op = LID->getOperand(i);
@@ -125,8 +127,11 @@ int LoopVectorizer::getVectorWidth(Loop &L) {
       continue;
 
     if (Str->getString().equals("llvm.loop.vectorize.enable")) {
-      if (Cst->getValue()->isNullValue())
-        return -1;
+      if (Cst->getValue()->isNullValue()) {
+        return 0;
+      } else {
+        hasVectorizeEnable = true;
+      }
     }
 
     if (Str->getString().equals("llvm.loop.vectorize.width")) {
@@ -135,7 +140,7 @@ int LoopVectorizer::getVectorWidth(Loop &L) {
     }
   }
 
-  return -1;
+  return hasVectorizeEnable ? -1 : 0;
 }
 
 
@@ -148,6 +153,15 @@ LoopVectorizer::transformToVectorizableLoop(Loop &L, int VectorWidth, int tripAl
   auto * preparedLoop = remTrans.createVectorizableLoop(L, uniformOverrides, VectorWidth, tripAlign);
 
   return preparedLoop;
+}
+
+std::string
+DepDistToString(int depDist) {
+  if (depDist == LoopVectorizer::ParallelDistance) {
+    return "unbounded";
+  } else {
+    return std::to_string(depDist);
+  }
 }
 
 bool
@@ -163,38 +177,46 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   //
   int tripAlign = getTripAlignment(L);
 
-  int VectorWidth = getVectorWidth(L);
-  if (VectorWidth < 0) {
-    char * userWidthText = getenv("W");
+  int VectorWidth = getAnnotatedVectorWidth(L);
+
+  bool hasFixedWidth = false;
+  if (VectorWidth == 0 || VectorWidth == 1) {
+    char * userWidthText = getenv("RV_FORCE_WIDTH");
     if (!userWidthText) {
-      if (enableDiagOutput) Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Dep dist " << depDist << " Vector width was " << VectorWidth << "\n";
+      if (enableDiagOutput) {
+        Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Dep dist was "  << depDist << " Vector width was " << VectorWidth << "\n";
+      }
       return false;
     }
+    hasFixedWidth = true;
     VectorWidth = atoi(userWidthText);
-    if (enableDiagOutput) Report() << "loopVecPass: continueing with user-provided vector width (env W); " << VectorWidth << "\n";
+    if (enableDiagOutput) Report() << "loopVecPass: with user-provided vector width (RV_FORCE_WIDTH=" << VectorWidth << ")\n";
   }
 
-  // if (tripAlign % VectorWidth != 0) {
-  //   Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Could not adjust trip count\n";
-  //   return false;
-  // }
+// pick a vectorization factor (unless user override is set)
+  if (!hasFixedWidth) {
+    CostModel costModel(vectorizer->getPlatformInfo());
+    LoopRegion tmpLoopRegionImpl(L);
+    Region tmpLoopRegion(tmpLoopRegionImpl);
+    size_t refinedWidth = costModel.pickWidthForRegion(tmpLoopRegion, VectorWidth); // TODO run VA first
 
-// pick a vectorization factor
-  CostModel costModel(vectorizer->getPlatformInfo());
-  LoopRegion tmpLoopRegionImpl(L);
-  Region tmpLoopRegion(tmpLoopRegionImpl);
-  size_t refinedWidth = costModel.pickWidthForRegion(tmpLoopRegion, VectorWidth); // TODO run VA first
-
-  if (refinedWidth <= 1) {
-    if (enableDiagOutput) { errs() << "loopVecPass, costModel: vectorization not beneficial\n"; }
-    return false;
-  } else if (refinedWidth != VectorWidth) {
-    if (enableDiagOutput) { errs() << "loopVecPass, costModel: refined vector width to " << refinedWidth << " from " << VectorWidth << "\n"; }
-    VectorWidth = refinedWidth;
+    if (refinedWidth <= 1) {
+      if (enableDiagOutput) { Report() << "loopVecPass, costModel: vectorization not beneficial\n"; }
+      return false;
+    } else if (refinedWidth != (size_t) VectorWidth) {
+      if (enableDiagOutput) {
+        Report() << "loopVecPass, costModel: refined vector width to " << refinedWidth << " from ";
+        if (VectorWidth > 1) Report() << VectorWidth << "\n";
+        else ReportContinue() << " unbounded\n";
+      }
+      VectorWidth = refinedWidth;
+    }
   }
 
-  Report() << "loopVecPass: Vectorize " << L.getName() << " with VW: " << VectorWidth << " , Dependence Distance: " << depDist
-         << " and TripAlignment: " << tripAlign << "\n";
+  Report() << "loopVecPass: Vectorize " << L.getName()
+           << " with VW: " << VectorWidth
+           << " , Dependence Distance: " << DepDistToString(depDist)
+           << " and TripAlignment: " << tripAlign << "\n";
 
 
 // analyze the recurrsnce patterns of this loop
@@ -260,35 +282,25 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
     vecInfo.setPinnedShape(*val, VectorShape::uni());
   }
 
-  //DT.verifyDomTree();
+  //DT.verify();
   //LI.verify(DT);
 
   IF_DEBUG {
     verifyFunction(*F, &errs());
-    DT->verifyDomTree();
+    DT->verify();
     PDT->print(errs());
     LI->print(errs());
     // LI->verify(*DT); // FIXME unreachable blocks
   }
 
-  // Domin Frontier Graph
-  DFG dfg(*DT);
-  dfg.create(*F);
-
-  // Control Dependence Graph
-  CDG cdg(*PDT);
-  cdg.create(*F);
-
 // early math func lowering
   vectorizer->lowerRuntimeCalls(vecInfo, *LI);
   DT->recalculate(*F);
   PDT->recalculate(*F);
-  cdg.create(*F);
-  dfg.create(*F);
 
 // Vectorize
   // vectorizationAnalysis
-  vectorizer->analyze(vecInfo, cdg, dfg, *LI);
+  vectorizer->analyze(vecInfo, *DT, *PDT, *LI);
 
   if (enableDiagOutput) {
     errs() << "-- VA result --\n";
@@ -300,7 +312,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   assert(L.getLoopPreheader());
 
   // control conversion
-  vectorizer->linearize(vecInfo, cdg, dfg, *LI, *PDT, *DT, PB);
+  vectorizer->linearize(vecInfo, *DT, *PDT, *LI);
 
 
   DominatorTree domTreeNew(
@@ -382,8 +394,9 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   // TODO query target capabilities
   config.useSLEEF = true;
 
-  bool useImpreciseFunctions = true;
-  addSleefMappings(config, platInfo, useImpreciseFunctions);
+  // TODO translate fast-math flag to ULP error bound
+
+  addSleefResolver(config, platInfo, 35);
   vectorizer.reset(new VectorizerInterface(platInfo, config));
 
 

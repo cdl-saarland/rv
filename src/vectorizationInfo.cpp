@@ -47,12 +47,16 @@ VectorizationInfo::remapPredicate(Value& dest, Value& old)
 
 void
 VectorizationInfo::dump(const Value * val) const {
-  llvm::raw_ostream & out = llvm::errs();
+  print(val, errs());
+}
+
+void
+VectorizationInfo::print(const Value * val, llvm::raw_ostream & out) const {
   if (!val) return;
 
   auto * block = dyn_cast<const BasicBlock>(val);
   if (block && inRegion(*block)) {
-    dumpBlockInfo(*block);
+    printBlockInfo(*block, out);
   }
 
   if (hasKnownShape(*val)) {
@@ -64,7 +68,11 @@ VectorizationInfo::dump(const Value * val) const {
 
 void
 VectorizationInfo::dumpBlockInfo(const BasicBlock & block) const {
-  llvm::raw_ostream & out = llvm::errs();
+  printBlockInfo(block, errs());
+}
+
+void
+VectorizationInfo::printBlockInfo(const BasicBlock & block, llvm::raw_ostream & out) const {
   const Value * predicate = getPredicate(block);
 
   out << "Block ";
@@ -74,13 +82,16 @@ VectorizationInfo::dumpBlockInfo(const BasicBlock & block) const {
   out << "\n";
 
   for (const Instruction & inst : block) {
-    dump(&inst);
+    print(&inst, out);
   }
   out << "\n";
 }
 
 void VectorizationInfo::dumpArguments() const {
-  llvm::raw_ostream& out = llvm::errs();
+  printArguments(errs());
+}
+
+void VectorizationInfo::printArguments(llvm::raw_ostream & out) const {
   const Function* F = mapping.scalarFn;
 
   out << "\nArguments:\n";
@@ -93,9 +104,13 @@ void VectorizationInfo::dumpArguments() const {
 }
 
 void
-VectorizationInfo::dump() const
+VectorizationInfo::dump() const {
+  print(errs());
+}
+
+void
+VectorizationInfo::print(llvm::raw_ostream & out) const
 {
-    llvm::raw_ostream& out = llvm::errs();
     out << "VectorizationInfo ";
 
     if (region) {
@@ -105,17 +120,17 @@ VectorizationInfo::dump() const
         out << "for function " << mapping.scalarFn->getName() << "\n";
     }
 
-    dumpArguments();
+    printArguments(out);
 
     for (const BasicBlock & block : *mapping.scalarFn) {
       if (!inRegion(block)) continue;
-      dumpBlockInfo(block);
+      printBlockInfo(block, out);
     }
 
     out << "}\n";
 }
 
-VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, uint vectorWidth, Region& _region)
+VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, unsigned vectorWidth, Region& _region)
 : mapping(&parentFn, &parentFn, vectorWidth), region(&_region)
 {
     mapping.resultShape = VectorShape::uni();
@@ -126,8 +141,8 @@ VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, uint vectorWidth,
 }
 
 // VectorizationInfo
-VectorizationInfo::VectorizationInfo(VectorMapping _mapping)
-: mapping(_mapping), region(nullptr)
+VectorizationInfo::VectorizationInfo(Region & funcRegion, VectorMapping _mapping)
+: mapping(_mapping), region(&funcRegion)
 {
   assert(mapping.argShapes.size() == mapping.scalarFn->arg_size());
   auto it = mapping.scalarFn->arg_begin();
@@ -270,8 +285,7 @@ VectorizationInfo::getContext() const { return mapping.scalarFn->getContext(); }
 
 BasicBlock&
 VectorizationInfo::getEntry() const {
-   if (region) return region->getRegionEntry();
-   else return *mapping.scalarFn->begin();
+   return region->getRegionEntry();
  }
 
 

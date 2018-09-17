@@ -31,12 +31,6 @@
 using namespace llvm;
 
 
-// TODO factor to cfg utility module
-static void
-InsertAtFront(BasicBlock & block, Instruction & inst) {
-  block.getInstList().insert(block.begin(), &inst);
-}
-
 namespace rv {
 
 static BranchInst&
@@ -345,6 +339,7 @@ TransformSession::transformLoop() {
 
      } else {
        // mask was set explicitely
+       assert(!exitBuilder.GetInsertBlock()->getTerminator() && "not in loop exit normal form");
        exitBr = exitBuilder.CreateBr(&exitBlock);
        branchShape = VectorShape::uni(); // single successor
      }

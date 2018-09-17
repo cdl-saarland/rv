@@ -23,6 +23,16 @@ Report() {
 }
 
 llvm::raw_ostream &
+ReportContinue() {
+  if (CheckFlag("RV_REPORT")) {
+    return llvm::outs();
+  }
+
+  // default to null stream
+  return llvm::nulls();
+}
+
+llvm::raw_ostream &
 Error() {
   return (llvm::errs() << "rv ERROR: ");
 }

@@ -3,9 +3,15 @@
 //
 
 #include "rv/PlatformInfo.h"
-#include "rv/sleefLibrary.h"
+#include "rv/resolver/listResolver.h"
+#include "rv/intrinsics.h"
 
 #include "utils/rvTools.h"
+#include "rv/utils.h"
+
+#include <llvm/IR/Function.h>
+#include <llvm/IR/Module.h>
+#include <llvm/Support/raw_ostream.h>
 
 #include "rvConfig.h"
 
@@ -13,37 +19,166 @@ using namespace llvm;
 
 namespace rv {
 
-PlatformInfo::PlatformInfo(Module &_mod, TargetTransformInfo *TTI,
-                           TargetLibraryInfo *TLI)
-    : mod(_mod), mTTI(TTI), mTLI(TLI) {}
+void
+PlatformInfo::registerDeclareSIMDFunction(Function & F) {
+  auto attribSet = F.getAttributes().getFnAttributes();
+  // parse SIMD signatures
+  std::vector<VectorMapping> wfvJobs;
+  for (auto attrib : attribSet) {
+    if (!attrib.isStringAttribute()) continue;
+    StringRef attribText = attrib.getKindAsString();
 
-PlatformInfo::~PlatformInfo() {
-  for (auto it : funcMappings) {
-    delete it.second;
+    if (attribText.size() < 2) continue;
+
+    VectorMapping vecMapping;
+    if (!parseVectorMapping(F, attribText, vecMapping, false)) continue;
+    addMapping(std::move(vecMapping));
   }
 }
 
-void PlatformInfo::addMapping(const Function *function,
-                              const rv::VectorMapping *mapping) {
-  funcMappings[function] = mapping;
+void
+PlatformInfo::addMapping(VectorMapping&& mapping) { listResolver->addMapping(std::move(mapping)); }
+
+void
+PlatformInfo::addIntrinsicMappings() {
+  for (Function & func : getModule()) {
+    switch (GetIntrinsicID(func)) {
+      case RVIntrinsic::Any:
+      case RVIntrinsic::All: {
+        addMapping(VectorMapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::varying()}
+        ));
+      } break;
+
+      case RVIntrinsic::Extract: {
+        addMapping(VectorMapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::varying(), VectorShape::uni()}
+        ));
+      } break;
+
+      case RVIntrinsic::Insert: {
+        addMapping(VectorMapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::varying(),
+          {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
+        ));
+      } break;
+
+      case RVIntrinsic::VecLoad: {
+        addMapping(VectorMapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::varying(), VectorShape::uni()}
+        ));
+      } break;
+
+      case RVIntrinsic::VecStore: {
+        addMapping(VectorMapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
+        ));
+      } break;
+
+      case RVIntrinsic::Shuffle: {
+        addMapping(VectorMapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::uni(), VectorShape::uni()}
+        ));
+      } break;
+
+      case RVIntrinsic::Ballot: {
+        addMapping(VectorMapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::varying()}
+          ));
+      } break;
+
+      case RVIntrinsic::PopCount: {
+        addMapping(VectorMapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::uni(),
+          {VectorShape::varying()}
+          ));
+      } break;
+
+      case RVIntrinsic::Index: {
+        addMapping(VectorMapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::varying(),
+          {VectorShape::varying()}
+          ));
+      } break;
+
+      case RVIntrinsic::Align: {
+        addMapping(VectorMapping(
+          &func,
+          &func,
+          0, // no specific vector width
+          -1, //
+          VectorShape::undef(),
+          {VectorShape::undef(), VectorShape::uni()}
+          ));
+      } break;
+      default: break;
+    }
+  }
 }
 
-void PlatformInfo::removeMappingIfPresent(const Function *function) {
-  auto found = funcMappings.find(function);
+PlatformInfo::PlatformInfo(Module &_mod, TargetTransformInfo *TTI,
+                           TargetLibraryInfo *TLI)
+: mod(_mod)
+, mTTI(TTI)
+, mTLI(TLI)
+, resolverServices()
+, listResolver(nullptr)
+{
+  resolverServices.push_back(std::unique_ptr<ResolverService>(new ListResolver(mod)));
+  listResolver = static_cast<ListResolver*>(&*resolverServices[0]);
 
-  if (found != funcMappings.end())
-    funcMappings.erase(found);
+  // add Rv intrinsic mappings
+  addIntrinsicMappings();
+
+  // register OpenMP "pragma omp declare simd" functions
+  for (auto & F : mod) {
+    registerDeclareSIMDFunction(F);
+  }
 }
 
-const rv::VectorMapping *
-PlatformInfo::getMappingByFunction(const Function *function) const {
-  auto found = funcMappings.find(function);
-
-  if (found != funcMappings.end())
-    return found->second;
-
-  return nullptr;
-}
+PlatformInfo::~PlatformInfo() {}
 
 void PlatformInfo::setTTI(TargetTransformInfo *TTI) { mTTI = TTI; }
 
@@ -53,157 +188,29 @@ TargetTransformInfo *PlatformInfo::getTTI() { return mTTI; }
 
 TargetLibraryInfo *PlatformInfo::getTLI() { return mTLI; }
 
-void PlatformInfo::addVectorizableFunctions(ArrayRef<VecDesc> funcs, bool givePrecedence) {
-  auto itInsert = givePrecedence ? commonVectorMappings.begin() : commonVectorMappings.end();
-  commonVectorMappings.insert(itInsert, funcs.begin(), funcs.end());
+void
+PlatformInfo::addResolverService(std::unique_ptr<ResolverService>&& newResolver, bool givePrecedence) {
+  auto itInsert = givePrecedence ? resolverServices.begin() : resolverServices.end();
+  resolverServices.insert(itInsert, std::move(newResolver));
 }
 
-bool PlatformInfo::isFunctionVectorizable(StringRef funcName,
-                                          unsigned vectorWidth) {
-  return !getVectorizedFunction(funcName, vectorWidth).empty();
-}
-
-StringRef PlatformInfo::getVectorizedFunction(StringRef funcName,
-                                              unsigned vectorWidth,
-                                              bool *isInTLI) {
-  if (funcName.empty())
-    return funcName;
-
-  // query custom mappings with precedence
-  std::string funcNameStr = funcName.str();
-  for (const auto & vd : commonVectorMappings) {
-     if (vd.scalarFnName == funcNameStr && vd.vectorWidth == vectorWidth) return vd.vectorFnName;
-  };
-
-  // query TLI
-  StringRef tliFnName = mTLI->getVectorizedFunction(funcName, vectorWidth);
-  if (!tliFnName.empty()) {
-    if (isInTLI)
-      *isInTLI = true;
-    return tliFnName;
+std::unique_ptr<FunctionResolver>
+PlatformInfo::getResolver(StringRef funcName,
+                          FunctionType & scaFuncTy,
+                          const VectorShapeVec & argShapes,
+                          int vectorWidth) const {
+  for (const auto & resolver : resolverServices) {
+    std::unique_ptr<FunctionResolver> funcResolver = resolver->resolve(funcName, scaFuncTy, argShapes, vectorWidth, mod);
+    if (funcResolver) return funcResolver;
   }
-
-  // no mapping
-  return StringRef();
+  return nullptr;
 }
 
-Function *PlatformInfo::requestVectorizedFunction(StringRef funcName,
-                                                  unsigned vectorWidth,
-                                                  Module *insertInto,
-                                                  bool doublePrecision) {
-  bool isInTLI = false;
-  StringRef vecFuncName =
-      getVectorizedFunction(funcName, vectorWidth, &isInTLI);
-  if (vecFuncName.empty())
-    return nullptr;
 
-  if (isInTLI)
-    return insertInto->getFunction(vecFuncName);
-  else
-    return requestSleefFunction(funcName, vecFuncName, insertInto,
-                                doublePrecision);
-}
 
-bool PlatformInfo::addSIMDMapping(rv::VectorMapping &mapping) {
-  if (funcMappings.count(mapping.scalarFn))
-    return false;
-  funcMappings[mapping.scalarFn] = new rv::VectorMapping(mapping);
-  return true;
-}
 
-// This function should be called *before* run().
-bool PlatformInfo::addSIMDMapping(const Function &scalarFunction,
-                                  const Function &simdFunction,
-                                  const int maskPosition,
-                                  const bool mayHaveSideEffects) {
-  assert(scalarFunction.getParent() == simdFunction.getParent());
-
-  // Find out which arguments are UNIFORM and which are VARYING.
-  SmallVector<bool, 4> uniformArgs;
-  uniformArgs.reserve(scalarFunction.arg_size());
-
-  Function::const_arg_iterator scalarA = scalarFunction.arg_begin();
-  Function::const_arg_iterator simdA = simdFunction.arg_begin();
-
-  for (Function::const_arg_iterator scalarE = scalarFunction.arg_end();
-       scalarA != scalarE; ++scalarA, ++simdA) {
-    Type *scalarType = scalarA->getType();
-    Type *simdType = simdA->getType();
-    const bool isUniform = typesMatch(scalarType, simdType);
-
-    uniformArgs.push_back(isUniform);
-  }
-
-  funcMappings[&scalarFunction] =
-      inferMapping(const_cast<Function &>(scalarFunction),
-                   const_cast<Function &>(simdFunction), maskPosition);
-
-  return true;
-}
-
-VectorMapping *PlatformInfo::inferMapping(llvm::Function &scalarFnc,
-                                          llvm::Function &simdFnc,
-                                          int maskPos) {
-
-  // return shape
-  rv::VectorShape resultShape;
-
-  auto *scalarRetTy = scalarFnc.getReturnType();
-  auto *simdRetTy = simdFnc.getReturnType();
-
-  if (typesMatch(scalarRetTy, simdRetTy)) {
-    resultShape = VectorShape::uni();
-  } else {
-    assert(simdRetTy->isVectorTy() && "return type mismatch");
-    resultShape = VectorShape::varying();
-  }
-
-  // argument shapes
-  rv::VectorShapeVec argShapes;
-
-  auto itScalarArg = scalarFnc.arg_begin();
-  auto itSimdArg = simdFnc.arg_begin();
-
-  for (size_t i = 0; i < simdFnc.arg_size(); ++i) {
-    // mask special case
-    if (maskPos >= 0 && (i == (uint)maskPos)) {
-      argShapes.push_back(VectorShape::varying());
-      ++itSimdArg;
-      continue;
-    }
-
-    // trailing additional argument case
-    if (itScalarArg == scalarFnc.arg_end()) {
-      IF_DEBUG errs() << "Unexpected additional argument (pos " << i
-                      << ") in simd function " << simdFnc << "\n";
-      argShapes.push_back(VectorShape::varying());
-      ++itSimdArg;
-      continue;
-    }
-
-    // default argument case
-    if (typesMatch(itScalarArg->getType(), itSimdArg->getType())) {
-      argShapes.push_back(VectorShape::uni()); // unaligned
-    } else {
-      argShapes.push_back(VectorShape::varying());
-    }
-
-    ++itScalarArg;
-    ++itSimdArg;
-  }
-
-  assert(itScalarArg == scalarFnc.arg_end());
-  assert(itSimdArg == simdFnc.arg_end());
-
-  int vecWidth = 0; // FIXME
-  return new rv::VectorMapping(&scalarFnc, &simdFnc,
-                               vecWidth, // if all arguments have shapes this
-                                         // function is suitable for all
-                                         // possible widths
-                               maskPos, resultShape, argShapes);
-}
-
-Function *PlatformInfo::requestVectorMaskReductionFunc(const std::string &name, size_t width) {
+Function*
+PlatformInfo::requestVectorMaskReductionFunc(const std::string &name, size_t width) {
   std::string mangledName = name + "_v" + std::to_string(width);
   auto *redFunc = mod.getFunction(mangledName);
   if (redFunc)
@@ -219,7 +226,9 @@ Function *PlatformInfo::requestVectorMaskReductionFunc(const std::string &name, 
   redFunc->setDoesNotRecurse();
   return redFunc; // TODO add SIMD mapping
 }
-Function *PlatformInfo::requestMaskReductionFunc(const std::string &name) {
+
+Function*
+PlatformInfo::requestMaskReductionFunc(const std::string &name) {
   auto *redFunc = mod.getFunction(name);
   if (redFunc)
     return redFunc;
@@ -242,6 +251,29 @@ PlatformInfo::getMaxVectorWidth() const {
 size_t
 PlatformInfo::getMaxVectorBits() const {
   return mTTI->getRegisterBitWidth(true);
+}
+
+void
+PlatformInfo::dump() const {
+  print(llvm::errs());
+}
+
+
+void
+PlatformInfo::forgetMapping(const VectorMapping & mapping) { listResolver->forgetMapping(mapping); }
+
+void
+PlatformInfo::forgetAllMappingsFor(const Function & scaFunc) { listResolver->forgetAllMappingsFor(scaFunc); }
+
+void
+PlatformInfo::print(llvm::raw_ostream & out) const {
+  out << "PlatformInfo {\n";
+  out << "Resolvers: [\n";
+  for (const auto & resService : resolverServices) {
+    resService->print(out);
+    out << "\n";
+  }
+  out << "] }\n";
 }
 
 }

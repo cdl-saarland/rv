@@ -22,6 +22,7 @@ namespace llvm {
 #include "vectorShape.h"
 #include "vectorMapping.h"
 #include "region/Region.h"
+#include <llvm/Support/raw_ostream.h>
 
 #include <unordered_map>
 #include <set>
@@ -56,8 +57,8 @@ public:
 
     size_t getVectorWidth() const { return mapping.vectorWidth; }
 
-    VectorizationInfo(VectorMapping _mapping);
-    VectorizationInfo(llvm::Function& parentFn, uint vectorWidth, Region& _region);
+    VectorizationInfo(Region & funcRegion, VectorMapping _mapping);
+    VectorizationInfo(llvm::Function& parentFn, unsigned vectorWidth, Region& _region);
 
     bool hasKnownShape(const llvm::Value& val) const;
 
@@ -77,8 +78,12 @@ public:
     bool isDivergentLoopTopLevel(const llvm::Loop* loop) const;
 
     void dump() const;
+    void print(llvm::raw_ostream & out) const;
     void dump(const llvm::Value * val) const;
+    void print(const llvm::Value * val, llvm::raw_ostream&) const;
+    void printBlockInfo(const llvm::BasicBlock & block, llvm::raw_ostream&) const;
     void dumpBlockInfo(const llvm::BasicBlock & block) const;
+    void printArguments(llvm::raw_ostream&) const;
     void dumpArguments() const;
 
     void setLoopDivergence(const llvm::Loop & loop, bool toUniform);

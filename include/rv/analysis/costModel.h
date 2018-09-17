@@ -15,7 +15,7 @@ namespace rv {
 class PlatformInfo;
 class VectorizationInfo;
 class Region;
-class VectorMapping;
+struct VectorMapping;
 
 class CostModel {
   PlatformInfo & platInfo;

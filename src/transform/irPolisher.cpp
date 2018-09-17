@@ -18,7 +18,8 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #include "llvm/Analysis/ValueTracking.h"
-#include "llvm/Transforms/InstCombine/InstCombine.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
 
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/InstIterator.h"
@@ -312,7 +313,7 @@ Value *IRPolisher::replaceSelectInst(IRBuilder<> &builder, llvm::SelectInst *sel
     if (isa<FPMathOperator>(cmpInst)) {
         oldFMF = cmpInst->getFastMathFlags();
         FastMathFlags newFMF = oldFMF;
-        newFMF.setUnsafeAlgebra();
+        newFMF.setFast();
         cmpInst->setFastMathFlags(newFMF);
     }
 
@@ -538,7 +539,7 @@ bool IRPolisher::polish() {
   FunctionAnalysisManager FAM;
   PassBuilder builder;
   builder.registerFunctionAnalyses(FAM);
-  FPM.addPass(InstCombinePass());
+  FPM.addPass(AggressiveInstCombinePass());
   FPM.run(F, FAM);
 
   visitedInsts.clear();

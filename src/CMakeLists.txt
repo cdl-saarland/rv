@@ -28,19 +28,21 @@ add_rv_library(RV
   annotations.cpp
   PlatformInfo.cpp
   VectorizationInfoProxyPass.cpp
+  analysis/AllocaSSA.cpp
   analysis/BranchDependenceAnalysis.cpp
   analysis/costModel.cpp
-  analysis/DFG.cpp
   analysis/VectorizationAnalysis.cpp
   analysis/reductionAnalysis.cpp
   analysis/reductions.cpp
-  analysis/DivPathDecider.cpp
+  analysis/UndeadMaskAnalysis.cpp
   config.cpp
   init.cpp
+  intrinsics.cpp
   native/MemoryAccessGrouper.cpp
   native/NatBuilder.cpp
   native/ShuffleBuilder.cpp
   native/Utils.cpp
+  region/FunctionRegion.cpp
   region/LoopRegion.cpp
   region/Region.cpp
   registerPasses.cpp
@@ -49,11 +51,16 @@ add_rv_library(RV
   rvConfig.cpp
   rvDebug.cpp
   passes.cpp
-  sleefLibrary.cpp
+  resolver/recResolver.cpp
+  resolver/resolver.cpp
+  resolver/listResolver.cpp
+  resolver/sleefResolver.cpp
+  resolver/TLIResolver.cpp
   transform/CNSPass.cpp
   transform/Linearizer.cpp
   transform/LoopVectorizer.cpp
   transform/bosccTransform.cpp
+  transform/crtLowering.cpp
   transform/cns/BlockGraph.cpp
   transform/cns/CNS.cpp
   transform/cns/CNSScoring.cpp
@@ -62,14 +69,21 @@ add_rv_library(RV
   transform/cns/llvmDuplication.cpp
   transform/divLoopTrans.cpp
   transform/irPolisher.cpp
+  transform/loopCloner.cpp
   transform/loopExitCanonicalizer.cpp
+  transform/lowerDivergentSwitches.cpp
   transform/maskExpander.cpp
+  transform/memCopyElision.cpp
   transform/redTools.cpp
   transform/redOpt.cpp
   transform/remTransform.cpp
+  transform/singleReturnTrans.cpp
   transform/srovTransform.cpp
   transform/structOpt.cpp
   transform/splitAllocas.cpp
+  transform/WFVPass.cpp
+  utils.cpp
+  utils/rvLinking.cpp
   utils/rvTools.cpp
   vectorMapping.cpp
   vectorShape.cpp
@@ -86,7 +100,7 @@ if (BUILD_SHARED_LIBS)
     LLVMSupport
     LLVMCore
     LLVMScalarOpts
-    LLVMInstCombine
+    LLVMAggressiveInstCombine
     LLVMTransformUtils
     LLVMAnalysis
     LLVMipo

@@ -19,15 +19,14 @@
 #include <llvm/Analysis/BranchProbabilityInfo.h>
 
 #include "rv/rv.h"
-#include "rv/analysis/DFG.h"
 #include "rv/analysis/VectorizationAnalysis.h"
+#include "rv/intrinsics.h"
 
 #include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/transform/divLoopTrans.h"
 
 #include "rv/PlatformInfo.h"
 #include "rv/vectorizationInfo.h"
-#include "rv/analysis/DFG.h"
 #include "rv/analysis/reductionAnalysis.h"
 
 #include "rv/transform/Linearizer.h"
@@ -38,6 +37,8 @@
 #include "rv/transform/irPolisher.h"
 #include "rv/transform/bosccTransform.h"
 #include "rv/transform/redOpt.h"
+#include "rv/transform/memCopyElision.h"
+#include "rv/transform/lowerDivergentSwitches.h"
 
 #include "native/NatBuilder.h"
 
@@ -48,7 +49,7 @@
 
 #include "rv/transform/maskExpander.h"
 
-#include "rv/sleefLibrary.h"
+#include "rv/transform/crtLowering.h"
 
 
 using namespace llvm;
@@ -58,97 +59,7 @@ namespace rv {
 VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo, Config _config)
         : config(_config)
         , platInfo(_platInfo)
-{
-  addIntrinsics();
-}
-
-void
-VectorizerInterface::addIntrinsics() {
-    for (Function & func : platInfo.getModule()) {
-        if (func.getName() == "rv_any" ||
-            func.getName() == "rv_all") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying()}
-          );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_extract") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying(), VectorShape::uni()}
-          );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_insert") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::varying(),
-            {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
-          );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_load") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying(), VectorShape::uni()}
-          );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_store") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
-          );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_shuffle") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::uni(), VectorShape::uni()}
-          );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_ballot") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::uni(),
-            {VectorShape::varying(), VectorShape::varying()}
-            );
-          platInfo.addSIMDMapping(mapping);
-        } else if (func.getName() == "rv_align") {
-          VectorMapping mapping(
-            &func,
-            &func,
-            0, // no specific vector width
-            -1, //
-            VectorShape::undef(),
-            {VectorShape::undef(), VectorShape::uni()}
-            );
-          platInfo.addSIMDMapping(mapping);
-        }
-    }
-}
+{ }
 
 static void
 EmbedInlinedCode(BasicBlock & entry, Loop & hostLoop, LoopInfo & loopInfo, std::set<BasicBlock*> & funcBlocks) {
@@ -227,32 +138,40 @@ VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, LoopInfo & l
 
 void
 VectorizerInterface::analyze(VectorizationInfo& vecInfo,
-                             const CDG& cdg,
-                             const DFG& dfg,
+                             const DominatorTree & domTree,
+                             const PostDominatorTree& postDomTree,
                              const LoopInfo& loopInfo)
 {
     IF_DEBUG {
+      errs() << "Initial PlatformInfo:\n";
+      platInfo.dump();
+
       errs() << "VA before analysis:\n";
       vecInfo.dump();
     }
 
     // determines value and control shapes
-    VectorizationAnalysis vea(config, platInfo, vecInfo, cdg, dfg, loopInfo);
+    VectorizationAnalysis vea(config, platInfo, vecInfo, domTree, postDomTree, loopInfo);
     vea.analyze();
 }
 
 bool
 VectorizerInterface::linearize(VectorizationInfo& vecInfo,
-                 CDG& cdg,
-                 DFG& dfg,
-                 LoopInfo& loopInfo,
-                 PostDominatorTree& postDomTree,
                  DominatorTree& domTree,
+                 PostDominatorTree& postDomTree,
+                 LoopInfo& loopInfo,
                  BranchProbabilityInfo * pbInfo)
 {
     // use a fresh domtree here
     // DominatorTree fixedDomTree(vecInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
     domTree.recalculate(vecInfo.getScalarFunction());
+
+    // early lowering of divergent switch statements
+    LowerDivergentSwitches divSwitchTrans(vecInfo, loopInfo);
+    if (divSwitchTrans.run()) {
+      postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+      domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    }
 
     // lazy mask generator
     MaskExpander maskEx(vecInfo, domTree, postDomTree, loopInfo);
@@ -304,6 +223,10 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 // flag is set if the env var holds a string that starts on a non-'0' char
 bool
 VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTree, LoopInfo & loopInfo, ScalarEvolution & SE, MemoryDependenceResults & MDR, ValueToValueMapTy * vecInstMap) {
+  // divergent memcpy lowering
+  MemCopyElision mce(platInfo, vecInfo);
+  mce.run();
+
   // split structural allocas
   if (config.enableSplitAllocas) {
     SplitAllocas split(vecInfo);
@@ -333,7 +256,7 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTre
   if (hostLoop) reda.analyze(*hostLoop);
 
 // vectorize with native
-  native::NatBuilder natBuilder(config, platInfo, vecInfo, domTree, MDR, SE, reda);
+  NatBuilder natBuilder(config, platInfo, vecInfo, domTree, MDR, SE, reda);
   natBuilder.vectorize(true, vecInstMap);
 
   // IR Polish phase: promote i1 vectors and perform early instruction (read: intrinsic) selection
@@ -359,21 +282,26 @@ static void lowerIntrinsicCall(CallInst* call, Impl impl) {
   call->eraseFromParent();
 }
 
-static void lowerIntrinsicCall(CallInst* call) {
-  auto * callee = call->getCalledFunction();
-  if (callee->getName() == "rv_any" ||
-      callee->getName() == "rv_all" ||
-      callee->getName() == "rv_extract" ||
-      callee->getName() == "rv_shuffle" ||
-      callee->getName() == "rv_align") {
-    lowerIntrinsicCall(call, [] (const CallInst* call) {
-      return call->getOperand(0);
-    });
-  } else if (callee->getName() == "rv_insert") {
-    lowerIntrinsicCall(call, [] (const CallInst* call) {
-      return call->getOperand(2);
-    });
-  } else if (callee->getName() == "rv_load") {
+static void
+lowerIntrinsicCall(CallInst* call) {
+  switch (GetIntrinsicID(*call)) {
+    case RVIntrinsic::Any:
+    case RVIntrinsic::All:
+    case RVIntrinsic::Extract:
+    case RVIntrinsic::Shuffle:
+    case RVIntrinsic::Align: {
+      lowerIntrinsicCall(call, [] (const CallInst* call) {
+        return call->getOperand(0);
+      });
+    } break;
+
+    case RVIntrinsic::Insert: {
+      lowerIntrinsicCall(call, [] (const CallInst* call) {
+        return call->getOperand(2);
+      });
+    } break;
+
+    case RVIntrinsic::VecLoad: {
     lowerIntrinsicCall(call, [] (CallInst* call) {
       IRBuilder<> builder(call);
       auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
@@ -381,7 +309,9 @@ static void lowerIntrinsicCall(CallInst* call) {
       auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
       return builder.CreateLoad(gep);
     });
-  } else if (callee->getName() == "rv_store") {
+                               } break;
+
+    case RVIntrinsic::VecStore: {
     lowerIntrinsicCall(call, [] (CallInst* call) {
       IRBuilder<> builder(call);
       auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
@@ -389,17 +319,23 @@ static void lowerIntrinsicCall(CallInst* call) {
       auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
       return builder.CreateStore(call->getOperand(2), gep);
     });
-  } else if (callee->getName() == "rv_ballot") {
-    lowerIntrinsicCall(call, [] (CallInst* call) {
-      IRBuilder<> builder(call);
-      return builder.CreateZExt(call->getOperand(0), builder.getInt32Ty());
-    });
+  } break;
+
+    case RVIntrinsic::Ballot:
+    case RVIntrinsic::PopCount: {
+      lowerIntrinsicCall(call, [] (CallInst* call) {
+        IRBuilder<> builder(call);
+        return builder.CreateZExt(call->getOperand(0), builder.getInt32Ty());
+      });
+    } break;
+  default: break;
   }
 }
 
 void
 lowerIntrinsics(Module & mod) {
-  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align"};
+  // TODO re-implement using RVIntrinsic enum
+  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align", "rv_popcount"};
   for (int i = 0, n = sizeof(names) / sizeof(names[0]); i < n; i++) {
     auto func = mod.getFunction(names[i]);
     if (!func) continue;

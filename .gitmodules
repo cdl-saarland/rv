@@ -1,0 +1,3 @@
+[submodule "vecmath/sleef"]
+	path = vecmath/sleef
+	url = https://github.com/shibatch/sleef.git

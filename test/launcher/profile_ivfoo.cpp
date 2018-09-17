@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include <cassert>
+#include <random>
 
 #include "launcherTools.h"
 #include "timing.h"
@@ -15,11 +16,14 @@ extern "C" void foo_SIMD(int u, float * A);
 int main(int argc, char ** argv) {
   const uint vectorWidth = 8;
 
+  std::mt19937 randSource(42);
+  std::uniform_real_distribution<float> randGen;
+
   const uint padded = 2 * vectorWidth;
   float aScalar[padded];
   float aVec[padded];
   for (uint i = 0; i < padded; ++i) {
-    aScalar[i] = (float) rand();
+    aScalar[i] = randGen(randSource);
     aVec[i] = aScalar[i];
   }
 

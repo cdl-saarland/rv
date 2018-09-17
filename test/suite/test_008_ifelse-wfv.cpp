@@ -10,5 +10,5 @@ foo(float u, float t) {
   } else {
     r = fabs(t);
   }
-  return log(r);
+  return r*.5f;
 }

@@ -10,6 +10,7 @@
 #include <iostream>
 
 #include <cassert>
+#include <random>
 
 #include "launcherTools.h"
 
@@ -19,9 +20,12 @@ extern "C" float foo_SIMD(float a, float b);
 int main(int argc, char ** argv) {
   const uint numInputs = 100;
 
+  std::mt19937 randSource(42);
+  std::uniform_real_distribution<float> randGen;
+
   for (unsigned i = 0; i < numInputs; ++i) {
-    float a = (float) rand();
-    float b = (float) rand();
+    float a = randGen(randSource);
+    float b = randGen(randSource);
     float expectedRes = foo(a, b);
     float simdRes = foo_SIMD(a, b);
 

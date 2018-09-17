@@ -5,6 +5,7 @@
 #include <cassert>
 
 #include "launcherTools.h"
+#include <random>
 
 // typedef float float4 __attribute__((ext_vector_type(4)));
 
@@ -15,12 +16,15 @@ int main(int argc, char ** argv) {
   const uint vectorWidth = 8;
   const uint numIters = 1;
 
+  std::mt19937 randSource(42);
+  std::uniform_real_distribution<float> randGen;
+
   float data[2048];
 
   for (unsigned b = 0; b < numIters; ++b) {
 
     for (int j = 0; j < 2048; ++j) {
-      data[j] = (float) rand();
+      data[j] = randGen(randSource);
     }
 
     // invoke SIMD
