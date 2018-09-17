@@ -10,28 +10,28 @@ namespace rv {
 
 namespace cns {
 
-typedef uint (*ScoringFunction)(BlockGraph::SubgraphMask &mask,
-                                BlockGraph &graph, uint candidate);
+typedef unsigned (*ScoringFunction)(BlockGraph::SubgraphMask &mask,
+                                BlockGraph &graph, unsigned candidate);
 
-uint scoreNumInstructions(BlockGraph::SubgraphMask &mask, BlockGraph &graph,
-                          uint candidate) {
+unsigned scoreNumInstructions(BlockGraph::SubgraphMask &mask, BlockGraph &graph,
+                          unsigned candidate) {
   llvm::BasicBlock *block = graph.getBasicBlock(candidate);
   return block->getInstList().size();
 }
 
-uint scoreBranches(BlockGraph::SubgraphMask &mask, BlockGraph &graph,
-                   uint candidate) {
+unsigned scoreBranches(BlockGraph::SubgraphMask &mask, BlockGraph &graph,
+                   unsigned candidate) {
   return graph.getNumSuccessors(mask, candidate);
 }
 
-uint getLowestScoringNode(BlockGraph::SubgraphMask &mask, BlockGraph &graph,
+unsigned getLowestScoringNode(BlockGraph::SubgraphMask &mask, BlockGraph &graph,
                           ScoringFunction heuristicFunc) {
-  uint lowest = 0xFFFFFFFF;
-  uint lowestNode = 0;
+  unsigned lowest = 0xFFFFFFFF;
+  unsigned lowestNode = 0;
 
-  for (uint i = 0; i < mask.size(); ++i) {
+  for (unsigned i = 0; i < mask.size(); ++i) {
     if (mask[i]) {
-      uint tmpScore = (*heuristicFunc)(mask, graph, i);
+      unsigned tmpScore = (*heuristicFunc)(mask, graph, i);
       if (tmpScore < lowest) {
         lowest = tmpScore;
         lowestNode = i;

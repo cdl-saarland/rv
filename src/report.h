@@ -18,7 +18,7 @@ llvm::raw_ostream & ReportContinue();
 // output stream for error
 llvm::raw_ostream & Error();
 
-void fail(const std::string & text) LLVM_ATTRIBUTE_NORETURN;
+void LLVM_ATTRIBUTE_NORETURN fail(const std::string &text);
 
 }
 

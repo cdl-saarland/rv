@@ -40,7 +40,7 @@
 
 #include "rv/rv.h"
 #include "rv/vectorMapping.h"
-#include "rv/sleefLibrary.h"
+#include "rv/resolver/resolvers.h"
 #include "rv/passes.h"
 #include "rv/rvDebug.h"
 #include "rv/utils.h"
@@ -72,7 +72,7 @@ static bool verbose = false;
 #define IF_VERBOSE if (verbose)
 
 
-static void fail() LLVM_ATTRIBUTE_NORETURN;
+static void LLVM_ATTRIBUTE_NORETURN fail();
 
 static void fail() {
   std::cerr << '\n';
@@ -127,7 +127,7 @@ normalizeFunction(Function& F)
 }
 
 void
-vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopInfo,
+vectorizeLoop(Function& parentFn, Loop& loop, unsigned vectorWidth, LoopInfo& loopInfo,
               DominatorTree& domTree, PostDominatorTree& postDomTree)
 {
     // assert: function is already normalized
@@ -183,6 +183,8 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
     // link in SIMD library
     addSleefResolver(config, platformInfo, 35);
+    // vectorize recursively
+    addRecursiveResolver(config, platformInfo);
 
 // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable
@@ -257,7 +259,7 @@ vectorizeLoop(Function& parentFn, Loop& loop, uint vectorWidth, LoopInfo& loopIn
 
 // Use case: Outer-loop Vectorizer
 void
-vectorizeFirstLoop(Function& parentFn, uint vectorWidth)
+vectorizeFirstLoop(Function& parentFn, unsigned vectorWidth)
 {
     // normalize
     normalizeFunction(parentFn);
@@ -342,6 +344,8 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
 
     // link in SIMD library
     addSleefResolver(config, platformInfo, 35);
+    // vectorize recursively
+    addRecursiveResolver(config, platformInfo);
 
     rv::VectorizerInterface vectorizer(platformInfo, config);
 
@@ -365,7 +369,7 @@ vectorizeFunction(rv::VectorMapping& vectorizerJob, ShapeMap extraShapes)
         rv::VectorMapping vecFuncMap(vecFun, vecFun, 0);
         vecFuncMap.resultShape = shape;
         platformInfo.addMapping(vecFuncMap);
-        outs() << "rvTool func mapping: "; vecFuncMap.dump(outs());
+        outs() << "rvTool func mapping: "; vecFuncMap.print(outs());
 
       } else if (gv) {
         // interpret <shape> as shape of gvar address
@@ -507,7 +511,8 @@ PrintHelp() {
             << "commands:\n"
             << "-wfv/-loopvec : vectorize a whole-function or an outer loop\n"
             << "-analyze      : normalize, print vectorization analysis results and exit.\n"
-            << "-lower        : lower predicate intrinsics in scalar kernel.\n"
+            << "-lower-func   : lower predicate intrinsics in scalar kernel.\n"
+            << "-lower        : lower predicate intrinsics in entire module.\n"
             << "-normalize    : normalize kernel and quit.\n"
             << "options:\n"
             << "-i MODULE     : LLVM input module.\n"
@@ -539,7 +544,8 @@ int main(int argc, char** argv)
     std::string targetDeclName;
     bool hasTargetDeclName = reader.readOption<std::string>("-t", targetDeclName);
 
-    bool lowerIntrinsics = reader.hasOption("-lower");
+    bool lowerIntrinsicsFunc = reader.hasOption("-lower-func");
+    bool lowerIntrinsicsMod = reader.hasOption("-lower");
 
     std::string outFile;
     bool hasOutFile = reader.readOption<std::string>("-o", outFile);
@@ -657,7 +663,7 @@ int main(int argc, char** argv)
         }
       }
 
-      uint vectorWidth = reader.getOption<uint>("-w", 8);
+      unsigned vectorWidth = reader.getOption<unsigned>("-w", 8);
 
       if (wfvMode)
       {
@@ -696,9 +702,12 @@ int main(int argc, char** argv)
           vectorizeFirstLoop(*scalarFn, vectorWidth);
       }
 
-      if (lowerIntrinsics) {
+      if (lowerIntrinsicsFunc) {
         IF_VERBOSE errs() << "Lowering intrinsics in function " << scalarFn->getName() << "\n";
         rv::lowerIntrinsics(*scalarFn);
+      } else if (lowerIntrinsicsMod) {
+        IF_VERBOSE errs() << "Lowering intrinsics in module\n";
+        rv::lowerIntrinsics(*mod);
       }
 
     } // !finish

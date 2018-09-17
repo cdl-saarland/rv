@@ -30,7 +30,6 @@ namespace llvm {
   class Loop;
   class LoopInfo;
   class DominatorTree;
-  class PostDominatorTree;
   class ScalarEvolution;
   struct PostDominatorTree;
   class MemoryDependenceResults;
@@ -40,7 +39,7 @@ namespace llvm {
 
 namespace rv {
 
-class VectorMapping;
+struct VectorMapping;
 class VectorizationInfo;
 class VectorizerInterface;
 class PlatformInfo;

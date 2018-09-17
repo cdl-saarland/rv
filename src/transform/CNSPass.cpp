@@ -33,7 +33,7 @@ class CNS : public llvm::FunctionPass {
                                         BlockGraph::SubgraphMask &mask,
                                         BlockGraph &graph);
 
-  void applySplitSequence(BlockGraph &graph, std::vector<uint> nodes) const;
+  void applySplitSequence(BlockGraph &graph, std::vector<unsigned> nodes) const;
 
 public:
   static char ID;
@@ -92,7 +92,7 @@ cns::SplitTree *CNS::generateSplitSequence(cns::SplitTree *root,
     /*
      * select splitting node (from the headers of the SCC)
      */
-    uint splitNode =
+    unsigned splitNode =
         cns::getLowestScoringNode(candidates, graph, &cns::scoreBranches);
 
     IF_DEBUG_CNS llvm::errs() << "heuristic picked node: " << splitNode << "\n";
@@ -145,7 +145,7 @@ bool CNS::runOnFunction(llvm::Function &func) {
 
     numSplits = tree->getDepth();
     totalNumSplits += numSplits;
-    std::vector<uint> nodes(numSplits);
+    std::vector<unsigned> nodes(numSplits);
 
 
     // recover split sequence
@@ -177,9 +177,9 @@ llvm::StringRef CNS::getPassName() const {
 }
 
 void CNS::applySplitSequence(BlockGraph &graph,
-                                 std::vector<uint> nodes) const {
-  for (uint i = 0; i < nodes.size(); ++i) {
-    uint node = nodes[i];
+                                 std::vector<unsigned> nodes) const {
+  for (unsigned i = 0; i < nodes.size(); ++i) {
+    unsigned node = nodes[i];
     llvm::BasicBlock *splitBlock = graph.getLabel(node);
 
     splitNode(splitBlock);
