@@ -78,7 +78,7 @@ To also get a report from RV's Outer-Loop Vectorizer, set the environment variab
 ### Optional cmake flags
 
 * `RV_ENABLE_CRT:BOOL`
-whether RV should inline and vectorize complex math functions. This makes use of the complex arithmetic in compiler-rt. Defaults to OFF.
+Whether RV should inline and vectorize complex math functions. This makes use of the complex arithmetic implementations in compiler-rt. Requires compiler-rt to live in llvm/projects. Defaults to OFF.
 * `RV_TARGETS_TO_BUILD:ListOfTargets`
 List of LLVM targets, for which the SLEEF vector math library should be built. Same format as `LLVM_TARGETS_TO_BUILD`. RV uses SLEEF to vectorize math functions. Clang has to be able to (cross-)compile for all of these targets or the build will fail. Defaults to "Native", the host target.
 * `RV_DEBUG:BOOL`
