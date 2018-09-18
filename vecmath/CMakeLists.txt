@@ -9,7 +9,7 @@ SET ( RV_LIB_EXTRAS_DIR "${RV_SOURCE_DIR}/vecmath/extras" )
 # compiler-rt
 SET ( CRT_BC "${VECMATH_LIB_DIR}/crt.bc" )
 SET ( CRT_GENBC "${VECMATH_LIB_DIR}/crt.gen.cpp" )
-SET ( CRT_INC "${RV_SOURCE_DIR}/../../runtimes/compiler-rt/lib/builtins" )
+SET ( CRT_INC "${RV_SOURCE_DIR}/../../projects/compiler-rt/lib/builtins" )
 
 # extra libs
 SET ( SLEEF_BC_ADVSIMD_SP )

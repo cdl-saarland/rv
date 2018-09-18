@@ -2,7 +2,7 @@
 // #include "absvsi2.c"
 // #include "absvti2.c"
 // #include "adddf3.c"
-// #include "addsf3.c"
+#include "addsf3.c"
 // #include "addtf3.c"
 // #include "addvdi3.c"
 // #include "addvsi3.c"

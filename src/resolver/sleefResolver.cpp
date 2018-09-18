@@ -24,7 +24,6 @@
 #include "rvConfig.h"
 #include "rv/rv.h"
 #include "rv/utils.h"
-#include "utils/rvTools.h"
 #include "rv/region/FunctionRegion.h"
 #include "rv/transform/singleReturnTrans.h"
 #include "rv/transform/loopExitCanonicalizer.h"
@@ -287,7 +286,7 @@ InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleW
           {"llvm.copysign.f32", "xcopysignf", floatWidth},
           {"llvm.minnum.f32", "xfminf", floatWidth},
           {"llvm.maxnum.f32", "xfmaxf", floatWidth},
-          {"llvm.fabs.f64", "xfabs_vla", doubleWidth},
+          {"llvm.fabs.f64", "xfabs", doubleWidth},
           {"llvm.copysign.f64", "xcopysign", doubleWidth},
           {"llvm.minnum.f64", "xfmin", doubleWidth},
           {"llvm.maxnum.f64", "xfmax", doubleWidth},
