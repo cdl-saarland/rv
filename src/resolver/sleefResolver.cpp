@@ -477,41 +477,6 @@ public:
 
 
 
-
-// existing vectorized function wrapper
-#if 0
-class ExistingResolver : public FunctionResolver {
-  Function & vecFunc;
-  VectorShape retShape;
-
-public:
-  ExistingResolver(Module & destModule, Function & _vecFunc, VectorShape _retShape)
-  : FunctionResolver(destModule)
-  , vecFunc(_vecFunc)
-  , retShape(_retShape)
-  {}
-
-  CallPredicateMode getCallSitePredicateMode() {
-    // FIXME this is not entirely true for vector math
-    return CallSitePredicate::SafeWithoutPredicate;
-  }
-
-  // mask position (if any)
-  int getMaskPos() {
-    return -1; // FIXME vector math is unpredicated
-  }
-
-  llvm::Function& requestVectorized() {
-    return vecFunc;
-  }
-
-  // result shape of function @funcName in target module @module
-  VectorShape requestResultShape() {
-    return VectorShape::varying();
-  }
-};
-#endif
-
 // simply links-in the pre-vectorized SLEEF function
 class SleefLookupResolver : public FunctionResolver {
   VectorShape resShape;
