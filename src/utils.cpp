@@ -51,7 +51,6 @@ parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & 
   // int vecRegisterBits = ParseRegisterWidth(attribText[4]); // TODO use ISA hint for rvConfig
 
   bool needsMask = attribText[5] == 'M';
-  if (needsMask) return false; // TODO implement mask variant generation
 
   // parse vectorization factor
   char * pos; // = attribText.begin() + 6; // "_ZGV<api><vecbits>"
@@ -98,7 +97,8 @@ parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & 
   mapping.scalarFn = &scalarFn;
   mapping.resultShape = VectorShape::varying();
   mapping.argShapes = argShapes;
-  mapping.maskPos = needsMask ? std::max<int>(0, argShapes.size() - 1) : -1; // TODO what's the right vector mask position?
+  mapping.maskPos = needsMask ? std::max<int>(0, argShapes.size()) : -1; // TODO what's the right vector mask position?
+  mapping.predMode = needsMask ? CallPredicateMode::PredicateArg : CallPredicateMode::Unpredicated;
   mapping.vectorWidth = vectorWidth;
   if (simdDecl) {
     mapping.vectorFn = simdDecl;
