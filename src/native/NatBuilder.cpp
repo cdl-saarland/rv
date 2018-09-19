@@ -1154,21 +1154,27 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   }
 
 // Vectorize this function using a resolver provided vector function.
+  auto & scaBlock = *scalCall->getParent();
+  auto & scaMask = *vecInfo.getPredicate(scaBlock);
   std::unique_ptr<FunctionResolver> funcResolver = nullptr;
-  bool hasCallPredicate = !hasUniformPredicate(*scalCall->getParent());
+  bool hasCallPredicate = !hasUniformPredicate(scaBlock);
   if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth(), hasCallPredicate);
   if (funcResolver) {
     Function &simdFunc = funcResolver->requestVectorized();
 
-    bool needsPredicate = MayRecurse(simdFunc);
+    bool needsGuardedCall =
+      hasCallPredicate && // call site with a non trivial predicate
+      MayRecurse(simdFunc) && // the called function may actually recurse
+      !undeadMasks.isUndead(scaMask, scaBlock); // there is not at least one live thread
 
-    const int maskPos = funcResolver->getMaskPos(); // FIXME predication
+    const int maskPos = funcResolver->getMaskPos();
     std::vector<Value*> vectorArgs;
+
     // request the vector arguments within the current scope
     requestVectorCallArgs(*scalCall, simdFunc, maskPos, vectorArgs);
     bool producesValue = !scalCall->getType()->isVoidTy();
 
-    auto & vecCall = createAnyGuard(needsPredicate, *scalCall->getParent(), *scalCall, producesValue,
+    auto & vecCall = createAnyGuard(needsGuardedCall, *scalCall->getParent(), *scalCall, producesValue,
       [&](IRBuilder<> & builder) {
         return builder.CreateCall(&simdFunc, vectorArgs, scalCall->getName() + ".rv");
       });
