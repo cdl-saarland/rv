@@ -246,22 +246,9 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   // - region mode: true
   auto & entryBlock = vecInfo.getEntry();
   if (&BB == &entryBlock) {
-    auto & mapping =vecInfo.getMapping();
-#if 0
-    // TODO wfv entry mask handled by "rv_entry_mask" call
-    if (mapping.maskPos >= 0) {
-      auto itArg = mapping.scalarFn->arg_begin();
-      std::advance(itArg, mapping.maskPos);
-      IF_DEBUG_ME {errs() << "entryMask: " << *itArg << "\n"; }
-      setBlockMask(BB, *itArg);
-      return *itArg;
-    } else
-#endif
-    {
-      IF_DEBUG_ME {errs() << "region entryMask: true\n"; }
-      setBlockMask(BB, *trueConst);
-      return *trueConst;
-    }
+    IF_DEBUG_ME {errs() << "region entryMask: true\n"; }
+    setBlockMask(BB, *trueConst);
+    return *trueConst;
   }
 
   // return the cached result
