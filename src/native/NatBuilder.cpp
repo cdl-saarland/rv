@@ -577,12 +577,12 @@ NatBuilder::requestVectorCallArgs(CallInst & scaCall, Function & vecFunc, int ma
   for (int vecIdx = 0, scaIdx = 0;
        vecIdx < (int) vecFunc.arg_size();
        ++vecIdx, ++itVecArg) {
-    Value *op = scaCall.getArgOperand(scaIdx);
 
     if (vecIdx == maskPos) {
       vectorArgs.push_back(requestVectorPredicate(*scaCall.getParent()));
       // the mask argument does not exist in the scalar function
     } else {
+      Value *op = scaCall.getArgOperand(scaIdx);
       bool vecTypeArg = itVecArg->getType()->isVectorTy();
       Value *mappedArg = vecTypeArg ? requestVectorValue(op) : requestScalarValue(op);
       vectorArgs.push_back(mappedArg);
