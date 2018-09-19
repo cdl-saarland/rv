@@ -183,7 +183,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   // map arguments first
 
   if (!region->isVectorLoop()) {
-    errs() << "VecFuncType: " << *vecFunc->getFunctionType() << "\n";
+    IF_DEBUG_NAT { errs() << "VecFuncType: " << *vecFunc->getFunctionType() << "\n"; }
     int i = 0;
     int shapeIdx = 0;
     auto sit = func->arg_begin();
@@ -199,9 +199,8 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
       const Argument *sarg = &*sit;
       arg->setName(sarg->getName());
       VectorShape argShape = vecInfo.getMapping().argShapes[shapeIdx++];
-      errs() << *sarg << " -> " << *arg << "\n";
+      IF_DEBUG_NAT { errs() << *sarg << " -> " << *arg << "\n"; }
       if (argShape.isVarying() && !arg->getType()->isPointerTy()) {
-        errs() << "\tV\n";
         mapVectorValue(sarg, arg);
       } else {
         mapScalarValue(sarg, arg);
@@ -209,7 +208,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
     }
   }
 
-  if (vecMaskArg) {
+  IF_DEBUG_NAT if (vecMaskArg) {
     errs() << "VecMaskArg: " << *vecMaskArg << "\n";
   }
 
