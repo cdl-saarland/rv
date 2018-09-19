@@ -192,6 +192,45 @@ public:
     VectorizationInfo vecInfo(funcRegion, recMapping);
     vectorizer.analyze(vecInfo, DT, PDT, LI);
     vecFunc->copyAttributesFrom(&scaFunc);
+
+    // fix up the argument attributes that have been copied over.
+    // (all vector arguments after mask pos are off-by-one if there is a vector mask arg)
+    if (callMapping.maskPos >= 0) {
+      auto ItVecArg = vecFunc->arg_begin();
+      std::advance(ItVecArg, callMapping.maskPos);
+
+      // shift attribs from ItVecArg to (ItVecArg+1)
+      auto ItVecMaskArg = ItVecArg;
+
+      auto ItNextArg = ItVecArg;
+      if (ItNextArg != vecFunc->arg_end()) {
+        ++ItNextArg;
+        while (ItNextArg != vecFunc->arg_end()) {
+
+#if 0
+          // FIXME this is what we actually want
+          auto VecArgAttribs = ItNextArg->getAttributes();
+          // TODO ItNextVecArg->setAttributes(VecArgAttribs);
+#else
+          // this is a temporary work around
+          ItNextArg->removeAttr(Attribute::Returned);
+          ItNextArg->removeAttr(Attribute::ReadOnly);
+          ItNextArg->removeAttr(Attribute::WriteOnly);
+#endif
+
+          ++ItVecArg;
+          ++ItNextArg;
+        }
+      }
+
+      // TODO set proper mask attributes
+      ItVecMaskArg->removeAttr(Attribute::Returned);
+      ItVecMaskArg->removeAttr(Attribute::ReadOnly);
+    }
+
+    // fix
+    // FIXME we can not copy the
+    //
     // vecFunc->setName(vecFuncName); // TODO use an OpenMP "pragma omp SIMD" name.
 
     // discard temporary mapping
