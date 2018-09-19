@@ -176,6 +176,7 @@ public:
 
     // bail if the return type did not turn out to be vectorizable
     if (nextResultShape.isVarying() && !CanVectorizeType(*clonedFunc->getReturnType())) {
+      clonedFunc->eraseFromParent();
       vectorizer.getPlatformInfo().forgetMapping(callMapping); // this mapping does not actually apply
       vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
       hasValidVectorFunc = false;
