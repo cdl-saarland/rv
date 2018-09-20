@@ -1,23 +1,27 @@
 #ifndef RV_INTRINSICS_H
 #define RV_INTRINSICS_H
 
+#include "rv/vectorMapping.h"
 #include <llvm/ADT/StringRef.h>
 
 namespace llvm {
   class Function;
+  class Module;
   class Value;
 }
 
 namespace rv {
+  // TODO auto-generate this from intrinsics.def
   enum RVIntrinsic : int {
     Unknown = -1, // no recognized intrinsic
 
   // predicate intrinsics
-    All = 0, // rv_all(V) implies that all bits in the predicate V are set
-    Any = 1, // rv_any(V) implies that at least one bit in the predicate V is set
-    Ballot = 2, // rv_ballot(V) returns the boolean vector predicate V as bits in an integer value (movmsk)
-    PopCount = 3, // rv_popcount(V) returns the number of set bits in the predicate V
-    Index = 4, // prefix sum of mask vector (only defined where the mask is set)
+    EntryMask = 0, // rv_entry_mask() returns the region entry mask (implicit function argument).
+    All = 1, // rv_all(V) implies that all bits in the predicate V are set
+    Any = 2, // rv_any(V) implies that at least one bit in the predicate V is set
+    Ballot = 3, // rv_ballot(V) returns the boolean vector predicate V as bits in an integer value (movmsk)
+    PopCount = 4, // rv_popcount(V) returns the number of set bits in the predicate V
+    Index = 5, // prefix sum of mask vector (only defined where the mask is set)
 
   // data intrinsics
     Extract = 100, // rv_extract(V, L) returns the L-th lane of V as a uniform value (lane broadcast)
@@ -28,10 +32,14 @@ namespace rv {
     Align = 105 // rv_align(V, C) informs RV that V has the alignment constant C
   };
 
+  VectorMapping GetIntrinsicMapping(llvm::Function&, RVIntrinsic rvIntrin);
+
   llvm::StringRef GetIntrinsicName(RVIntrinsic id);
   bool IsIntrinsic(const llvm::Value& val, RVIntrinsic id);
   RVIntrinsic GetIntrinsicID(const llvm::Function&);
   RVIntrinsic GetIntrinsicID(const llvm::Value&);
+
+  llvm::Function &DeclareIntrinsic(RVIntrinsic id, llvm::Module &);
 }
 
 

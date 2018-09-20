@@ -1,16 +1,48 @@
 #include "rv/utils.h"
 
+#include "rv/PlatformInfo.h"
 #include "rv/vectorMapping.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Value.h"
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Value.h>
+#include <llvm/IR/IRBuilder.h>
 
 using namespace llvm;
 
 namespace rv {
 
+void MaterializeEntryMask(Function &F, rv::PlatformInfo &platInfo) {
+  auto &entryMaskFunc =
+      platInfo.requestRVIntrinsicFunc(rv::RVIntrinsic::EntryMask);
+  auto &entry = F.getEntryBlock();
+
+  // create a new dedicated entry block
+  auto *guardedEntry = entry.splitBasicBlock(entry.begin());
+  entry.getTerminator()->eraseFromParent();
+
+  // insert a dedicated exit block right after @entry.
+  auto itInsertBlock = F.begin();
+  itInsertBlock++;
+  auto &exitBlock =
+      *BasicBlock::Create(F.getContext(), "", &F, &*itInsertBlock);
+
+  IRBuilder<> builder(&entry);
+  auto *entryMask = builder.CreateCall(&entryMaskFunc, {}, "implicit_wfv_mask");
+  builder.CreateCondBr(entryMask, guardedEntry, &exitBlock);
+
+  // return <undef>
+  auto &retTy = *F.getFunctionType()->getReturnType();
+  builder.SetInsertPoint(&exitBlock);
+  if (retTy.isVoidTy()) {
+    builder.CreateRetVoid();
+  } else {
+    builder.CreateRet(UndefValue::get(&retTy));
+  }
+  // TODO update DT, PDF (in FAM)
+}
 
 bool
 parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & mapping, bool createMissingDecl) {
+  // FIXME use LLVM VectorUtils
   if (!attribText.startswith("_ZGV")) return false;
 
   if (attribText.size() < 6) return false;
@@ -19,7 +51,6 @@ parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & 
   // int vecRegisterBits = ParseRegisterWidth(attribText[4]); // TODO use ISA hint for rvConfig
 
   bool needsMask = attribText[5] == 'M';
-  if (needsMask) return false; // TODO fix WFV entry mask handling
 
   // parse vectorization factor
   char * pos; // = attribText.begin() + 6; // "_ZGV<api><vecbits>"
@@ -66,7 +97,8 @@ parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & 
   mapping.scalarFn = &scalarFn;
   mapping.resultShape = VectorShape::varying();
   mapping.argShapes = argShapes;
-  mapping.maskPos = needsMask ? 0 : -1;
+  mapping.maskPos = needsMask ? std::max<int>(0, argShapes.size()) : -1; // TODO what's the right vector mask position?
+  mapping.predMode = needsMask ? CallPredicateMode::PredicateArg : CallPredicateMode::Unpredicated;
   mapping.vectorWidth = vectorWidth;
   if (simdDecl) {
     mapping.vectorFn = simdDecl;
@@ -80,7 +112,7 @@ parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & 
 }
 
 Type*
-vectorizeType(Type* scalarTy, VectorShape shape, uint vectorWidth)
+vectorizeType(Type* scalarTy, VectorShape shape, unsigned vectorWidth)
 {
     if (scalarTy->isVoidTy()) return scalarTy;
     if (!shape.isDefined() || shape.hasStridedShape()) return scalarTy;
@@ -90,7 +122,7 @@ vectorizeType(Type* scalarTy, VectorShape shape, uint vectorWidth)
 
 Function*
 createVectorDeclaration(Function& scalarFn, VectorShape resShape,
-                        const VectorShapeVec& argShapes, uint vectorWidth,
+                        const VectorShapeVec& argShapes, unsigned vectorWidth,
                         int maskPos)
 {
     auto* scalarFnTy = scalarFn.getFunctionType();

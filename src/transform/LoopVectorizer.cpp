@@ -17,7 +17,7 @@
 #include "rv/vectorMapping.h"
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
-#include "rv/sleefLibrary.h"
+#include "rv/resolver/resolvers.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/analysis/costModel.h"
 #include "rv/transform/remTransform.h"
@@ -240,7 +240,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 // start vectorizing the prepared loop
   IF_DEBUG { errs() << "rv: Vectorizing loop " << L.getName() << "\n"; }
 
-  VectorMapping targetMapping(F, F, VectorWidth);
+  VectorMapping targetMapping(F, F, VectorWidth, CallPredicateMode::SafeWithoutPredicate);
   LoopRegion LoopRegionImpl(*PreparedLoop);
   Region LoopRegion(LoopRegionImpl);
 

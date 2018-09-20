@@ -2,14 +2,17 @@
 #define RV_UTILS_H
 
 #include "rv/vectorShape.h"
-#include "llvm/IR/Function.h"
-#include "llvm/IR/Type.h"
-
-#include "llvm/Transforms/Utils/ValueMapper.h"
+#include <llvm/IR/Function.h>
+#include <llvm/IR/Type.h>
+#include <llvm/Transforms/Utils/ValueMapper.h>
 
 namespace rv {
 
-class VectorMapping;
+struct VectorMapping;
+class PlatformInfo;
+
+void
+MaterializeEntryMask(llvm::Function &F, rv::PlatformInfo &platInfo);
 
 llvm::Type*
 vectorizeType(llvm::Type* scalarTy, rv::VectorShape shape, unsigned vectorWidth);
@@ -17,7 +20,7 @@ vectorizeType(llvm::Type* scalarTy, rv::VectorShape shape, unsigned vectorWidth)
 llvm::Function*
 createVectorDeclaration(llvm::Function& scalarFn, VectorShape resShape,
                         const VectorShapeVec& argShapes, unsigned vectorWidth,
-                        int maskPos = -1);
+                        int maskPos);
 
 // parse an omp 4 X86DeclareSIMD signature
 bool

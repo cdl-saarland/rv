@@ -49,7 +49,7 @@
 
 #include "rv/transform/maskExpander.h"
 
-#include "rv/sleefLibrary.h"
+#include "rv/transform/crtLowering.h"
 
 
 using namespace llvm;
@@ -59,138 +59,7 @@ namespace rv {
 VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo, Config _config)
         : config(_config)
         , platInfo(_platInfo)
-{
-  addIntrinsics();
-}
-
-void
-VectorizerInterface::addIntrinsics() {
-  for (Function & func : platInfo.getModule()) {
-    switch (GetIntrinsicID(func)) {
-      case RVIntrinsic::Any:
-      case RVIntrinsic::All: {
-        VectorMapping mapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::varying()}
-        );
-        platInfo.addMapping(mapping);
-      } break;
-
-      case RVIntrinsic::Extract: {
-        VectorMapping mapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::varying(), VectorShape::uni()}
-        );
-        platInfo.addMapping(mapping);
-      } break;
-
-      case RVIntrinsic::Insert: {
-        VectorMapping mapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::varying(),
-          {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
-        );
-        platInfo.addMapping(mapping);
-      } break;
-
-      case RVIntrinsic::VecLoad: {
-        VectorMapping mapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::varying(), VectorShape::uni()}
-        );
-        platInfo.addMapping(mapping);
-      } break;
-
-      case RVIntrinsic::VecStore: {
-        VectorMapping mapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::varying(), VectorShape::uni(), VectorShape::uni()}
-        );
-        platInfo.addMapping(mapping);
-      } break;
-
-      case RVIntrinsic::Shuffle: {
-        VectorMapping mapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::uni(), VectorShape::uni()}
-        );
-        platInfo.addMapping(mapping);
-      } break;
-
-      case RVIntrinsic::Ballot: {
-        VectorMapping mapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::varying()}
-          );
-        platInfo.addMapping(mapping);
-      } break;
-
-      case RVIntrinsic::PopCount: {
-        VectorMapping mapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::uni(),
-          {VectorShape::varying()}
-          );
-        platInfo.addMapping(mapping);
-      } break;
-
-      case RVIntrinsic::Index: {
-        VectorMapping mapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::varying(),
-          {VectorShape::varying()}
-          );
-        platInfo.addMapping(mapping);
-      } break;
-
-      case RVIntrinsic::Align: {
-        VectorMapping mapping(
-          &func,
-          &func,
-          0, // no specific vector width
-          -1, //
-          VectorShape::undef(),
-          {VectorShape::undef(), VectorShape::uni()}
-          );
-        platInfo.addMapping(mapping);
-      } break;
-      default: break;
-    }
-  }
-}
+{ }
 
 static void
 EmbedInlinedCode(BasicBlock & entry, Loop & hostLoop, LoopInfo & loopInfo, std::set<BasicBlock*> & funcBlocks) {
@@ -274,6 +143,9 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
                              const LoopInfo& loopInfo)
 {
     IF_DEBUG {
+      errs() << "Initial PlatformInfo:\n";
+      platInfo.dump();
+
       errs() << "VA before analysis:\n";
       vecInfo.dump();
     }
@@ -463,7 +335,7 @@ lowerIntrinsicCall(CallInst* call) {
 void
 lowerIntrinsics(Module & mod) {
   // TODO re-implement using RVIntrinsic enum
-  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align"};
+  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align", "rv_popcount"};
   for (int i = 0, n = sizeof(names) / sizeof(names[0]); i < n; i++) {
     auto func = mod.getFunction(names[i]);
     if (!func) continue;

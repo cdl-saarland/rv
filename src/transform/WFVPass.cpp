@@ -17,7 +17,7 @@
 #include "rv/vectorMapping.h"
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
-#include "rv/sleefLibrary.h"
+#include "rv/resolver/resolvers.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/analysis/costModel.h"
 #include "rv/transform/remTransform.h"
@@ -82,6 +82,10 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
   ValueToValueMapTy cloneMap;
   Function* scalarCopy = CloneFunction(wfvJob.scalarFn, cloneMap, nullptr);
   wfvJob.scalarFn = scalarCopy;
+
+  if (wfvJob.maskPos >= 0) {
+    MaterializeEntryMask(*scalarCopy, vectorizer.getPlatformInfo());
+  }
 
   // regino setup
   FunctionRegion funcRegion(*wfvJob.scalarFn);

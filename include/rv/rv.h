@@ -93,8 +93,6 @@ public:
 private:
     Config config;
     PlatformInfo & platInfo;
-
-    void addIntrinsics();
 };
 
 

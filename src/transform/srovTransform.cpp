@@ -367,7 +367,7 @@ GetAggregateOperand(const Type & type, size_t i) {
 
 static
 size_t
-GetElementOffset(const Type & aggType, ArrayRef<uint> indices) {
+GetElementOffset(const Type & aggType, ArrayRef<unsigned> indices) {
   if (indices.size() == 0) {
     return 0;
   }

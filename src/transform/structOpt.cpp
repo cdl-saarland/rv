@@ -139,7 +139,7 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
 
   auto * castElemTy = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
 
-  const uint alignment = layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
+  const unsigned alignment = layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
   vecInfo.setVectorShape(*castElemTy, VectorShape::cont(alignment));
 
   if (load)  {
@@ -242,7 +242,7 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
         auto * vecElemTy = cast<VectorType>(vecPtrVal->getType()->getPointerElementType());
         auto * plainElemTy = vecElemTy->getElementType();
         auto * castElemVal = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
-        const uint alignment = layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
+        const unsigned alignment = layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
         vecInfo.setVectorShape(*castElemVal, VectorShape::uni(alignment));
         inst->setOperand(i, castElemVal);
       }
@@ -521,7 +521,7 @@ StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
   // replace alloca
   auto * vecAlloc = new AllocaInst(vecAllocTy, allocaInst.getType()->getAddressSpace(), allocaInst.getName(), &allocaInst);
 
-  const uint alignment = layout.getPrefTypeAlignment(vecAllocTy); // TODO should enfore a stricter alignment at this point
+  const unsigned alignment = layout.getPrefTypeAlignment(vecAllocTy); // TODO should enfore a stricter alignment at this point
   vecInfo.setVectorShape(*vecAlloc, VectorShape::uni(alignment));
 
   ValueToValueMapTy transformMap;

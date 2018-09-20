@@ -390,7 +390,7 @@ Linearizer::needsFolding(PHINode & phi) {
   }
 
   // or incoming blocks in the PHI node are no longer predecessors
-  for (uint i = 0; i < phi.getNumIncomingValues(); ++i) {
+  for (unsigned i = 0; i < phi.getNumIncomingValues(); ++i) {
     if (!predSet.count(phi.getIncomingBlock(i))) { return true; }
   }
 
@@ -1011,8 +1011,8 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   ++numFoldedBranches;
 
 // order successors by global topologic order
-  uint firstSuccIdx = 0;
-  uint secondSuccIdx = 1;
+  unsigned firstSuccIdx = 0;
+  unsigned secondSuccIdx = 1;
 
   if (getIndex(*branch->getSuccessor(firstSuccIdx)) > getIndex(*branch->getSuccessor(secondSuccIdx))) {
     std::swap<>(firstSuccIdx, secondSuccIdx);
@@ -1264,7 +1264,7 @@ Linearizer::cleanup() {
 
     bool allSame = true;
     BasicBlock * singleSucc = nullptr;
-    for (uint i = 0; i < term->getNumSuccessors(); ++i) {
+    for (unsigned i = 0; i < term->getNumSuccessors(); ++i) {
       if (!singleSucc) {
         singleSucc = term->getSuccessor(i);
       } else if (singleSucc != term->getSuccessor(i)) {

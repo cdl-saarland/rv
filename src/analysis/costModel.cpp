@@ -79,10 +79,10 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
     StringRef calleeName = callee->getName();
     for (; sampleWidth > 1; sampleWidth /= 2) {
 
-      VecMappingShortVec matchVec;
-      const bool needsPredication = false; // FIXME
-      if (platInfo.getMappingsForCall(matchVec, *callee, botArgVec, sampleWidth, needsPredication)) break;
-      if (platInfo.getResolver(calleeName, *callee->getFunctionType(), botArgVec, sampleWidth)) {
+      // VecMappingShortVec matchVec;
+      const bool needsPredicate = false; // FIXME
+      // if (platInfo.getMappingsForCall(matchVec, *callee, botArgVec, sampleWidth, needsPredication)) break; // FIXME deprecated
+      if (platInfo.getResolver(calleeName, *callee->getFunctionType(), botArgVec, sampleWidth, needsPredicate)) {
         break;
       }
     }

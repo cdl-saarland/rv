@@ -158,6 +158,7 @@ NatBuilder::NatBuilder(Config _config, PlatformInfo &_platInfo, VectorizationInf
     i1Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 32)),
     region(_vecInfo.getRegion()),
+    vecMaskArg(nullptr),
     keepScalar(),
     cascadeLoadMap(),
     cascadeStoreMap(),
@@ -180,20 +181,35 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   }
 
   // map arguments first
-  if (!region->isVectorLoop()) { // TODO wfv mode check
-    unsigned i = 0;
+
+  if (!region->isVectorLoop()) {
+    IF_DEBUG_NAT { errs() << "VecFuncType: " << *vecFunc->getFunctionType() << "\n"; }
+    int i = 0;
+    int shapeIdx = 0;
     auto sit = func->arg_begin();
     for (auto it = vecFunc->arg_begin(), et = vecFunc->arg_end();
          it != et; ++it, ++sit, ++i) {
       Argument *arg = &*it;
+      if (vecInfo.getMapping().maskPos == i) {
+        vecMaskArg = arg;
+        --sit; // hacky way to skip the scalar arg increment
+        continue;
+      }
+
       const Argument *sarg = &*sit;
       arg->setName(sarg->getName());
-      VectorShape argShape = vecInfo.getMapping().argShapes[i];
-      if (argShape.isVarying() && !arg->getType()->isPointerTy())
+      VectorShape argShape = vecInfo.getMapping().argShapes[shapeIdx++];
+      IF_DEBUG_NAT { errs() << *sarg << " -> " << *arg << "\n"; }
+      if (argShape.isVarying() && !arg->getType()->isPointerTy()) {
         mapVectorValue(sarg, arg);
-      else
+      } else {
         mapScalarValue(sarg, arg);
+      }
     }
+  }
+
+  IF_DEBUG_NAT if (vecMaskArg) {
+    errs() << "VecMaskArg: " << *vecMaskArg << "\n";
   }
 
   // visit all memory instructions and check if we can scalarize their index calculation
@@ -267,7 +283,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
       continue; // keep old region
     }
     auto &termInst = *BB.getTerminator();
-    for (uint i = 0; i < termInst.getNumOperands(); ++i) {
+    for (unsigned i = 0; i < termInst.getNumOperands(); ++i) {
       auto *termOp = termInst.getOperand(i);
       auto *branchTarget = dyn_cast<BasicBlock>(termOp);
       if (!branchTarget) continue;
@@ -329,6 +345,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     else if (call) {
       // calls need special treatment
       switch (GetIntrinsicID(*call)) {
+        case RVIntrinsic::EntryMask: mapVectorValue(call, vecMaskArg); break;
         case RVIntrinsic::Any: vectorizeReductionCall(call, false); break;
         case RVIntrinsic::All: vectorizeReductionCall(call, true); break;
         case RVIntrinsic::Extract: vectorizeExtractCall(call); break;
@@ -401,6 +418,53 @@ NatBuilder::scalarize(BasicBlock & scaBlock, Instruction & inst, bool packResult
   }
 
   return laneRepls;
+}
+
+Value&
+NatBuilder::createAnyGuard(bool instNeedsGuard, BasicBlock & origBlock, Instruction & inst, bool producesValue, std::function<Value*(IRBuilder<>&)> genFunc) {
+  auto * scalarMask = vecInfo.getPredicate(origBlock);
+  // only emit a guard if rv_any(p) may be false AND the emitted instructions will need it.
+  bool needsGuard = instNeedsGuard && !undeadMasks.isUndead(*scalarMask, origBlock);
+
+  BasicBlock* memBlock, * continueBlock;
+
+  // prologue (guard branch)
+  if (needsGuard) {
+    // create a mask ptest
+    Value * anyMask = createPTest(requestVectorValue(scalarMask), false);
+
+    // create two new basic blocks
+    memBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "mem_block",
+                                              &vecInfo.getVectorFunction());
+    continueBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "cont_block",
+                                                   &vecInfo.getVectorFunction());
+
+    // conditionally branch to both
+    builder.CreateCondBr(anyMask, memBlock, continueBlock);
+    builder.SetInsertPoint(memBlock);
+  }
+
+  //  emit the actual access
+  Value *vecMem = genFunc(builder);
+
+  // epilogue (continue block, return value phi)
+  if (needsGuard) {
+    builder.CreateBr(continueBlock);
+    builder.SetInsertPoint(continueBlock);
+
+    BasicBlock *vecOrigBlock = cast<BasicBlock>(getVectorValue(&origBlock, true));
+    PHINode *phi = producesValue ? builder.CreatePHI(vecMem->getType(), 2, "scal_mask_mem_phi") : nullptr;
+
+    if (phi) {
+      phi->addIncoming(vecMem, memBlock);
+      phi->addIncoming(UndefValue::get(vecMem->getType()), vecOrigBlock);
+      vecMem = phi;
+    }
+
+    mapVectorValue(&origBlock, continueBlock);
+  }
+
+  return *vecMem;
 }
 
 ValVec
@@ -503,23 +567,27 @@ NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool pa
    return resultVec;
 }
 
-// TODO don't modify vecCall.. build a new CallInst and build a new parameter vector
-CallInst*
-NatBuilder::vectorizeCallWithFunction(CallInst & scaCall, Function & vecFunc, int maskPos) {
-  assert(maskPos < 0 && "TODO implement predicated calls");
-  int scaIdx = 0; // TODO use for mask skipping
+/// Request all the vector function arguments for scalling \p vecCall at the (vectorized) call site of \p scaCall.
+// Stores all arranged vector-world arguments in \p vectorArgs.
+void
+NatBuilder::requestVectorCallArgs(CallInst & scaCall, Function & vecFunc, int maskPos, std::vector<Value*> & vectorArgs) {
   auto itVecArg = vecFunc.arg_begin();
 
-  std::vector<Value*> vectorArgs;
-  for (int vecIdx = 0; vecIdx < (int) vecFunc.arg_size(); ++vecIdx, ++scaIdx, ++itVecArg) {
-    Value *op = scaCall.getArgOperand(scaIdx);
+  for (int vecIdx = 0, scaIdx = 0;
+       vecIdx < (int) vecFunc.arg_size();
+       ++vecIdx, ++itVecArg) {
 
-    bool vecTypeArg = itVecArg->getType()->isVectorTy();
-    Value *mappedArg = vecTypeArg ? requestVectorValue(op) : requestScalarValue(op);
-    vectorArgs.push_back(mappedArg);
+    if (vecIdx == maskPos) {
+      vectorArgs.push_back(requestVectorPredicate(*scaCall.getParent()));
+      // the mask argument does not exist in the scalar function
+    } else {
+      Value *op = scaCall.getArgOperand(scaIdx);
+      bool vecTypeArg = itVecArg->getType()->isVectorTy();
+      Value *mappedArg = vecTypeArg ? requestVectorValue(op) : requestScalarValue(op);
+      vectorArgs.push_back(mappedArg);
+      ++scaIdx; // actually consuming a scalar argument
+    }
   }
-  auto * vecCall = builder.CreateCall(&vecFunc, vectorArgs);
-  return vecCall;
 }
 
 // FIXME re-design this!
@@ -1055,6 +1123,12 @@ NatBuilder::vectorizeAlignCall(CallInst *rvCall) {
     mapScalarValue(rvCall, requestScalarValue(vecArg));
 }
 
+static
+bool
+MayRecurse(const Function &F) {
+  return !F.doesNotRecurse();
+}
+
 void
 NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   Value * callee = scalCall->getCalledValue();
@@ -1067,45 +1141,44 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     callArgShapes.push_back(argShape);
   }
 
-  // look for (proper) mappings with arg shapes
-  if (calledFunction) {
-    bool needsPredication = false; // FIXME query block predicate
-    VecMappingShortVec matchVec;
-    platInfo.getMappingsForCall(matchVec, *calledFunction, callArgShapes, vecInfo.getVectorWidth(), needsPredication);
-
-    if (!matchVec.empty()) {
-      VectorMapping mapping = matchVec[0];
-      assert((mapping.maskPos < 0) && "TODO implemented predicated mapped calls.");
-
-      const int maskPos = -1; // TODO support predicated functions
-      auto * vecCall = vectorizeCallWithFunction(*scalCall, *mapping.vectorFn, maskPos);
-      vecCall->setName(scalCall->getName() + ".mapped");
-      mapVectorValue(scalCall, vecCall);
-      ++numVecCalls;
-      return;
-    }
-  }
-
-
-  // TODO re-factor the remainder of this function
-  // if calledFunction is vectorizable (standard mapping exists for given vector width), create new call to vector calledFunction
+// Vectorize this function using a resolver provided vector function.
+  auto & scaBlock = *scalCall->getParent();
+  auto & scaMask = *vecInfo.getPredicate(scaBlock);
   std::unique_ptr<FunctionResolver> funcResolver = nullptr;
-  if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth());
+  bool hasCallPredicate = !hasUniformPredicate(scaBlock);
+  if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth(), hasCallPredicate);
   if (funcResolver) {
     Function &simdFunc = funcResolver->requestVectorized();
-    const int maskPos = -1;
-    auto * vecCall = vectorizeCallWithFunction(*scalCall, simdFunc, maskPos);
-    vecCall->setName(scalCall->getName() + ".mapped");
-    mapVectorValue(scalCall, vecCall);
+
+    bool needsGuardedCall =
+      hasCallPredicate && // call site with a non trivial predicate
+      MayRecurse(simdFunc) && // the called function may actually recurse
+      !undeadMasks.isUndead(scaMask, scaBlock); // there is not at least one live thread
+
+    const int maskPos = funcResolver->getMaskPos();
+    std::vector<Value*> vectorArgs;
+
+    // request the vector arguments within the current scope
+    requestVectorCallArgs(*scalCall, simdFunc, maskPos, vectorArgs);
+    bool producesValue = !scalCall->getType()->isVoidTy();
+
+    auto & vecCall = createAnyGuard(needsGuardedCall, *scalCall->getParent(), *scalCall, producesValue,
+      [&](IRBuilder<> & builder) {
+        return builder.CreateCall(&simdFunc, vectorArgs, scalCall->getName() + ".rv");
+      });
+
+    vecCall.setName(scalCall->getName() + ".mapped");
+    mapVectorValue(scalCall, &vecCall);
     ++numVecCalls;
 
   } else {
-    // try if we can semi-vectorize the call by replication a smaller vectorized version
+// Otw, try to semi-vectorize the call by replication a smaller vectorized version
+    // TODO (this is a deprecated code path, we should use a ResolverService for this)
     unsigned vecWidth = vectorWidth() / 2;
     std::unique_ptr<FunctionResolver> funcResolver = nullptr;
     for (; calledFunction && vecWidth >= 2; vecWidth /= 2) {
       // FIXME update alignment in callArgShapes
-      funcResolver = platInfo.getResolver(calleeName, *calledFunction->getFunctionType(), callArgShapes, vecWidth);
+      funcResolver = platInfo.getResolver(calleeName, *calledFunction->getFunctionType(), callArgShapes, vecWidth, hasCallPredicate);
       if (funcResolver) break;
     }
     bool replicate = !funcResolver;
@@ -1117,7 +1190,6 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
         // doublePrecision = scalCall->getArgOperand(0)->getType()->isDoubleTy();
       // }
       Function &simdFunc = funcResolver->requestVectorized();
-
       ShuffleBuilder appender(vectorWidth());
       ShuffleBuilder extractor(vecWidth);
 
@@ -1531,57 +1603,21 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedTy
                                              Value *addr, Value * scalarMask, Value * vectorMask, Value *values) {
   values ? ++numUniMaskedStores : ++numUniMaskedLoads;
 
-  BasicBlock *origBlock = inst->getParent();
-  bool needsGuard = !undeadMasks.isUndead(*scalarMask, *origBlock);
-
-  BasicBlock* memBlock, * continueBlock;
-
-  // prologue (guard branch)
-  if (needsGuard) {
-    // create a mask ptest
-    Value * anyMask = createPTest(vectorMask, false);
-
-    assert((values && isa<StoreInst>(inst)) || (!values && isa<LoadInst>(inst)));
-
-    // create two new basic blocks
-    memBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "mem_block",
-                                              &vecInfo.getVectorFunction());
-    continueBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "cont_block",
-                                                   &vecInfo.getVectorFunction());
-
-    // conditionally branch to both
-    builder.CreateCondBr(anyMask, memBlock, continueBlock);
-    builder.SetInsertPoint(memBlock);
-  }
-
-  //  emit the actual access
-  Instruction *vecMem;
-  if (values) {
-    vecMem = builder.CreateStore(values, addr);
-    cast<StoreInst>(vecMem)->setAlignment(alignment);
-  } else {
-    vecMem = builder.CreateLoad(addr, "scal_mask_mem");
-    cast<LoadInst>(vecMem)->setAlignment(alignment);
-  }
-
-  // epilogue (continue block, joining loaded value)
-  if (needsGuard) {
-    builder.CreateBr(continueBlock);
-    builder.SetInsertPoint(continueBlock);
-
-    BasicBlock *vecOrigBlock = cast<BasicBlock>(getVectorValue(origBlock, true));
-    PHINode *phi = values ? nullptr : builder.CreatePHI(accessedType, 2, "scal_mask_mem_phi");
-
-    if (phi) {
-      phi->addIncoming(vecMem, memBlock);
-      phi->addIncoming(UndefValue::get(accessedType), vecOrigBlock);
-      vecMem = phi;
+  // emit a scalar memory acccess within a any-guarded section
+  bool needsGuard = true;
+  return &createAnyGuard(needsGuard, *inst->getParent(), *inst, isa<LoadInst>(inst),
+      [=](IRBuilder<> & builder)
+  {
+    Instruction* vecMem;
+    if (values) {
+      vecMem = builder.CreateStore(values, addr);
+      cast<StoreInst>(vecMem)->setAlignment(alignment);
+    } else {
+      vecMem = builder.CreateLoad(addr, "scal_mask_mem");
+      cast<LoadInst>(vecMem)->setAlignment(alignment);
     }
-
-    mapVectorValue(origBlock, continueBlock);
-  }
-
-  return vecMem;
+    return vecMem;
+  });
 }
 
 Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Value *addr, Value *mask,
@@ -1831,7 +1867,7 @@ NatBuilder::requestVectorValue(Value *const value) {
 
   // check if already mapped
   Value *vecValue = getVectorValue(value);
-  if (vecValue)  return vecValue;
+  if (vecValue) return vecValue;
 
   auto oldIP = builder.GetInsertPoint();
   auto oldIB = builder.GetInsertBlock();
@@ -2428,8 +2464,13 @@ NatBuilder::hasUniformPredicate(const BasicBlock & BB) const {
   else return vecInfo.getVectorShape(*vecInfo.getPredicate(BB)).isUniform();
 }
 
+Value*
+NatBuilder::requestVectorPredicate(const BasicBlock& scaBlock) {
+  return requestVectorValue(vecInfo.getPredicate(scaBlock));
+}
+
 Value *NatBuilder::maskInactiveLanes(Value *const value, const BasicBlock* const block, bool invert) {
-  auto pred = requestVectorValue(vecInfo.getPredicate(*block));
+  auto pred = requestVectorPredicate(*block);
   if (invert) {
     return builder.CreateOr(value, builder.CreateNot(pred));
   } else {

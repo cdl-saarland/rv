@@ -7,58 +7,23 @@
 
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include <rv/vectorMapping.h>
+#include "rv/vectorMapping.h"
+#include "rv/resolver/resolver.h"
+#include "rv/intrinsics.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace rv {
 
-// resolver service
-class
-FunctionResolver {
-protected:
-  llvm::Module & targetModule;
-
-public:
-  static VectorShape ComputeShape(const VectorShapeVec & argShapes);
-
-  FunctionResolver(llvm::Module & _targetModule)
-  : targetModule(_targetModule)
-  {}
-
-  virtual ~FunctionResolver() {}
-
-  // materialized the vectorized function in the module @insertInto and returns a reference to it
-  virtual llvm::Function& requestVectorized() = 0;
-
-  // result shape of function @funcName in target module @module
-  virtual VectorShape requestResultShape() = 0;
-};
-
-// abstract function resolver interface
-class
-ResolverService {
-public:
-  virtual std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) = 0;
-};
-
-
-// used for shape-based call mappings
-using VecMappingShortVec = llvm::SmallVector<VectorMapping, 4>;
-using VectorFuncMap = std::map<const llvm::Function *, VecMappingShortVec*>;
+class ListResolver;
 
 class PlatformInfo {
-  std::vector<std::unique_ptr<ResolverService>> resolverServices;
   void registerDeclareSIMDFunction(llvm::Function & F);
+  void addIntrinsicMappings();
 
 public:
   PlatformInfo(llvm::Module &mod, llvm::TargetTransformInfo *TTI,
                llvm::TargetLibraryInfo *TLI);
   ~PlatformInfo();
-
-  bool addMapping(VectorMapping & mapping);
-
-  const VectorMapping *
-  getMappingByFunction(const llvm::Function *function) const;
 
   void setTTI(llvm::TargetTransformInfo *TTI);
   void setTLI(llvm::TargetLibraryInfo *TLI);
@@ -73,49 +38,40 @@ public:
   getResolver(llvm::StringRef funcName,
               llvm::FunctionType & scaFuncTy,
               const VectorShapeVec & argShapes,
-              int vectorWidth) const;
-
-#if 0
-  llvm::StringRef getVectorizedFunction(llvm::StringRef func,
-                                        unsigned vectorWidth,
-                                        bool *isInTLI = nullptr);
-
-  llvm::Function *requestVectorizedFunction(llvm::StringRef funcName,
-                                            unsigned vectorWidth,
-                                            llvm::Module *insertInto,
-                                            bool doublePrecision);
-#endif
-
-  // query available vector mappings for a given vector call signature
-  bool
-  getMappingsForCall(VecMappingShortVec & possibleMappings, const llvm::Function & scalarFn, const VectorShapeVec & argShapes, uint vectorWidth, bool needsPredication);
-
-  VectorFuncMap &getFunctionMappings() { return funcMappings; }
+              int vectorWidth,
+              bool hasPredicate) const;
 
   llvm::Module &getModule() const { return mod; }
   llvm::LLVMContext &getContext() const { return mod.getContext(); }
 
-  bool addSIMDMapping(const llvm::Function &scalarFunction,
-                      const llvm::Function &simdFunction,
-                      const int maskPosition, const bool mayHaveSideEffects);
-
   const llvm::DataLayout &getDataLayout() const { return mod.getDataLayout(); }
 
-  llvm::Function *requestMaskReductionFunc(const std::string &name);
+  // FIXME use RVIntrinsic instead
+  // materialize a declaration for \p rvIntrin and register the appropriate mappings.
+  llvm::Function &requestRVIntrinsicFunc(RVIntrinsic rvIntrin);
   llvm::Function *requestVectorMaskReductionFunc(const std::string &name, size_t width);
 
   size_t getMaxVectorWidth() const;
   size_t getMaxVectorBits() const;
 
-private:
-  VectorMapping inferMapping(llvm::Function &scalarFnc,
-                              llvm::Function &simdFnc, int maskPos);
+  // allow quick access to the builtin resolver
+  ListResolver& getListResolver() { return *listResolver; }
+  void addMapping(VectorMapping&& mapping);
+  void addMapping(const VectorMapping& mapping) { addMapping(VectorMapping(mapping)); }
+  void forgetAllMappingsFor(const llvm::Function & scaFunc);
+  void forgetMapping(const VectorMapping & mapping);
 
+  void dump() const;
+  void print(llvm::raw_ostream & out) const;
+private:
+  // Direct access to builtin list resolver.
   llvm::Module &mod;
   llvm::TargetTransformInfo *mTTI;
   llvm::TargetLibraryInfo *mTLI;
-  VectorFuncMap funcMappings;
+  std::vector<std::unique_ptr<ResolverService>> resolverServices;
+  ListResolver * listResolver;
 };
-}
+
+} // namespace rv
 
 #endif // RV_PLATFORMINFO_H

@@ -239,10 +239,10 @@ TransformSession::transformLoop() {
 
 // create an exit cascade
    assert(pureLatch->getTerminator()->getNumSuccessors() == 1);
-   auto * anyFunc = platInfo.requestMaskReductionFunc("rv_any");
+   auto & anyFunc = platInfo.requestRVIntrinsicFunc(RVIntrinsic::Any);
 
    // new joined latch exit
-   BasicBlock & latchExit =  *BasicBlock::Create(anyFunc->getContext(), loopName + ".divexit", pureLatch->getParent(), pureLatch);
+   BasicBlock & latchExit =  *BasicBlock::Create(anyFunc.getContext(), loopName + ".divexit", pureLatch->getParent(), pureLatch);
    if (loop.getParentLoop()) {
      loop.getParentLoop()->addBasicBlockToLoop(&latchExit, loopInfo);
    }
@@ -252,7 +252,7 @@ TransformSession::transformLoop() {
    {
      IRBuilder<> builder(pureLatch);
      auto * continueCond =
-       builder.CreateCall(anyFunc, ArrayRef<Value*>{liveMaskDesc.updatePhi}, loopName + ".stay");
+       builder.CreateCall(&anyFunc, ArrayRef<Value*>{liveMaskDesc.updatePhi}, loopName + ".stay");
      auto & anyBr= *builder.CreateCondBr(continueCond, &loopHeader, &latchExit);
      vecInfo.setVectorShape(anyBr, VectorShape::uni());
      vecInfo.setVectorShape(*continueCond, VectorShape::uni());
