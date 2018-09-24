@@ -254,8 +254,8 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   vectorizer.finalize();
 
   // insert vector-length update
-  auto * lvlFunc = Intrinsic::getDeclaration(&platformInfo.getModule(), Intrinsic::ve_lvl, {});
-  IRBuilder<> builder(preHeader->getFirstNonPHI());
+  auto * lvlFunc = Intrinsic::getDeclaration(&platInfo.getModule(), Intrinsic::ve_lvl, {});
+  IRBuilder<> builder(parentFn.getEntryBlock().getFirstNonPHI());
   builder.CreateCall(lvlFunc, builder.getInt32(256));
 }
 
