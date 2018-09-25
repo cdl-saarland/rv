@@ -252,11 +252,6 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
 
   // cleanup
   vectorizer.finalize();
-
-  // insert vector-length update
-  auto * lvlFunc = Intrinsic::getDeclaration(&platInfo.getModule(), Intrinsic::ve_lvl, {});
-  IRBuilder<> builder(parentFn.getEntryBlock().getFirstNonPHI());
-  builder.CreateCall(lvlFunc, builder.getInt32(256));
 }
 
 // Use case: Outer-loop Vectorizer
