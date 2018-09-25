@@ -37,6 +37,10 @@
 
 using namespace llvm;
 
+namespace {
+  const bool HasActiveVL = true;
+}
+
 namespace rv {
 
 
@@ -49,6 +53,12 @@ struct IterValue {
   , timeOffset(_timeOff)
   {}
 };
+
+static Value&
+CreateSMin(Value & A, Value & B, IRBuilder<> & builder) {
+  auto * AltB = builder.CreateICmp(CmpInst::Predicate::ICMP_SLE, &A, &B);
+  return *builder.CreateSelect(AltB, &A, &B);
+}
 
 static Value*
 UnwindCasts(Value* val) {
@@ -137,13 +147,6 @@ public:
     // remaining offset amount
     int effectiveOffset = iterOffset - embReduct.timeOffset;
 
-    // short cut for same iteration tests
-    if (effectiveOffset == 0) {
-      clonedCmp->setOperand(cmpReductIdx, &embReduct.val);
-      builder.Insert(clonedCmp, cmp.getName().str() + suffix);
-      return *clonedCmp;
-    }
-
   // iteration interval test
     bool nswFlag = sp.reductor->hasNoSignedWrap();
     bool nuwFlag = sp.reductor->hasNoUnsignedWrap();
@@ -166,6 +169,13 @@ public:
       clonedCmp->setPredicate(adjustedPred);
     }
 
+    // short cut for same iteration tests
+    if (effectiveOffset == 0) {
+      clonedCmp->setOperand(cmpReductIdx, &embReduct.val);
+      builder.Insert(clonedCmp, cmp.getName().str() + suffix);
+      return *clonedCmp;
+    }
+
     // adjust iteration value for the tested iteration
     auto & val = embReduct.val;
     auto * adjusted = builder.CreateAdd(&val, ConstantInt::get(val.getType(), redShape.getStride() * effectiveOffset), "", nswFlag, nuwFlag);
@@ -178,6 +188,50 @@ public:
     if (valueSet) valueSet->insert(clonedCmp);
 
     return *clonedCmp;
+  }
+
+  // synthesize the number of remaining operations (using the mapping of @embedFunc))
+  Value&
+  synthesize_remaining(int iterOffset, std::string suffix, IRBuilder<> & builder, std::set<Value*> * valueSet, std::function<IterValue (Instruction&)> embedFunc) {
+    auto * origReduct = cast<Instruction>(cmp.getOperand(cmpReductIdx));
+
+    // the returned value evaluates to the mapped requested value at iteration offset @embReduct.timeOffset
+    IterValue embReduct = embedFunc(*origReduct);
+
+    // remaining offset amount
+    int effectiveOffset = iterOffset - embReduct.timeOffset;
+
+  // iteration interval test
+    bool nswFlag = sp.reductor->hasNoSignedWrap();
+    bool nuwFlag = sp.reductor->hasNoUnsignedWrap();
+
+    Value * boundOp = cmp.getOperand(1 - cmpReductIdx);
+    Value * rawIterOp = &embReduct.val;
+
+    // materialize a value that represents the actual iteration
+    Value * iterOp = rawIterOp;
+    if (effectiveOffset != 0) {
+      iterOp = builder.CreateAdd(rawIterOp, ConstantInt::get(rawIterOp->getType(), redShape.getStride() * effectiveOffset), "adj." + suffix, nswFlag, nuwFlag);
+    }
+
+    // convert this to a stride
+    // this code implicitely assumes that the iteration variable does not wrap around
+    bool posStride = redShape.getStride() > 0;
+
+    if (posStride) {
+      // until ++i == n
+      // generate: round_down[ (n - i) / stride ]
+      auto * deltaVal = builder.CreateSub(boundOp, iterOp);
+      assert((redShape.getStride() == 1) && "TODO: implement for other strides as well.");
+      return *deltaVal;
+
+    } else {
+      // until --i == n??
+      // generate: round_down[ (i - n) / stride ]
+      auto * deltaVal = builder.CreateSub(iterOp, boundOp);
+      assert((redShape.getStride() == 1) && "TODO: implement for other strides as well.");
+      return *deltaVal;
+    }
   }
 };
 
@@ -355,6 +409,9 @@ struct LoopTransformer {
       DT.changeImmediateDominator(loopExit, vecGuardBlock);
     }
 
+  // insert AVL updates
+    if (HasActiveVL) SupplementAVLUpdate();
+
   // update postDomTree
     bool loopPostDomsEntry = PDT.dominates(&scalarHead, entryBlock);
     auto * vecLoopExitingPostDom = PDT.getNode(vecLoopExiting);
@@ -461,6 +518,82 @@ struct LoopTransformer {
     return -1;
   }
 
+  // if in SVE mode set the Active Vector Length appropriately
+  void
+  SupplementAVLUpdate() {
+    auto & vecHeader = LookUp(vecValMap, *ScalarL.getHeader());
+
+    // replicate the vector loop exit condition
+    IRBuilder<> builder(&vecHeader, vecHeader.getFirstNonPHIOrDbgOrLifetime()->getIterator());
+
+    // crudely replicated from RepairVectorLoopCondition
+    // map vector phis to their shapes
+    std::map<Value*, PHINode*> headerPhis;
+    std::map<Value*, PHINode*> reductors;
+    for (auto & Inst : *ScalarL.getHeader()) {
+      auto * phi = dyn_cast<PHINode>(&Inst);
+      if (!phi) break;
+      auto & vecPhi = LookUp(vecValMap, *phi);
+      headerPhis[phi] = &vecPhi;
+
+      auto * sp = reda.getStrideInfo(*phi);
+      if (sp) {
+        reductors[sp->reductor] = &vecPhi;
+      }
+    }
+
+    // looks suspiciously similar to VectorLoopCondition
+    auto & remTrips =
+      exitConditionBuilder.synthesize_remaining(1, ".trips", builder, &uniOverrides,
+         [&](Instruction & inst) -> IterValue {
+           assert (!isa<CallInst>(inst));
+
+           // loop invariant value
+           if (!ScalarL.contains(inst.getParent())) return IterValue(inst, 0);
+
+           // did we hit the header phi
+           auto itHeaderPhi = headerPhis.find(&inst);
+
+           // determine the shape of the tested iteration variable
+           Value * headerPhi = nullptr;
+           int offset = 0;
+           if (itHeaderPhi != headerPhis.end()) {
+             // we are checking the header phi directly
+             headerPhi = itHeaderPhi->second;
+             offset = 0;
+           } else {
+             // we checking the reductor result on the header phi (next iteration value)
+             assert(reductors.find(&inst) != reductors.end() && "not testing a reductor");
+             auto * matchingHeaderPhi = reductors[&inst];
+             headerPhi = matchingHeaderPhi;
+             offset = 1; // testing the reductor
+           }
+
+           return IterValue(*headerPhi, offset);
+          }
+    );
+    uniOverrides.insert(&remTrips);
+
+    errs() << "REM :" << remTrips << "\n";
+
+  // next min(%remTrips, MVL)
+    Constant * MVLConst = ConstantInt::get(remTrips.getType(), vectorWidth, false);
+    auto & rawAVL = CreateSMin(remTrips, *MVLConst, builder);
+    uniOverrides.insert(&rawAVL);
+    Value * AVL = &rawAVL;
+
+    if (rawAVL.getType()->getPrimitiveSizeInBits() > 32) {
+      AVL = builder.CreateTrunc(&rawAVL, Type::getInt32Ty(builder.getContext()));
+    }
+
+
+    // synthesize_remaining(int iterOffset, std::string suffix, IRBuilder<> & builder, std::set<Value*> * valueSet, std::function<IterValue (Instruction&)> embedFunc) {
+    // insert vector-length update
+    auto * lvlFunc = Intrinsic::getDeclaration(F.getParent(), Intrinsic::ve_lvl, {});
+    builder.CreateCall(lvlFunc, AVL);
+  }
+
+
   // fix the vector loop exit condition
   void
   RepairVectorLoopCondition(ValueToValueMapTy & vecLoopPhis) {
@@ -482,18 +615,21 @@ struct LoopTransformer {
     }
 
     // replicate the vector loop exit condition
+    // TODO unify with vecGuard synthesis
     auto & scaExiting = *GetUniqueExiting(ScalarL);
     auto & vecExiting = LookUp(vecValMap, scaExiting);
-
     auto & vecExitingBr = cast<BranchInst>(*vecExiting.getTerminator());
+    bool exitOnTrue = ClonedL.contains(vecExitingBr.getSuccessor(0));
 
     // replicate the vector loop exit condition
     IRBuilder<> builder(&vecHead, vecHead.getTerminator()->getIterator());
 
-    bool exitOnTrue = ClonedL.contains(vecExitingBr.getSuccessor(0)); // false; // FIXME infer from program
+
+    // in case of AVL, check there is at least one remaining iteration
+    int iterOffset = HasActiveVL ? vectorWidth + 1 : 2 * vectorWidth;
 
     auto & exitVal =
-      exitConditionBuilder.synthesize(exitOnTrue, 2 * vectorWidth, ".vecExit", builder, &uniOverrides,
+      exitConditionBuilder.synthesize(exitOnTrue, iterOffset, ".vecExit", builder, &uniOverrides,
          [&](Instruction & inst) -> IterValue {
            assert (!isa<CallInst>(inst));
 
@@ -554,11 +690,19 @@ struct LoopTransformer {
     // replicate the vector loop exit condition
     IRBuilder<> builder(vecGuardBlock, vecGuardBr.getIterator());
 
-    bool exitOnTrue = true; // FIXME
+    // replicate the vector loop exit condition
+    // TODO unify with vecGuard synthesis
+    auto & scaExiting = *GetUniqueExiting(ScalarL);
+    auto & vecExiting = LookUp(vecValMap, scaExiting);
+    auto & vecExitingBr = cast<BranchInst>(*vecExiting.getTerminator());
+    bool exitOnTrue = !ClonedL.contains(vecExitingBr.getSuccessor(0));
+
+    // in case of AVL, check there is at least one remaining iteration
+    int iterOffset = HasActiveVL ? 1 : vectorWidth;
 
     // synthesize(int iterOffset, std::string suffix, IRBuilder<> & builder, std::function<Instruction& (Instruction&)> embedFunc) {
     auto & exitVal =
-      exitConditionBuilder.synthesize(exitOnTrue, vectorWidth, ".vecGuard", builder, nullptr,
+      exitConditionBuilder.synthesize(exitOnTrue, iterOffset, ".vecGuard", builder, nullptr,
          [&](Instruction & inst) -> IterValue {
            assert (!isa<CallInst>(inst));
 
@@ -610,13 +754,13 @@ struct LoopTransformer {
     auto & exitingBr = cast<BranchInst>(*scaExiting.getTerminator());
     int exitSuccIdx = exitingBr.getSuccessor(0) == loopExit ? 0 : 1;
 
-    ValueToValueMapTy replMap;
-
+    auto & vecExitBr = *cast<BranchInst>(vecToScalarExit->getTerminator());
     IRBuilder<> builder(vecToScalarExit, vecToScalarExit->getTerminator()->getIterator());
 
-    auto & vecExitBr = *cast<BranchInst>(vecToScalarExit->getTerminator());
+    ValueToValueMapTy replMap;
 
-    if (tripAlign % vectorWidth != 0) {
+    // branch to the remainder loop as necessary
+    if (!HasActiveVL && (tripAlign % vectorWidth != 0)) {
       IF_DEBUG { errs() << "remTrans: need a scalar remainder loop.\n"; }
     // replicate the exit condition
       // replace scalar reductors with their vector-loop versions
@@ -655,9 +799,9 @@ struct LoopTransformer {
       vecExitBr.setCondition(ConstantInt::getTrue(vecExitBr.getContext()));
       vecExitBr.setSuccessor(0, loopExit);
       vecExitBr.setSuccessor(1, scalarGuardBlock);
-
     }
   }
+
 
   void
   updateExitLiveOuts(ValueToValueMapTy & vecLiveOuts) {
@@ -838,6 +982,8 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
   IF_DEBUG Dump(F);
 
   delete branchCond;
+
+  // TODO materialize lvl call
 
   return &clonedLoop;
 }
