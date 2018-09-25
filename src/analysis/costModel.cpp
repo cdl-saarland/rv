@@ -8,6 +8,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Intrinsics.h"
 
 using namespace llvm;
 
@@ -65,6 +66,11 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
   if (call) {
     auto * callee = dyn_cast_or_null<Function>(call->getCalledValue());
     if (!callee) return 1;
+
+    // TODO clean up
+    if (callee->getIntrinsicID() == Intrinsic::ve_lvl) {
+      return maxWidth;
+    }
 
     // check if this is a critical section
     if (IsCriticalSection(*callee)) return maxWidth;
