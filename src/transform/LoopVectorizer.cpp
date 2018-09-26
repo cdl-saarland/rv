@@ -48,8 +48,6 @@ using namespace llvm;
 
 // typedef DomTreeNodeBase<BasicBlock*> DomTreeNode;
 
-
-
 bool LoopVectorizer::canVectorizeLoop(Loop &L) {
   if (!L.isAnnotatedParallel())
     return false;
@@ -405,6 +403,17 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   for (Loop *L : *LI) loops.push_back(L);
   for (auto * L : loops) Changed |= vectorizeLoopOrSubLoops(*L);
 
+  if (config.useVE) {
+    // we need to reset LVL to MVL on function entry
+    // LLVM may hoist loop invariant operation out of the vectorized code.
+    if (Changed) {
+      Constant * MVLConst = ConstantInt::get(Type::getInt32Ty(F.getContext()), 256, false);
+      // reset LVL to full width after the loop
+      auto * lvlFunc = Intrinsic::getDeclaration(F.getParent(), Intrinsic::ve_lvl, {});
+      IRBuilder<> entryBuilder(&F.getEntryBlock(), F.getEntryBlock().getFirstNonPHI()->getIterator());
+      entryBuilder.CreateCall(lvlFunc, MVLConst);
+    }
+  }
 
   IF_DEBUG { errs() << " -- module after RV --\n"; Dump(*F.getParent()); }
 

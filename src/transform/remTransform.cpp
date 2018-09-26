@@ -577,8 +577,8 @@ struct LoopTransformer {
     errs() << "REM :" << remTrips << "\n";
 
   // next min(%remTrips, MVL)
-    Constant * MVLConst = ConstantInt::get(remTrips.getType(), vectorWidth, false);
-    auto & rawAVL = CreateSMin(remTrips, *MVLConst, builder);
+    Constant * rawMVLConst = ConstantInt::get(remTrips.getType(), 256, false);
+    auto & rawAVL = CreateSMin(remTrips, *rawMVLConst, builder);
     uniOverrides.insert(&rawAVL);
     Value * AVL = &rawAVL;
 
@@ -591,6 +591,11 @@ struct LoopTransformer {
     // insert vector-length update
     auto * lvlFunc = Intrinsic::getDeclaration(F.getParent(), Intrinsic::ve_lvl, {});
     builder.CreateCall(lvlFunc, AVL);
+
+    // reset LVL to full width after the loop
+    IRBuilder<> vtBuilder(vecToScalarExit, vecToScalarExit->getFirstNonPHI()->getIterator());
+    Constant * MVLConst = ConstantInt::get(Type::getInt32Ty(vtBuilder.getContext()), 256, false);
+    vtBuilder.CreateCall(lvlFunc, MVLConst);
   }
 
 

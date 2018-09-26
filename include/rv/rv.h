@@ -89,6 +89,7 @@ public:
     void finalize();
 
     PlatformInfo & getPlatformInfo() const { return platInfo; }
+    const Config & getConfig() { return config; }
 
 private:
     Config config;

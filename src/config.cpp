@@ -26,7 +26,8 @@ Config::Config()
 , enableIRPolish(CheckFlag("RV_ENABLE_POLISH"))
 , enableHeuristicBOSCC(CheckFlag("RV_EXP_BOSCC"))
 
-// feature flags
+// feature flags (FIXME: infer from function attributes)
+, useVE(true)
 , useSSE(false)
 , useAVX(false)
 , useAVX2(false)
@@ -51,6 +52,9 @@ Config::Config()
   } else if (arch == "advsimd") {
     Report() << "RV_ARCH: configured for arm advsimd!\n";
     useADVSIMD = true;
+  } else if (arch == "ve") {
+    Report() << "RV_ARCH: configured for nec VE!\n";
+    useVE = true;
   }
 }
 
@@ -91,7 +95,7 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
 
 static void
 printFeatureFlags(const Config & config, llvm::raw_ostream & out) {
-  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << ", useADVSIMD = " << config.useADVSIMD << "\n";
+  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << ", useADVSIMD = " << config.useADVSIMD << "\n" << ", useVE = " << config.useVE << "\n";
 }
 
 

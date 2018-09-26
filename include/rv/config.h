@@ -40,12 +40,15 @@ struct Config {
   bool enableHeuristicBOSCC;
 
 // target features
+  bool useVE;
   bool useSSE;
   bool useAVX;
   bool useAVX2;
   bool useAVX512;
   bool useNEON;
   bool useADVSIMD;
+
+// enable SLEEF library mappings
   bool useSLEEF;
 
   // initialize defaults
