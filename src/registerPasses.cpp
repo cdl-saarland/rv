@@ -38,9 +38,9 @@ static cl::opt<bool>
     rvOnlyCNS("rv-cns", cl::desc("Only run RV's Irreducible Loop Normalizer."),
                  cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
-static bool mayVectorize() { return rvWFVEnabled || rvLoopVecEnabled || rvVectorizeEnabled; }
 static bool shouldRunWFVPass() { return rvWFVEnabled || rvVectorizeEnabled; }
 static bool shouldRunLoopVecPass() { return rvLoopVecEnabled || rvVectorizeEnabled; }
+static bool mayVectorize() { return shouldRunWFVPass() || shouldRunLoopVecPass(); }
 
 static void
 registerRVPasses(const llvm::PassManagerBuilder &Builder,

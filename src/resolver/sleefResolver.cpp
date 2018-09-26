@@ -633,6 +633,12 @@ struct SleefVLAResolver : public FunctionResolver {
     // can dispose of temporary function now
     clonedFunc->eraseFromParent();
 
+    // always inline on VE (can't return vector values!)
+    if (vectorizer.getConfig().useVE) {
+      vecFunc->addFnAttr(Attribute::AlwaysInline); // get this inlined
+      vecFunc->setLinkage(GlobalValue::LinkageTypes::InternalLinkage); // make sure the definition disappears after inlining
+    }
+
     return *vecFunc;
   }
 
