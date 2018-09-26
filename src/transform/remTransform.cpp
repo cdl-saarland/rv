@@ -574,8 +574,6 @@ struct LoopTransformer {
     );
     uniOverrides.insert(&remTrips);
 
-    errs() << "REM :" << remTrips << "\n";
-
   // next min(%remTrips, MVL)
     Constant * rawMVLConst = ConstantInt::get(remTrips.getType(), 256, false);
     auto & rawAVL = CreateSMin(remTrips, *rawMVLConst, builder);
