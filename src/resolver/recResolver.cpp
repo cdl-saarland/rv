@@ -188,6 +188,8 @@ public:
     recMapping.resultShape = nextResultShape; //callMapping.resultShape; // final inferred result shape
     recMapping.vectorFn = vecFunc;
 
+    vecFunc->setName(vectorizer.getPlatformInfo().createMangledVectorName(scaFunc.getName(), callMapping.argShapes, callMapping.vectorWidth, callMapping.maskPos));
+
     // TODO copy last round results
     VectorizationInfo vecInfo(funcRegion, recMapping);
     vectorizer.analyze(vecInfo, DT, PDT, LI);

@@ -96,7 +96,7 @@ def runWFV(scalarLL, destFile, scalarName = "foo", shapes=None, width=None, logP
     if destFile:
       cmd = cmd + " -o " + destFile
     if scalarName:
-      cmd = cmd + " -k " + scalarName
+      cmd = cmd + " -k " + scalarName + " -t " + scalarName + "_SIMD"
     if shapes:
       cmd = cmd + " -s " + shapes
     if width:

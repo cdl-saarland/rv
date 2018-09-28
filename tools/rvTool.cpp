@@ -298,7 +298,7 @@ void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth) {
 using ShapeMap = std::map<std::string, rv::VectorShape>;
 
 // Use case: Whole-Function Vectorizer
-void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes) {
+void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, bool generateVectorName) {
   Function *scalarFn = vectorizerJob.scalarFn;
   Module &mod = *scalarFn->getParent();
 
@@ -311,6 +311,13 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes) {
   TargetLibraryAnalysis libAnalysis;
   TargetLibraryInfo tli = libAnalysis.run(mod, mam);
   rv::PlatformInfo platInfo(mod, &tti, &tli);
+
+  // assign a proper vector function name
+  if (generateVectorName) {
+    StringRef scaName = scalarFn->getName();
+    StringRef mangledVectorName = platInfo.createMangledVectorName(scaName, vectorizerJob.argShapes, vectorizerJob.vectorWidth, vectorizerJob.maskPos);
+    vectorizerJob.vectorFn->setName(mangledVectorName);
+  }
 
   // clone source function for transformations
   ValueToValueMapTy valueMap;
@@ -673,20 +680,13 @@ int main(int argc, char **argv) {
     unsigned vectorWidth = reader.getOption<unsigned>("-w", 8);
 
     if (wfvMode) {
-
-      // Create simd decl
-      Function *vectorFn = nullptr;
-      if (!hasTargetDeclName) {
+      // request SIMD decl (with a requested name, if any)
+      Function *vectorFn = hasTargetDeclName ? mod->getFunction(targetDeclName) : nullptr;
+      if (!vectorFn) {
         vectorFn = rv::createVectorDeclaration(*scalarFn, resShape, argShapes,
                                                vectorWidth, maskPos);
-      } else {
-        vectorFn = mod->getFunction(targetDeclName);
-        // TODO verify shapes
-        if (!vectorFn) {
-          llvm::errs() << "Target declaration " << targetDeclName
-                       << " not found. Aborting!\n";
-          return 3;
-        }
+
+        if (hasTargetDeclName) vectorFn->setName(targetDeclName);
       }
       assert(vectorFn);
 
@@ -702,7 +702,8 @@ int main(int argc, char **argv) {
                         << "\" with vector size " << vectorizerJob.vectorWidth
                         << "... \n";
 
-      vectorizeFunction(vectorizerJob, shapeMap);
+      // vectorize and assign a mangled name (if no specific name was requested beforehand)
+      vectorizeFunction(vectorizerJob, shapeMap, !hasTargetDeclName);
 
     } else if (loopVecMode) {
       vectorizeFirstLoop(*scalarFn, vectorWidth);
