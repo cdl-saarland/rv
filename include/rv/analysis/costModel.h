@@ -12,19 +12,22 @@ namespace llvm {
 
 namespace rv {
 
+class Config;
 class PlatformInfo;
 class VectorizationInfo;
 class Region;
+
 struct VectorMapping;
 
 class CostModel {
   PlatformInfo & platInfo;
+  Config & config;
   llvm::TargetTransformInfo & tti;
 
   bool needsReplication(const llvm::Instruction & inst) const;
 
 public:
-  CostModel(PlatformInfo & _platInfo);
+  CostModel(PlatformInfo & _platInfo, Config & _config);
 
   // pick a width for @inst
   size_t pickWidthForInstruction(const llvm::Instruction & inst, size_t maxWidth) const;

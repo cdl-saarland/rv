@@ -26,6 +26,9 @@ Config::Config()
 , enableIRPolish(CheckFlag("RV_ENABLE_POLISH"))
 , enableHeuristicBOSCC(CheckFlag("RV_EXP_BOSCC"))
 
+// enable greedy inter-procedural vectorization
+, enableGreedyIPV(CheckFlag("RV_IPV"))
+
 // feature flags
 , useSSE(false)
 , useAVX(false)
@@ -86,7 +89,8 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
         << ", enableStructOpt = " << config.enableStructOpt
         << ", enableSROV = " << config.enableSROV
         << ", enableHeuristicBOSCC = " << config.enableHeuristicBOSCC
-        << ", enableIRPolish = " << config.enableIRPolish;
+        << ", enableIRPolish = " << config.enableIRPolish
+        << ", greedyIPV = " << config.enableGreedyIPV;
 }
 
 static void

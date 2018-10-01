@@ -4,6 +4,7 @@
 #include "rv/vectorizationInfo.h"
 #include "rv/region/Region.h"
 #include "rv/annotations.h"
+#include "rv/config.h"
 
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/BasicBlock.h"
@@ -16,8 +17,9 @@ using namespace llvm;
 namespace rv {
 
 
-CostModel::CostModel(PlatformInfo & _platInfo)
+CostModel::CostModel(PlatformInfo & _platInfo, Config & _config)
 : platInfo(_platInfo)
+, config(_config)
 , tti(*platInfo.getTTI())
 {}
 
@@ -69,9 +71,13 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
     // check if this is a critical section
     if (IsCriticalSection(*callee)) return maxWidth;
 
-    VectorShapeVec botArgVec;
+    // can we vectorize the callee recursively
+    if (!callee->isDeclaration() && config.enableGreedyIPV) return maxWidth; // everything is possible with IPV..
+
+    VectorShapeVec topArgVec;
     for (int i = 0; i < (int) call->getNumArgOperands(); ++i) {
-      botArgVec.push_back(VectorShape::undef());
+      // botArgVec.push_back(VectorShape::undef()); // FIXME this causes divergence in the VA
+      topArgVec.push_back(VectorShape::varying());
     }
 
     // find widest available implementation
@@ -79,10 +85,9 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
     StringRef calleeName = callee->getName();
     for (; sampleWidth > 1; sampleWidth /= 2) {
 
-      // VecMappingShortVec matchVec;
-      const bool needsPredicate = false; // FIXME
       // if (platInfo.getMappingsForCall(matchVec, *callee, botArgVec, sampleWidth, needsPredication)) break; // FIXME deprecated
-      if (platInfo.getResolver(calleeName, *callee->getFunctionType(), botArgVec, sampleWidth, needsPredicate)) {
+      const bool needsPredicate = false; // FIXME
+      if (platInfo.getResolver(calleeName, *callee->getFunctionType(), topArgVec, sampleWidth, needsPredicate)) {
         break;
       }
     }

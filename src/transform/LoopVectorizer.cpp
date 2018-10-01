@@ -195,7 +195,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
 // pick a vectorization factor (unless user override is set)
   if (!hasFixedWidth) {
-    CostModel costModel(vectorizer->getPlatformInfo());
+    CostModel costModel(vectorizer->getPlatformInfo(), config);
     LoopRegion tmpLoopRegionImpl(L);
     Region tmpLoopRegion(tmpLoopRegionImpl);
     size_t refinedWidth = costModel.pickWidthForRegion(tmpLoopRegion, VectorWidth); // TODO run VA first
@@ -395,8 +395,14 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   config.useSLEEF = true;
 
   // TODO translate fast-math flag to ULP error bound
-
   addSleefResolver(config, platInfo, 35);
+
+  // enable inter-procedural vectorization
+  if (config.enableGreedyIPV) {
+    Report() << "Using greedy inter-procedural vectorization.\n";
+    addRecursiveResolver(config, platInfo);
+  }
+
   vectorizer.reset(new VectorizerInterface(platInfo, config));
 
 

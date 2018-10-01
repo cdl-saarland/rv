@@ -39,7 +39,10 @@ struct Config {
   bool enableIRPolish;
   bool enableHeuristicBOSCC;
 
-// target features
+// greedy inter-procedural vectorizatoin
+  bool enableGreedyIPV;
+
+// starget features
   bool useSSE;
   bool useAVX;
   bool useAVX2;
