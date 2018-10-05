@@ -64,6 +64,9 @@ cClangLine="clang -march=native -m64 -O2 -fno-vectorize -fno-slp-vectorize"
 
 rvToolLine="rvTool"
 
+# use a 1.0 ULP error bound for SLEEF math
+testULPBound = 10
+
 def rvClang(clangArgs):
    return shellCmd(clangLine + " -Xclang -load -Xclang " + libRV + " -O3 " + clangArgs)
 
@@ -89,6 +92,8 @@ def runOuterLoopVec(scalarLL, destFile, scalarName = "foo", loopDesc=None, logPr
     if width:
       cmd = cmd + " -w " + str(width)
 
+    cmd += " --math-prex {}".format(testULPBound)
+
     return shellCmd(cmd,  None, logPrefix)
 
 def runWFV(scalarLL, destFile, scalarName = "foo", shapes=None, width=None, logPrefix=None, extraShapes=dict(), maskPos=None):
@@ -105,6 +110,8 @@ def runWFV(scalarLL, destFile, scalarName = "foo", shapes=None, width=None, logP
       cmd = cmd + " -m " + str(maskPos)
     if 0 < len(extraShapes.items()):
       cmd = cmd + " -x " + ",".join("{}={}".format(k,v) for k,v in extraShapes.items())
+
+    cmd += " --math-prec {}".format(testULPBound)
 
     return shellCmd(cmd,  None, logPrefix)
 
