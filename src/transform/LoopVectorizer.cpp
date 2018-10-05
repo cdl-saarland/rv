@@ -263,13 +263,21 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
       rv::Reduction * redInfo = reda->getReductionInfo(*phi);
       IF_DEBUG { errs() << "loopVecPass: header phi  " << *phi << " : "; }
 
+      // failure to derive a reduction descriptor
       if (!redInfo) {
         errs() << "\n\tskip: unrecognized phi use in vector loop " << L.getName() << "\n";
         return false;
-      } else {
-        IF_DEBUG { redInfo->dump(); }
-        phiShape = redInfo->getShape(VectorWidth);
       }
+
+      // unsupported reduction kind
+      if (redInfo->kind == RedKind::Top) {
+        Report() << " can not vectorize this recurrence: "; redInfo->print(ReportContinue()); ReportContinue() << "\n";
+        return false;
+      }
+
+      // Otw, this is a privatizable reduction pattern
+      IF_DEBUG { redInfo->dump(); }
+      phiShape = redInfo->getShape(VectorWidth);
     }
 
     IF_DEBUG { errs() << "header phi " << phi->getName() << " has shape " << phiShape.str() << "\n"; }
