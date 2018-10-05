@@ -186,12 +186,11 @@ WFVPass::runOnModule(Module & M) {
 
   // FIXME this assumes that all functions were compiled for the same target
   auto & TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(*wfvJobs[0].scalarFn);
-  Config rvConfig; // TODO parse machine attributes of scalar function
+  Config rvConfig = Config::createForFunction(*wfvJobs[0].scalarFn);
 
   // configure platInfo
-  rvConfig.useSLEEF = true;
   PlatformInfo platInfo(M, &TTI, &TLI);
-  addSleefResolver(rvConfig, platInfo, 35);
+  addSleefResolver(rvConfig, platInfo);
 
   // add mappings for recursive vectorization
   for (auto & job : wfvJobs) {

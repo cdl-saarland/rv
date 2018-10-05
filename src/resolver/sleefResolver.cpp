@@ -374,7 +374,6 @@ InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleW
 
 class SleefResolverService : public ResolverService {
   PlatformInfo & platInfo;
-  const unsigned maxULPError;
 
   struct ArchFunctionList {
     SleefISA isaIndex;
@@ -402,7 +401,6 @@ public:
   void
   print(llvm::raw_ostream & out) const override {
     out << "SLEEFResolver:\n"
-             << "\tULP error bound is " << (maxULPError / 10) << '.' << (maxULPError % 10) << "\n"
              << "\tarch order: ";
 
     bool later = false;
@@ -413,9 +411,8 @@ public:
     }
   }
 
-  SleefResolverService(PlatformInfo & _platInfo, const Config & _config, unsigned _maxULPError)
+  SleefResolverService(PlatformInfo & _platInfo, const Config & _config)
   : platInfo(_platInfo)
-  , maxULPError(_maxULPError)
   , config(_config)
   {
   // ARM
@@ -773,7 +770,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
 
   if (isa == SLEEF_VLA) {
     // on-the-fly vectorization module
-    Function &vlaFunc = GetLeastPreciseImpl(*mod, sleefName, maxULPError);
+    Function &vlaFunc = GetLeastPreciseImpl(*mod, sleefName, config.maxULPErrorBound);
     return std::make_unique<SleefVLAResolver>(platInfo, vlaFunc.getName(), config, vlaFunc, argShapes, vectorWidth);
 
   } else {
@@ -787,7 +784,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
     }
 
     // we'll have to link in the function
-    Function &vecFunc = GetLeastPreciseImpl(*mod, sleefName, maxULPError);
+    Function &vecFunc = GetLeastPreciseImpl(*mod, sleefName, config.maxULPErrorBound);
     std::string vecFuncName = vecFunc.getName().str() + "_" + archList->archSuffix;
     return std::make_unique<SleefLookupResolver>(destModule, resShape, vecFunc, vecFuncName);
   }
@@ -796,8 +793,8 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
 
 
 void
-addSleefResolver(const Config & config, PlatformInfo & platInfo, unsigned maxULPError) {
-  auto sleefRes = std::make_unique<SleefResolverService>(platInfo, config, maxULPError);
+addSleefResolver(const Config & config, PlatformInfo & platInfo) {
+  auto sleefRes = std::make_unique<SleefResolverService>(platInfo, config);
   platInfo.addResolverService(std::move(sleefRes), true);
 }
 

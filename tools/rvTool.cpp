@@ -155,8 +155,8 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   }
 
   // configure RV
-  rv::Config config;
-  config.useSLEEF = true;
+  auto config = rv::Config::createForFunction(parentFn);
+  config.maxULPErrorBound = ulpErrorBound;
   config.print(outs());
 
   // setup region
@@ -170,7 +170,7 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   MemoryDependenceResults MDR = mdAnalysis.run(parentFn, fam);
 
   // link in SIMD library
-  addSleefResolver(config, platInfo, ulpErrorBound);
+  addSleefResolver(config, platInfo);
   // vectorize recursively
   addRecursiveResolver(config, platInfo);
 
@@ -346,12 +346,12 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   PB.registerModuleAnalyses(mam);
 
   // configure RV
-  rv::Config config;
-  config.useSLEEF = true;
+  auto config = rv::Config::createForFunction(*scalarFn);
+  config.maxULPErrorBound = ulpErrorBound;
   config.print(outs());
 
   // link in SIMD library
-  addSleefResolver(config, platInfo, ulpErrorBound);
+  addSleefResolver(config, platInfo);
   // vectorize recursively
   addRecursiveResolver(config, platInfo);
 

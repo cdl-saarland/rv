@@ -22,6 +22,7 @@
 #include "rv/analysis/costModel.h"
 #include "rv/transform/remTransform.h"
 
+#include "rv/config.h"
 #include "rvConfig.h"
 #include "rv/rvDebug.h"
 
@@ -233,7 +234,8 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
   // print configuration banner once
   if (!introduced) {
-    config.print(Report());
+    Report() << " rv::Config: ";
+    config.print(ReportContinue());
     introduced = true;
   }
 
@@ -365,7 +367,7 @@ bool LoopVectorizer::vectorizeLoopOrSubLoops(Loop &L) {
 }
 
 bool LoopVectorizer::runOnFunction(Function &F) {
-  // have we introduced or self? (reporting output)
+  // have we introduced ourself? (reporting output)
   enableDiagOutput = CheckFlag("LV_DIAG");
   introduced = false;
 
@@ -385,17 +387,15 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   this->SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   this->MDR = &getAnalysis<MemoryDependenceWrapperPass>().getMemDep();
   this->PB = &getAnalysis<BranchProbabilityInfoWrapperPass>().getBPI();
+  this->config = Config::createForFunction(F);
 
 // setup PlatformInfo
   TargetTransformInfo & tti = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
   TargetLibraryInfo & tli = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
   PlatformInfo platInfo(*F.getParent(), &tti, &tli);
 
-  // TODO query target capabilities
-  config.useSLEEF = true;
-
   // TODO translate fast-math flag to ULP error bound
-  addSleefResolver(config, platInfo, 35);
+  addSleefResolver(config, platInfo);
 
   // enable inter-procedural vectorization
   if (config.enableGreedyIPV) {
