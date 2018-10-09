@@ -22,7 +22,7 @@ namespace rv {
   void addPreparatoryPasses(llvm::legacy::PassManagerBase & PM);
 
   // add RV's outer loop vectorizer and required passes to @PM
-  void addOuterLoopVectorizer(llvm::legacy::PassManagerBase & PM, Config config = Config());
+  void addOuterLoopVectorizer(llvm::legacy::PassManagerBase & PM);
 
   // add RV's whole function and required passes to @PM
   void addWholeFunctionVectorizer(llvm::legacy::PassManagerBase & PM);
