@@ -26,8 +26,7 @@ addCleanupPasses(legacy::PassManagerBase & PM) {
 }
 
 void
-addOuterLoopVectorizer(legacy::PassManagerBase & PM, Config config) {
-   // PM.add(rv::createCNSPass());
+addOuterLoopVectorizer(legacy::PassManagerBase & PM) {
    PM.add(rv::createLoopVectorizerPass());
 }
 
