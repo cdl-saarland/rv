@@ -27,6 +27,16 @@ public:
   VectorShape
   requestResultShape() { return VectorShape::varying(); }
 
+  CallPredicateMode getCallSitePredicateMode() {
+    // not generally safe in a predicated context
+    return CallPredicateMode::Unpredicated;
+  }
+
+  // mask position (if any)
+  int getMaskPos() {
+    return -1;  // unpredicated
+  }
+
   Function& requestVectorized() {
     // TODO actually emit a SIMD declaration for this function
     StringRef tliFnName = TLI.getVectorizedFunction(funcName, vectorWidth);
@@ -43,7 +53,7 @@ public:
   {}
 
   std::unique_ptr<FunctionResolver>
-  resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) {
+  resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule) {
     StringRef tliFnName = TLI.getVectorizedFunction(funcName, vectorWidth);
     if (!tliFnName.empty()) {
       return std::make_unique<TLIFuncResolver>(destModule, TLI, funcName, scaFuncTy, vectorWidth);

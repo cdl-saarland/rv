@@ -9,6 +9,7 @@
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "rv/vectorMapping.h"
 #include "rv/resolver/resolver.h"
+#include "rv/intrinsics.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace rv {
@@ -37,14 +38,17 @@ public:
   getResolver(llvm::StringRef funcName,
               llvm::FunctionType & scaFuncTy,
               const VectorShapeVec & argShapes,
-              int vectorWidth) const;
+              int vectorWidth,
+              bool hasPredicate) const;
 
   llvm::Module &getModule() const { return mod; }
   llvm::LLVMContext &getContext() const { return mod.getContext(); }
 
   const llvm::DataLayout &getDataLayout() const { return mod.getDataLayout(); }
 
-  llvm::Function *requestMaskReductionFunc(const std::string &name);
+  // FIXME use RVIntrinsic instead
+  // materialize a declaration for \p rvIntrin and register the appropriate mappings.
+  llvm::Function &requestRVIntrinsicFunc(RVIntrinsic rvIntrin);
   llvm::Function *requestVectorMaskReductionFunc(const std::string &name, size_t width);
 
   size_t getMaxVectorWidth() const;
@@ -59,6 +63,10 @@ public:
 
   void dump() const;
   void print(llvm::raw_ostream & out) const;
+
+  // return the mangled vector function name for this target platform
+  std::string createMangledVectorName(llvm::StringRef scaName, const VectorShapeVec & argShapes, int vectorWidth, int maskPos);
+
 private:
   // Direct access to builtin list resolver.
   llvm::Module &mod;

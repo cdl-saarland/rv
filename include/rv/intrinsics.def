@@ -1,3 +1,4 @@
+RV_MAP_INTRINSIC(rv_entry_mask, EntryMask)
 RV_MAP_INTRINSIC(rv_any, Any)
 RV_MAP_INTRINSIC(rv_all, All)
 RV_MAP_INTRINSIC(rv_ballot, Ballot)

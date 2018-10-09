@@ -483,7 +483,7 @@ void VectorizationAnalysis::compute(const Function& F) {
       // adjust result type to match alignment
       unsigned minAlignment = getBaseAlignment(*I, layout);
       New.setAlignment(std::max<unsigned>(minAlignment, New.getAlignmentFirst()));
-    } else if (I->getType()->isFloatingPointTy()) {
+    } else if (isa<FPMathOperator>(I)) {
       // allow strided/aligned fp values only in fast math mode
       FastMathFlags flags = I->getFastMathFlags();
       if (!flags.isFast() && !New.isUniform()) {
@@ -663,8 +663,8 @@ VectorShape VectorizationAnalysis::computeShapeForInst(const Instruction* I, Sma
       }
 
       // next: query resolver mechanism // TODO account for predicate
-      bool needsPredication = false; // FIXME whether the call needs predication due to the call context
-      auto resolver = platInfo.getResolver(callee->getName(), *callee->getFunctionType(), callArgShapes, vecInfo.getVectorWidth());
+      bool hasBlockPredicate = true; // FIXME whether the call needs predication due to the call context
+      auto resolver = platInfo.getResolver(callee->getName(), *callee->getFunctionType(), callArgShapes, vecInfo.getVectorWidth(), hasBlockPredicate);
       if (resolver) {
         return resolver->requestResultShape();
       }

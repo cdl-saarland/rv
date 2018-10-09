@@ -24,7 +24,6 @@
 #include "rvConfig.h"
 #include "rv/rv.h"
 #include "rv/utils.h"
-#include "utils/rvTools.h"
 #include "rv/region/FunctionRegion.h"
 #include "rv/transform/singleReturnTrans.h"
 #include "rv/transform/loopExitCanonicalizer.h"
@@ -239,10 +238,6 @@ static const unsigned char** extraModuleBuffers[] = {
 static Module *sleefModules[SLEEF_Enum_Entries * 2];
 static Module *extraModules[SLEEF_Enum_Entries * 2];
 
-#ifdef RV_ENABLE_CRT
-  static Module* scalarModule; // scalar implementations to be inlined
-#endif
-
 static
 void
 InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleWidth) {
@@ -287,7 +282,7 @@ InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleW
           {"llvm.copysign.f32", "xcopysignf", floatWidth},
           {"llvm.minnum.f32", "xfminf", floatWidth},
           {"llvm.maxnum.f32", "xfmaxf", floatWidth},
-          {"llvm.fabs.f64", "xfabs_vla", doubleWidth},
+          {"llvm.fabs.f64", "xfabs", doubleWidth},
           {"llvm.copysign.f64", "xcopysign", doubleWidth},
           {"llvm.minnum.f64", "xfmin", doubleWidth},
           {"llvm.maxnum.f64", "xfmax", doubleWidth},
@@ -379,7 +374,6 @@ InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleW
 
 class SleefResolverService : public ResolverService {
   PlatformInfo & platInfo;
-  const unsigned maxULPError;
 
   struct ArchFunctionList {
     SleefISA isaIndex;
@@ -407,7 +401,6 @@ public:
   void
   print(llvm::raw_ostream & out) const override {
     out << "SLEEFResolver:\n"
-             << "\tULP error bound is " << (maxULPError / 10) << '.' << (maxULPError % 10) << "\n"
              << "\tarch order: ";
 
     bool later = false;
@@ -418,9 +411,8 @@ public:
     }
   }
 
-  SleefResolverService(PlatformInfo & _platInfo, const Config & _config, unsigned _maxULPError)
+  SleefResolverService(PlatformInfo & _platInfo, const Config & _config)
   : platInfo(_platInfo)
-  , maxULPError(_maxULPError)
   , config(_config)
   {
   // ARM
@@ -472,7 +464,7 @@ public:
     for (auto * archList : archLists) delete archList;
   }
 
-  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule);
+  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule);
 };
 
 
@@ -481,29 +473,6 @@ public:
 
 
 
-
-
-// existing vectorized function wrapper
-class ExistingResolver : public FunctionResolver {
-  Function & vecFunc;
-  VectorShape retShape;
-
-public:
-  ExistingResolver(Module & destModule, Function & _vecFunc, VectorShape _retShape)
-  : FunctionResolver(destModule)
-  , vecFunc(_vecFunc)
-  , retShape(_retShape)
-  {}
-
-  llvm::Function& requestVectorized() {
-    return vecFunc;
-  }
-
-  // result shape of function @funcName in target module @module
-  VectorShape requestResultShape() {
-    return VectorShape::varying();
-  }
-};
 
 // simply links-in the pre-vectorized SLEEF function
 class SleefLookupResolver : public FunctionResolver {
@@ -518,6 +487,16 @@ class SleefLookupResolver : public FunctionResolver {
     , vecFunc(_vecFunc)
     , destFuncName(_destFuncName)
   {}
+
+  CallPredicateMode getCallSitePredicateMode() {
+    // FIXME this is not entirely true for vector math
+    return CallPredicateMode::SafeWithoutPredicate;
+  }
+
+  // mask position (if any)
+  int getMaskPos() {
+    return -1; // FIXME vector math is unpredicated
+  }
 
   llvm::Function&
   requestVectorized() {
@@ -536,17 +515,6 @@ class SleefLookupResolver : public FunctionResolver {
 };
 
 
-static
-std::string
-MangleFunction(StringRef sleefName, const VectorShapeVec & argShapes, int vectorWidth) {
-  std::stringstream ss;
-  ss << sleefName.str() << "_v" << vectorWidth << "_";
-  for (const auto & argShape : argShapes) {
-    ss << argShape.serialize();
-  }
-  return ss.str();
-}
-
 // on-the-fly vectorizing resolver
 struct SleefVLAResolver : public FunctionResolver {
   VectorizerInterface vectorizer;
@@ -561,7 +529,7 @@ struct SleefVLAResolver : public FunctionResolver {
 
   std::string vecFuncName;
 
-  SleefVLAResolver(PlatformInfo & platInfo, StringRef baseName, Config config, Function & _scaFunc, const VectorShapeVec & _argShapes, int _vectorWidth)
+  SleefVLAResolver(PlatformInfo & platInfo, std::string baseName, Config config, Function & _scaFunc, const VectorShapeVec & _argShapes, int _vectorWidth)
   : FunctionResolver(platInfo.getModule())
   , vectorizer(platInfo, config)
   , vecInfo(nullptr)
@@ -571,9 +539,19 @@ struct SleefVLAResolver : public FunctionResolver {
   , argShapes(_argShapes)
   , resShape(VectorShape::undef())
   , vectorWidth(_vectorWidth)
-  , vecFuncName(MangleFunction(baseName, argShapes, vectorWidth))
+  , vecFuncName(platInfo.createMangledVectorName(baseName, argShapes, vectorWidth, -1))
   {
     IF_DEBUG_SLEEF { errs() << "VLA: " << vecFuncName << "\n"; }
+  }
+
+  CallPredicateMode getCallSitePredicateMode() {
+    // FIXME this is not entirely true for vector math
+    return CallPredicateMode::SafeWithoutPredicate;
+  }
+
+  // mask position (if any)
+  int getMaskPos() {
+    return -1; // FIXME vector math is unpredicated
   }
 
   // materialized the vectorized function in the module @insertInto and returns a reference to it
@@ -586,19 +564,19 @@ struct SleefVLAResolver : public FunctionResolver {
     requestResultShape();
 
     // prepare scalar copy for transforming
-    const int maskPos = -1; // TODO add support for masking
     clonedFunc = &cloneFunctionIntoModule(scaFunc, targetModule, vecFuncName + ".tmp");
     assert(clonedFunc);
 
     // create SIMD declaration
-    vecFunc = createVectorDeclaration(*clonedFunc, resShape, argShapes, vectorWidth);
+    const int maskPos = -1; // TODO add support for masking
+    vecFunc = createVectorDeclaration(*clonedFunc, resShape, argShapes, vectorWidth, maskPos);
     vecFunc->setName(vecFuncName);
 
     // override with no-recurse flag (so we won't get guards in the vector code)
     vecFunc->copyAttributesFrom(&scaFunc);
     vecFunc->setDoesNotRecurse();
 
-    VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes);
+    VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes, CallPredicateMode::SafeWithoutPredicate);
     vectorizer.getPlatformInfo().addMapping(mapping); // prevent recursive vectorization
 
     // set-up vecInfo
@@ -728,8 +706,10 @@ GetLeastPreciseImpl(Module & mod, const std::string & funcPrefix, const unsigned
 }
 
 std::unique_ptr<FunctionResolver>
-SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) {
+SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule) {
   IF_DEBUG_SLEEF { errs() << "SLEEFResolverService: " << funcName << " for width " << vectorWidth << "\n"; }
+
+  (void) hasPredicate; // FIXME use predicated versions
 
   // Otw, start looking for a SIMD-ized implementation
   ArchFunctionList * archList = nullptr;
@@ -790,9 +770,8 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
 
   if (isa == SLEEF_VLA) {
     // on-the-fly vectorization module
-    Function &vlaFunc = GetLeastPreciseImpl(*mod, sleefName, maxULPError);
-    std::string baseName = vlaFunc.getName();
-    return std::make_unique<SleefVLAResolver>(platInfo, baseName, config, vlaFunc, argShapes, vectorWidth);
+    Function &vlaFunc = GetLeastPreciseImpl(*mod, sleefName, config.maxULPErrorBound);
+    return std::make_unique<SleefVLAResolver>(platInfo, vlaFunc.getName(), config, vlaFunc, argShapes, vectorWidth);
 
   } else {
     // these are pure functions
@@ -805,7 +784,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
     }
 
     // we'll have to link in the function
-    Function &vecFunc = GetLeastPreciseImpl(*mod, sleefName, maxULPError);
+    Function &vecFunc = GetLeastPreciseImpl(*mod, sleefName, config.maxULPErrorBound);
     std::string vecFuncName = vecFunc.getName().str() + "_" + archList->archSuffix;
     return std::make_unique<SleefLookupResolver>(destModule, resShape, vecFunc, vecFuncName);
   }
@@ -814,8 +793,8 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
 
 
 void
-addSleefResolver(const Config & config, PlatformInfo & platInfo, unsigned maxULPError) {
-  auto sleefRes = std::make_unique<SleefResolverService>(platInfo, config, maxULPError);
+addSleefResolver(const Config & config, PlatformInfo & platInfo) {
+  auto sleefRes = std::make_unique<SleefResolverService>(platInfo, config);
   platInfo.addResolverService(std::move(sleefRes), true);
 }
 

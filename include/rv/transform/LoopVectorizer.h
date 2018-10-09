@@ -14,8 +14,8 @@
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "rv/transform/remTransform.h"
-#include "rv/config.h"
 #include "rv/analysis/reductionAnalysis.h"
+#include "rv/config.h"
 
 #include <limits>
 

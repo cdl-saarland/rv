@@ -246,18 +246,9 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   // - region mode: true
   auto & entryBlock = vecInfo.getEntry();
   if (&BB == &entryBlock) {
-    auto & mapping =vecInfo.getMapping();
-    if (mapping.maskPos >= 0) {
-      auto itArg = mapping.scalarFn->arg_begin();
-      std::advance(itArg, mapping.maskPos);
-      IF_DEBUG_ME {errs() << "entryMask: " << *itArg << "\n"; }
-      setBlockMask(BB, *itArg);
-      return *itArg;
-    } else {
-      IF_DEBUG_ME {errs() << "region entryMask: true\n"; }
-      setBlockMask(BB, *trueConst);
-      return *trueConst;
-    }
+    IF_DEBUG_ME {errs() << "region entryMask: true\n"; }
+    setBlockMask(BB, *trueConst);
+    return *trueConst;
   }
 
   // return the cached result

@@ -15,6 +15,13 @@ namespace rv {
 
 // Classic list-based vector function resolver.
 using VecMappingShortVec = llvm::SmallVector<VectorMapping, 4>;
+#if 0
+struct DestFunctions {
+  VecMappingShortVec predicated;
+  VecMappingShortVec unpredicated;
+};
+#endif
+
 using VectorFuncMap = std::map<const llvm::Function *, std::unique_ptr<VecMappingShortVec>>;
 
 class ListResolver : public ResolverService {
@@ -44,7 +51,7 @@ public:
 
   void print(llvm::raw_ostream & out) const override;
 
-  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) override;
+  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredication, llvm::Module & destModule) override;
 
 private:
   llvm::Module & destModule;

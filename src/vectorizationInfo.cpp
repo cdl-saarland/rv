@@ -131,7 +131,7 @@ VectorizationInfo::print(llvm::raw_ostream & out) const
 }
 
 VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, unsigned vectorWidth, Region& _region)
-: mapping(&parentFn, &parentFn, vectorWidth), region(&_region)
+: mapping(&parentFn, &parentFn, vectorWidth, CallPredicateMode::SafeWithoutPredicate), region(&_region)
 {
     mapping.resultShape = VectorShape::uni();
     for (auto& arg : parentFn.args()) {
