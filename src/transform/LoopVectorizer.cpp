@@ -180,15 +180,9 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
   int VectorWidth = getAnnotatedVectorWidth(L);
 
+  char * userWidthText = getenv("RV_FORCE_WIDTH");
   bool hasFixedWidth = false;
-  if (VectorWidth == 0 || VectorWidth == 1) {
-    char * userWidthText = getenv("RV_FORCE_WIDTH");
-    if (!userWidthText) {
-      if (enableDiagOutput) {
-        Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Dep dist was "  << depDist << " Vector width was " << VectorWidth << "\n";
-      }
-      return false;
-    }
+  if (userWidthText) {
     hasFixedWidth = true;
     VectorWidth = atoi(userWidthText);
     if (enableDiagOutput) Report() << "loopVecPass: with user-provided vector width (RV_FORCE_WIDTH=" << VectorWidth << ")\n";
@@ -196,17 +190,19 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
 // pick a vectorization factor (unless user override is set)
   if (!hasFixedWidth) {
+    size_t initialWidth = VectorWidth == 0 ? depDist : VectorWidth;
+
     CostModel costModel(vectorizer->getPlatformInfo(), config);
     LoopRegion tmpLoopRegionImpl(L);
     Region tmpLoopRegion(tmpLoopRegionImpl);
-    size_t refinedWidth = costModel.pickWidthForRegion(tmpLoopRegion, VectorWidth); // TODO run VA first
+    size_t refinedWidth = costModel.pickWidthForRegion(tmpLoopRegion, initialWidth); // TODO run VA first
 
     if (refinedWidth <= 1) {
       if (enableDiagOutput) { Report() << "loopVecPass, costModel: vectorization not beneficial\n"; }
       return false;
     } else if (refinedWidth != (size_t) VectorWidth) {
       if (enableDiagOutput) {
-        Report() << "loopVecPass, costModel: refined vector width to " << refinedWidth << " from ";
+        Report() << "loopVecPass, costModel: refined vector width to " << DepDistToString(refinedWidth) << " from ";
         if (VectorWidth > 1) Report() << VectorWidth << "\n";
         else ReportContinue() << " unbounded\n";
       }
