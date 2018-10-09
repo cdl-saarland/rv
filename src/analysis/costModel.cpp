@@ -108,12 +108,14 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
 
 size_t
 CostModel::pickWidthForType(const Type & type, size_t maxWidth) const {
-  // assume that only floating point values are vectorized
-  if (type.isFloatingPointTy()) {
-    size_t typeBits = type.isFloatTy() ? 32 : 64;
-    maxWidth = std::min<size_t>(maxWidth, platInfo.getMaxVectorBits() / typeBits);
-  }
 
+  // assume that only floating point values are vectorized
+  size_t rawSize = type.getScalarSizeInBits();
+  if ((rawSize > 0) &&
+       (type.isIntegerTy() || type.isFloatingPointTy()))
+  {
+    maxWidth = std::min<size_t>(maxWidth, platInfo.getMaxVectorBits() / rawSize);
+  }
   return maxWidth;
 }
 
@@ -135,12 +137,12 @@ CostModel::pickWidthForBlock(const BasicBlock & block, size_t maxWidth) const {
 
 size_t
 CostModel::pickWidthForRegion(const Region & region, size_t maxWidth) const {
-  size_t width = maxWidth;
+  size_t width = std::min(maxWidth, platInfo.getMaxVectorBits());
 
-  IF_DEBUG_CM { errs() << "cm: bounding vector width for region " << region.str() << ", initial max width " << maxWidth << "\n"; }
+  IF_DEBUG_CM { errs() << "cm: bounding vector width for region " << region.str() << ", initial max width " << width << "\n"; }
 
   region.for_blocks([&](const BasicBlock & block) {
-      width = pickWidthForBlock(block, maxWidth);
+      width = pickWidthForBlock(block, width);
       return width > 1;
   });
 
