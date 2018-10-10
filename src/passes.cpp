@@ -10,6 +10,8 @@ using namespace llvm;
 
 namespace rv {
 
+
+
 void
 addPreparatoryPasses(legacy::PassManagerBase & PM) {
    PM.add(createLoopSimplifyPass());
@@ -31,8 +33,17 @@ addOuterLoopVectorizer(legacy::PassManagerBase & PM) {
 }
 
 
-void addWholeFunctionVectorizer(llvm::legacy::PassManagerBase & PM) {
+void
+addWholeFunctionVectorizer(llvm::legacy::PassManagerBase & PM) {
   PM.add(rv::createWFVPass());
+}
+
+void
+addRVPasses(llvm::legacy::PassManagerBase & PM) {
+  addPreparatoryPasses(PM);
+  addOuterLoopVectorizer(PM);
+  addWholeFunctionVectorizer(PM);
+  addCleanupPasses(PM);
 }
 
 }
