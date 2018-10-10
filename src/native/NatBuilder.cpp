@@ -917,8 +917,13 @@ NatBuilder::vectorizeShuffleCall(CallInst *rvCall) {
 
 // non-uniform arg
   auto * vecVal = requestVectorValue(vecArg);
-  assert(getVectorShape(*rvCall->getArgOperand(1)).isUniform());
-  int64_t shiftVal = cast<ConstantInt>(rvCall->getArgOperand(1))->getSExtValue();
+  auto * amountVal = rvCall->getArgOperand(1);
+  if (!isa<ConstantInt>(amountVal)) {
+    Error() << *rvCall << "\n";
+    fail("rv_shuffle: shift amount needs to be a constant!\n");
+  }
+
+  int64_t shiftVal = cast<ConstantInt>(amountVal)->getSExtValue();
   if (shiftVal < 0) {
     shiftVal = vectorWidth() + shiftVal;
   }
