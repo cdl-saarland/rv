@@ -6,7 +6,14 @@
 #include "rv/config.h"
 
 namespace rv {
-  // Rv-based loop vectorizer pass
+
+
+  // add all passes of RV to the pass pipeline PM.
+  void addRVPasses(llvm::legacy::PassManagerBase & PM);
+
+
+// fine-grained pass adding
+  // RV-based loop vectorizer pass
   llvm::FunctionPass *createLoopVectorizerPass();
 
   // Whole-Function Vectorizer pass
@@ -17,6 +24,7 @@ namespace rv {
 
   // Controlled Node Splitting (Irreducible loop normalization)
   llvm::FunctionPass *createCNSPass();
+
 
   // add normalization passes required by RV (BEFORE)
   void addPreparatoryPasses(llvm::legacy::PassManagerBase & PM);
