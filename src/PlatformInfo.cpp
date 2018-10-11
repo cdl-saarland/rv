@@ -33,7 +33,7 @@ PlatformInfo::registerDeclareSIMDFunction(Function & F) {
     if (attribText.size() < 2) continue;
 
     VectorMapping vecMapping;
-    if (!parseVectorMapping(F, attribText, vecMapping, false)) continue;
+    if (!parseVectorMapping(F, attribText, vecMapping, true)) continue;
     addMapping(std::move(vecMapping));
   }
 }

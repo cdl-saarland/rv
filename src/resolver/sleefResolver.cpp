@@ -795,7 +795,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
 void
 addSleefResolver(const Config & config, PlatformInfo & platInfo) {
   auto sleefRes = std::make_unique<SleefResolverService>(platInfo, config);
-  platInfo.addResolverService(std::move(sleefRes), true);
+  platInfo.addResolverService(std::move(sleefRes), false); // give precedence to VectorABI
 }
 
 } // namespace rv
