@@ -410,6 +410,8 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   vectorizer.reset(new VectorizerInterface(platInfo, config));
 
 
+  if (enableDiagOutput) { platInfo.print(ReportContinue()); }
+
   std::vector<Loop*> loops;
   for (Loop *L : *LI) loops.push_back(L);
   for (auto * L : loops) Changed |= vectorizeLoopOrSubLoops(*L);
