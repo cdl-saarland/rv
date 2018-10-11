@@ -40,9 +40,16 @@ addWholeFunctionVectorizer(llvm::legacy::PassManagerBase & PM) {
 
 void
 addRVPasses(llvm::legacy::PassManagerBase & PM) {
+  // normalize loops
   addPreparatoryPasses(PM);
-  addOuterLoopVectorizer(PM);
+
+  // vectorize scalar functions that have VectorABI attributes
   addWholeFunctionVectorizer(PM);
+
+  // vectorize annotated loops
+  addOuterLoopVectorizer(PM);
+
+  // DCE, instcombine, ..
   addCleanupPasses(PM);
 }
 
