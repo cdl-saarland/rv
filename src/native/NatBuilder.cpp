@@ -1145,6 +1145,23 @@ MayRecurse(const Function &F) {
   return !F.doesNotRecurse();
 }
 
+static void
+CopyTargetAttributes(Function & destFunc, Function & srcFunc) {
+  auto attribSet = srcFunc.getAttributes().getFnAttributes();
+
+  // parse SIMD signatures
+  for (auto attrib : attribSet) {
+    if (!attrib.isStringAttribute()) continue;
+    StringRef attribText = attrib.getKindAsString();
+
+    if ((attribText == "target-cpu") ||
+       (attribText == "target-features"))
+    {
+      destFunc.addFnAttr(attrib);
+    }
+  }
+}
+
 void
 NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   Value * callee = scalCall->getCalledValue();
@@ -1163,10 +1180,12 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   std::unique_ptr<FunctionResolver> funcResolver = nullptr;
   bool hasCallPredicate = !hasUniformPredicate(scaBlock);
   if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth(), hasCallPredicate);
-  if (funcResolver) {
+  if (funcResolver && !CheckFlag("RV_SPLIT")) {
     Function &simdFunc = funcResolver->requestVectorized();
+    CopyTargetAttributes(simdFunc, vecInfo.getScalarFunction());
 
     bool needsGuardedCall =
+      funcResolver->getCallSitePredicateMode() != CallPredicateMode::SafeWithoutPredicate &&
       hasCallPredicate && // call site with a non trivial predicate
       MayRecurse(simdFunc) && // the called function may actually recurse
       !undeadMasks.isUndead(scaMask, scaBlock); // there is not at least one live thread
@@ -1206,6 +1225,8 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
         // doublePrecision = scalCall->getArgOperand(0)->getType()->isDoubleTy();
       // }
       Function &simdFunc = funcResolver->requestVectorized();
+      CopyTargetAttributes(simdFunc, vecInfo.getScalarFunction());
+
       ShuffleBuilder appender(vectorWidth());
       ShuffleBuilder extractor(vecWidth);
 
