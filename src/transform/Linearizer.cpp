@@ -360,7 +360,7 @@ Linearizer::verifyBlockIndex() {
 }
 
 bool
-Linearizer::needsFolding(TerminatorInst & termInst) {
+Linearizer::needsFolding(Instruction & termInst) {
   if (isa<ReturnInst>(termInst) || isa<UnreachableInst>(termInst)) return false;
 
   // fold all non-uniform branches

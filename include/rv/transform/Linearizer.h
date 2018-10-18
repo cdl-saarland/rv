@@ -248,7 +248,7 @@ namespace rv {
     RelayNode & getRelayUnchecked(unsigned i) { return relays[i]; }
     void mergeInReaching(RelayNode & dest, RelayNode & source);
 
-    bool needsFolding(llvm::TerminatorInst & branch);
+    bool needsFolding(llvm::Instruction & termInst);
 
   // transformations
     // partially linearize a range of blocks in the blockIndex

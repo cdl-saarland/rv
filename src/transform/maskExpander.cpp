@@ -96,7 +96,7 @@ MaskExpander::getEdgeMask(const BasicBlock & begin, const BasicBlock & end) cons
 }
 
 void
-MaskExpander::getPredecessorEdges(const TerminatorInst & termInst, const  BasicBlock & BB, IndexSet & oIndices) const {
+MaskExpander::getPredecessorEdges(const Instruction & termInst, const  BasicBlock & BB, IndexSet & oIndices) const {
   for (size_t i = 0; i < termInst.getNumSuccessors(); ++i) {
     auto * succBlock = termInst.getSuccessor(i);
     if (succBlock != &BB) continue;
@@ -120,7 +120,7 @@ MatchMaskIntrinsic(Value & condVal) {
 }
 
 Value &
-MaskExpander::requestBranchMask(TerminatorInst & term, int succIdx, IRBuilder<> & builder) {
+MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & builder) {
   auto & sourceBlock = *term.getParent();
   IF_DEBUG_ME { errs() << "# requestBranchMask( " << sourceBlock.getName() << ", " << succIdx << ")\n"; }
   auto * cached = getBranchMask(term, succIdx);
@@ -190,7 +190,7 @@ MaskExpander::requestBranchMask(TerminatorInst & term, int succIdx, IRBuilder<> 
 }
 
 Value &
-MaskExpander::requestJoinedEdgeMask(TerminatorInst & term, IndexSet succIdx) {
+MaskExpander::requestJoinedEdgeMask(Instruction & term, IndexSet succIdx) {
   assert(succIdx.size() == 1 && "TODO implement for multiple edges (switch)");
   return requestEdgeMask(term, succIdx[0]);
 }
@@ -205,7 +205,7 @@ MaskExpander::requestEdgeMask(llvm::BasicBlock & source, BasicBlock & dest) {
 }
 
 Value&
-MaskExpander::requestEdgeMask(TerminatorInst & term, int succIdx) {
+MaskExpander::requestEdgeMask(Instruction & term, int succIdx) {
   auto *cachedMask = getEdgeMask(term, succIdx);
   if (cachedMask) return *cachedMask;
 
