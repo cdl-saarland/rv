@@ -62,20 +62,6 @@ WFVPass::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<TargetLibraryInfoWrapperPass>();
 }
 
-static
-int
-ParseRegisterWidth(char c) {
-  switch (c) {
-    case 'b': return 128; // SSE
-    case 'c': // AVX
-    case 'd': return 256; // AVX2
-    case 'e': return 512; // AVX512
-    default:
-      abort();
-  };
-}
-
-
 void
 WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob) {
   // clone scalar function

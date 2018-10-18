@@ -573,7 +573,7 @@ int main(int argc, char **argv) {
   bool runNormalize = reader.hasOption("-normalize");
 
   int ulpErrorBound = 10;
-  bool hasULPBound = reader.readOption<int>("--math-prec", ulpErrorBound);
+  reader.readOption<int>("--math-prec", ulpErrorBound);
   IF_VERBOSE { errs() << "SLEEF ulpErrorBound: " << (ulpErrorBound/10.0) << "\n"; }
 
   if (!hasFile) {
