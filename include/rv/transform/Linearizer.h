@@ -37,7 +37,6 @@ namespace llvm {
   class LoopInfo;
   class Loop;
   class BasicBlock;
-  class TerminatorInst;
 }
 
 namespace rv {

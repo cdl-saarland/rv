@@ -327,7 +327,7 @@ struct LoopTransformer {
     auto * scaExiting = ScalarL.getExitingBlock();
     auto * scalarTerm = scaExiting->getTerminator();
     auto * vecLoopExiting = &LookUp(vecValMap, *scalarTerm->getParent());
-    auto * vecTerm = cast<TerminatorInst>(vecValMap[scalarTerm]);
+    auto * vecTerm = cast<Instruction>(vecValMap[scalarTerm]);
 
     for (size_t i = 0; i < scalarTerm->getNumSuccessors(); ++i) {
       if (scalarTerm->getSuccessor(i) != loopExit) continue;

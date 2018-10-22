@@ -273,8 +273,8 @@ void VectorizationAnalysis::init(const Function& F) {
 
 void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
   bool changed = updateShape(V, AT);
-  auto * term = dyn_cast<TerminatorInst>(V);
-  if (changed && term && term->getNumSuccessors() > 1)
+  auto * term = dyn_cast<Instruction>(V);
+  if (changed && term->isTerminator() && term->getNumSuccessors() > 1)
     analyzeDivergence(*term);
 }
 
@@ -300,7 +300,7 @@ bool VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
   return true;
 }
 
-void VectorizationAnalysis::analyzeDivergence(const TerminatorInst & termInst) {
+void VectorizationAnalysis::analyzeDivergence(const Instruction & termInst) {
   // Vectorization is caused by non-uniform branches
   if (getShape(termInst).isUniform()) return;
 

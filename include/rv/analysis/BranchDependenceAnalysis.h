@@ -21,7 +21,7 @@
 namespace llvm {
   class Function;
   class BasicBlock;
-  class TerminatorInst;
+  class Instruction;
   class DominatorTree;
   struct PostDominatorTree;
 }
@@ -60,7 +60,7 @@ class BranchDependenceAnalysis {
   const llvm::PostDominatorTree & postDomTree;
   const llvm::LoopInfo & loopInfo;
 
-  std::map<const llvm::TerminatorInst*, ConstBlockSet*> cachedJoinBlocks;
+  std::map<const llvm::Instruction*, ConstBlockSet*> cachedJoinBlocks;
 
 public:
   ~BranchDependenceAnalysis();
@@ -70,7 +70,7 @@ public:
                            const llvm::LoopInfo & loopInfo);
 
   /// \brief returns the set of blocks whose PHI nodes become divergent if @branch is divergent
-  const ConstBlockSet & join_blocks(const llvm::TerminatorInst & term);
+  const ConstBlockSet & join_blocks(const llvm::Instruction & term);
 };
 
 } // namespace rv
