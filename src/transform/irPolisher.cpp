@@ -26,6 +26,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/IR/PatternMatch.h"
 #include "llvm/Passes/PassBuilder.h"
 
 #include "rv/transform/irPolisher.h"
@@ -41,6 +42,11 @@
 using namespace llvm;
 using namespace rv;
 
+static Value* getNotArgument(const llvm::Value* value) {
+    using namespace llvm::PatternMatch;
+    llvm::Value* arg;
+    return match(value, m_Not(m_Value(arg))) ? arg : nullptr;
+}
 
 void IRPolisher::enqueueInst(llvm::Instruction* inst, unsigned bitWidth) {
   ExtInst extInst(inst, bitWidth);
@@ -95,12 +101,14 @@ Value *IRPolisher::mapIntrinsicCall(llvm::IRBuilder<>& builder, llvm::CallInst* 
         right = binOp->getOperand(1);
 
         if (isReduceOr) {
-          if (BinaryOperator::isNot(left)) {
-            left = BinaryOperator::getNotArgument(left);
+          Value* matchLeft = getNotArgument(left);
+          if (matchLeft) {
+            left = matchLeft;
             useNot = true;
           }
-          if (!useNot && BinaryOperator::isNot(right)) {
-            right = BinaryOperator::getNotArgument(right);
+          Value* matchRight = getNotArgument(right);
+          if (!useNot && matchRight) {
+            right = matchRight;
             std::swap(left, right);
             useNot = true;
           }
