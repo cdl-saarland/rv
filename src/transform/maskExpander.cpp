@@ -184,7 +184,21 @@ MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & b
       setBranchMask(sourceBlock, succIdx, caseCmp);
       return caseCmp;
     }
+
+  } else if (isa<InvokeInst>(term)) {
+    // eagerly lower all successors
+    auto & invokeMask = requestBlockMask(sourceBlock);
+    setBranchMask(sourceBlock, 0, invokeMask);
+    auto & trueConst = *ConstantInt::getTrue(builder.getContext());
+    setBranchMask(sourceBlock, 1, trueConst);
+
+    if (succIdx == 0) {
+      return invokeMask;
+    } else {
+      return trueConst;
+    }
   }
+
   assert(false && "unsupported terminator!");
   abort();
 }
