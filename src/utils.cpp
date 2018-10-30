@@ -152,7 +152,10 @@ createVectorDeclaration(Function& scalarFn, VectorShape resShape,
     auto * vectorFn = llvm::Function::Create(vectorFnTy, scalarFn.getLinkage(), scalarFn.getName() + "_SIMD",
                                   scalarFn.getParent());
 
-    vectorFn->setPersonalityFn(scalarFn.getPersonalityFn());
+    if (scalarFn.hasPersonalityFn()) {
+      vectorFn->setPersonalityFn(scalarFn.getPersonalityFn());
+    }
+
     return vectorFn;
 }
 
