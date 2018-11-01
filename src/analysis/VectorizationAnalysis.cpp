@@ -357,13 +357,6 @@ void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
     // We are only analyzing the region
     if (!vecInfo.inRegion(*inst)) continue;
 
-    // Ignore calls without return value
-    if (const CallInst* callI = dyn_cast<CallInst>(inst)) {
-      if (callI->getFunctionType()->getReturnType()->isVoidTy()) {
-        continue;
-      }
-    }
-
     putOnWorklist(*inst);
     IF_DEBUG_VA errs() << "Inserted users of " << *V << ":" << *user << "\n";
   }
