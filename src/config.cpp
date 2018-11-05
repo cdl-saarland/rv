@@ -95,7 +95,7 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
 
 static void
 printFeatureFlags(const Config & config, llvm::raw_ostream & out) {
-  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << ", useADVSIMD = " << config.useADVSIMD << "\n" << ", useVE = " << config.useVE << "\n";
+  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << ", useADVSIMD = " << config.useADVSIMD << ", useVE = " << config.useVE << "\n";
 }
 
 
