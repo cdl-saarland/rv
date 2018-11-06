@@ -127,7 +127,6 @@ MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & b
   if (cached) return *cached;
 
   if (isa<BranchInst>(term)) {
-    assert(isa<BranchInst>(term) && "TODO implement switches");
     auto & branch = cast<BranchInst>(term);
     auto * condVal = branch.isConditional() ? branch.getCondition() : trueConst;
 
