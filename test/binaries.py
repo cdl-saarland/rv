@@ -1,12 +1,4 @@
-#===- binaries.py ---------------------------------------------------===//
-#
-#                     The Region Vectorizer
-#
-# This file is distributed under the University of Illinois Open Source
-# License. See LICENSE.TXT for details.
-#
-# @authors simon
-#
+from __future__ import print_function
 
 import os
 from os import path
@@ -54,13 +46,8 @@ def runForOutput(cmdText):
     cmd = shlex.split(cmdText)
     try:
         return True, subprocess.check_output(cmd, stderr=subprocess.STDOUT)
-    except CalledProcessError as err:
+    except subprocess.CalledProcessError as err:
         return False, err.output
-
-optClangLine="clang -march=native -O3 -c -emit-llvm -S  " # -fno-slp-vectorize"
-
-clangLine="clang++ -std=c++14 -march=native -m64 -O2 -fno-vectorize" # -fno-slp-vectorize"
-cClangLine="clang -march=native -m64 -O2 -fno-vectorize -fno-slp-vectorize"
 
 rvToolLine="rvTool"
 
@@ -71,129 +58,105 @@ def rvClang(clangArgs):
    return shellCmd(clangLine + " -Xclang -load -Xclang " + libRV + " -O3 " + clangArgs)
 
 
-def plainName(fileName):
-    return os.path.basename(fileName).split(".")[0]
+def primaryName(fileName):
+    return path.basename(fileName).split(".")[0]
 
-def buildScalarIR(srcFile):
-    baseName = plainName(srcFile)
-    scalarLL = "build/" + baseName + ".ll"
-    compileToIR(srcFile, scalarLL)
-    return scalarLL
-
-def runOuterLoopVec(scalarLL, destFile, scalarName = "foo", loopDesc=None, logPrefix=None, width=None):
-    baseName = plainName(scalarLL)
+def rvToolOuterLoop(scalarLL, destFile, scalarName = "foo", options = {}, logPrefix=None):
+    baseName = primaryName(scalarLL)
     cmd = rvToolLine + " -loopvec -i " + scalarLL
     if destFile:
       cmd = cmd + " -o " + destFile
     if scalarName:
       cmd = cmd + " -k " + scalarName
-    if loopDesc:
-      cmd = cmd + " -l " + loopDesc
-    if width:
-      cmd = cmd + " -w " + str(width)
-
-    cmd += " --math-prex {}".format(testULPBound)
+    if options['loopHint']:
+      cmd = cmd + " -l " + options['loopHint']
+    if options['width']:
+      cmd = cmd + " -w " + str(options['width'])
+    if options["ulp_math_prec"]:
+      cmd += " --math-prec {}".format(options["ulp_math_prec"])
+    if 0 < len(options['extraShapes'].items()):
+      cmd = cmd + " -x " + ",".join("{}={}".format(k,v) for k,v in options['extraShapes'].items())
 
     return shellCmd(cmd,  None, logPrefix)
 
-def runWFV(scalarLL, destFile, scalarName = "foo", shapes=None, width=None, logPrefix=None, extraShapes=dict(), maskPos=None):
+def rvToolWFV(scalarLL, destFile, scalarName = "foo", options = {}, logPrefix=None):
     cmd = rvToolLine + " -wfv -lower -i " + scalarLL
     if destFile:
       cmd = cmd + " -o " + destFile
     if scalarName:
       cmd = cmd + " -k " + scalarName + " -t " + scalarName + "_SIMD"
-    if shapes:
-      cmd = cmd + " -s " + shapes
-    if width:
-      cmd = cmd + " -w " + str(width)
-    if maskPos:
-      cmd = cmd + " -m " + str(maskPos)
-    if 0 < len(extraShapes.items()):
-      cmd = cmd + " -x " + ",".join("{}={}".format(k,v) for k,v in extraShapes.items())
+    if options['shapes']:
+      cmd = cmd + " -s " + options['shapes']
+    if options['width']:
+      cmd = cmd + " -w " + str(options['width'])
+    if options["ulp_math_prec"]:
+      cmd += " --math-prec {}".format(options["ulp_math_prec"])
+    if 0 < len(options['extraShapes'].items()):
+      cmd = cmd + " -x " + ",".join("{}={}".format(k,v) for k,v in options['extraShapes'].items())
 
     cmd += " --math-prec {}".format(testULPBound)
 
     return shellCmd(cmd,  None, logPrefix)
 
-launcherCache = set()
 
-def requestLauncher(launchCode, prefix):
-    launcherCpp = "launcher/" + prefix + "_" + launchCode + ".cpp"
-    if "profile" in prefix: # profileMode
-      launcherLL= "build/" + prefix + "_" + launchCode + ".ll"
-    else:
-      launcherLL= "build/" + prefix + "_" + launchCode + ".ll"
 
-    if launcherLL in launcherCache:
-      return launcherLL
-    else:
-      success = compileToIR(launcherCpp, launcherLL)
-      if not success:
-        return None
-      launcherCache.add(launcherLL)
-    return launcherLL
 
-def runWFVTest(testBC, launchCode, profileMode):
-    shellCmd(clangLine + " " + testBC + " -c -S -o " + testBC + ".s")
-    try:
-      caseName = plainName(testBC)
-      if profileMode:
-        launcherLL = requestLauncher(launchCode, "profile")
-        if launcherLL is None:
-          print("(could not build launcher {}) ".format(launchCode), end = "")
-          return None
-        launcherBin = "./build/profile_" + caseName + ".bin"
-        shellCmd(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
-        success, result = runForOutput(launcherBin)
-        if not success:
-          return None
-        else:
-          return float(result)
-      else:
-        launcherLL = requestLauncher(launchCode, "verify")
-        launcherBin = "./build/verify_" + caseName + ".bin"
-        shellCmd(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
-        retCode = shellCmd(launcherBin)
-        return retCode == 0
-    except:
+############ Clang / LLVM tooling ############
+class LLVMTools(object):
+  def __init__(self, commonFlags=""):
+    self.optcClangLine="clang -O3 -c -emit-llvm -S " + commonFlags
+    self.optClangLine="clang++ -std=c++14 -O3 -c -emit-llvm -S "  + commonFlags
+    self.clangLine="clang++ -std=c++14 -m64 -O2 -fno-vectorize -fno-slp-vectorize " + commonFlags
+    self.cClangLine="clang -m64 -O2 -fno-vectorize -fno-slp-vectorize " + commonFlags
+
+
+  def compileC(self, destFile, srcFiles, extraFlags=""):
+    return 0 == shellCmd(self.cClangLine + " " + (" ".join(srcFiles)) + " " + extraFlags + " -o " + destFile)
+  
+  def compileCPP(self, destFile, srcFiles, extraFlags=""):
+    return 0 == shellCmd(self.clangLine + " " + (" ".join(srcFiles)) + " " + extraFlags + " -o " + destFile)
+  
+  
+  def optimizeIR(self, destFile, srcFile, extraFlags=""):
+    return shellCmd(self.optClangLine + " " + srcFile + " -S -o " + destFile)
+  
+  def compileOptimized(self, srcFile, destFile, extraFlags=""):
+    if not path.exists(srcFile):
       return False
-
-def runOuterLoopTest(testBC, launchCode, suffix, profileMode=False):
-  modeText = "profile" if profileMode else "verify"
-  try:
-    caseName = plainName(testBC)
-    launcherLL = requestLauncher(launchCode, "loop" + modeText)
-    launcherBin = "./build/" + modeText + "_" + caseName + "." + suffix + ".bin"
-    runForOutput(clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
-
-    success, result = runForOutput(launcherBin)
-
-    if profileMode:
-      return float(result) if success else None
+  
+    if srcFile[-2:] == ".c":
+      retCode = shellCmd(self.optcClangLine + " " + srcFile + " " + extraFlags + " -o " + destFile)
     else:
-      return result if success else None
+      retCode = shellCmd(self.optClangLine + " " + srcFile + " " + extraFlags + " -o " + destFile)
+    return retCode == 0
 
-  except:
-      return None
-
-def optimizeIR(destFile, srcFile):
-  return shellCmd(optClangLine + " " + srcFile + " -S -o " + destFile)
-
-def compileToIR(srcFile, destFile):
-  if not path.exists(srcFile):
-    return False
-
-  if srcFile[-2:] == ".c":
-    retCode = shellCmd(cClangLine + " " + srcFile + " -fno-unroll-loops -S -emit-llvm -c -o " + destFile)
-  else:
-    retCode = shellCmd(clangLine + " " + srcFile + " -fno-unroll-loops -S -emit-llvm -c -o " + destFile)
-  return retCode == 0
-
-def disassemble(bcFile,suffix):
-    return shellCmd("llvm-dis " + bcFile, "logs/dis_" + suffix) == 0
-    
-def build_launcher(launcherBin, launcherLL, fooFile, suffix):
-    return shellCmd(clangLine + " -fno-slp-vectorize -o " + launcherBin + " " + launcherLL + " " + fooFile, "logs/clang-launcher_" + suffix) == 0
-
-def assemble(fooFile, destAsm, suffix):
-    return shellCmd(clangLine + " -fno-slp-vectorize -c -S -o " + destAsm + " " + fooFile, "logs/clang-asm_" + suffix) == 0
+  def compileOptimized(self, srcFile, destFile, extraFlags=""):
+    if not path.exists(srcFile):
+      return False
+  
+    if srcFile[-2:] == ".c":
+      retCode = shellCmd(self.optcClangLine + " " + srcFile + " " + extraFlags + " -o " + destFile)
+    else:
+      retCode = shellCmd(self.optClangLine + " " + srcFile + " " + extraFlags + " -o " + destFile)
+    return retCode == 0
+  
+  
+  
+  def compileToIR(self, srcFile, destFile, extraFlags=""):
+    if not path.exists(srcFile):
+      return False
+  
+    if srcFile[-2:] == ".c":
+      retCode = shellCmd(self.cClangLine + " " + srcFile + " -fno-unroll-loops -S -emit-llvm -c " + extraFlags + " -o " + destFile)
+    else:
+      retCode = shellCmd(self.clangLine + " " + srcFile + " -fno-unroll-loops -S -emit-llvm -c " + extraFlags + "-o " + destFile)
+    return retCode == 0
+  
+  def disassemble(self, bcFile, suffix):
+      return shellCmd("llvm-dis " + bcFile, "logs/dis_" + suffix) == 0
+      
+  def build_launcher(self, launcherBin, launcherLL, fooFile, suffix):
+      return shellCmd(self.clangLine + " -fno-slp-vectorize -o " + launcherBin + " " + launcherLL + " " + fooFile, "logs/clang-launcher_" + suffix) == 0
+  
+  def assemble(self, fooFile, destAsm, suffix):
+      return shellCmd(self.clangLine + " -fno-slp-vectorize -c -S -o " + destAsm + " " + fooFile, "logs/clang-asm_" + suffix) == 0
