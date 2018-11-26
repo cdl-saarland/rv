@@ -28,6 +28,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/GenericDomTree.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Analysis/SyncDependenceAnalysis.h"
 
 #include "rv/config.h"
 #include "rv/vectorizationInfo.h"
@@ -35,9 +36,9 @@
 #include "rv/VectorizationInfoProxyPass.h"
 #include "rv/region/Region.h"
 #include "rv/PlatformInfo.h"
-#include "rv/analysis/BranchDependenceAnalysis.h"
 #include "rv/analysis/AllocaSSA.h"
 #include "rv/region/FunctionRegion.h"
+#include "rv/shape/vectorShapeTransformer.h"
 
 namespace llvm {
   class LoopInfo;
@@ -60,7 +61,6 @@ public:
   bool runOnFunction(llvm::Function& F) override;
 };
 
-using SmallValVec = llvm::SmallVector<const llvm::Value*, 2>;
 class VectorizationAnalysis {
   Config config;
   PlatformInfo & platInfo;
@@ -76,7 +76,7 @@ class VectorizationAnalysis {
   const llvm::LoopInfo& mLoopInfo; // Preserves LoopInfo
 
   // Divergence computation:
-  BranchDependenceAnalysis BDA;
+  llvm::SyncDependenceAnalysis SDA;
 
   FunctionRegion funcRegion;
   Region funcRegionWrapper;
@@ -124,14 +124,6 @@ private:
 
   // specialized transfer functions
   VectorShape computePHIShape(const llvm::PHINode& phi);
-
-  // only call these if all operands have defined shape
-  VectorShape computeShapeForInst(const llvm::Instruction* I, SmallValVec & taintedOps);
-  VectorShape computeShapeForBinaryInst(const llvm::BinaryOperator* I);
-  VectorShape computeShapeForCastInst(const llvm::CastInst* I);
-
-  // generic (fallback) transfer function for instructions w/o side effects
-  VectorShape computeGenericArithmeticTransfer(const llvm::Instruction& I);
 
   // Update a value with its computed shape, adding users to the WL if a change occured
   void update(const llvm::Value* const V, VectorShape AT);

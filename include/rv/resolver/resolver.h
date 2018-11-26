@@ -1,12 +1,12 @@
 #ifndef RV_RESOLVER_H
 #define RV_RESOLVER_H
 
-#include <cstddef>
-#include <llvm/ADT/StringRef.h>
-
 #include "rv/vectorMapping.h"
-#include "rv/vectorShape.h"
+#include "rv/shape/vectorShape.h"
+
+#include <llvm/ADT/StringRef.h>
 #include <memory>
+#include <cstddef>
 
 namespace llvm {
   class FunctionType;

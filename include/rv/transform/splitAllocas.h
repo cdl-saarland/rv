@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <memory>
 
-#include "rv/vectorShape.h"
+#include "rv/shape/vectorShape.h"
 
 namespace llvm {
   class Instruction;

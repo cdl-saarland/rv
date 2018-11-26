@@ -131,7 +131,7 @@ VectorizationInfo::print(llvm::raw_ostream & out) const
 }
 
 VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, unsigned vectorWidth, Region& _region)
-: mapping(&parentFn, &parentFn, vectorWidth, CallPredicateMode::SafeWithoutPredicate), region(&_region)
+: DL(parentFn.getParent()->getDataLayout()), mapping(&parentFn, &parentFn, vectorWidth, CallPredicateMode::SafeWithoutPredicate), region(&_region)
 {
     mapping.resultShape = VectorShape::uni();
     for (auto& arg : parentFn.args()) {
@@ -142,7 +142,7 @@ VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, unsigned vectorWi
 
 // VectorizationInfo
 VectorizationInfo::VectorizationInfo(Region & funcRegion, VectorMapping _mapping)
-: mapping(_mapping), region(&funcRegion)
+: DL(funcRegion.getFunction().getParent()->getDataLayout()), mapping(_mapping), region(&funcRegion)
 {
   assert(mapping.argShapes.size() == mapping.scalarFn->arg_size());
   auto it = mapping.scalarFn->arg_begin();
@@ -195,6 +195,9 @@ VectorizationInfo::getVectorShape(const llvm::Value& val) const
   // otw, the shape is undefined
     return VectorShape::undef();
 }
+
+const DataLayout &
+VectorizationInfo::getDataLayout() const { return DL; }
 
 void
 VectorizationInfo::dropVectorShape(const Value& val)

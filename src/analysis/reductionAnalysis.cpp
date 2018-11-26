@@ -14,7 +14,7 @@
 #include <llvm/IR/IRBuilder.h>
 
 #include "rvConfig.h"
-#include "rv/vectorShape.h"
+#include "rv/shape/vectorShape.h"
 #include "rv/annotations.h"
 
 #if -1

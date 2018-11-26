@@ -17,12 +17,14 @@ namespace llvm {
   class Loop;
 }
 
-#include "llvm/IR/ValueHandle.h"
 
-#include "vectorShape.h"
-#include "vectorMapping.h"
+#include "rv/shape/vectorShape.h"
+#include "rv/vectorMapping.h"
 #include "region/Region.h"
-#include <llvm/Support/raw_ostream.h>
+
+#include "llvm/IR/ValueHandle.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/IR/DataLayout.h"
 
 #include <unordered_map>
 #include <set>
@@ -35,6 +37,7 @@ class Region;
 // provides vectorization information (vector shapes, block predicates) for a function
 class VectorizationInfo
 {
+    const llvm::DataLayout & DL;
     VectorMapping mapping;
     std::unordered_map<const llvm::BasicBlock*, llvm::TrackingVH<llvm::Value>> predicates;
     std::unordered_map<const llvm::Value*, VectorShape> shapes;
@@ -47,6 +50,8 @@ class VectorizationInfo
     std::set<const llvm::Value*> pinned;
 
 public:
+    const llvm::DataLayout & getDataLayout() const;
+
     bool inRegion(const llvm::Instruction & inst) const;
     bool inRegion(const llvm::BasicBlock & block) const;
     llvm::BasicBlock & getEntry() const;

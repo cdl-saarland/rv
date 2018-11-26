@@ -1,12 +1,11 @@
 #ifndef RV_TRANSFORM_STRUCTOPT_H
 #define RV_TRANSFORM_STRUCTOPT_H
 
+#include "rv/shape/vectorShape.h"
+
 #include <llvm/IR/Value.h>
 #include <llvm/Transforms/Utils/ValueMapper.h>
-
 #include <llvm/IR/IRBuilder.h>
-
-#include "rv/vectorShape.h"
 
 namespace llvm {
   class AllocaInst;

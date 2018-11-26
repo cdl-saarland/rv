@@ -29,8 +29,8 @@ add_rv_library(RV
   PlatformInfo.cpp
   VectorizationInfoProxyPass.cpp
   analysis/AllocaSSA.cpp
-  analysis/BranchDependenceAnalysis.cpp
   analysis/costModel.cpp
+  analysis/DFG.cpp
   analysis/VectorizationAnalysis.cpp
   analysis/reductionAnalysis.cpp
   analysis/reductions.cpp
@@ -56,6 +56,8 @@ add_rv_library(RV
   resolver/listResolver.cpp
   resolver/sleefResolver.cpp
   resolver/TLIResolver.cpp
+  shape/vectorShape.cpp
+  shape/vectorShapeTransformer.cpp
   transform/CNSPass.cpp
   transform/Linearizer.cpp
   transform/LoopVectorizer.cpp
@@ -86,7 +88,6 @@ add_rv_library(RV
   utils/rvLinking.cpp
   utils/rvTools.cpp
   vectorMapping.cpp
-  vectorShape.cpp
   vectorizationInfo.cpp
   ${RV_HEADER_FILES}
 )

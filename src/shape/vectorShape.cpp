@@ -4,8 +4,6 @@
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
-//
-// @author kloessner, simon
 
 #include <iostream>
 #include <sstream>
@@ -286,5 +284,4 @@ VectorShape::parse(StringRef text, int & nextPos) {
   }
 }
 
-
-}
+} // namespace rv

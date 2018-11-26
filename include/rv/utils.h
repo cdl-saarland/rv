@@ -1,7 +1,8 @@
 #ifndef RV_UTILS_H
 #define RV_UTILS_H
 
-#include "rv/vectorShape.h"
+#include "rv/shape/vectorShape.h"
+
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Type.h>
 #include <llvm/Transforms/Utils/ValueMapper.h>
