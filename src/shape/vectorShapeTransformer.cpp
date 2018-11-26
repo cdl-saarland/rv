@@ -49,17 +49,19 @@ HasSideEffects(const Function & func) {
 
 
 VectorShape
-VectorShapeTransformer::getShape(const Value & val) const {
-  return vecInfo.getVectorShape(val);
+VectorShapeTransformer::getObservedShape(const BasicBlock & observerBlock, const Value & val) const {
+  return vecInfo.getObservedShape(LI, observerBlock, val);
 }
 
 VectorShape
 VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & taintedOps) const {
   // always default to the naive transformer (only top or bottom)
-  if (I.isBinaryOp()) return computeShapeForBinaryInst(cast<BinaryOperator>(I));
-  if (I.isCast()) return computeShapeForCastInst(cast<CastInst>(I));
+  if (I.isBinaryOp()) return computeShapeForBinaryInst(cast<const BinaryOperator>(I));
+  if (I.isCast()) return computeShapeForCastInst(cast<const CastInst>(I));
+  if (isa<PHINode>(I)) return computeShapeForPHINode(cast<const PHINode>(I));
 
   const DataLayout & layout = vecInfo.getDataLayout();
+  const BasicBlock & BB = *I.getParent();
 
   switch (I.getOpcode()) {
     case Instruction::Alloca:
@@ -79,12 +81,12 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
     {
       const auto& branch = cast<BranchInst>(I);
       assert(branch.isConditional());
-      return getShape(*branch.getCondition());
+      return getObservedShape(BB, *branch.getCondition());
     }
     case Instruction::Switch:
     {
       const auto& sw = cast<SwitchInst>(I);
-      return getShape(*sw.getCondition());
+      return getObservedShape(BB, *sw.getCondition());
     }
     case Instruction::ICmp:
     {
@@ -92,7 +94,7 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       const Value& op2 = *I.getOperand(1);
 
       // Get a shape for op1 - op2 and see if it compares uniform to a full zero-vector
-      VectorShape diffShape = getShape(op1) - getShape(op2);
+      VectorShape diffShape = getObservedShape(BB, op1) - getObservedShape(BB, op2);
       if (diffShape.isVarying())
         return diffShape;
 
@@ -141,7 +143,7 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       const GetElementPtrInst& gep = cast<GetElementPtrInst>(I);
       const Value* pointer = gep.getPointerOperand();
 
-      VectorShape result = getShape(*pointer);
+      VectorShape result = getObservedShape(BB, *pointer);
       Type* subT = gep.getPointerOperandType();
 
       for (const Value* index : make_range(gep.idx_begin(), gep.idx_end())) {
@@ -162,7 +164,7 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
           subT = isa<PointerType>(subT) ? subT->getPointerElementType() : subT->getSequentialElementType();
 
           const int typeSizeInBytes = (int)layout.getTypeStoreSize(subT);
-          result = result + typeSizeInBytes * getShape(*index);
+          result = result + typeSizeInBytes * getObservedShape(BB, *index);
         }
       }
 
@@ -181,19 +183,19 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       Intrinsic::ID id = callee->getIntrinsicID();
       if (id == Intrinsic::memcpy) {
         auto & mcInst = cast<MemCpyInst>(call);
-        auto srcShape = getShape(*mcInst.getSource());
+        auto srcShape = getObservedShape(BB, *mcInst.getSource());
         if (!srcShape.isUniform()) taintedOps.push_back(mcInst.getDest());
         return srcShape.isUniform() ? srcShape : VectorShape::varying();
       } else if (id == Intrinsic::memmove) {
         auto & movInst = cast<MemMoveInst>(call);
-        auto srcShape = getShape(*movInst.getSource());
+        auto srcShape = getObservedShape(BB, *movInst.getSource());
         if (!srcShape.isUniform()) taintedOps.push_back(movInst.getDest());
         return srcShape.isUniform() ? srcShape : VectorShape::varying();
       }
 
       // If the function is rv_align, use the alignment information
       if (IsIntrinsic(call, RVIntrinsic::Align)) {
-        auto shape = getShape(*I.getOperand(0));
+        auto shape = getObservedShape(BB, *I.getOperand(0));
         shape.setAlignment(cast<ConstantInt>(I.getOperand(1))->getZExtValue());
         return shape;
       }
@@ -204,7 +206,7 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       VectorShapeVec callArgShapes;
       for (size_t i = 0; i < numParams; ++i) {
         auto& op = *call.getArgOperand(i);
-        auto argShape = getShape(op);
+        auto argShape = getObservedShape(BB, op);
         allArgsUniform &= argShape.isUniform();
         callArgShapes.push_back(argShape);
       }
@@ -226,14 +228,14 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
     case Instruction::Load:
     {
       const Value* pointer = I.getOperand(0);
-      return VectorShape::join(VectorShape::uni(), getShape(*pointer));
+      return VectorShape::join(VectorShape::uni(), getObservedShape(BB, *pointer));
     }
 
     case Instruction::Store:
     {
       auto & storeInst = cast<StoreInst>(I);
-      auto valShape = getShape(*storeInst.getValueOperand());
-      auto ptrShape = getShape(*storeInst.getPointerOperand());
+      auto valShape = getObservedShape(BB, *storeInst.getValueOperand());
+      auto ptrShape = getObservedShape(BB, *storeInst.getPointerOperand());
       if (!valShape.isUniform()) taintedOps.push_back(storeInst.getPointerOperand());
       return VectorShape::join(ptrShape, valShape.isUniform() ? valShape : VectorShape::varying());
     }
@@ -244,9 +246,9 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       const Value& selection1 = *I.getOperand(1);
       const Value& selection2 = *I.getOperand(2);
 
-      const VectorShape& condShape = getShape(condition);
-      const VectorShape& sel1Shape = getShape(selection1);
-      const VectorShape& sel2Shape = getShape(selection2);
+      const VectorShape& condShape = getObservedShape(BB, condition);
+      const VectorShape& sel1Shape = getObservedShape(BB, selection1);
+      const VectorShape& sel2Shape = getObservedShape(BB, selection2);
 
       if (!condShape.isUniform()) return VectorShape::varying();
 
@@ -263,10 +265,12 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
 
 VectorShape
 VectorShapeTransformer::computeGenericArithmeticTransfer(const Instruction & I) const {
+  const auto & BB = *I.getParent();
+
   assert(I.getNumOperands() > 0 && "can not compute arithmetic transfer for instructions w/o operands");
   // generic transfer function
   for (unsigned i = 0; i < I.getNumOperands(); ++i) {
-    if (!getShape(*I.getOperand(i)).isUniform()) return VectorShape::varying();
+    if (!getObservedShape(BB, *I.getOperand(i)).isUniform()) return VectorShape::varying();
   }
   return VectorShape::uni();
 }
@@ -276,11 +280,13 @@ VectorShapeTransformer::computeShapeForBinaryInst(const BinaryOperator& I) const
   Value* op1 = I.getOperand(0);
   Value* op2 = I.getOperand(1);
 
+  const auto & BB = *I.getParent();
+
   // Assume constants are on the RHS
   if (!isa<Constant>(op2) && I.isCommutative()) std::swap(op1, op2);
 
-  const VectorShape& shape1 = getShape(*op1);
-  const VectorShape& shape2 = getShape(*op2);
+  const VectorShape& shape1 = getObservedShape(BB, *op1);
+  const VectorShape& shape2 = getObservedShape(BB, *op2);
 
   const int stride1 = shape1.getStride();
 
@@ -325,7 +331,7 @@ VectorShapeTransformer::computeShapeForBinaryInst(const BinaryOperator& I) const
       if (!isa<ConstantInt>(op2)) break;
 
       unsigned orConst = cast<ConstantInt>(op2)->getZExtValue();
-      VectorShape otherShape = getShape(*op1);
+      VectorShape otherShape = getObservedShape(BB, *op1);
 
       if (orConst == 0) {
         // no-op
@@ -399,8 +405,9 @@ VectorShapeTransformer::computeShapeForBinaryInst(const BinaryOperator& I) const
 
 VectorShape
 VectorShapeTransformer::computeShapeForCastInst(const CastInst& castI) const {
+  const auto & BB = *castI.getParent();
   const Value* castOp = castI.getOperand(0);
-  const VectorShape& castOpShape = getShape(*castOp);
+  const VectorShape& castOpShape = getObservedShape(BB, *castOp);
   const int castOpStride = castOpShape.getStride();
 
   const int aligned = !rv::returnsVoidPtr(castI) ? castOpShape.getAlignmentFirst() : 1;
@@ -487,4 +494,32 @@ VectorShapeTransformer::computeShapeForCastInst(const CastInst& castI) const {
   }
 }
 
+VectorShape
+VectorShapeTransformer::computeShapeForPHINode(const PHINode &Phi) const {
+  // catch join divergence cases
+  if (!Phi.hasConstantOrUndefValue() && vecInfo.isJoinDivergent(*Phi.getParent())) {
+    return VectorShape::varying(); // TODO preserve alignment
+  }
+
+  const auto & BB = *Phi.getParent();
+  // An incoming value could be divergent by itself.
+  // Otherwise, an incoming value could be uniform within the loop
+  // that carries its definition but it may appear divergent
+  // from outside the loop. This happens when divergent loop exits
+  // drop definitions of that uniform value in different iterations.
+  //
+  // for (int i = 0; i < n; ++i) { // 'i' is uniform inside the loop
+  //   if (i % thread_id == 0) break;    // divergent loop exit
+  //
+  // int divI = i;                 // divI is divergent
+  VectorShape accu = VectorShape::undef();
+  for (size_t i = 0; i < Phi.getNumIncomingValues(); ++i) {
+    const auto & InVal = *Phi.getIncomingValue(i);
+    const auto InShape = getObservedShape(BB, InVal);
+    accu = VectorShape::join(accu, InShape);
+  }
+
+  // joined incoming shapes
+  return accu;
+}
 

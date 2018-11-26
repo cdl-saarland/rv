@@ -83,8 +83,6 @@ VectorShape VectorShape::fromConstant(const Constant* C) {
 }
 
 unsigned VectorShape::getAlignmentGeneral() const {
-  assert(defined && "alignment function called on undef value");
-
   if (hasConstantStride) {
     if (stride == 0)
       return alignment;

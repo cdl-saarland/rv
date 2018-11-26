@@ -4,6 +4,7 @@
 #include "rv/shape/vectorShape.h"
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Value.h>
+#include <llvm/Analysis/LoopInfo.h>
 #include <llvm/ADT/SmallVector.h>
 
 
@@ -13,14 +14,16 @@ namespace rv {
   class PlatformInfo;
 
   struct VectorShapeTransformer {
+    const llvm::LoopInfo & LI;
     PlatformInfo & platInfo;
     const VectorizationInfo & vecInfo;
-    VectorShape getShape(const llvm::Value & val) const;
+    VectorShape getObservedShape(const llvm::BasicBlock & observerBlock, const llvm::Value & val) const;
 
   public:
-    VectorShapeTransformer(PlatformInfo & _platInfo, const VectorizationInfo & _vecInfo)
-    : vecInfo(_vecInfo)
+    VectorShapeTransformer(const llvm::LoopInfo & _LI, PlatformInfo & _platInfo, const VectorizationInfo & _vecInfo)
+    : LI(_LI)
     , platInfo(_platInfo)
+    , vecInfo(_vecInfo)
     {}
 
     /// compute the shape of the result computed by \p I.
@@ -36,6 +39,9 @@ namespace rv {
 
     VectorShape
     computeGenericArithmeticTransfer(const llvm::Instruction & I) const;
+
+    VectorShape
+    computeShapeForPHINode(const llvm::PHINode &Phi) const;
   };
 }
 

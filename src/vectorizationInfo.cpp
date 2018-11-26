@@ -1,11 +1,9 @@
-//===- vectorShape.h -----------------------------===//
+//===----------------------- vectorizationInfo.cpp --------------------------===//
 //
 //                     The Region Vectorizer
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
-//
-// @author kloessner, simon
 //
 
 #include "rv/vectorizationInfo.h"
@@ -77,8 +75,8 @@ VectorizationInfo::printBlockInfo(const BasicBlock & block, llvm::raw_ostream & 
 
   out << "Block ";
   block.printAsOperand(out, false);
-  out << ", predicate ";
-  if (predicate) out << *predicate; else out << "null";
+  if (predicate) { out << ", predicate " << *predicate; }
+  if (isDivergentLoopExit(block)) { out << ", divLoopExit"; }
   out << "\n";
 
   for (const Instruction & inst : block) {
@@ -170,30 +168,43 @@ VectorizationInfo::hasKnownShape(const llvm::Value& val) const {
 }
 
 VectorShape
+VectorizationInfo::getObservedShape(const LoopInfo & LI, const BasicBlock & observerBlock, const llvm::Value & val) const {
+  auto valShape = getVectorShape(val);
+  uint alignment = valShape.getAlignmentGeneral();
+
+  if (isTemporalDivergent(LI, observerBlock, val)) {
+    return VectorShape::varying(alignment);
+  }
+
+  return valShape;
+}
+
+VectorShape
 VectorizationInfo::getVectorShape(const llvm::Value& val) const
 {
-    auto it = shapes.find(&val);
+// Undef short-cut
+  if (isa<UndefValue>(val)) return VectorShape::undef();
+   auto it = shapes.find(&val);
 
-  // give precedence to user shapes
-    if (it != shapes.end()) {
-      return it->second;
-    }
+// give precedence to user shapes
+  if (it != shapes.end()) {
+    return it->second;
+  }
 
- // return default shape for constants
-    auto * constVal = dyn_cast<Constant>(&val);
-    if (constVal) {
-      return VectorShape::fromConstant(constVal);
-    }
+// return default shape for constants
+  auto * constVal = dyn_cast<Constant>(&val);
+  if (constVal) {
+    return VectorShape::fromConstant(constVal);
+  }
 
+// out-of-region values default to uniform
+  auto * inst = dyn_cast<Instruction>(&val);
+  if (!inst || (inst && !inRegion(*inst))) {
+    return VectorShape::uni(); // TODO getAlignment(*inst));
+  }
 
-  // out-of-region values default to uniform
-    auto * inst = dyn_cast<Instruction>(&val);
-    if (!inst || (inst && !inRegion(*inst))) {
-      return VectorShape::uni(); // TODO getAlignment(*inst));
-    }
-
-  // otw, the shape is undefined
-    return VectorShape::undef();
+// otw, the shape is undefined
+  return VectorShape::undef();
 }
 
 const DataLayout &
@@ -207,18 +218,21 @@ VectorizationInfo::dropVectorShape(const Value& val)
     shapes.erase(it);
 }
 
+
+void
+VectorizationInfo::setVectorShape(const llvm::Value& val, VectorShape shape)
+{
+    shapes[&val] = shape;
+}
+
+
+// predicate handling
 void
 VectorizationInfo::dropPredicate(const BasicBlock& block)
 {
     auto it = predicates.find(&block);
     if (it == predicates.end()) return;
     predicates.erase(it);
-}
-
-void
-VectorizationInfo::setVectorShape(const llvm::Value& val, VectorShape shape)
-{
-    shapes[&val] = shape;
 }
 
 llvm::Value*
@@ -241,34 +255,51 @@ VectorizationInfo::setPredicate(const llvm::BasicBlock& block, llvm::Value& pred
     predicates[&block] = &predicate;
 }
 
+
+// loop divergence
+bool
+VectorizationInfo::addDivergentLoop(const Loop & loop) {
+  return mDivergentLoops.insert(&loop).second;
+}
+
 void
-VectorizationInfo::setLoopDivergence(const Loop & loop, bool toUniform) {
-  if (toUniform) {
-    mDivergentLoops.erase(&loop);
-  } else {
-    mDivergentLoops.insert(&loop);
-  }
+VectorizationInfo::removeDivergentLoop(const Loop & loop) {
+  mDivergentLoops.erase(&loop);
 }
 
 bool
-VectorizationInfo::isDivergentLoop(const llvm::Loop* loop) const
+VectorizationInfo::isDivergentLoop(const llvm::Loop& loop) const
 {
-    return static_cast<bool>(mDivergentLoops.count(loop));
+    return mDivergentLoops.find(&loop) != mDivergentLoops.end();
 }
 
 bool
-VectorizationInfo::isDivergentLoopTopLevel(const llvm::Loop* loop) const
+VectorizationInfo::isDivergentLoopTopLevel(const llvm::Loop& loop) const
 {
-    Loop* parent = loop->getParentLoop();
+    Loop* parent = loop.getParentLoop();
 
-    return isDivergentLoop(loop) && (!parent || !isDivergentLoop(parent));
+    return isDivergentLoop(loop) && (!parent || !isDivergentLoop(*parent));
+}
+
+
+// loop exit divergence
+bool
+VectorizationInfo::isDivergentLoopExit(const BasicBlock& BB) const {
+    return DivergentLoopExits.find(&BB) != DivergentLoopExits.end();
 }
 
 bool
-VectorizationInfo::isKillExit(const BasicBlock& BB) const {
-    return NonKillExits.count(&BB) == 0;
+VectorizationInfo::addDivergentLoopExit(const BasicBlock& block) {
+    return DivergentLoopExits.insert(&block).second;
 }
 
+void
+VectorizationInfo::removeDivergentLoopExit(const BasicBlock& block) {
+    DivergentLoopExits.erase(&block);
+}
+
+
+// pinned shape handling
 bool VectorizationInfo::isPinned(const Value& V) const {
   return pinned.count(&V) != 0;
 }
@@ -277,20 +308,36 @@ void VectorizationInfo::setPinned(const Value& V) {
   pinned.insert(&V);
 }
 
-void
-VectorizationInfo::setNotKillExit(const BasicBlock* block) {
-    assert(block);
-    NonKillExits.insert(block);
-}
+
 
 LLVMContext &
 VectorizationInfo::getContext() const { return mapping.scalarFn->getContext(); }
 
 BasicBlock&
 VectorizationInfo::getEntry() const {
-   return region->getRegionEntry();
- }
+  return region->getRegionEntry();
+}
 
+bool
+VectorizationInfo::isTemporalDivergent(const LoopInfo & LI,
+                                       const BasicBlock &ObservingBlock,
+                                       const Value &Val) const {
+  const auto *Inst = dyn_cast<const Instruction>(&Val);
+  if (!Inst)
+    return false;
+  // check whether any divergent loop carrying Val terminates before control
+  // proceeds to ObservingBlock
+  for (const auto *Loop = LI.getLoopFor(Inst->getParent());
+       Loop && inRegion(*Loop->getHeader()) && !Loop->contains(&ObservingBlock);
+       Loop = Loop->getParentLoop())
+  {
+    if (isDivergentLoop(*Loop)) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 } /* namespace rv */
 

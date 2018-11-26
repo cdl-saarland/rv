@@ -695,10 +695,9 @@ Linearizer::foldPhis(BasicBlock & block) {
 }
 
 int
-Linearizer::processLoop(int headId, Loop * loop) {
+Linearizer::processLoop(int headId, Loop & loop) {
   auto & loopHead = getBlock(headId);
-  assert(loop && "not actually part of a loop");
-  assert(loop->getHeader() == &loopHead && "not actually the header of the loop");
+  assert(loop.getHeader() == &loopHead && "not actually the header of the loop");
 
   IF_DEBUG_LIN {
     errs() << "processLoop : header " << loopHead.getName() << " ";
@@ -706,7 +705,7 @@ Linearizer::processLoop(int headId, Loop * loop) {
     errs() << "\n";
   }
 
-  auto & latch = *loop->getLoopLatch();
+  auto & latch = *loop.getLoopLatch();
   int latchIndex = getIndex(latch);
   int loopHeadIndex = getIndex(loopHead);
 
@@ -720,7 +719,7 @@ Linearizer::processLoop(int headId, Loop * loop) {
     if (headRelay) {
       // forward header reaching blocks to loop exits
       SuperBlockVec exitBlocks;
-      loop->getExitBlocks(exitBlocks);
+      loop.getExitBlocks(exitBlocks);
       for (auto * exitBlock : exitBlocks) {
         IF_DEBUG_LIN { errs() << "- merging head reaching&chain into exit " << exitBlock->getName();  dumpRelayChain(headRelay->id); errs() << "\n"; }
         int exitId = getIndex(*exitBlock);
@@ -742,7 +741,7 @@ Linearizer::processLoop(int headId, Loop * loop) {
   }
 
   // emit all blocks within the loop (except the latch)
-  int latchNodeId = processRange(loopHeadIndex, latchIndex, loop);
+  int latchNodeId = processRange(loopHeadIndex, latchIndex, &loop);
 
   // now emit the latch (without descending into its successors)
   emitBlock(latchIndex);
@@ -875,7 +874,8 @@ Linearizer::processBlock(int headId, Loop * parentLoop) {
 // descend into loop, if any
   auto * loop = li.getLoopFor(&head);
   if (loop != parentLoop) {
-    return processLoop(headId, loop);
+    assert(loop && "can only be a nested loop, so a loop");
+    return processLoop(headId, *loop);
   }
 
   // all dependencies satisfied -> emit this block
@@ -1228,7 +1228,7 @@ Linearizer::verify() {
       assert(!needsFolding(*block->getTerminator()));
 
     } else if (loop && loop->getHeader() == block) {
-      assert(!vecInfo.isDivergentLoop(loop));
+      assert(!vecInfo.isDivergentLoop(*loop));
     }
   }
 

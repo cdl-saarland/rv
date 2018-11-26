@@ -259,7 +259,7 @@ namespace rv {
 
     // process all blocks and branches in the loop
     // if that loop is divergent, processLoop will make it uniform before processing its body
-    int processLoop(int headId, llvm::Loop * loop);
+    int processLoop(int headId, llvm::Loop & loop);
 
     // update the relays for all branch targets of @block, linking them to @exitRelay
     void processBranch(llvm::BasicBlock & block, RelayNode * exitRelay, llvm::Loop * parentLoop);

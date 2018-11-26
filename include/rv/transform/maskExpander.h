@@ -48,18 +48,9 @@ class MaskExpander {
     loopPhis[&loop] = &phi;
   }
 
-  // request a mask for this loop and its child loops
-  // returns the outer most loop this loop exits to
-  llvm::Loop* requestLoopMasks(llvm::Loop & loop);
-
-
   // attach entry masks to loops (post step)
   void patchLoopMasks();
 
-  void gatherLoopDivergenceInfo(llvm::Loop & loop,
-                                VectorShape & oLoopDivergenceShape,
-                                EdgeVec & oDivergentExits,
-                                EdgeVec & oKillExits);
 public:
 // lazy mask creation
   // request the block-local branch predicate

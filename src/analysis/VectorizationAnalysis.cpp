@@ -19,6 +19,7 @@
 
 #include "llvm/IR/Dominators.h"
 #include "llvm/Analysis/PostDominators.h"
+#include "llvm/Analysis/LoopInfo.h"
 
 #include <numeric>
 
@@ -28,6 +29,8 @@
 #define IF_DEBUG_VA if (false)
 #endif
 
+// FIXME
+const bool IsLCSSAForm = true;
 
 
 using namespace llvm;
@@ -72,7 +75,8 @@ VectorizationAnalysis::VectorizationAnalysis(Config _config,
           platInfo(platInfo),
           vecInfo(VecInfo),
           layout(platInfo.getDataLayout()),
-          mLoopInfo(LoopInfo),
+          LI(LoopInfo),
+          DT(domTree),
           SDA(domTree, postDomTree, LoopInfo),
           funcRegion(vecInfo.getScalarFunction()),
           funcRegionWrapper(funcRegion), // FIXME
@@ -98,52 +102,305 @@ VectorizationAnalysis::takeFromWorklist() {
   return I;
 }
 
+
+bool
+VectorizationAnalysis::updateTerminator(const Instruction &Term) const {
+  if (Term.getNumSuccessors() <= 1)
+    return false;
+  if (auto *BranchTerm = dyn_cast<BranchInst>(&Term)) {
+    assert(BranchTerm->isConditional());
+    return !vecInfo.getVectorShape(*BranchTerm->getCondition()).isUniform();
+  }
+  if (auto *SwitchTerm = dyn_cast<SwitchInst>(&Term)) {
+    return !vecInfo.getVectorShape(*SwitchTerm->getCondition()).isUniform();
+  }
+  if (isa<InvokeInst>(Term)) {
+    return false; // ignore abnormal executions through landingpad
+  }
+
+  llvm_unreachable("unexpected terminator");
+}
+
+
+
+// marks all users of loop-carried values of the loop headed by LoopHeader as
+// divergent
 void
-VectorizationAnalysis::updateAnalysis(InstVec & updateList) {
-  auto & F = vecInfo.getScalarFunction();
-  assert (!F.isDeclaration());
+VectorizationAnalysis::taintLoopLiveOuts(const BasicBlock &LoopHeader) {
+  auto *DivLoop = LI.getLoopFor(&LoopHeader);
+  assert(DivLoop && "loopHeader is not actually part of a loop");
 
-  // start from instructions on the update list
-  for (auto * inst : updateList) putOnWorklist(*inst);
+  SmallVector<BasicBlock *, 8> TaintStack;
+  DivLoop->getExitBlocks(TaintStack);
 
-  compute(F);
-  fixUndefinedShapes(F);
-  computeLoopDivergence();
+  // Otherwise potential users of loop-carried values could be anywhere in the
+  // dominance region of DivLoop (including its fringes for phi nodes)
+  DenseSet<const BasicBlock *> Visited;
+  for (auto *Block : TaintStack) {
+    Visited.insert(Block);
+  }
+  Visited.insert(&LoopHeader);
 
-  // mark all non-loop exiting branches as divergent to trigger a full linearization
-  if (config.foldAllBranches) {
-    for (auto & BB: F) {
-      auto & term = *BB.getTerminator();
-      if (term.getNumSuccessors() <= 1) continue; // uninteresting
+  while (!TaintStack.empty()) {
+    auto *UserBlock = TaintStack.back();
+    TaintStack.pop_back();
 
-      if (!vecInfo.inRegion(BB)) continue; // no begin vectorized
+    // don't spread divergence beyond the region
+    if (!vecInfo.inRegion(*UserBlock))
+      continue;
 
-      auto * loop = mLoopInfo.getLoopFor(&BB);
-      bool keepShape = loop && loop->isLoopExiting(&BB);
+    assert(!DivLoop->contains(UserBlock) &&
+           "irreducible control flow detected");
 
-      if (!keepShape) {
-        vecInfo.setVectorShape(term, VectorShape::varying());
+    // phi nodes at the fringes of the dominance region
+    if (!DT.dominates(&LoopHeader, UserBlock)) {
+      // all PHI nodes of UserBlock become divergent
+      for (auto &Phi : UserBlock->phis()) {
+        putOnWorklist(Phi);
       }
+      continue;
+    }
+
+    // taint outside users of values carried by DivLoop
+    for (auto &I : *UserBlock) {
+      if (vecInfo.isPinned(I))
+        continue;
+      // if (isDivergent(I))
+      //   continue;
+
+      for (auto &Op : I.operands()) {
+        auto *OpInst = dyn_cast<Instruction>(&Op);
+        if (!OpInst)
+          continue;
+        if (DivLoop->contains(OpInst->getParent())) {
+          putOnWorklist(I);
+          // markDivergent(I);
+          // pushUsers(I);
+          break;
+        }
+      }
+    }
+
+    // visit all blocks in the dominance region
+    for (auto *SuccBlock : successors(UserBlock)) {
+      if (!Visited.insert(SuccBlock).second) {
+        continue;
+      }
+      TaintStack.push_back(SuccBlock);
+    }
+  }
+}
+
+void
+VectorizationAnalysis::pushPHINodes(const BasicBlock &Block) {
+  // induce divergence into allocas
+  const Join * allocaJoin = allocaSSA.getJoinNode(Block);
+  if (allocaJoin) {
+    for (const auto * allocInst : allocaJoin->provSet.allocs) {
+      updateShape(*allocInst, VectorShape::varying());
     }
   }
 
-
-  IF_DEBUG_VA {
-    errs() << "VecInfo after VA:\n";
-    vecInfo.dump();
+  for (const auto &Phi : Block.phis()) {
+    //  if (isDivergent(Phi))
+    //    continue;
+    putOnWorklist(Phi);
   }
 }
+
+bool
+VectorizationAnalysis::propagateJoinDivergence(const BasicBlock &JoinBlock,
+                                               const Loop *BranchLoop) {
+  IF_DEBUG_VA { errs() << "\tVA: propJoinDiv " << JoinBlock.getName() << "\n"; }
+
+  // ignore divergence outside the region
+  if (!vecInfo.inRegion(JoinBlock)) {
+    return false;
+  }
+
+  // already to known to be join divergent
+  if (!vecInfo.addJoinDivergentBlock(JoinBlock)) return false;
+
+  // push non-divergent phi nodes in JoinBlock to the worklist
+  pushPHINodes(JoinBlock);
+
+  // JoinBlock is a divergent loop exit
+  if (BranchLoop && !BranchLoop->contains(&JoinBlock)) {
+    return true;
+  }
+
+  // disjoint-paths divergent at JoinBlock
+  return false;
+}
+
+void
+VectorizationAnalysis::propagateBranchDivergence(const Instruction &Term) {
+  IF_DEBUG_VA { errs() << "VE: propBranchDiv " << Term.getParent()->getName() << "\n"; }
+
+  const auto *BranchLoop = LI.getLoopFor(Term.getParent());
+
+  // whether there is a divergent loop exit from BranchLoop (if any)
+  bool IsBranchLoopDivergent = false;
+
+  // iterate over all blocks reachable by disjoint from Term within the loop
+  // also iterates over loop exits that become divergent due to Term.
+  for (const auto *JoinBlock : SDA.join_blocks(Term)) {
+    if (!vecInfo.inRegion(*JoinBlock)) {
+      IF_DEBUG_VA { errs() << "VA: Ignoring divergent join outside region: " << JoinBlock->getName() << "\n"; }
+      continue;
+    }
+    bool causedLoopDivergence = propagateJoinDivergence(*JoinBlock, BranchLoop);
+    if (causedLoopDivergence) vecInfo.addDivergentLoopExit(*JoinBlock);
+    IsBranchLoopDivergent |= causedLoopDivergence;
+  }
+
+  // Branch loop is a divergent loop due to the divergent branch in Term
+  if (IsBranchLoopDivergent) {
+    assert(BranchLoop);
+    IF_DEBUG_VA { errs() << "VA: Detected divergent loop: " << BranchLoop->getName() << "\n"; }
+    if (!vecInfo.addDivergentLoop(*BranchLoop)) {
+      return;
+    }
+    propagateLoopDivergence(*BranchLoop);
+  }
+}
+
+void
+VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
+  IF_DEBUG_VA { errs() << "VA: propLoopDiv " << ExitingLoop.getName() << "\n"; }
+
+  // don't propagate beyond region
+  if (!vecInfo.inRegion(*ExitingLoop.getHeader()))
+    return;
+
+  const auto *BranchLoop = ExitingLoop.getParentLoop();
+
+  // Uses of loop-carried values could occur anywhere
+  // within the dominance region of the definition. All loop-carried
+  // definitions are dominated by the loop header (reducible control).
+  // Thus all users have to be in the dominance region of the loop header,
+  // except PHI nodes that can also live at the fringes of the dom region
+  // (incoming defining value).
+  if (!IsLCSSAForm) {
+    taintLoopLiveOuts(*ExitingLoop.getHeader()); // FIXME AllocaSSA
+  }
+
+  // whether there is a divergent loop exit from BranchLoop (if any)
+  bool IsBranchLoopDivergent = false;
+
+  // iterate over all blocks reachable by disjoint paths from exits of
+  // ExitingLoop also iterates over loop exits (of BranchLoop) that in turn
+  // become divergent.
+  for (const auto *JoinBlock : SDA.join_blocks(ExitingLoop)) {
+    if (!vecInfo.inRegion(*JoinBlock)) {
+      IF_DEBUG_VA { errs() << "VA: Ignoring divergent join outside region: " << JoinBlock->getName() << "\n"; }
+      continue;
+    }
+    bool causedLoopDivergence = propagateJoinDivergence(*JoinBlock, BranchLoop);
+    if (causedLoopDivergence) vecInfo.addDivergentLoopExit(*JoinBlock);
+    IsBranchLoopDivergent |= causedLoopDivergence;
+  }
+
+  // Branch loop is a divergent due to divergent loop exit in ExitingLoop
+  if (IsBranchLoopDivergent) {
+    assert(BranchLoop);
+    IF_DEBUG_VA { errs() << "VA: Detected divergent loop: " << BranchLoop->getName() << "\n"; }
+    if (vecInfo.addDivergentLoop(*BranchLoop)) {
+      return;
+    }
+    propagateLoopDivergence(*BranchLoop);
+  }
+}
+
+void
+VectorizationAnalysis::compute(const Function& F) {
+  IF_DEBUG_VA { errs() << "\n\n-- VA::compute() log -- \n"; }
+
+  VectorShapeTransformer vecShapeTrans(LI, platInfo, vecInfo);
+
+  // main fixed point loop
+  while (const Instruction * nextI = takeFromWorklist()) {
+    const Instruction & I = *nextI;
+
+    if (vecInfo.isPinned(I)) {
+      continue;
+    }
+
+    IF_DEBUG_VA { errs() << "# next: " << I << "\n"; }
+
+    // propagate divergence caused by terminator
+    if (I.isTerminator()) {
+      if (updateTerminator(I)) {
+        vecInfo.setVectorShape(I, VectorShape::varying()); // TODO use the condition shape instead of terminator shapes
+        // propagate control divergence to affected instructions
+        propagateBranchDivergence(I);
+        continue;
+      }
+    }
+
+    // compute the output shape
+    VectorShape New;
+    if (isa<PHINode>(I)) {
+      // allow incomplete inputs for PHI nodes
+      New = vecShapeTrans.computeShapeForPHINode(cast<PHINode>(I));
+      if (!New.isDefined()) pushMissingOperands(I);
+    } else if (pushMissingOperands(I)) {
+      // If any operand is bottom put them in the work list.
+      continue;
+    } else {
+      // Otw, we can compute the instruction shape
+      SmallValVec taintedPtrOps;
+      New = vecShapeTrans.computeShapeForInst(I, taintedPtrOps);
+
+      // taint allocas
+      for (auto * ptr : taintedPtrOps) {
+        const auto & prov = allocaSSA.getProvenance(*ptr);
+        for (const auto * allocaInst : prov.allocs) {
+          updateShape(*allocaInst, VectorShape::varying());
+        }
+      }
+    }
+
+    IF_DEBUG_VA { errs() << "\t computed: " << New.str() << "\n"; }
+
+    // if no output shape could be computed, skip.
+    if (!New.isDefined()) continue;
+
+    // TODO factor this into vectorShapeTransform. This does not belong here!
+    // shape is non-bottom. Apply general refinement rules.
+    if (I.getType()->isPointerTy()) {
+      // adjust result type to match alignment
+      unsigned minAlignment = getBaseAlignment(I, layout);
+      New.setAlignment(std::max<unsigned>(minAlignment, New.getAlignmentFirst()));
+    } else if (isa<FPMathOperator>(I)) {
+      // allow strided/aligned fp values only in fast math mode
+      FastMathFlags flags = I.getFastMathFlags();
+      if (!flags.isFast() && !New.isUniform()) {
+        New = VectorShape::varying();
+      }
+    }
+
+    // if shape changed put users on worklist
+    updateShape(I, New);
+  };
+}
+
 void
 VectorizationAnalysis::analyze() {
   auto & F = vecInfo.getScalarFunction();
   assert (!F.isDeclaration());
 
+  // seed sources of divergence
   init(F);
+
+  // propagate divergence
   compute(F);
-  fixUndefinedShapes(F);
-  computeLoopDivergence();
+
+  // replace undef instruction shapes with uniform
+  promoteUndefShapesToUniform(F);
 
   // mark all non-loop exiting branches as divergent to trigger a full linearization
+  // FIXME factor this out into a separate transformation
   if (config.foldAllBranches) {
     for (auto & BB: F) {
       auto & term = *BB.getTerminator();
@@ -151,7 +408,7 @@ VectorizationAnalysis::analyze() {
 
       if (!vecInfo.inRegion(BB)) continue; // no begin vectorized
 
-      auto * loop = mLoopInfo.getLoopFor(&BB);
+      auto * loop = LI.getLoopFor(&BB);
       bool keepShape = loop && loop->isLoopExiting(&BB);
 
       if (!keepShape) {
@@ -167,7 +424,8 @@ VectorizationAnalysis::analyze() {
   }
 }
 
-void VectorizationAnalysis::fixUndefinedShapes(const Function& F) {
+void
+VectorizationAnalysis::promoteUndefShapesToUniform(const Function& F) {
   for (const BasicBlock& BB : F) {
     if (!vecInfo.inRegion(BB)) continue;
     for (const Instruction& I : BB) {
@@ -221,7 +479,7 @@ void VectorizationAnalysis::init(const Function& F) {
 
 // push all users of pinned values
   for (auto * val : vecInfo.pinned_values()) {
-    addDependentValuesToWL(val);
+    pushUsers(*val);
   }
 
 // push non-user instructions
@@ -230,7 +488,7 @@ void VectorizationAnalysis::init(const Function& F) {
 
     for (const Instruction& I : BB) {
       if (isa<AllocaInst>(&I)) {
-        update(&I, VectorShape::uni(vecInfo.getMapping().vectorWidth));
+        updateShape(I, VectorShape::uni(vecInfo.getMapping().vectorWidth));
       } else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
         if (call->getNumArgOperands() != 0) continue;
 
@@ -255,15 +513,9 @@ void VectorizationAnalysis::init(const Function& F) {
   }
 }
 
-void VectorizationAnalysis::update(const Value* const V, VectorShape AT) {
-  bool changed = updateShape(V, AT);
-  auto * term = dyn_cast<Instruction>(V);
-  if (changed && term->isTerminator() && term->getNumSuccessors() > 1)
-    analyzeDivergence(*term);
-}
-
-bool VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
-  VectorShape Old = getShape(*V);
+bool
+VectorizationAnalysis::updateShape(const Value& V, VectorShape AT) {
+  VectorShape Old = getShape(V);
   VectorShape New = VectorShape::join(Old, AT);
 
   if (Old == New) {
@@ -272,21 +524,25 @@ bool VectorizationAnalysis::updateShape(const Value* const V, VectorShape AT) {
 
   IF_DEBUG_VA {
     errs() << "Marking " << New << ": ";
-    V->print(errs(), false);
+    V.print(errs(), false);
     errs() << "\n";
   };
 
-  vecInfo.setVectorShape(*V, New);
+  // register new shape
+  vecInfo.setVectorShape(V, New);
 
   // Add dependent elements to worklist
-  addDependentValuesToWL(V);
+  pushUsers(V);
 
   return true;
 }
 
+#if 0
 void VectorizationAnalysis::analyzeDivergence(const Instruction & termInst) {
   // Vectorization is caused by non-uniform branches
   if (getShape(termInst).isUniform()) return;
+
+  const auto * termLoop = LI.getLoopFor(termInst.getParent());
 
   // Find out which regions diverge because of this non-uniform branch
   // The branch is regarded as varying, even if its condition is only strided
@@ -297,9 +553,10 @@ void VectorizationAnalysis::analyzeDivergence(const Instruction & termInst) {
 
     vecInfo.setVectorShape(*BB, VectorShape::varying());
 
-    // Loop exit handling
-    if (BB->getUniquePredecessor()) {
-      vecInfo.setNotKillExit(BB);
+    // Loop exit handling (SDA returns divergent loop exits in ::join_block set)
+    const auto * exitLoop = LI.getLoopFor(BB);
+    if (termLoop && exitLoop != termLoop) {
+      vecInfo.addDivergentLoopExit(*BB);
     }
 
     IF_DEBUG_VA {
@@ -314,7 +571,7 @@ void VectorizationAnalysis::analyzeDivergence(const Instruction & termInst) {
     const Join * allocaJoin = allocaSSA.getJoinNode(*BB);
     if (allocaJoin) {
       for (const auto * allocInst : allocaJoin->provSet.allocs) {
-        updateShape(allocInst, VectorShape::varying());
+        updateShape(*allocInst, VectorShape::varying());
       }
     }
 
@@ -331,30 +588,27 @@ void VectorizationAnalysis::analyzeDivergence(const Instruction & termInst) {
     }
   }
 }
+#endif
 
-void VectorizationAnalysis::addDependentValuesToWL(const Value* V) {
+
+void
+VectorizationAnalysis::pushUsers(const Value& V) {
+  IF_DEBUG_VA { errs() << "VA: Pushing users of " << V << "\n"; }
   // Push users of this value
-  for (const auto user : V->users()) {
+  for (const auto user : V.users()) {
     if (!isa<Instruction>(user)) continue;
-    const Instruction* inst = cast<Instruction>(user);
+    const Instruction& inst = cast<Instruction>(*user);
 
     // We are only analyzing the region
-    if (!vecInfo.inRegion(*inst)) continue;
+    if (!vecInfo.inRegion(inst)) continue;
 
-    putOnWorklist(*inst);
-    IF_DEBUG_VA errs() << "Inserted users of " << *V << ":" << *user << "\n";
+    putOnWorklist(inst);
+    IF_DEBUG_VA { errs() << "\t Pushed: " << inst << "\n"; }
   }
 }
 
-VectorShape VectorizationAnalysis::joinIncomingValues(const PHINode& phi) {
-  VectorShape Join = VectorShape::undef();
-  for (size_t i = 0; i < phi.getNumIncomingValues(); ++i) {
-    Join = VectorShape::join(Join, getShape(*phi.getIncomingValue(i)));
-  }
-  return Join;
-}
-
-bool VectorizationAnalysis::pushMissingOperands(const Instruction* I) {
+bool
+VectorizationAnalysis::pushMissingOperands(const Instruction& I) {
   auto pushIfMissing = [this](bool prevpushed, Value* op)
   {
     bool push = isa<Instruction>(op) && !getShape(*op).isDefined();
@@ -367,113 +621,9 @@ bool VectorizationAnalysis::pushMissingOperands(const Instruction* I) {
     return prevpushed || push;
   };
 
-  return std::accumulate(I->op_begin(), I->op_end(), false, pushIfMissing);
+  return std::accumulate(I.op_begin(), I.op_end(), false, pushIfMissing);
 }
 
-VectorShape VectorizationAnalysis::computePHIShape(const PHINode & phi) {
-   // The PHI node is not actually varying iff all input operands are the same
-   // If the block is divergent the phi is varying
-   if (getShape(*phi.getParent()).isVarying()) {
-     // TODO infer greatest common alignment
-     return VectorShape::varying();
-   } else {
-     return joinIncomingValues(phi);
-   }
-}
-
-void VectorizationAnalysis::compute(const Function& F) {
-  IF_DEBUG_VA { errs() << "\n\n-- VA::compute() log -- \n"; }
-
-  VectorShapeTransformer vecShapeTrans(platInfo, vecInfo);
-
-  // main fixed point loop
-  while (true) {
-    const Instruction * I = takeFromWorklist();
-    if (!I) break; // worklist is empty
-
-    if (vecInfo.isPinned(*I)) {
-      continue;
-    }
-
-    IF_DEBUG_VA { errs() << "# next: " << *I << "\n"; }
-
-    // compute the output shape
-    VectorShape New;
-    if (isa<PHINode>(I)) {
-      // allow incomplete inputs for PHI nodes
-      New = computePHIShape(cast<PHINode>(*I));
-      if (!New.isDefined()) pushMissingOperands(I);
-    } else if (pushMissingOperands(I)) {
-      // If any operand is bottom put them in the work list.
-      continue;
-    } else {
-      // Otw, we can compute the instruction shape
-      SmallValVec taintedPtrOps;
-      New = vecShapeTrans.computeShapeForInst(*I, taintedPtrOps);
-
-      // taint allocas
-      for (auto * ptr : taintedPtrOps) {
-        const auto & prov = allocaSSA.getProvenance(*ptr);
-        for (const auto * allocaInst : prov.allocs) {
-          if (updateShape(allocaInst, VectorShape::varying())) {
-            addDependentValuesToWL(allocaInst);
-          }
-        }
-      }
-
-      if (config.vaMethod == Config::VA_Karrenberg) {
-        // degrade non-cont negatively strided shapes
-
-        if (New.isVarying()) {
-          // keep
-        } else if (New.getStride() < 0) {
-          // negative stride
-          New = VectorShape::varying();
-        } else if (New.isUniform()) {
-          // keep uniform
-        } else {
-          // contiguous case
-          int64_t contStride = 1;
-
-          if (I->getType()->isPointerTy()) {
-            // contiguous stride for pointers (bytes)
-            auto *elemTy = I->getType()->getPointerElementType();
-            contStride = layout.getTypeStoreSize(elemTy);
-          }
-
-          if (New.getStride() != contStride) {
-            New = VectorShape::varying();
-          }
-        }
-
-      } else if (config.vaMethod == Config::VA_Coutinho) {
-        // only degrade alignment information
-        New.setAlignment(1);
-      }
-    }
-
-    IF_DEBUG_VA { errs() << "\t computed: " << New.str() << "\n"; }
-
-    // if no output shape could be computed, skip.
-    if (!New.isDefined()) continue;
-
-    // shape is non-bottom. Apply general refinement rules.
-    if (I->getType()->isPointerTy()) {
-      // adjust result type to match alignment
-      unsigned minAlignment = getBaseAlignment(*I, layout);
-      New.setAlignment(std::max<unsigned>(minAlignment, New.getAlignmentFirst()));
-    } else if (isa<FPMathOperator>(I)) {
-      // allow strided/aligned fp values only in fast math mode
-      FastMathFlags flags = I->getFastMathFlags();
-      if (!flags.isFast() && !New.isUniform()) {
-        New = VectorShape::varying();
-      }
-    }
-
-    // if shape changed put users on worklist
-    update(I, New);
-  };
-}
 
 
 
@@ -484,33 +634,5 @@ VectorShape VectorizationAnalysis::getShape(const Value& V) {
 FunctionPass* createVectorizationAnalysisPass(rv::Config config) {
   return new VAWrapperPass(config);
 }
-
-void VectorizationAnalysis::computeLoopDivergence() {
-  std::stack<const Loop*> loops;
-  for (const Loop* l : mLoopInfo) {
-    loops.push(l);
-  }
-
-  while (!loops.empty()) {
-    const Loop* l = loops.top();
-    loops.pop();
-
-    SmallVector<BasicBlock*, 4> exits;
-    l->getExitBlocks(exits);
-
-    for (const BasicBlock* exit : exits) {
-      if (vecInfo.getVectorShape(*exit).isVarying()) {
-        vecInfo.setLoopDivergence(*l, false);
-        break;
-      }
-    }
-
-    for (const Loop* subLoop : l->getSubLoops()) {
-      loops.push(subLoop);
-    }
-  }
-}
-
-
 
 }

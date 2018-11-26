@@ -85,8 +85,6 @@ VectorShape VectorShape::fromConstant(const Constant* C) {
 }
 
 unsigned VectorShape::getAlignmentGeneral() const {
-  assert(defined && "alignment function called on undef value");
-
   if (hasConstantStride) {
     if (stride == 0)
       return alignment;
@@ -94,7 +92,7 @@ unsigned VectorShape::getAlignmentGeneral() const {
       return gcd(alignment, (unsigned) std::abs(stride));
   }
   else
-    return alignment; // General alignment in case of varying shape
+    return alignment; // General alignment in case of varying or undef shapes
 }
 
 bool VectorShape::operator==(const VectorShape &a) const {

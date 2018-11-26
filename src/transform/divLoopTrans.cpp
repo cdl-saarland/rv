@@ -106,7 +106,7 @@ void
 TransformSession::transformLoop() {
   IF_DEBUG_DLT { errs() << "TransformLoop " << loop.getName() << "\n"; }
 
-  assert(vecInfo.isDivergentLoop(&loop) && "trying to convert a non-divergent loop");
+  assert(vecInfo.isDivergentLoop(loop) && "trying to convert a non-divergent loop");
 
 // creates cascading phi nodes to track loop live outs
   SmallVector<Loop::Edge, 4> loopExitEdges;
@@ -180,8 +180,8 @@ TransformSession::transformLoop() {
     BasicBlock * reboundBlock = &exitingBlock;
     if (reboundingNestedExit || (oldLatch == &exitingBlock)) {
       reboundBlock = BasicBlock::Create(exitingBlock.getContext(), exitName + ".rebound", exitingBlock.getParent(), pureLatch);
-      if (!vecInfo.isKillExit(exitBlock)) {
-        vecInfo.setNotKillExit(reboundBlock); // TODO re-infer kill exit property
+      if (vecInfo.isDivergentLoopExit(exitBlock)) {
+        vecInfo.addDivergentLoopExit(*reboundBlock);
       }
       loop.addBasicBlockToLoop(reboundBlock, loopInfo);
       exitingBr.setSuccessor((int) exitOnFalse, reboundBlock);
@@ -202,14 +202,14 @@ TransformSession::transformLoop() {
       ForAllLiveouts(exitBlock, [&](PHINode & lcPhi, int slot) {
           auto & liveOut = *lcPhi.getIncomingValue(slot);
           auto & nestedPhi = *rebBuilder.CreatePHI(liveOut.getType(), 1, liveOut.getName() + ".lcssa");
-          vecInfo.setVectorShape(lcPhi, vecInfo.getVectorShape(liveOut));
+          vecInfo.setVectorShape(nestedPhi, vecInfo.getVectorShape(lcPhi));
           nestedPhi.addIncoming(&liveOut, &exitingBlock);
           lcPhi.setIncomingValue(slot, &nestedPhi);
       });
     }
 
   // create live out trackers
-    if (!vecInfo.isKillExit(exitBlock)) {
+    if (vecInfo.isDivergentLoopExit(exitBlock)) {
       ForAllLiveouts(exitBlock, [&](PHINode & lcPhi, int slot) {
         auto & liveOut = *lcPhi.getIncomingValue(slot);
 
@@ -235,6 +235,14 @@ TransformSession::transformLoop() {
         IF_DEBUG_DLT { errs() << "UPD PHI: " << *updatePhi <<  "\n"; }
       });
     }
+
+#if 0
+    // FIXME this should work..
+    if (vecInfo.isDivergentLoopExit(exitBlock) && !reboundingNestedExit) {
+      // no longer a divergent loop-exit
+      vecInfo.removeDivergentLoopExit(exitBlock);
+    }
+#endif
   }
 
 // create an exit cascade
@@ -512,7 +520,7 @@ DivLoopTrans::transformDivergentLoopControl(Loop & loop) {
   bool hasDivergentLoops = false;
 
   // make this loop uniform (all remaining divergent loops are properly nested)
-  if (vecInfo.isDivergentLoop(&loop)) {
+  if (vecInfo.isDivergentLoop(loop)) {
     ++numDivergentLoops;
     hasDivergentLoops = true;
 
@@ -521,7 +529,7 @@ DivLoopTrans::transformDivergentLoopControl(Loop & loop) {
     sessions[&loop] = loopSession;
 
     // mark loop as uniform
-    vecInfo.setLoopDivergence(loop, true);
+    vecInfo.removeDivergentLoop(loop);
   }
 
   for (auto * childLoop : loop) {

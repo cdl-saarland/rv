@@ -73,7 +73,8 @@ class VectorizationAnalysis {
   std::unordered_set<const llvm::Instruction*> mOnWorklist;
 
   const llvm::DataLayout& layout;
-  const llvm::LoopInfo& mLoopInfo; // Preserves LoopInfo
+  const llvm::LoopInfo& LI; // Preserves LoopInfo
+  const llvm::DominatorTree & DT;
 
   // Divergence computation:
   llvm::SyncDependenceAnalysis SDA;
@@ -84,6 +85,13 @@ class VectorizationAnalysis {
 
   llvm::DenseSet<const llvm::BasicBlock*> mControlDivergentBlocks;
 
+  bool updateTerminator(const llvm::Instruction &Term) const;
+
+  /// update disjoin paths divergence (and push PHIs)
+  // return whether @JoinBlock is a divergent loop exit from @BranchLoop
+  bool propagateJoinDivergence(const llvm::BasicBlock &JoinBlock,
+                               const llvm::Loop *BranchLoop);
+  void taintLoopLiveOuts(const llvm::BasicBlock &LoopHeader);
 public:
   VectorizationAnalysis(Config config,
                         PlatformInfo & platInfo,
@@ -125,29 +133,26 @@ private:
   // specialized transfer functions
   VectorShape computePHIShape(const llvm::PHINode& phi);
 
-  // Update a value with its computed shape, adding users to the WL if a change occured
-  void update(const llvm::Value* const V, VectorShape AT);
-
   // Returns true iff the shape has been changed
-  bool updateShape(const llvm::Value* const V, VectorShape AT);
+  bool updateShape(const llvm::Value& V, VectorShape AT);
   void analyzeDivergence(const llvm::Instruction& termInst);
 
-  // Adds all dependent values of V to the worklist:
-  // - Any user of this value in the region (minus void-returning calls)
-  // - Any alloca used by this value if it is not of uniform shape
-  void addDependentValuesToWL(const llvm::Value* V);
-
-  VectorShape joinIncomingValues(const llvm::PHINode& phi);
+  // re-schedule al phi nodes in @Block
+  void pushPHINodes(const llvm::BasicBlock &Block);
 
   // Returns true iff all operands currently have a computed shape
   // This is essentially a negated check for bottom
-  bool pushMissingOperands(const llvm::Instruction* I);
+  bool pushMissingOperands(const llvm::Instruction& I);
+
+  // push all users of @V to the worklist.
+  void pushUsers(const llvm::Value& V);
+
+  // control divergence propagation
+  void propagateBranchDivergence(const llvm::Instruction &Term);
+  void propagateLoopDivergence(const llvm::Loop &ExitingLoop);
 
   // Cast undefined instruction shapes to uniform shapes
-  void fixUndefinedShapes(const llvm::Function& F);
-
-  // Mark loops as divergent
-  void computeLoopDivergence();
+  void promoteUndefShapesToUniform(const llvm::Function& F);
 };
 
 llvm::FunctionPass* createVectorizationAnalysisPass(Config config=Config());
