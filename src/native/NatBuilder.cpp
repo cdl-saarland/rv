@@ -1951,9 +1951,12 @@ NatBuilder::requestVectorValue(Value *const value) {
 
 Value&
 NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
-  Value * vecValue = nullptr;
+  if (isa<Constant>(scaValue)) {
+    return *getConstantVector(vectorWidth(), &cast<Constant>(scaValue));
+  }
 
   // create a vector GEP to widen pointers
+  Value * vecValue = nullptr;
   if (scaValue.getType()->isPointerTy()) {
     auto * scalarPtrTy = scaValue.getType();
     auto * intTy = builder.getInt32Ty();
@@ -1971,11 +1974,7 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
     }
 
   } else {
-    if (isa<Constant>(scaValue)) {
-      vecValue = getConstantVector(vectorWidth(), &cast<Constant>(scaValue));
-    } else {
-      vecValue = builder.CreateVectorSplat(vectorWidth(), &scaValue);
-    }
+    vecValue = builder.CreateVectorSplat(vectorWidth(), &scaValue);
 
     if (!vecShape.isUniform()) {
       assert(scaValue.getType()->isIntegerTy() || scaValue.getType()->isFloatingPointTy());
@@ -1986,6 +1985,7 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
                                              : builder.CreateAdd(vecValue, contVec, "contiguous_add");
     }
   }
+  assert(vecValue);
 
   return *vecValue;
 }

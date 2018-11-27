@@ -56,7 +56,7 @@ class VectorizationInfo {
   // whether the block is a join point of disjoint paths from a varying branch
   std::set<const llvm::BasicBlock *> JoinDivergentBlocks;
   // whether the block will receive a non-uniform predicate
-  std::set<const llvm::BasicBlock *> VaryingPredicateBlocks;
+  std::map<const llvm::BasicBlock *, bool> VaryingPredicateBlocks;
 
   // fixed shapes (will be preserved through VA)
   std::set<const llvm::Value *> pinned;
@@ -128,9 +128,10 @@ public:
 
   // tentative block predicate shapes (whether the basic block predicate will be
   // varying or uniform)
-  bool hasVaryingPredicate(const llvm::BasicBlock &BB) const;
-  void addVaryingPredicateFlag(const llvm::BasicBlock &);
-  void removeVaryingPredicatelag(const llvm::BasicBlock &);
+  // state can be unknown <returns false>, varying (returns true, oIsVarying is true or uniform (returns true, oIsVarying is false)
+  bool getVaryingPredicateFlag(const llvm::BasicBlock &BB, bool & oIsVarying) const;
+  void setVaryingPredicateFlag(const llvm::BasicBlock &, bool toVarying);
+  void removeVaryingPredicateFlag(const llvm::BasicBlock &);
 
   // actual basic block predicates
   llvm::Value *getPredicate(const llvm::BasicBlock &block) const;

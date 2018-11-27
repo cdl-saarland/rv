@@ -9,10 +9,16 @@
 #ifndef RV_VECTORIZATIONANALYSIS_H_
 #define RV_VECTORIZATIONANALYSIS_H_
 
-#include <map>
-#include <queue>
-#include <string>
-#include <unordered_set>
+#include "rv/PlatformInfo.h"
+#include "rv/VectorizationInfoProxyPass.h"
+#include "rv/analysis/AllocaSSA.h"
+#include "rv/analysis/predicateAnalysis.h"
+#include "rv/config.h"
+#include "rv/region/FunctionRegion.h"
+#include "rv/region/Region.h"
+#include "rv/shape/vectorShapeTransformer.h"
+#include "rv/vectorMapping.h"
+#include "rv/vectorizationInfo.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
@@ -30,15 +36,10 @@
 #include "llvm/Support/GenericDomTree.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "rv/PlatformInfo.h"
-#include "rv/VectorizationInfoProxyPass.h"
-#include "rv/analysis/AllocaSSA.h"
-#include "rv/config.h"
-#include "rv/region/FunctionRegion.h"
-#include "rv/region/Region.h"
-#include "rv/shape/vectorShapeTransformer.h"
-#include "rv/vectorMapping.h"
-#include "rv/vectorizationInfo.h"
+#include <map>
+#include <queue>
+#include <string>
+#include <unordered_set>
 
 namespace llvm {
 class LoopInfo;
@@ -78,6 +79,7 @@ class VectorizationAnalysis {
 
   // Divergence computation:
   llvm::SyncDependenceAnalysis SDA;
+  PredicateAnalysis PredA;
 
   FunctionRegion funcRegion;
   Region funcRegionWrapper;
@@ -147,8 +149,24 @@ private:
   // push all users of @V to the worklist.
   void pushUsers(const llvm::Value &V);
 
-  // control divergence propagation
+  // add all instruction of \p BB to the WL that dependend on the shape of the predicate.
+  // (eg functions with side effects)
+  void pushPredicatedInsts(const llvm::BasicBlock & BB);
+
+  // Control divergence propagation (RootNodeType == Loop or Instruction(~Terminator))
+  // \p BranchLoop       the loop containing the divergent node
+  // \p UniqueSuccessors uniqued set of immediate successors of this node
+  // \p rootNode         the node handle
+  // \p domBoundBlock    Immediate dominator of all UniqueSuccessors
+  template<typename RootNodeType>
+  void propagateControlDivergence(const llvm::Loop * BranchLoop, llvm::ArrayRef<const llvm::BasicBlock*> UniqueSuccessors, RootNodeType & rootNode, const llvm::BasicBlock & domBoundBlock);
+
+  // front-ends to propagateControlDivergence..
+  // .. for divergent branches (really any degree > 1 terminator)
+  // propagates control divergence caused by immediate divergence in \p Term.
   void propagateBranchDivergence(const llvm::Instruction &Term);
+  // .. for divergent loops
+  // propagates control divergence caused by divergent loop exits of \p ExitingLoops.
   void propagateLoopDivergence(const llvm::Loop &ExitingLoop);
 
   // Cast undefined instruction shapes to uniform shapes

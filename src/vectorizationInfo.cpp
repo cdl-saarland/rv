@@ -63,16 +63,31 @@ void VectorizationInfo::printBlockInfo(const BasicBlock &block,
                                        llvm::raw_ostream &out) const {
   const Value *predicate = getPredicate(block);
 
+  // block name
   out << "Block ";
   block.printAsOperand(out, false);
-  if (predicate) {
-    out << ", predicate " << *predicate;
+
+  // block annotations
+  out << " [";
+  {
+    bool hasVaryingPredicate = false;
+    if (getVaryingPredicateFlag(block, hasVaryingPredicate)) {
+      if (hasVaryingPredicate) out << ", var-pred";
+      else out << ", uni-pred";
+    }
+
+    if (predicate) {
+      out << ", predicate: " << *predicate;
+    }
+
+    if (isDivergentLoopExit(block)) {
+      out << ", divLoopExit";
+    }
   }
-  if (isDivergentLoopExit(block)) {
-    out << ", divLoopExit";
-  }
+  out << "]";
   out << "\n";
 
+  // instructions
   for (const Instruction &inst : block) {
     print(&inst, out);
   }
@@ -205,6 +220,25 @@ void VectorizationInfo::dropVectorShape(const Value &val) {
 void VectorizationInfo::setVectorShape(const llvm::Value &val,
                                        VectorShape shape) {
   shapes[&val] = shape;
+}
+
+// tenative predicate handling
+bool
+VectorizationInfo::getVaryingPredicateFlag(const llvm::BasicBlock &BB, bool & oIsVarying) const {
+  auto it = VaryingPredicateBlocks.find(&BB);
+  if (it == VaryingPredicateBlocks.end()) return false;
+  oIsVarying = it->second;
+  return true;
+}
+
+void
+VectorizationInfo::setVaryingPredicateFlag(const llvm::BasicBlock & BB, bool toVarying) {
+  VaryingPredicateBlocks[&BB] = toVarying;
+}
+
+void
+VectorizationInfo::removeVaryingPredicateFlag(const llvm::BasicBlock & BB) {
+  VaryingPredicateBlocks.erase(&BB);
 }
 
 // predicate handling

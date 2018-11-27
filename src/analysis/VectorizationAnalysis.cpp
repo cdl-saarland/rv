@@ -71,6 +71,7 @@ VectorizationAnalysis::VectorizationAnalysis(
     : config(_config), platInfo(platInfo), vecInfo(VecInfo),
       layout(platInfo.getDataLayout()), LI(LoopInfo), DT(domTree),
       SDA(domTree, postDomTree, LoopInfo),
+      PredA(vecInfo, postDomTree),
       funcRegion(vecInfo.getScalarFunction()),
       funcRegionWrapper(funcRegion), // FIXME
       allocaSSA(funcRegionWrapper) {
@@ -221,19 +222,31 @@ bool VectorizationAnalysis::propagateJoinDivergence(const BasicBlock &JoinBlock,
   return false;
 }
 
-void VectorizationAnalysis::propagateBranchDivergence(const Instruction &Term) {
-  IF_DEBUG_VA {
-    errs() << "VE: propBranchDiv " << Term.getParent()->getName() << "\n";
+using SmallConstBlockVec = SmallVector<const BasicBlock*, 4>;
+using SmallConstBlockSet = SmallPtrSet<const BasicBlock*, 4>;
+
+SmallConstBlockVec
+GetUniqueSuccessors(const Instruction & Term) {
+  // const auto & Term = *BB.getTerminator();
+  SmallConstBlockSet seenBefore;
+  SmallConstBlockVec termSuccs;
+  for (int i = 0; i < (int) Term.getNumSuccessors(); ++i) {
+    const auto * anotherSucc = Term.getSuccessor(i);
+    if (!seenBefore.insert(anotherSucc).second) continue;
+    termSuccs.push_back(anotherSucc);
   }
+  return termSuccs;
+}
 
-  const auto *BranchLoop = LI.getLoopFor(Term.getParent());
-
-  // whether there is a divergent loop exit from BranchLoop (if any)
+template<typename RootNodeType>
+void
+VectorizationAnalysis::propagateControlDivergence(const Loop * BranchLoop, llvm::ArrayRef<const BasicBlock*> UniqueSuccessors, RootNodeType & rootNode, const BasicBlock & domBoundBlock) {
   bool IsBranchLoopDivergent = false;
 
-  // iterate over all blocks reachable by disjoint from Term within the loop
-  // also iterates over loop exits that become divergent due to Term.
-  for (const auto *JoinBlock : SDA.join_blocks(Term)) {
+  // Iterates over the following:
+  // a) Blocks that are reachable by disjoint paths from \p rootNode.
+  // b) Loop exits (of the inner most loop carrying \p rootNode) that becomes divergent due to divergence in in \p Term.
+  for (const BasicBlock *JoinBlock : SDA.join_blocks(rootNode)) {
     if (!vecInfo.inRegion(*JoinBlock)) {
       IF_DEBUG_VA {
         errs() << "VA: Ignoring divergent join outside region: "
@@ -241,11 +254,20 @@ void VectorizationAnalysis::propagateBranchDivergence(const Instruction &Term) {
       }
       continue;
     }
+
+    // propagates disjoint paths divergence to join points
     bool causedLoopDivergence = propagateJoinDivergence(*JoinBlock, BranchLoop);
-    if (causedLoopDivergence)
+
+    if (causedLoopDivergence) {
       vecInfo.addDivergentLoopExit(*JoinBlock);
-    IsBranchLoopDivergent |= causedLoopDivergence;
+      IsBranchLoopDivergent = true;
+    }
   }
+
+  // Block predicates may turn varying due to the divergence of this branch
+  PredA.addDivergentBranch(domBoundBlock, UniqueSuccessors, [&](const BasicBlock & varPredBlock) {
+      pushPredicatedInsts(varPredBlock);
+  });
 
   // Branch loop is a divergent loop due to the divergent branch in Term
   if (IsBranchLoopDivergent) {
@@ -261,12 +283,27 @@ void VectorizationAnalysis::propagateBranchDivergence(const Instruction &Term) {
   }
 }
 
+void VectorizationAnalysis::propagateBranchDivergence(const Instruction &Term) {
+  IF_DEBUG_VA {
+    errs() << "VE: propBranchDiv " << Term.getParent()->getName() << "\n";
+  }
+
+  const auto *BranchLoop = LI.getLoopFor(Term.getParent());
+
+  auto termSuccVec = GetUniqueSuccessors(Term);
+
+  const auto & termBlock = *Term.getParent();
+  propagateControlDivergence<const Instruction>(BranchLoop, termSuccVec, Term, termBlock);
+}
+
 void VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
   IF_DEBUG_VA { errs() << "VA: propLoopDiv " << ExitingLoop.getName() << "\n"; }
 
   // don't propagate beyond region
   if (!vecInfo.inRegion(*ExitingLoop.getHeader()))
     return;
+
+  const auto & loopHeader = *ExitingLoop.getHeader();
 
   const auto *BranchLoop = ExitingLoop.getParentLoop();
 
@@ -277,41 +314,18 @@ void VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
   // except PHI nodes that can also live at the fringes of the dom region
   // (incoming defining value).
   if (!IsLCSSAForm) {
-    taintLoopLiveOuts(*ExitingLoop.getHeader()); // FIXME AllocaSSA
+    taintLoopLiveOuts(loopHeader); // FIXME AllocaSSA
   }
 
-  // whether there is a divergent loop exit from BranchLoop (if any)
-  bool IsBranchLoopDivergent = false;
-
-  // iterate over all blocks reachable by disjoint paths from exits of
-  // ExitingLoop also iterates over loop exits (of BranchLoop) that in turn
-  // become divergent.
-  for (const auto *JoinBlock : SDA.join_blocks(ExitingLoop)) {
-    if (!vecInfo.inRegion(*JoinBlock)) {
-      IF_DEBUG_VA {
-        errs() << "VA: Ignoring divergent join outside region: "
-               << JoinBlock->getName() << "\n";
-      }
-      continue;
-    }
-    bool causedLoopDivergence = propagateJoinDivergence(*JoinBlock, BranchLoop);
-    if (causedLoopDivergence)
-      vecInfo.addDivergentLoopExit(*JoinBlock);
-    IsBranchLoopDivergent |= causedLoopDivergence;
+  SmallConstBlockVec exitBlockVec;
+  {
+    // TODO fix un-constness of decltype(::getUniqueExitBlocks(..)) in LLVM
+    llvm::SmallVector<BasicBlock*, 4> tmpUniqueExitBlockVec;
+    ExitingLoop.getUniqueExitBlocks(tmpUniqueExitBlockVec);
+    for (const auto * BB : tmpUniqueExitBlockVec) exitBlockVec.push_back(BB);
   }
 
-  // Branch loop is a divergent due to divergent loop exit in ExitingLoop
-  if (IsBranchLoopDivergent) {
-    assert(BranchLoop);
-    IF_DEBUG_VA {
-      errs() << "VA: Detected divergent loop: " << BranchLoop->getName()
-             << "\n";
-    }
-    if (vecInfo.addDivergentLoop(*BranchLoop)) {
-      return;
-    }
-    propagateLoopDivergence(*BranchLoop);
-  }
+  propagateControlDivergence<const Loop>(BranchLoop, exitBlockVec, ExitingLoop, loopHeader);
 }
 
 void VectorizationAnalysis::compute(const Function &F) {
@@ -546,58 +560,19 @@ bool VectorizationAnalysis::updateShape(const Value &V, VectorShape AT) {
   return true;
 }
 
-#if 0
-void VectorizationAnalysis::analyzeDivergence(const Instruction & termInst) {
-  // Vectorization is caused by non-uniform branches
-  if (getShape(termInst).isUniform()) return;
+void
+VectorizationAnalysis::pushPredicatedInsts(const llvm::BasicBlock & BB) {
+  IF_DEBUG_VA { errs() << "VA: Pushing predicate-dependent insts of " << BB.getName() << ":\n"; }
+  for (const auto & Inst : BB) {
+    // skip over insts whose result shape does not depend on the block predicate
+    if (isa<PHINode>(Inst)) continue;
+    if (isa<BinaryOperator>(Inst)) continue;
+    if (Inst.isTerminator()) continue;
 
-  const auto * termLoop = LI.getLoopFor(termInst.getParent());
-
-  // Find out which regions diverge because of this non-uniform branch
-  // The branch is regarded as varying, even if its condition is only strided
-  for (const auto* BB : SDA.join_blocks(termInst)) {
-    if (!vecInfo.inRegion(*BB) || getShape(*BB).isVarying()) {
-      continue;
-    } // filter out irrelevant nodes (FIXME filter out directly in BDA)
-
-    vecInfo.setVectorShape(*BB, VectorShape::varying());
-
-    // Loop exit handling (SDA returns divergent loop exits in ::join_block set)
-    const auto * exitLoop = LI.getLoopFor(BB);
-    if (termLoop && exitLoop != termLoop) {
-      vecInfo.addDivergentLoopExit(*BB);
-    }
-
-    IF_DEBUG_VA {
-      errs() << "\nThe block:\n    ";
-      BB->printAsOperand(errs(), false);
-      errs() << "\nis divergent because of the non-uniform control in:\n    ";
-      termInst.getParent()->printAsOperand(errs(), false);
-      errs() << "\n\n";
-    }
-
-    // induce divergence into allocas
-    const Join * allocaJoin = allocaSSA.getJoinNode(*BB);
-    if (allocaJoin) {
-      for (const auto * allocInst : allocaJoin->provSet.allocs) {
-        updateShape(*allocInst, VectorShape::varying());
-      }
-    }
-
-    // add LCSSA phis to worklist
-    for (auto & inst : *BB) {
-      if (!isa<PHINode>(inst)) break;
-      putOnWorklist(inst);
-
-      IF_DEBUG_VA {
-        errs() << "Inserted LCSSA PHI: ";
-        inst.printAsOperand(errs(), false);
-        errs() << "\n";
-      };
-    }
+    IF_DEBUG_VA { errs() << "\tPushed: " << Inst << "\n"; }
+    putOnWorklist(Inst);
   }
 }
-#endif
 
 void VectorizationAnalysis::pushUsers(const Value &V) {
   IF_DEBUG_VA { errs() << "VA: Pushing users of " << V << "\n"; }
@@ -612,7 +587,7 @@ void VectorizationAnalysis::pushUsers(const Value &V) {
       continue;
 
     putOnWorklist(inst);
-    IF_DEBUG_VA { errs() << "\t Pushed: " << inst << "\n"; }
+    IF_DEBUG_VA { errs() << "\tPushed: " << inst << "\n"; }
   }
 }
 
