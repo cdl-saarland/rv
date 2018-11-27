@@ -266,7 +266,7 @@ void dropShadowInput(PHINode & phi) {
   phi.setMetadata(ShadowInputMDName, nullptr);
 }
 
-Value* getShadowInput(PHINode & phi) {
+Value* getShadowInput(const PHINode & phi) {
   // short cut
   if (!phi.hasMetadataOtherThanDebugLoc()) return nullptr;
 

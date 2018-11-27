@@ -53,7 +53,7 @@ void setShadowInput(PHINode & phi, Value & defInput);
 // erase the shadow input from \p phi.
 void dropShadowInput(PHINode & phi);
 // return the default input value of \p phi (if any)
-Value* getShadowInput(PHINode & phi);
+Value* getShadowInput(const PHINode & phi);
 
 void
 getExitingBlocks(BasicBlock*                  exitBlock,

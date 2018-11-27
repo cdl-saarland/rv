@@ -151,6 +151,7 @@ public:
 
   llvm::LLVMContext &getContext() const;
   llvm::Function &getScalarFunction() { return *mapping.scalarFn; }
+  const llvm::Function &getScalarFunction() const { return *mapping.scalarFn; }
   llvm::Function &getVectorFunction() { return *mapping.vectorFn; }
 };
 

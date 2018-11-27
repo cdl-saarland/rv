@@ -15,6 +15,7 @@
 #include <llvm/IR/Instruction.h>
 
 #include "rv/region/Region.h"
+#include "utils/rvTools.h"
 #include "rvConfig.h"
 
 using namespace llvm;
@@ -48,10 +49,24 @@ void VectorizationInfo::print(const Value *val, llvm::raw_ostream &out) const {
     printBlockInfo(*block, out);
   }
 
+  out << *val;
+
+  // show shadow input (if any)
+  auto * phi = dyn_cast<PHINode>(val);
+  if (phi) {
+    const Value * shadowIn = getShadowInput(*phi);
+    if (shadowIn) {
+      out << ", shadow(";
+        shadowIn->printAsOperand(out, false, getScalarFunction().getParent());
+      out << ")";
+    }
+  }
+
+  // attach vector shape
   if (hasKnownShape(*val)) {
-    out << *val << " : " << getVectorShape(*val).str() << "\n";
+    out << " : " << getVectorShape(*val).str() << "\n";
   } else {
-    out << *val << " : unknown shape\n";
+    out << " : <n/a>\n";
   }
 }
 
