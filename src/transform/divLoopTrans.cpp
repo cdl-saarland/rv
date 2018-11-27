@@ -10,21 +10,23 @@
 // This transformation eliminates divergent loop in the region
 
 
-#include "rv/PlatformInfo.h"
 #include "rv/transform/divLoopTrans.h"
+
+#include "rv/PlatformInfo.h"
 #include "rv/transform/maskExpander.h"
+#include "utils/rvTools.h"
 
 #include "rvConfig.h"
 #include "rv/rvDebug.h"
 #include "report.h"
 
-#include "llvm/Analysis/LoopInfo.h"
-#include "llvm/IR/Dominators.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/IRBuilder.h"
+#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/IR/Dominators.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/IRBuilder.h>
 
-#include "llvm/Transforms/Utils/SSAUpdater.h"
-#include "llvm/IR/Verifier.h"
+#include <llvm/Transforms/Utils/SSAUpdater.h>
+#include <llvm/IR/Verifier.h>
 
 #define IF_DEBUG_DLT IF_DEBUG
 
@@ -54,40 +56,35 @@ ForAllLiveouts(BasicBlock & exitBlock, std::function<void(PHINode & lcPhi, int s
   }
 }
 
+// make \p inputVal the incoming value in all missing incoming value slots of \p phi.
+static void
+AttachMissingInputs(PHINode & phi, Value & inputVal) {
+  // make trackerPhi the default input on all remaining incoming positions
+  for (auto & blockUse : phi.getParent()->uses()) {
+    auto userInst = dyn_cast<Instruction>(blockUse.getUser());
+    if (!userInst || !userInst->isTerminator()) continue;
+
+    auto * inBlock = userInst->getParent();
+    if (phi.getBasicBlockIndex(inBlock) >= 0) continue;
+    phi.addIncoming(&inputVal, inBlock);
+  }
+}
+
 Instruction&
 TransformSession::lowerLatchUpdate(TrackerDesc & desc) {
   auto & trackerPhi = *desc.trackerPhi;
-  assert(desc.updatePhi && "already lowered?");
   auto & updPhi = *desc.updatePhi;
-  auto & BB = *updPhi.getParent();
 
-  auto shape = vecInfo.getVectorShape(trackerPhi);
-  IRBuilder<> builder(updPhi.getParent(), updPhi.getIterator());
+  assert(!getShadowInput(updPhi) && "already has a shadow input!");
 
-  IF_DEBUG_DLT { errs() << "Lowering " << updPhi << "\n"; }
-  Instruction * accu = &trackerPhi; // <-- only purpose of early lowering to switches: latch update has to default to tracker (and not some exit edge)
-  for (size_t i = 0 ; i < updPhi.getNumIncomingValues(); ++i) {
-    auto * inBlock = updPhi.getIncomingBlock(i);
-    auto * inVal = updPhi.getIncomingValue(i);
-    if (inVal == &trackerPhi) continue; // explicit (redundant) default edge
+  // trackerPhi should be piped through on disabled lanes.
+  setShadowInput(updPhi, trackerPhi);
 
-    auto & edgeMask = maskEx.requestEdgeMask(*inBlock, BB);
-    std::string name = updPhi.getName();
+  // preserve the tracker also on active lanes if the thread stays in the loop.
+  AttachMissingInputs(updPhi, trackerPhi);
 
-    // pick this incoming value if the edge is taken
-    accu = cast<Instruction>(builder.CreateSelect(&edgeMask, inVal, accu, name));
-    vecInfo.setVectorShape(*accu, shape);
-  }
-
-  // select cascade implements this phi
-  updPhi.replaceAllUsesWith(accu);
-  vecInfo.dropVectorShape(updPhi);
-  updPhi.eraseFromParent();
-
-  IF_DEBUG_DLT { errs() << "\tlowered: " << *accu <<  "\n"; }
-
-  desc.updatePhi = nullptr; // marks this latch update as lowered
-  return *accu;
+  // done
+  return updPhi;
 }
 
 void
