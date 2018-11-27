@@ -212,8 +212,12 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       }
 
       // next: query resolver mechanism // TODO account for predicate
-      bool hasBlockPredicate = true; // FIXME whether the call needs predication due to the call context
-      auto resolver = platInfo.getResolver(callee->getName(), *callee->getFunctionType(), callArgShapes, vecInfo.getVectorWidth(), hasBlockPredicate);
+      bool hasVaryingBlockPredicate = false;
+      if (!vecInfo.getVaryingPredicateFlag(BB, hasVaryingBlockPredicate)) {
+        hasVaryingBlockPredicate = false; // assume uniform block pred unless shown otherwise
+      }
+
+      auto resolver = platInfo.getResolver(callee->getName(), *callee->getFunctionType(), callArgShapes, vecInfo.getVectorWidth(), hasVaryingBlockPredicate);
       if (resolver) {
         return resolver->requestResultShape();
       }
