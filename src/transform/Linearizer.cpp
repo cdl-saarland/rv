@@ -460,13 +460,23 @@ public:
   // return the most frequent incoming value of this phi node
   Value*
   getFrequentIncomingValue(PHINode & phi) const {
-    Value * incumbent = phi.getIncomingValueForBlock(inBlocks[0]);
     int incumbentCount = 1;
 
     std::map<const Value*, int> tally;
 
-    for (int i = 1; i < (int) inBlocks.size(); ++i) {
+    Value * incumbent = phi.getIncomingValueForBlock(inBlocks[0]);
+    int i = 0;
+
+    // forward to first non-undef incoming value
+    for (i = 0; i < (int) inBlocks.size() && isa<UndefValue>(incumbent); ++i) {
+      incumbent = phi.getIncomingValueForBlock(inBlocks[i]);
+    }
+
+    // pick most-frequent, non-undef incoming value
+    for (; i < (int) inBlocks.size(); ++i) {
       Value * otherInValue = phi.getIncomingValueForBlock(inBlocks[i]);
+
+      if (isa<UndefValue>(otherInValue)) continue;
 
       if (otherInValue == incumbent) {
         // incumbent tally increment
