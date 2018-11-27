@@ -35,6 +35,12 @@
 #include <map>
 #include <set>
 
+#if 1
+#define IF_DEBUG_REM IF_DEBUG
+#else
+#define IF_DEBUG_REM if (true)
+#endif
+
 using namespace llvm;
 
 namespace rv {
@@ -811,13 +817,13 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
   auto * branchCond = analyzeExitCondition(L, vectorWidth);
   if (!branchCond) {
     Report() << "remTrans: can not handle loop exit condition\n";
-    L.print(outs());
-#if 0
-    for (auto * BB : L.blocks()) {
-        outs() << "\n";
-        outs() << *BB;
+    IF_DEBUG_REM {
+      L.print(outs());
+      for (auto * BB : L.blocks()) {
+        errs() << "\n";
+        errs() << *BB;
       }
-#endif
+    }
 
     return nullptr;
   }

@@ -157,7 +157,7 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   // configure RV
   auto config = rv::Config::createForFunction(parentFn);
   config.maxULPErrorBound = ulpErrorBound;
-  config.print(outs());
+  IF_VERBOSE { config.print(outs()); }
 
   // setup region
   rv::LoopRegion loopRegionImpl(*preparedLoop);
@@ -226,7 +226,7 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   domTree.recalculate(parentFn);
   postDomTree.recalculate(parentFn);
 
-  loopInfo.print(errs());
+  IF_VERBOSE { loopInfo.print(errs()); }
   loopInfo.verify(domTree);
 
   // vectorizationAnalysis
@@ -348,7 +348,7 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   // configure RV
   auto config = rv::Config::createForFunction(*scalarFn);
   config.maxULPErrorBound = ulpErrorBound;
-  config.print(outs());
+  IF_VERBOSE { config.print(outs()); }
 
   // link in SIMD library
   addSleefResolver(config, platInfo);
@@ -421,7 +421,7 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   domTree.recalculate(*scalarCopy);
   postDomTree.recalculate(*scalarCopy);
 
-  loopInfo.print(errs());
+  IF_VERBOSE { loopInfo.print(errs()); }
   loopInfo.verify(domTree);
 
   // vectorizationAnalysis

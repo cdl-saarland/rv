@@ -261,7 +261,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
       // failure to derive a reduction descriptor
       if (!redInfo) {
-        errs() << "\n\tskip: unrecognized phi use in vector loop " << L.getName() << "\n";
+        Report() << "\n\tskip: unrecognized phi use in vector loop " << L.getName() << "\n";
         return false;
       }
 

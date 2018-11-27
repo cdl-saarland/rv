@@ -429,7 +429,7 @@ ReductionAnalysis::analyze(Loop & hostLoop) {
       reductMap[inst] = red;
     }
 
-    red->dump();
+    IF_DEBUG_RED { red->dump(); }
   }
 }
 
