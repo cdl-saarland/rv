@@ -23,12 +23,12 @@ namespace rv
 
 bool
 VectorizationInfo::inRegion(const BasicBlock & block) const {
-  return !region || region->contains(&block);
+  return region.contains(&block);
 }
 
 bool
 VectorizationInfo::inRegion(const Instruction & inst) const {
-  return !region || region->contains(inst.getParent());
+  return region.contains(inst.getParent());
 }
 
 void
@@ -111,12 +111,7 @@ VectorizationInfo::print(llvm::raw_ostream & out) const
 {
     out << "VectorizationInfo ";
 
-    if (region) {
-        out << "for Region " << region->str() << "\n";
-    }
-    else {
-        out << "for function " << mapping.scalarFn->getName() << "\n";
-    }
+    out << "for " << region.str() << "\n";
 
     printArguments(out);
 
@@ -129,7 +124,7 @@ VectorizationInfo::print(llvm::raw_ostream & out) const
 }
 
 VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, unsigned vectorWidth, Region& _region)
-: DL(parentFn.getParent()->getDataLayout()), mapping(&parentFn, &parentFn, vectorWidth, CallPredicateMode::SafeWithoutPredicate), region(&_region)
+: DL(parentFn.getParent()->getDataLayout()), region(_region), mapping(&parentFn, &parentFn, vectorWidth, CallPredicateMode::SafeWithoutPredicate)
 {
     mapping.resultShape = VectorShape::uni();
     for (auto& arg : parentFn.args()) {
@@ -139,8 +134,8 @@ VectorizationInfo::VectorizationInfo(llvm::Function& parentFn, unsigned vectorWi
 }
 
 // VectorizationInfo
-VectorizationInfo::VectorizationInfo(Region & funcRegion, VectorMapping _mapping)
-: DL(funcRegion.getFunction().getParent()->getDataLayout()), mapping(_mapping), region(&funcRegion)
+VectorizationInfo::VectorizationInfo(Region & _region, VectorMapping _mapping)
+: DL(_region.getFunction().getParent()->getDataLayout()), region(_region), mapping(_mapping)
 {
   assert(mapping.argShapes.size() == mapping.scalarFn->arg_size());
   auto it = mapping.scalarFn->arg_begin();
@@ -315,7 +310,7 @@ VectorizationInfo::getContext() const { return mapping.scalarFn->getContext(); }
 
 BasicBlock&
 VectorizationInfo::getEntry() const {
-  return region->getRegionEntry();
+  return region.getRegionEntry();
 }
 
 bool

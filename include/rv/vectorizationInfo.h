@@ -38,26 +38,44 @@ class Region;
 class VectorizationInfo
 {
     const llvm::DataLayout & DL;
+
+  // analysis context
+    Region& region;
     VectorMapping mapping;
 
-    std::unordered_map<const llvm::BasicBlock*, llvm::TrackingVH<llvm::Value>> predicates;
+    // value, argument and instruction shapes
     std::unordered_map<const llvm::Value*, VectorShape> shapes;
 
-    // detected divergent loops
+  // detected divergent loops
     std::set<const llvm::Loop*> mDivergentLoops;
 
-    // detected divergent loop exits
+  // basic block properties // TODO fuse into struct
+    // materialized basic block predicates
+    std::unordered_map<const llvm::BasicBlock*, llvm::TrackingVH<llvm::Value>> predicates;
+    // whether the block is the exit of a divergent loop exit
     std::set<const llvm::BasicBlock*> DivergentLoopExits;
-
+    // wheterh the block is a join point of disjoint paths from a varying branch
     std::set<const llvm::BasicBlock*> JoinDivergentBlocks;
+    // wheterh the block will receive a non-uniform predicate
+    std::set<const llvm::BasicBlock*> VaryingPredicateBlocks;
 
-    Region* region;
-
-    // fixed shapes (will be preserved through VA)
+  // fixed shapes (will be preserved through VA)
     std::set<const llvm::Value*> pinned;
 
 public:
+    VectorizationInfo(Region & region, VectorMapping _mapping);
+    VectorizationInfo(llvm::Function& parentFn, unsigned vectorWidth, Region& region);
+
+
     const llvm::DataLayout & getDataLayout() const;
+    const VectorMapping& getMapping() const { return mapping; }
+    size_t getVectorWidth() const { return mapping.vectorWidth; }
+
+    // region related
+    Region& getRegion() const { return region; }
+    bool inRegion(const llvm::Instruction & inst) const;
+    bool inRegion(const llvm::BasicBlock & block) const;
+    llvm::BasicBlock & getEntry() const;
 
     // disjoin path divergence
     bool isJoinDivergent(const llvm::BasicBlock & JoinBlock) const { return JoinDivergentBlocks.count(&JoinBlock); }
@@ -75,18 +93,6 @@ public:
     bool addDivergentLoopExit(const llvm::BasicBlock& block);
     void removeDivergentLoopExit(const llvm::BasicBlock& block);
 
-    bool inRegion(const llvm::Instruction & inst) const;
-    bool inRegion(const llvm::BasicBlock & block) const;
-    llvm::BasicBlock & getEntry() const;
-    Region* getRegion() const { return region; }
-
-    const VectorMapping& getMapping() const { return mapping; }
-
-    size_t getVectorWidth() const { return mapping.vectorWidth; }
-
-    VectorizationInfo(Region & funcRegion, VectorMapping _mapping);
-    VectorizationInfo(llvm::Function& parentFn, unsigned vectorWidth, Region& _region);
-
 
     /// Disable recomputation of this value's shape and make it effectvely final
     const decltype(pinned) & pinned_values() const { return pinned; }
@@ -97,13 +103,14 @@ public:
     }
     bool isPinned(const llvm::Value&) const;
 
-    bool hasKnownShape(const llvm::Value& val) const;
 
+    // vector shape
     // get the shape of @val observed at @observerBlock. This will be varying if @val is defined in divergent loop.
     VectorShape getObservedShape(const llvm::LoopInfo & LI, const llvm::BasicBlock & observerBlock, const llvm::Value & val) const;
 
     // get the shape of @val observerd in the defining block of @val (if it is an instruction).
     VectorShape getVectorShape(const llvm::Value& val) const;
+    bool hasKnownShape(const llvm::Value& val) const;
 
     void setVectorShape(const llvm::Value& val, VectorShape shape);
     void dropVectorShape(const llvm::Value& val);
@@ -112,14 +119,21 @@ public:
                              const llvm::BasicBlock &ObservingBlock,
                              const llvm::Value &Val) const;
 
-    // return the predicate value for this instruction
-    llvm::Value* getPredicate(const llvm::BasicBlock& block) const;
 
+    // tentative block predicate shapes (whether the basic block predicate will be varying or uniform)
+    bool hasVaryingPredicate(const llvm::BasicBlock & BB) const;
+    void addVaryingPredicateFlag(const llvm::BasicBlock & );
+    void removeVaryingPredicatelag(const llvm::BasicBlock & );
+
+
+    // actual basic block predicates
+    llvm::Value* getPredicate(const llvm::BasicBlock& block) const;
     void setPredicate(const llvm::BasicBlock& block, llvm::Value& predicate);
     void dropPredicate(const llvm::BasicBlock& block);
-
     void remapPredicate(llvm::Value& dest, llvm::Value& old);
 
+
+    // print
     void dump() const;
     void print(llvm::raw_ostream & out) const;
     void dump(const llvm::Value * val) const;

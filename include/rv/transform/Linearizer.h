@@ -325,14 +325,13 @@ namespace rv {
 
     VectorizationInfo & vecInfo;
     MaskExpander & maskEx;
-    Region * region;
     llvm::DominatorTree & dt;
     llvm::LoopInfo & li;
     llvm::Function & func;
     llvm::LLVMContext & context;
 
   // region support
-    bool inRegion(const llvm::BasicBlock & block) const { return !region || region->contains(&block); }
+    bool inRegion(const llvm::BasicBlock & block) const { return vecInfo.inRegion(block); }
 
   // topological sorted blocks in the region
     BlockIndex blockIndex;
@@ -400,7 +399,6 @@ namespace rv {
 
     , vecInfo(_vecInfo)
     , maskEx(_maskEx)
-    , region(vecInfo.getRegion())
     , dt(_dt)
     , li(_li)
     , func(vecInfo.getScalarFunction()) // TODO really always our target?

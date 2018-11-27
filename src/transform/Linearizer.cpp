@@ -79,7 +79,7 @@ Linearizer::scheduleDomRegion(BasicBlock * domEntry, Loop * loop, std::string pa
   // schedule all nested dom regions in rpo
   for (auto it = itStart; it != itEnd; ++it) {
     auto * BB = *it;
-    if (!inRegion(*BB)) continue;
+    if (!vecInfo.inRegion(*BB)) continue;
     if (loop && !loop->contains(BB)) continue;
 
   // only directly schedule idom children
@@ -124,7 +124,7 @@ Linearizer::scheduleLoop(Loop * loop, std::string padStr, RPOT::rpo_iterator itS
   for (auto it = itStart; it != itEnd; ++it) {
     auto * BB = *it;
 
-    if (!inRegion(*BB)) continue;
+    if (!vecInfo.inRegion(*BB)) continue;
     if (loop->contains(BB)) continue;
 
     // TODO what about idoms on different parent loop levels (masked out if loop is set in rec call)
@@ -294,7 +294,7 @@ Linearizer::verifyLoopIndex(Loop & loop) {
   }
 
   // not part of region -> skip this loop
-  if (!inRegion(*loop.getHeader())) return;
+  if (!vecInfo.inRegion(*loop.getHeader())) return;
 
   int startId = getNumBlocks(), endId = 0;
 
@@ -326,10 +326,8 @@ Linearizer::verifyCompactDominance(BasicBlock & head) {
   IF_DEBUG_INDEX errs() << "verifyCompactDom " << head.getName() << "\n";
   auto * loop = li.getLoopFor(&head);
 
-  for (auto & BB : vecInfo.getScalarFunction()) {
-    if (!vecInfo.inRegion(BB)) continue;
-
-    if (loop && !loop->contains(&BB)) continue;
+  vecInfo.getRegion().for_blocks([&](const BasicBlock & BB){
+    if (loop && !loop->contains(&BB)) return true;//continue;
 
     if (dt.dominates(&head, &BB)) {
       assert(hasIndex(BB) && " block missing in blockIndex!");
@@ -338,7 +336,8 @@ Linearizer::verifyCompactDominance(BasicBlock & head) {
       maxIndex = std::max<int>(maxIndex, id);
       domSet.insert(id);
     }
-  }
+    return true;
+  });
 
   IF_DEBUG_INDEX errs() << "   [" << minIndex << ", " << maxIndex << "]\n";
 
@@ -684,7 +683,7 @@ Linearizer::foldPhis(BasicBlock & block) {
 
 // embed future blend blocks into control
   for (auto it : selectBlockMap) {
-    it.second.materializeControl(block, dt, li, region);
+    it.second.materializeControl(block, dt, li, &vecInfo.getRegion());
     if (it.second.blendBlock) {
       vecInfo.setVectorShape(*it.second.blendBlock->getTerminator(), VectorShape::uni());
     }
