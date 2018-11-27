@@ -12,14 +12,14 @@
 #include "rv/intrinsics.h"
 #include "rv/shape/vectorShapeTransformer.h"
 
-#include "rvConfig.h"
-#include "utils/rvTools.h"
-#include "utils/mathUtils.h"
 #include "rv/analysis/AllocaSSA.h"
+#include "rvConfig.h"
+#include "utils/mathUtils.h"
+#include "utils/rvTools.h"
 
-#include "llvm/IR/Dominators.h"
-#include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/PostDominators.h"
+#include "llvm/IR/Dominators.h"
 
 #include <numeric>
 
@@ -32,15 +32,13 @@
 // FIXME
 const bool IsLCSSAForm = true;
 
-
 using namespace llvm;
 
 namespace rv {
 
 char VAWrapperPass::ID = 0;
 
-void
-VAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
+void VAWrapperPass::getAnalysisUsage(AnalysisUsage &Info) const {
   Info.addRequired<DominatorTreeWrapperPass>();
   Info.addRequired<PostDominatorTreeWrapperPass>();
   Info.addRequired<LoopInfoWrapperPass>();
@@ -49,62 +47,56 @@ VAWrapperPass::getAnalysisUsage(AnalysisUsage& Info) const {
   Info.setPreservesAll();
 }
 
-bool
-VAWrapperPass::runOnFunction(Function& F) {
-  auto& Vecinfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
-  auto& platInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
+bool VAWrapperPass::runOnFunction(Function &F) {
+  auto &Vecinfo = getAnalysis<VectorizationInfoProxyPass>().getInfo();
+  auto &platInfo = getAnalysis<VectorizationInfoProxyPass>().getPlatformInfo();
 
-  const auto& domTree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  const auto& postDomTree = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
-  const LoopInfo& LoopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+  const auto &domTree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+  const auto &postDomTree =
+      getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
+  const LoopInfo &LoopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 
-  VectorizationAnalysis vea(config, platInfo, Vecinfo, domTree, postDomTree, LoopInfo);
+  VectorizationAnalysis vea(config, platInfo, Vecinfo, domTree, postDomTree,
+                            LoopInfo);
   vea.analyze();
 
   return false;
 }
 
-VectorizationAnalysis::VectorizationAnalysis(Config _config,
-                                             PlatformInfo& platInfo,
-                                             VectorizationInfo& VecInfo,
-                                             const DominatorTree & domTree,
-                                             const PostDominatorTree& postDomTree,
-                                             const LoopInfo& LoopInfo)
+VectorizationAnalysis::VectorizationAnalysis(
+    Config _config, PlatformInfo &platInfo, VectorizationInfo &VecInfo,
+    const DominatorTree &domTree, const PostDominatorTree &postDomTree,
+    const LoopInfo &LoopInfo)
 
-        : config(_config),
-          platInfo(platInfo),
-          vecInfo(VecInfo),
-          layout(platInfo.getDataLayout()),
-          LI(LoopInfo),
-          DT(domTree),
-          SDA(domTree, postDomTree, LoopInfo),
-          funcRegion(vecInfo.getScalarFunction()),
-          funcRegionWrapper(funcRegion), // FIXME
-          allocaSSA(funcRegionWrapper)
-{
+    : config(_config), platInfo(platInfo), vecInfo(VecInfo),
+      layout(platInfo.getDataLayout()), LI(LoopInfo), DT(domTree),
+      SDA(domTree, postDomTree, LoopInfo),
+      funcRegion(vecInfo.getScalarFunction()),
+      funcRegionWrapper(funcRegion), // FIXME
+      allocaSSA(funcRegionWrapper) {
   // compute pointer provenance
   allocaSSA.compute();
   IF_DEBUG_VA allocaSSA.print(errs());
 }
 
-bool
-VectorizationAnalysis::putOnWorklist(const llvm::Instruction& inst) {
-  if (mOnWorklist.insert(&inst).second) { mWorklist.push(&inst); return true; }
-  else return false;
+bool VectorizationAnalysis::putOnWorklist(const llvm::Instruction &inst) {
+  if (mOnWorklist.insert(&inst).second) {
+    mWorklist.push(&inst);
+    return true;
+  } else
+    return false;
 }
 
-const Instruction*
-VectorizationAnalysis::takeFromWorklist() {
-  if (mWorklist.empty()) return nullptr;
-  const Instruction* I = mWorklist.front();
+const Instruction *VectorizationAnalysis::takeFromWorklist() {
+  if (mWorklist.empty())
+    return nullptr;
+  const Instruction *I = mWorklist.front();
   mWorklist.pop();
   mOnWorklist.erase(I);
   return I;
 }
 
-
-bool
-VectorizationAnalysis::updateTerminator(const Instruction &Term) const {
+bool VectorizationAnalysis::updateTerminator(const Instruction &Term) const {
   if (Term.getNumSuccessors() <= 1)
     return false;
   if (auto *BranchTerm = dyn_cast<BranchInst>(&Term)) {
@@ -121,12 +113,9 @@ VectorizationAnalysis::updateTerminator(const Instruction &Term) const {
   llvm_unreachable("unexpected terminator");
 }
 
-
-
 // marks all users of loop-carried values of the loop headed by LoopHeader as
 // divergent
-void
-VectorizationAnalysis::taintLoopLiveOuts(const BasicBlock &LoopHeader) {
+void VectorizationAnalysis::taintLoopLiveOuts(const BasicBlock &LoopHeader) {
   auto *DivLoop = LI.getLoopFor(&LoopHeader);
   assert(DivLoop && "loopHeader is not actually part of a loop");
 
@@ -191,12 +180,11 @@ VectorizationAnalysis::taintLoopLiveOuts(const BasicBlock &LoopHeader) {
   }
 }
 
-void
-VectorizationAnalysis::pushPHINodes(const BasicBlock &Block) {
+void VectorizationAnalysis::pushPHINodes(const BasicBlock &Block) {
   // induce divergence into allocas
-  const Join * allocaJoin = allocaSSA.getJoinNode(Block);
+  const Join *allocaJoin = allocaSSA.getJoinNode(Block);
   if (allocaJoin) {
-    for (const auto * allocInst : allocaJoin->provSet.allocs) {
+    for (const auto *allocInst : allocaJoin->provSet.allocs) {
       updateShape(*allocInst, VectorShape::varying());
     }
   }
@@ -208,9 +196,8 @@ VectorizationAnalysis::pushPHINodes(const BasicBlock &Block) {
   }
 }
 
-bool
-VectorizationAnalysis::propagateJoinDivergence(const BasicBlock &JoinBlock,
-                                               const Loop *BranchLoop) {
+bool VectorizationAnalysis::propagateJoinDivergence(const BasicBlock &JoinBlock,
+                                                    const Loop *BranchLoop) {
   IF_DEBUG_VA { errs() << "\tVA: propJoinDiv " << JoinBlock.getName() << "\n"; }
 
   // ignore divergence outside the region
@@ -219,7 +206,8 @@ VectorizationAnalysis::propagateJoinDivergence(const BasicBlock &JoinBlock,
   }
 
   // already to known to be join divergent
-  if (!vecInfo.addJoinDivergentBlock(JoinBlock)) return false;
+  if (!vecInfo.addJoinDivergentBlock(JoinBlock))
+    return false;
 
   // push non-divergent phi nodes in JoinBlock to the worklist
   pushPHINodes(JoinBlock);
@@ -233,9 +221,10 @@ VectorizationAnalysis::propagateJoinDivergence(const BasicBlock &JoinBlock,
   return false;
 }
 
-void
-VectorizationAnalysis::propagateBranchDivergence(const Instruction &Term) {
-  IF_DEBUG_VA { errs() << "VE: propBranchDiv " << Term.getParent()->getName() << "\n"; }
+void VectorizationAnalysis::propagateBranchDivergence(const Instruction &Term) {
+  IF_DEBUG_VA {
+    errs() << "VE: propBranchDiv " << Term.getParent()->getName() << "\n";
+  }
 
   const auto *BranchLoop = LI.getLoopFor(Term.getParent());
 
@@ -246,18 +235,25 @@ VectorizationAnalysis::propagateBranchDivergence(const Instruction &Term) {
   // also iterates over loop exits that become divergent due to Term.
   for (const auto *JoinBlock : SDA.join_blocks(Term)) {
     if (!vecInfo.inRegion(*JoinBlock)) {
-      IF_DEBUG_VA { errs() << "VA: Ignoring divergent join outside region: " << JoinBlock->getName() << "\n"; }
+      IF_DEBUG_VA {
+        errs() << "VA: Ignoring divergent join outside region: "
+               << JoinBlock->getName() << "\n";
+      }
       continue;
     }
     bool causedLoopDivergence = propagateJoinDivergence(*JoinBlock, BranchLoop);
-    if (causedLoopDivergence) vecInfo.addDivergentLoopExit(*JoinBlock);
+    if (causedLoopDivergence)
+      vecInfo.addDivergentLoopExit(*JoinBlock);
     IsBranchLoopDivergent |= causedLoopDivergence;
   }
 
   // Branch loop is a divergent loop due to the divergent branch in Term
   if (IsBranchLoopDivergent) {
     assert(BranchLoop);
-    IF_DEBUG_VA { errs() << "VA: Detected divergent loop: " << BranchLoop->getName() << "\n"; }
+    IF_DEBUG_VA {
+      errs() << "VA: Detected divergent loop: " << BranchLoop->getName()
+             << "\n";
+    }
     if (!vecInfo.addDivergentLoop(*BranchLoop)) {
       return;
     }
@@ -265,8 +261,7 @@ VectorizationAnalysis::propagateBranchDivergence(const Instruction &Term) {
   }
 }
 
-void
-VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
+void VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
   IF_DEBUG_VA { errs() << "VA: propLoopDiv " << ExitingLoop.getName() << "\n"; }
 
   // don't propagate beyond region
@@ -293,18 +288,25 @@ VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
   // become divergent.
   for (const auto *JoinBlock : SDA.join_blocks(ExitingLoop)) {
     if (!vecInfo.inRegion(*JoinBlock)) {
-      IF_DEBUG_VA { errs() << "VA: Ignoring divergent join outside region: " << JoinBlock->getName() << "\n"; }
+      IF_DEBUG_VA {
+        errs() << "VA: Ignoring divergent join outside region: "
+               << JoinBlock->getName() << "\n";
+      }
       continue;
     }
     bool causedLoopDivergence = propagateJoinDivergence(*JoinBlock, BranchLoop);
-    if (causedLoopDivergence) vecInfo.addDivergentLoopExit(*JoinBlock);
+    if (causedLoopDivergence)
+      vecInfo.addDivergentLoopExit(*JoinBlock);
     IsBranchLoopDivergent |= causedLoopDivergence;
   }
 
   // Branch loop is a divergent due to divergent loop exit in ExitingLoop
   if (IsBranchLoopDivergent) {
     assert(BranchLoop);
-    IF_DEBUG_VA { errs() << "VA: Detected divergent loop: " << BranchLoop->getName() << "\n"; }
+    IF_DEBUG_VA {
+      errs() << "VA: Detected divergent loop: " << BranchLoop->getName()
+             << "\n";
+    }
     if (vecInfo.addDivergentLoop(*BranchLoop)) {
       return;
     }
@@ -312,15 +314,14 @@ VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
   }
 }
 
-void
-VectorizationAnalysis::compute(const Function& F) {
+void VectorizationAnalysis::compute(const Function &F) {
   IF_DEBUG_VA { errs() << "\n\n-- VA::compute() log -- \n"; }
 
   VectorShapeTransformer vecShapeTrans(LI, platInfo, vecInfo);
 
   // main fixed point loop
-  while (const Instruction * nextI = takeFromWorklist()) {
-    const Instruction & I = *nextI;
+  while (const Instruction *nextI = takeFromWorklist()) {
+    const Instruction &I = *nextI;
 
     if (vecInfo.isPinned(I)) {
       continue;
@@ -331,7 +332,9 @@ VectorizationAnalysis::compute(const Function& F) {
     // propagate divergence caused by terminator
     if (I.isTerminator()) {
       if (updateTerminator(I)) {
-        vecInfo.setVectorShape(I, VectorShape::varying()); // TODO use the condition shape instead of terminator shapes
+        vecInfo.setVectorShape(
+            I, VectorShape::varying()); // TODO use the condition shape instead
+                                        // of terminator shapes
         // propagate control divergence to affected instructions
         propagateBranchDivergence(I);
         continue;
@@ -343,7 +346,8 @@ VectorizationAnalysis::compute(const Function& F) {
     if (isa<PHINode>(I)) {
       // allow incomplete inputs for PHI nodes
       New = vecShapeTrans.computeShapeForPHINode(cast<PHINode>(I));
-      if (!New.isDefined()) pushMissingOperands(I);
+      if (!New.isDefined())
+        pushMissingOperands(I);
     } else if (pushMissingOperands(I)) {
       // If any operand is bottom put them in the work list.
       continue;
@@ -353,9 +357,9 @@ VectorizationAnalysis::compute(const Function& F) {
       New = vecShapeTrans.computeShapeForInst(I, taintedPtrOps);
 
       // taint allocas
-      for (auto * ptr : taintedPtrOps) {
-        const auto & prov = allocaSSA.getProvenance(*ptr);
-        for (const auto * allocaInst : prov.allocs) {
+      for (auto *ptr : taintedPtrOps) {
+        const auto &prov = allocaSSA.getProvenance(*ptr);
+        for (const auto *allocaInst : prov.allocs) {
           updateShape(*allocaInst, VectorShape::varying());
         }
       }
@@ -364,14 +368,16 @@ VectorizationAnalysis::compute(const Function& F) {
     IF_DEBUG_VA { errs() << "\t computed: " << New.str() << "\n"; }
 
     // if no output shape could be computed, skip.
-    if (!New.isDefined()) continue;
+    if (!New.isDefined())
+      continue;
 
     // TODO factor this into vectorShapeTransform. This does not belong here!
     // shape is non-bottom. Apply general refinement rules.
     if (I.getType()->isPointerTy()) {
       // adjust result type to match alignment
       unsigned minAlignment = getBaseAlignment(I, layout);
-      New.setAlignment(std::max<unsigned>(minAlignment, New.getAlignmentFirst()));
+      New.setAlignment(
+          std::max<unsigned>(minAlignment, New.getAlignmentFirst()));
     } else if (isa<FPMathOperator>(I)) {
       // allow strided/aligned fp values only in fast math mode
       FastMathFlags flags = I.getFastMathFlags();
@@ -385,10 +391,9 @@ VectorizationAnalysis::compute(const Function& F) {
   };
 }
 
-void
-VectorizationAnalysis::analyze() {
-  auto & F = vecInfo.getScalarFunction();
-  assert (!F.isDeclaration());
+void VectorizationAnalysis::analyze() {
+  auto &F = vecInfo.getScalarFunction();
+  assert(!F.isDeclaration());
 
   // seed sources of divergence
   init(F);
@@ -399,16 +404,19 @@ VectorizationAnalysis::analyze() {
   // replace undef instruction shapes with uniform
   promoteUndefShapesToUniform(F);
 
-  // mark all non-loop exiting branches as divergent to trigger a full linearization
+  // mark all non-loop exiting branches as divergent to trigger a full
+  // linearization
   // FIXME factor this out into a separate transformation
   if (config.foldAllBranches) {
-    for (auto & BB: F) {
-      auto & term = *BB.getTerminator();
-      if (term.getNumSuccessors() <= 1) continue; // uninteresting
+    for (auto &BB : F) {
+      auto &term = *BB.getTerminator();
+      if (term.getNumSuccessors() <= 1)
+        continue; // uninteresting
 
-      if (!vecInfo.inRegion(BB)) continue; // no begin vectorized
+      if (!vecInfo.inRegion(BB))
+        continue; // no begin vectorized
 
-      auto * loop = LI.getLoopFor(&BB);
+      auto *loop = LI.getLoopFor(&BB);
       bool keepShape = loop && loop->isLoopExiting(&BB);
 
       if (!keepShape) {
@@ -417,33 +425,32 @@ VectorizationAnalysis::analyze() {
     }
   }
 
-
   IF_DEBUG_VA {
     errs() << "VecInfo after VA:\n";
     vecInfo.dump();
   }
 }
 
-void
-VectorizationAnalysis::promoteUndefShapesToUniform(const Function& F) {
-  for (const BasicBlock& BB : F) {
-    if (!vecInfo.inRegion(BB)) continue;
-    for (const Instruction& I : BB) {
+void VectorizationAnalysis::promoteUndefShapesToUniform(const Function &F) {
+  for (const BasicBlock &BB : F) {
+    if (!vecInfo.inRegion(BB))
+      continue;
+    for (const Instruction &I : BB) {
       if (!getShape(I).isDefined())
         vecInfo.setVectorShape(I, VectorShape::uni());
     }
   }
 }
 
-void VectorizationAnalysis::adjustValueShapes(const Function& F) {
+void VectorizationAnalysis::adjustValueShapes(const Function &F) {
   // Enforce shapes to be existing, if absent, set to VectorShape::undef()
   // If already there, also optimize alignment in case of pointer type
 
   // Arguments
-  for (auto& arg : F.args()) {
+  for (auto &arg : F.args()) {
     if (!vecInfo.hasKnownShape(arg)) {
-      // assert(vecInfo.getRegion() && "will only default function args if in region mode");
-      // set argument shapes to uniform if not known better
+      // assert(vecInfo.getRegion() && "will only default function args if in
+      // region mode"); set argument shapes to uniform if not known better
       vecInfo.setVectorShape(arg, VectorShape::uni());
     } else {
       // Adjust pointer argument alignment
@@ -451,16 +458,17 @@ void VectorizationAnalysis::adjustValueShapes(const Function& F) {
         VectorShape argShape = vecInfo.getVectorShape(arg);
         unsigned minAlignment = getBaseAlignment(arg, layout);
         // max is the more precise one
-        argShape.setAlignment(std::max<unsigned>(minAlignment, argShape.getAlignmentFirst()));
+        argShape.setAlignment(
+            std::max<unsigned>(minAlignment, argShape.getAlignmentFirst()));
         vecInfo.setVectorShape(arg, argShape);
       }
     }
   }
 
   // Instructions in region(!)
-  for (auto& BB : F) {
+  for (auto &BB : F) {
     if (vecInfo.inRegion(BB)) {
-      for (auto& I : BB) {
+      for (auto &I : BB) {
         if (!vecInfo.hasKnownShape(I))
           vecInfo.setVectorShape(I, VectorShape::undef());
       }
@@ -468,29 +476,31 @@ void VectorizationAnalysis::adjustValueShapes(const Function& F) {
   }
 }
 
-void VectorizationAnalysis::init(const Function& F) {
+void VectorizationAnalysis::init(const Function &F) {
   adjustValueShapes(F);
 
-  // Propagation of vector shapes starts at values that do not depend on other values:
+  // Propagation of vector shapes starts at values that do not depend on other
+  // values:
   // - function argument's users
   // - Allocas (which are uniform at the beginning)
   // - PHIs with constants as incoming values
   // - Calls without arguments
 
-// push all users of pinned values
-  for (auto * val : vecInfo.pinned_values()) {
+  // push all users of pinned values
+  for (auto *val : vecInfo.pinned_values()) {
     pushUsers(*val);
   }
 
-// push non-user instructions
-  for (const BasicBlock& BB : F) {
+  // push non-user instructions
+  for (const BasicBlock &BB : F) {
     vecInfo.setVectorShape(BB, VectorShape::uni());
 
-    for (const Instruction& I : BB) {
+    for (const Instruction &I : BB) {
       if (isa<AllocaInst>(&I)) {
         updateShape(I, VectorShape::uni(vecInfo.getMapping().vectorWidth));
-      } else if (const CallInst* call = dyn_cast<CallInst>(&I)) {
-        if (call->getNumArgOperands() != 0) continue;
+      } else if (const CallInst *call = dyn_cast<CallInst>(&I)) {
+        if (call->getNumArgOperands() != 0)
+          continue;
 
         putOnWorklist(I);
 
@@ -513,13 +523,12 @@ void VectorizationAnalysis::init(const Function& F) {
   }
 }
 
-bool
-VectorizationAnalysis::updateShape(const Value& V, VectorShape AT) {
+bool VectorizationAnalysis::updateShape(const Value &V, VectorShape AT) {
   VectorShape Old = getShape(V);
   VectorShape New = VectorShape::join(Old, AT);
 
   if (Old == New) {
-    return false;// nothing changed
+    return false; // nothing changed
   }
 
   IF_DEBUG_VA {
@@ -590,30 +599,28 @@ void VectorizationAnalysis::analyzeDivergence(const Instruction & termInst) {
 }
 #endif
 
-
-void
-VectorizationAnalysis::pushUsers(const Value& V) {
+void VectorizationAnalysis::pushUsers(const Value &V) {
   IF_DEBUG_VA { errs() << "VA: Pushing users of " << V << "\n"; }
   // Push users of this value
   for (const auto user : V.users()) {
-    if (!isa<Instruction>(user)) continue;
-    const Instruction& inst = cast<Instruction>(*user);
+    if (!isa<Instruction>(user))
+      continue;
+    const Instruction &inst = cast<Instruction>(*user);
 
     // We are only analyzing the region
-    if (!vecInfo.inRegion(inst)) continue;
+    if (!vecInfo.inRegion(inst))
+      continue;
 
     putOnWorklist(inst);
     IF_DEBUG_VA { errs() << "\t Pushed: " << inst << "\n"; }
   }
 }
 
-bool
-VectorizationAnalysis::pushMissingOperands(const Instruction& I) {
-  auto pushIfMissing = [this](bool prevpushed, Value* op)
-  {
+bool VectorizationAnalysis::pushMissingOperands(const Instruction &I) {
+  auto pushIfMissing = [this](bool prevpushed, Value *op) {
     bool push = isa<Instruction>(op) && !getShape(*op).isDefined();
     if (push) {
-      auto & opInst = *cast<Instruction>(op);
+      auto &opInst = *cast<Instruction>(op);
       IF_DEBUG_VA { errs() << "\tmissing op shape " << opInst << "!\n"; }
       putOnWorklist(opInst);
     }
@@ -624,15 +631,12 @@ VectorizationAnalysis::pushMissingOperands(const Instruction& I) {
   return std::accumulate(I.op_begin(), I.op_end(), false, pushIfMissing);
 }
 
-
-
-
-VectorShape VectorizationAnalysis::getShape(const Value& V) {
+VectorShape VectorizationAnalysis::getShape(const Value &V) {
   return vecInfo.getVectorShape(V);
 }
 
-FunctionPass* createVectorizationAnalysisPass(rv::Config config) {
+FunctionPass *createVectorizationAnalysisPass(rv::Config config) {
   return new VAWrapperPass(config);
 }
 
-}
+} // namespace rv
