@@ -32,6 +32,7 @@
 
 #include "rvConfig.h"
 #include "rv/rvDebug.h"
+#include "utils/rvTools.h"
 
 #if 1
 #define IF_DEBUG_LIN IF_DEBUG
@@ -455,6 +456,39 @@ public:
 
   // TODO update loop info
   }
+
+  // return the most frequent incoming value of this phi node
+  Value*
+  getFrequentIncomingValue(PHINode & phi) const {
+    Value * incumbent = phi.getIncomingValueForBlock(inBlocks[0]);
+    int incumbentCount = 1;
+
+    std::map<const Value*, int> tally;
+
+    for (int i = 1; i < (int) inBlocks.size(); ++i) {
+      Value * otherInValue = phi.getIncomingValueForBlock(inBlocks[i]);
+
+      if (otherInValue == incumbent) {
+        // incumbent tally increment
+        incumbentCount++;
+        continue;
+      }
+
+      int otherCount = tally[otherInValue];
+      otherCount++;
+      if (otherCount > incumbentCount) {
+        // dispose incumbent
+        tally[incumbent] = incumbentCount;
+        incumbent = otherInValue;
+        incumbentCount = otherCount;
+      } else {
+        // tally increment
+        tally[otherInValue] = otherCount;
+      }
+    }
+
+    return incumbent;
+  }
 };
 
 static
@@ -486,8 +520,15 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
   auto & blocks = superInput.inBlocks;
 
-// make sure we have a dominating definition of the first incoming value available
-  auto * defaultValue = phi.getIncomingValueForBlock(blocks[0]);
+// fetch the shadow input as default value (if any)
+  auto * defaultValue = getShadowInput(phi);
+  IF_DEBUG_LIN if (defaultValue) { errs() << "LIN: folding phi with shadow input " << *defaultValue << "\n"; }
+
+  bool hasShadowInput = (bool) defaultValue;
+  if (!defaultValue) {
+    // just default to the first incoming value, otw
+    defaultValue = superInput.getFrequentIncomingValue(phi);
+  }
 
   // early exit: there is only one predecessor: no phis, no blend blocks -> return that value right away
   if (blocks.size() <= 1) return defaultValue; // FIXME we still need a dominating definition
@@ -520,10 +561,18 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
   numFoldedAssignments += blocks.size() - 1;
 
+  int phiRedundantIncomingValues = hasShadowInput ? 0 : -1;
+
   auto phiShape = vecInfo.getVectorShape(phi);
-  for (size_t i = 1; i < blocks.size(); ++i) {
+  for (size_t i = 0; i < blocks.size(); ++i) {
     auto * inBlock = blocks[i];
     auto * inVal = phi.getIncomingValueForBlock(inBlock);
+
+    // we are defaulting to this input anyway (no need to blend it in)
+    if (inVal == defaultValue) {
+      ++phiRedundantIncomingValues;
+      continue;
+    }
 
     auto * edgeMask = getEdgeMask(*inBlock, phiBlock);
     assert(edgeMask && "edgeMask not available!");
@@ -555,6 +604,10 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     blendedVal = builder.CreateSelect(edgeMask, inVal, blendedVal, name);
     vecInfo.setVectorShape(*blendedVal, phiShape);
   }
+
+  // stat update
+  assert(phiRedundantIncomingValues >= 0);
+  numRedundantIncomingValues += (size_t) phiRedundantIncomingValues;
 
   return blendedVal;
 }
@@ -1150,7 +1203,11 @@ Linearizer::run() {
     Report() << "phi stats:\n"
       << "\t" << numUniformAssignments << " c-uniform incoming values\n"
       << "\t" << numFoldedAssignments << " folded incoming values\n"
-      << "\t" << numPreservedAssignments << " preserved incoming values.\n";
+      << "\t" << numPreservedAssignments << " preserved incoming values";
+    if (numRedundantIncomingValues > 0) {
+      ReportContinue() << "\n\t" << numRedundantIncomingValues << " redundant incoming folds";
+    }
+    ReportContinue() << ".\n";
   }
 }
 

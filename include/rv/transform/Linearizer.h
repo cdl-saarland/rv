@@ -78,6 +78,8 @@ namespace rv {
       size_t numBlends;
       // number of simplified blends (including pre-existing blends)
       size_t numSimplifiedBlends;
+      // number of incoming values that were folded into the default input
+      size_t numRedundantIncomingValues;
 
   // relay logic
     // we need to defer these edges to we can schedule linearized blocks in between
