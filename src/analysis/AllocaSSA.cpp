@@ -253,103 +253,117 @@ AllocaSSA::compute() {
     allocVec.push_back(allocInst);
   }
 
-  std::vector<const BasicBlock*> worklist;
-  worklist.push_back(&region.getRegionEntry());
+  std::set<const BasicBlock*> worklist;
+  worklist.insert(&region.getRegionEntry());
 
-  while (!worklist.empty()) {
-    const auto & currBlock = *worklist.back();
-    worklist.pop_back();
+  bool keepGoing = true;
+  while (keepGoing) {
 
-    BlockSummary & summary = requestBlockSummary(currBlock);
-    DefMap oldLastDefs = summary.lastDef;
+    keepGoing = false;
+    region.for_blocks_rpo([&](const BasicBlock & currBlock) {
+      auto itItem = worklist.find(&currBlock);
+      // skip this block if its not scheduled
+      if (itItem == worklist.end()) return true;
+      worklist.erase(itItem);
 
-    // TODO create LCSSA phi nodes to deal with divergent loops (LoopInfo)
-    // compute provenances with disagreeing definitions from incoming values
-    std::map<const AllocaInst*, Desc*> lastDefMap;
-    PtrProvenance joinSet;
-    for (auto * inBlock : predecessors(&currBlock)) {
-      auto & inSummary = requestBlockSummary(*inBlock);
+      BlockSummary & summary = requestBlockSummary(currBlock);
+      DefMap oldLastDefs = summary.lastDef;
 
-      for (auto & it : inSummary.lastDef) {
-        const auto * allocInst = it.first;
-        auto * lastDef = it.second;
+      // TODO create LCSSA phi nodes to deal with divergent loops (LoopInfo)
+      // compute provenances with disagreeing definitions from incoming values
+      std::map<const AllocaInst*, Desc*> lastDefMap;
+      PtrProvenance joinSet;
+      for (auto * inBlock : predecessors(&currBlock)) {
+        auto & inSummary = requestBlockSummary(*inBlock);
 
-        if (!isLive(*allocInst, currBlock)) continue; // do not care about dead allocas
+        for (auto & it : inSummary.lastDef) {
+          const auto * allocInst = it.first;
+          auto * lastDef = it.second;
 
-        auto itSeen = lastDefMap.find(allocInst);
-        if (itSeen == lastDefMap.end()) {
-          lastDefMap[allocInst] = lastDef;
-        } else {
-          auto * otherDef = itSeen->second;
-          if (otherDef != lastDef) {
-            joinSet.allocs.insert(allocInst);
+          if (!isLive(*allocInst, currBlock)) continue; // do not care about dead allocas
+
+          auto itSeen = lastDefMap.find(allocInst);
+          if (itSeen == lastDefMap.end()) {
+            lastDefMap[allocInst] = lastDef;
+          } else {
+            auto * otherDef = itSeen->second;
+            if (otherDef != lastDef) {
+              IF_DEBUG_LN {
+                errs() << "Join in " << currBlock.getName() << " defs: " << otherDef << " of " << otherDef->place->getName() << " and   " << lastDef << " of " << lastDef->place->getName() << " for alloca " << allocInst->getName() << "\n";
+              }
+              joinSet.allocs.insert(allocInst);
+            }
           }
         }
       }
-    }
 
-    // update join
-    bool blockChanged = summary.allocJoin.provSet.merge(joinSet);
+      // update join
+      bool blockChanged = summary.allocJoin.provSet.merge(joinSet);
+      keepGoing |= blockChanged;
 
-    // register join as live-in definition
-    // TODO implement wildcard support
-    for (auto * allocInst : joinSet.allocs) {
-      lastDefMap[allocInst] = &summary.allocJoin;
-    }
-
-    // detect instructions that operate on the alloca memory states
-    for (const auto & inst : currBlock) {
-
-      SmallVector<const Value*, 1> writtenPtrs;
-      if (GetWrittenPointers(inst, writtenPtrs)) {
-        // join provenances
-        PtrProvenance joinedProv;
-        for (const auto * ptr : writtenPtrs) {
-          if (!isa<Instruction>(ptr)) continue; // FIXME for now assume that alloca pointers and other pointer sources do not mix..
-          const auto & ptrProv = getProvenance(cast<Instruction>(*ptr));
-          joinedProv.merge(ptrProv);
-        }
-
-        // update monadic state of all aliased allocas
-        auto itEffect = instMap.find(&inst);
-        Effect * memEffect = nullptr;
-        if (itEffect == instMap.end()) {
-          memEffect = new Effect(&inst);
-          instMap[&inst] = memEffect;
-          blockChanged = true;
-        } else {
-          memEffect = itEffect->second;
-        }
-
-        if (joinedProv.isTop()) {
-          for (auto * aliasedAllocs : allocVec) {
-            lastDefMap[aliasedAllocs] = memEffect;
-          }
-        } else {
-          for (auto * aliasedAllocs : joinedProv.allocs) {
-            lastDefMap[aliasedAllocs] = memEffect;
-          }
-        }
-
-      } else {
-        // errs() << "Skipping " << inst << "\n";
-        continue;
+      // register join as live-in definition
+      // TODO implement wildcard support
+      for (auto * allocInst : joinSet.allocs) {
+        lastDefMap[allocInst] = &summary.allocJoin;
       }
-    }
 
-    // register live out changes
-    if (summary.lastDef != lastDefMap) {
-      blockChanged = true;
-      summary.lastDef = lastDefMap;
-    }
+      // detect instructions that operate on the alloca memory states
+      for (const auto & inst : currBlock) {
 
-    if (!blockChanged) continue;
+        SmallVector<const Value*, 1> writtenPtrs;
+        if (GetWrittenPointers(inst, writtenPtrs)) {
+          // join provenances
+          PtrProvenance joinedProv;
+          for (const auto * ptr : writtenPtrs) {
+            if (!isa<Instruction>(ptr)) continue; // FIXME for now assume that alloca pointers and other pointer sources do not mix..
+            const auto & ptrProv = getProvenance(cast<Instruction>(*ptr));
+            joinedProv.merge(ptrProv);
+          }
 
-    // push successors
-    auto & term = *currBlock.getTerminator();
-    for (int i = 0; i < (int) term.getNumSuccessors(); ++i) {
-      worklist.push_back(term.getSuccessor(i));
-    }
+          // update monadic state of all aliased allocas
+          auto itEffect = instMap.find(&inst);
+          Effect * memEffect = nullptr;
+          if (itEffect == instMap.end()) {
+            memEffect = new Effect(&inst);
+            instMap[&inst] = memEffect;
+            blockChanged = true;
+          } else {
+            memEffect = itEffect->second;
+          }
+
+          if (joinedProv.isTop()) {
+            for (auto * aliasedAllocs : allocVec) {
+              lastDefMap[aliasedAllocs] = memEffect;
+            }
+          } else {
+            for (auto * aliasedAllocs : joinedProv.allocs) {
+              lastDefMap[aliasedAllocs] = memEffect;
+            }
+          }
+
+        } else {
+          // errs() << "Skipping " << inst << "\n";
+          continue;
+        }
+      }
+
+      // register live out changes
+      if (summary.lastDef != lastDefMap) {
+        blockChanged = true;
+        summary.lastDef = lastDefMap;
+      }
+
+      keepGoing |= blockChanged;
+      if (!blockChanged) return true;
+
+      // push successors
+      auto & term = *currBlock.getTerminator();
+      for (int i = 0; i < (int) term.getNumSuccessors(); ++i) {
+        worklist.insert(term.getSuccessor(i));
+      }
+
+      return !worklist.empty(); // keep going
+    });
   }
 }
 
@@ -365,8 +379,8 @@ Print(const AllocSet & allocs, llvm::raw_ostream & out) {
       out << ", ";
     }
     alloc->printAsOperand(out, true, alloc->getParent()->getParent()->getParent());
-    out << "]";
   }
+  out << "]";
   return out;
 }
 

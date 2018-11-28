@@ -35,6 +35,12 @@
 #include <map>
 #include <set>
 
+#if 1
+#define IF_DEBUG_REM IF_DEBUG
+#else
+#define IF_DEBUG_REM if (true)
+#endif
+
 using namespace llvm;
 
 namespace {
@@ -381,7 +387,7 @@ struct LoopTransformer {
     auto * scaExiting = ScalarL.getExitingBlock();
     auto * scalarTerm = scaExiting->getTerminator();
     auto * vecLoopExiting = &LookUp(vecValMap, *scalarTerm->getParent());
-    auto * vecTerm = cast<TerminatorInst>(vecValMap[scalarTerm]);
+    auto * vecTerm = cast<Instruction>(vecValMap[scalarTerm]);
 
     for (size_t i = 0; i < scalarTerm->getNumSuccessors(); ++i) {
       if (scalarTerm->getSuccessor(i) != loopExit) continue;
@@ -928,6 +934,11 @@ RemainderTransform::canTransformLoop(llvm::Loop & L) {
     return false;
   }
 
+  if (!L.getLoopPreheader()) {
+    Report() << "remTrans: require a unique pre-header\n";
+    return false;
+  }
+
   // only attempt loops with recognized reduction patterns
   for (auto & Inst : *L.getHeader()) {
     auto * phi = dyn_cast<PHINode>(&Inst);
@@ -953,13 +964,13 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
   auto * branchCond = analyzeExitCondition(L, vectorWidth);
   if (!branchCond) {
     Report() << "remTrans: can not handle loop exit condition\n";
-    L.print(outs());
-#if 0
-    for (auto * BB : L.blocks()) {
-        outs() << "\n";
-        outs() << *BB;
+    IF_DEBUG_REM {
+      L.print(outs());
+      for (auto * BB : L.blocks()) {
+        errs() << "\n";
+        errs() << *BB;
       }
-#endif
+    }
 
     return nullptr;
   }

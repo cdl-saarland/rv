@@ -58,10 +58,15 @@ IsLoadStoreIntrinsicUse(Value * userInst) {
     auto * callee = dyn_cast<Function>(call->getCalledValue());
     return callee && (callee->getName() == "rv_load" || callee->getName() == "rv_store");
   } else if (auto bitcast = dyn_cast<BitCastInst>(userInst)) {
+    bool hasSuchUse = false;
+    // there must be at least(!) one rv_load/rv_store use for this to quality!
     for (auto user : bitcast->users()) {
-      if (!IsLoadStoreIntrinsicUse(user)) return false;
+      if (!IsLoadStoreIntrinsicUse(user)) {
+        return false;
+      }
+      hasSuchUse = true;
     }
-    return true;
+    return hasSuchUse;
   }
 
   return false;

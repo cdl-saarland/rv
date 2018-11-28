@@ -46,6 +46,15 @@ using namespace llvm;
 
 namespace rv {
 
+// defaulting phi semantics
+//
+// set the shadow input of \p phi to \p defInput
+void setShadowInput(PHINode & phi, Value & defInput);
+// erase the shadow input from \p phi.
+void dropShadowInput(PHINode & phi);
+// return the default input value of \p phi (if any)
+Value* getShadowInput(const PHINode & phi);
+
 void
 getExitingBlocks(BasicBlock*                  exitBlock,
                       const LoopInfo&              loopInfo,

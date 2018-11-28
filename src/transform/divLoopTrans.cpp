@@ -10,21 +10,23 @@
 // This transformation eliminates divergent loop in the region
 
 
-#include "rv/PlatformInfo.h"
 #include "rv/transform/divLoopTrans.h"
+
+#include "rv/PlatformInfo.h"
 #include "rv/transform/maskExpander.h"
+#include "utils/rvTools.h"
 
 #include "rvConfig.h"
 #include "rv/rvDebug.h"
 #include "report.h"
 
-#include "llvm/Analysis/LoopInfo.h"
-#include "llvm/IR/Dominators.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/IRBuilder.h"
+#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/IR/Dominators.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/IRBuilder.h>
 
-#include "llvm/Transforms/Utils/SSAUpdater.h"
-#include "llvm/IR/Verifier.h"
+#include <llvm/Transforms/Utils/SSAUpdater.h>
+#include <llvm/IR/Verifier.h>
 
 #define IF_DEBUG_DLT IF_DEBUG
 
@@ -54,40 +56,35 @@ ForAllLiveouts(BasicBlock & exitBlock, std::function<void(PHINode & lcPhi, int s
   }
 }
 
+// make \p inputVal the incoming value in all missing incoming value slots of \p phi.
+static void
+AttachMissingInputs(PHINode & phi, Value & inputVal) {
+  // make trackerPhi the default input on all remaining incoming positions
+  for (auto & blockUse : phi.getParent()->uses()) {
+    auto userInst = dyn_cast<Instruction>(blockUse.getUser());
+    if (!userInst || !userInst->isTerminator()) continue;
+
+    auto * inBlock = userInst->getParent();
+    if (phi.getBasicBlockIndex(inBlock) >= 0) continue;
+    phi.addIncoming(&inputVal, inBlock);
+  }
+}
+
 Instruction&
 TransformSession::lowerLatchUpdate(TrackerDesc & desc) {
   auto & trackerPhi = *desc.trackerPhi;
-  assert(desc.updatePhi && "already lowered?");
   auto & updPhi = *desc.updatePhi;
-  auto & BB = *updPhi.getParent();
 
-  auto shape = vecInfo.getVectorShape(trackerPhi);
-  IRBuilder<> builder(updPhi.getParent(), updPhi.getIterator());
+  assert(!getShadowInput(updPhi) && "already has a shadow input!");
 
-  IF_DEBUG_DLT { errs() << "Lowering " << updPhi << "\n"; }
-  Instruction * accu = &trackerPhi; // <-- only purpose of early lowering to switches: latch update has to default to tracker (and not some exit edge)
-  for (size_t i = 0 ; i < updPhi.getNumIncomingValues(); ++i) {
-    auto * inBlock = updPhi.getIncomingBlock(i);
-    auto * inVal = updPhi.getIncomingValue(i);
-    if (inVal == &trackerPhi) continue; // explicit (redundant) default edge
+  // trackerPhi should be piped through on disabled lanes.
+  setShadowInput(updPhi, trackerPhi);
 
-    auto & edgeMask = maskEx.requestEdgeMask(*inBlock, BB);
-    std::string name = updPhi.getName();
+  // preserve the tracker also on active lanes if the thread stays in the loop.
+  AttachMissingInputs(updPhi, trackerPhi);
 
-    // pick this incoming value if the edge is taken
-    accu = cast<Instruction>(builder.CreateSelect(&edgeMask, inVal, accu, name));
-    vecInfo.setVectorShape(*accu, shape);
-  }
-
-  // select cascade implements this phi
-  updPhi.replaceAllUsesWith(accu);
-  vecInfo.dropVectorShape(updPhi);
-  updPhi.eraseFromParent();
-
-  IF_DEBUG_DLT { errs() << "\tlowered: " << *accu <<  "\n"; }
-
-  desc.updatePhi = nullptr; // marks this latch update as lowered
-  return *accu;
+  // done
+  return updPhi;
 }
 
 void
@@ -106,7 +103,7 @@ void
 TransformSession::transformLoop() {
   IF_DEBUG_DLT { errs() << "TransformLoop " << loop.getName() << "\n"; }
 
-  assert(vecInfo.isDivergentLoop(&loop) && "trying to convert a non-divergent loop");
+  assert(vecInfo.isDivergentLoop(loop) && "trying to convert a non-divergent loop");
 
 // creates cascading phi nodes to track loop live outs
   SmallVector<Loop::Edge, 4> loopExitEdges;
@@ -180,8 +177,8 @@ TransformSession::transformLoop() {
     BasicBlock * reboundBlock = &exitingBlock;
     if (reboundingNestedExit || (oldLatch == &exitingBlock)) {
       reboundBlock = BasicBlock::Create(exitingBlock.getContext(), exitName + ".rebound", exitingBlock.getParent(), pureLatch);
-      if (!vecInfo.isKillExit(exitBlock)) {
-        vecInfo.setNotKillExit(reboundBlock); // TODO re-infer kill exit property
+      if (vecInfo.isDivergentLoopExit(exitBlock)) {
+        vecInfo.addDivergentLoopExit(*reboundBlock);
       }
       loop.addBasicBlockToLoop(reboundBlock, loopInfo);
       exitingBr.setSuccessor((int) exitOnFalse, reboundBlock);
@@ -202,14 +199,14 @@ TransformSession::transformLoop() {
       ForAllLiveouts(exitBlock, [&](PHINode & lcPhi, int slot) {
           auto & liveOut = *lcPhi.getIncomingValue(slot);
           auto & nestedPhi = *rebBuilder.CreatePHI(liveOut.getType(), 1, liveOut.getName() + ".lcssa");
-          vecInfo.setVectorShape(lcPhi, vecInfo.getVectorShape(liveOut));
+          vecInfo.setVectorShape(nestedPhi, vecInfo.getVectorShape(lcPhi));
           nestedPhi.addIncoming(&liveOut, &exitingBlock);
           lcPhi.setIncomingValue(slot, &nestedPhi);
       });
     }
 
   // create live out trackers
-    if (!vecInfo.isKillExit(exitBlock)) {
+    if (vecInfo.isDivergentLoopExit(exitBlock)) {
       ForAllLiveouts(exitBlock, [&](PHINode & lcPhi, int slot) {
         auto & liveOut = *lcPhi.getIncomingValue(slot);
 
@@ -235,6 +232,14 @@ TransformSession::transformLoop() {
         IF_DEBUG_DLT { errs() << "UPD PHI: " << *updatePhi <<  "\n"; }
       });
     }
+
+#if 0
+    // FIXME this should work..
+    if (vecInfo.isDivergentLoopExit(exitBlock) && !reboundingNestedExit) {
+      // no longer a divergent loop-exit
+      vecInfo.removeDivergentLoopExit(exitBlock);
+    }
+#endif
   }
 
 // create an exit cascade
@@ -512,7 +517,7 @@ DivLoopTrans::transformDivergentLoopControl(Loop & loop) {
   bool hasDivergentLoops = false;
 
   // make this loop uniform (all remaining divergent loops are properly nested)
-  if (vecInfo.isDivergentLoop(&loop)) {
+  if (vecInfo.isDivergentLoop(loop)) {
     ++numDivergentLoops;
     hasDivergentLoops = true;
 
@@ -521,7 +526,7 @@ DivLoopTrans::transformDivergentLoopControl(Loop & loop) {
     sessions[&loop] = loopSession;
 
     // mark loop as uniform
-    vecInfo.setLoopDivergence(loop, true);
+    vecInfo.removeDivergentLoop(loop);
   }
 
   for (auto * childLoop : loop) {

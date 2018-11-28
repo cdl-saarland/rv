@@ -22,6 +22,7 @@
 #include <llvm/IR/Instructions.h> // BitCastInst
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Attributes.h>
+#include <llvm/IR/Metadata.h>
 #include <llvm/Analysis/LoopInfo.h> // Loop
 #include <llvm/IR/CallSite.h>
 
@@ -247,6 +248,37 @@ getBaseAlignment(const Value & V, const DataLayout &DL) {
     }
 
   return Align;
+}
+
+///// defaulting phi semantics /////
+namespace {
+   const char * ShadowInputMDName = "rv.shadow.in";
+}
+
+void
+setShadowInput(PHINode & phi, Value & defInput) {
+  auto * valAsMd = ValueAsMetadata::get(&defInput);
+  auto * mdTuple = MDTuple::get(phi.getContext(), {valAsMd});
+  phi.setMetadata(ShadowInputMDName, mdTuple);
+}
+
+void dropShadowInput(PHINode & phi) {
+  phi.setMetadata(ShadowInputMDName, nullptr);
+}
+
+Value* getShadowInput(const PHINode & phi) {
+  // short cut
+  if (!phi.hasMetadataOtherThanDebugLoc()) return nullptr;
+
+  // otw, parse default shadow input argument
+  auto * shadowInputMD = phi.getMetadata(ShadowInputMDName);
+  if (!shadowInputMD) return nullptr;
+  const auto * mdTuple = dyn_cast<MDTuple>(shadowInputMD);
+  if (!mdTuple) return nullptr;
+  assert(mdTuple->getNumOperands() == 1 && "ill-formed shadow input");
+  const auto * valueAsMd = dyn_cast<ValueAsMetadata>(mdTuple->getOperand(0));
+  assert(valueAsMd && "ill-formed shadow input");
+  return valueAsMd->getValue();
 }
 
 

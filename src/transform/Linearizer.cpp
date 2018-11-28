@@ -32,6 +32,7 @@
 
 #include "rvConfig.h"
 #include "rv/rvDebug.h"
+#include "utils/rvTools.h"
 
 #if 1
 #define IF_DEBUG_LIN IF_DEBUG
@@ -79,7 +80,7 @@ Linearizer::scheduleDomRegion(BasicBlock * domEntry, Loop * loop, std::string pa
   // schedule all nested dom regions in rpo
   for (auto it = itStart; it != itEnd; ++it) {
     auto * BB = *it;
-    if (!inRegion(*BB)) continue;
+    if (!vecInfo.inRegion(*BB)) continue;
     if (loop && !loop->contains(BB)) continue;
 
   // only directly schedule idom children
@@ -124,7 +125,7 @@ Linearizer::scheduleLoop(Loop * loop, std::string padStr, RPOT::rpo_iterator itS
   for (auto it = itStart; it != itEnd; ++it) {
     auto * BB = *it;
 
-    if (!inRegion(*BB)) continue;
+    if (!vecInfo.inRegion(*BB)) continue;
     if (loop->contains(BB)) continue;
 
     // TODO what about idoms on different parent loop levels (masked out if loop is set in rec call)
@@ -294,7 +295,7 @@ Linearizer::verifyLoopIndex(Loop & loop) {
   }
 
   // not part of region -> skip this loop
-  if (!inRegion(*loop.getHeader())) return;
+  if (!vecInfo.inRegion(*loop.getHeader())) return;
 
   int startId = getNumBlocks(), endId = 0;
 
@@ -326,10 +327,8 @@ Linearizer::verifyCompactDominance(BasicBlock & head) {
   IF_DEBUG_INDEX errs() << "verifyCompactDom " << head.getName() << "\n";
   auto * loop = li.getLoopFor(&head);
 
-  for (auto & BB : vecInfo.getScalarFunction()) {
-    if (!vecInfo.inRegion(BB)) continue;
-
-    if (loop && !loop->contains(&BB)) continue;
+  vecInfo.getRegion().for_blocks([&](const BasicBlock & BB){
+    if (loop && !loop->contains(&BB)) return true;//continue;
 
     if (dt.dominates(&head, &BB)) {
       assert(hasIndex(BB) && " block missing in blockIndex!");
@@ -338,7 +337,8 @@ Linearizer::verifyCompactDominance(BasicBlock & head) {
       maxIndex = std::max<int>(maxIndex, id);
       domSet.insert(id);
     }
-  }
+    return true;
+  });
 
   IF_DEBUG_INDEX errs() << "   [" << minIndex << ", " << maxIndex << "]\n";
 
@@ -360,7 +360,7 @@ Linearizer::verifyBlockIndex() {
 }
 
 bool
-Linearizer::needsFolding(TerminatorInst & termInst) {
+Linearizer::needsFolding(Instruction & termInst) {
   if (isa<ReturnInst>(termInst) || isa<UnreachableInst>(termInst)) return false;
 
   // fold all non-uniform branches
@@ -456,6 +456,49 @@ public:
 
   // TODO update loop info
   }
+
+  // return the most frequent incoming value of this phi node
+  Value*
+  getFrequentIncomingValue(PHINode & phi) const {
+    int incumbentCount = 1;
+
+    std::map<const Value*, int> tally;
+
+    Value * incumbent = phi.getIncomingValueForBlock(inBlocks[0]);
+    int i = 0;
+
+    // forward to first non-undef incoming value
+    for (i = 0; i < (int) inBlocks.size() && isa<UndefValue>(incumbent); ++i) {
+      incumbent = phi.getIncomingValueForBlock(inBlocks[i]);
+    }
+
+    // pick most-frequent, non-undef incoming value
+    for (; i < (int) inBlocks.size(); ++i) {
+      Value * otherInValue = phi.getIncomingValueForBlock(inBlocks[i]);
+
+      if (isa<UndefValue>(otherInValue)) continue;
+
+      if (otherInValue == incumbent) {
+        // incumbent tally increment
+        incumbentCount++;
+        continue;
+      }
+
+      int otherCount = tally[otherInValue];
+      otherCount++;
+      if (otherCount > incumbentCount) {
+        // dispose incumbent
+        tally[incumbent] = incumbentCount;
+        incumbent = otherInValue;
+        incumbentCount = otherCount;
+      } else {
+        // tally increment
+        tally[otherInValue] = otherCount;
+      }
+    }
+
+    return incumbent;
+  }
 };
 
 static
@@ -487,8 +530,15 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
   auto & blocks = superInput.inBlocks;
 
-// make sure we have a dominating definition of the first incoming value available
-  auto * defaultValue = phi.getIncomingValueForBlock(blocks[0]);
+// fetch the shadow input as default value (if any)
+  auto * defaultValue = getShadowInput(phi);
+  IF_DEBUG_LIN if (defaultValue) { errs() << "LIN: folding phi with shadow input " << *defaultValue << "\n"; }
+
+  bool hasShadowInput = (bool) defaultValue;
+  if (!defaultValue) {
+    // just default to the first incoming value, otw
+    defaultValue = superInput.getFrequentIncomingValue(phi);
+  }
 
   // early exit: there is only one predecessor: no phis, no blend blocks -> return that value right away
   if (blocks.size() <= 1) return defaultValue; // FIXME we still need a dominating definition
@@ -521,10 +571,18 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
   numFoldedAssignments += blocks.size() - 1;
 
+  int phiRedundantIncomingValues = hasShadowInput ? 0 : -1;
+
   auto phiShape = vecInfo.getVectorShape(phi);
-  for (size_t i = 1; i < blocks.size(); ++i) {
+  for (size_t i = 0; i < blocks.size(); ++i) {
     auto * inBlock = blocks[i];
     auto * inVal = phi.getIncomingValueForBlock(inBlock);
+
+    // we are defaulting to this input anyway (no need to blend it in)
+    if (inVal == defaultValue) {
+      ++phiRedundantIncomingValues;
+      continue;
+    }
 
     auto * edgeMask = getEdgeMask(*inBlock, phiBlock);
     assert(edgeMask && "edgeMask not available!");
@@ -556,6 +614,10 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     blendedVal = builder.CreateSelect(edgeMask, inVal, blendedVal, name);
     vecInfo.setVectorShape(*blendedVal, phiShape);
   }
+
+  // stat update
+  assert(phiRedundantIncomingValues >= 0);
+  numRedundantIncomingValues += (size_t) phiRedundantIncomingValues;
 
   return blendedVal;
 }
@@ -684,7 +746,7 @@ Linearizer::foldPhis(BasicBlock & block) {
 
 // embed future blend blocks into control
   for (auto it : selectBlockMap) {
-    it.second.materializeControl(block, dt, li, region);
+    it.second.materializeControl(block, dt, li, &vecInfo.getRegion());
     if (it.second.blendBlock) {
       vecInfo.setVectorShape(*it.second.blendBlock->getTerminator(), VectorShape::uni());
     }
@@ -695,10 +757,9 @@ Linearizer::foldPhis(BasicBlock & block) {
 }
 
 int
-Linearizer::processLoop(int headId, Loop * loop) {
+Linearizer::processLoop(int headId, Loop & loop) {
   auto & loopHead = getBlock(headId);
-  assert(loop && "not actually part of a loop");
-  assert(loop->getHeader() == &loopHead && "not actually the header of the loop");
+  assert(loop.getHeader() == &loopHead && "not actually the header of the loop");
 
   IF_DEBUG_LIN {
     errs() << "processLoop : header " << loopHead.getName() << " ";
@@ -706,7 +767,7 @@ Linearizer::processLoop(int headId, Loop * loop) {
     errs() << "\n";
   }
 
-  auto & latch = *loop->getLoopLatch();
+  auto & latch = *loop.getLoopLatch();
   int latchIndex = getIndex(latch);
   int loopHeadIndex = getIndex(loopHead);
 
@@ -720,7 +781,7 @@ Linearizer::processLoop(int headId, Loop * loop) {
     if (headRelay) {
       // forward header reaching blocks to loop exits
       SuperBlockVec exitBlocks;
-      loop->getExitBlocks(exitBlocks);
+      loop.getExitBlocks(exitBlocks);
       for (auto * exitBlock : exitBlocks) {
         IF_DEBUG_LIN { errs() << "- merging head reaching&chain into exit " << exitBlock->getName();  dumpRelayChain(headRelay->id); errs() << "\n"; }
         int exitId = getIndex(*exitBlock);
@@ -742,7 +803,7 @@ Linearizer::processLoop(int headId, Loop * loop) {
   }
 
   // emit all blocks within the loop (except the latch)
-  int latchNodeId = processRange(loopHeadIndex, latchIndex, loop);
+  int latchNodeId = processRange(loopHeadIndex, latchIndex, &loop);
 
   // now emit the latch (without descending into its successors)
   emitBlock(latchIndex);
@@ -805,7 +866,7 @@ Linearizer::emitBlock(int targetId) {
     Use & use = *(itUse++);
 
     int i = use.getOperandNo();
-    auto & term = *cast<TerminatorInst>(use.getUser());
+    auto & term = *cast<Instruction>(use.getUser());
     IF_DEBUG_LIN { errs() << "\t\tlinking " << term << " opIdx " << i << "\n"; }
 
     // forward branches from relay to target
@@ -824,7 +885,7 @@ Linearizer::emitBlock(int targetId) {
 
 // if there are any instructions stuck in @relayBlock move them to target now
   // repair LCSSA incoming blocks along the way
-  for (auto it = relayBlock->begin(); it != relayBlock->end() && !isa<TerminatorInst>(*it); it = relayBlock->begin()) {
+  for (auto it = relayBlock->begin(); it != relayBlock->end() && !it->isTerminator(); it = relayBlock->begin()) {
     auto * phi = dyn_cast<PHINode>(it);
     if (phi && phi->getNumIncomingValues() == 1) {
       auto itPred = pred_begin(relayBlock);
@@ -875,7 +936,8 @@ Linearizer::processBlock(int headId, Loop * parentLoop) {
 // descend into loop, if any
   auto * loop = li.getLoopFor(&head);
   if (loop != parentLoop) {
-    return processLoop(headId, loop);
+    assert(loop && "can only be a nested loop, so a loop");
+    return processLoop(headId, *loop);
   }
 
   // all dependencies satisfied -> emit this block
@@ -1151,7 +1213,11 @@ Linearizer::run() {
     Report() << "phi stats:\n"
       << "\t" << numUniformAssignments << " c-uniform incoming values\n"
       << "\t" << numFoldedAssignments << " folded incoming values\n"
-      << "\t" << numPreservedAssignments << " preserved incoming values.\n";
+      << "\t" << numPreservedAssignments << " preserved incoming values";
+    if (numRedundantIncomingValues > 0) {
+      ReportContinue() << "\n\t" << numRedundantIncomingValues << " redundant incoming folds";
+    }
+    ReportContinue() << ".\n";
   }
 }
 
@@ -1228,7 +1294,7 @@ Linearizer::verify() {
       assert(!needsFolding(*block->getTerminator()));
 
     } else if (loop && loop->getHeader() == block) {
-      assert(!vecInfo.isDivergentLoop(loop));
+      assert(!vecInfo.isDivergentLoop(*loop));
     }
   }
 

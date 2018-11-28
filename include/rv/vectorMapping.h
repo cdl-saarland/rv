@@ -9,9 +9,9 @@
 #ifndef INCLUDE_RV_VECTORMAPPING_H_
 #define INCLUDE_RV_VECTORMAPPING_H_
 
-#include <initializer_list>
+#include "rv/shape/vectorShape.h"
 #include <llvm/ADT/SmallVector.h>
-#include <rv/vectorShape.h>
+#include <initializer_list>
 
 namespace llvm {
 class Function;

@@ -119,7 +119,7 @@ void normalizeFunction(Function &F) {
 
 void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
                    LoopInfo &loopInfo, DominatorTree &domTree,
-                   PostDominatorTree &postDomTree) {
+                   PostDominatorTree &postDomTree, int ulpErrorBound) {
   // assert: function is already normalized
   Module &mod = *parentFn.getParent();
 
@@ -155,9 +155,9 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   }
 
   // configure RV
-  rv::Config config;
-  config.useSLEEF = true;
-  config.print(outs());
+  auto config = rv::Config::createForFunction(parentFn);
+  config.maxULPErrorBound = ulpErrorBound;
+  IF_VERBOSE { config.print(outs()); }
 
   // setup region
   rv::LoopRegion loopRegionImpl(*preparedLoop);
@@ -170,7 +170,7 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   MemoryDependenceResults MDR = mdAnalysis.run(parentFn, fam);
 
   // link in SIMD library
-  addSleefResolver(config, platInfo, 35);
+  addSleefResolver(config, platInfo);
   // vectorize recursively
   addRecursiveResolver(config, platInfo);
 
@@ -226,7 +226,7 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   domTree.recalculate(parentFn);
   postDomTree.recalculate(parentFn);
 
-  loopInfo.print(errs());
+  IF_VERBOSE { loopInfo.print(errs()); }
   loopInfo.verify(domTree);
 
   // vectorizationAnalysis
@@ -255,7 +255,7 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
 }
 
 // Use case: Outer-loop Vectorizer
-void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth) {
+void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth, int ulpErrorBound) {
   // normalize
   normalizeFunction(parentFn);
 
@@ -289,7 +289,7 @@ void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth) {
 
   auto *firstLoop = *loopInfo.begin();
   vectorizeLoop(parentFn, *firstLoop, vectorWidth, loopInfo, domTree,
-                postDomTree);
+                postDomTree, ulpErrorBound);
 
   // mark region
   // run RV
@@ -298,7 +298,7 @@ void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth) {
 using ShapeMap = std::map<std::string, rv::VectorShape>;
 
 // Use case: Whole-Function Vectorizer
-void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes) {
+void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, bool generateVectorName, int ulpErrorBound) {
   Function *scalarFn = vectorizerJob.scalarFn;
   Module &mod = *scalarFn->getParent();
 
@@ -311,6 +311,13 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes) {
   TargetLibraryAnalysis libAnalysis;
   TargetLibraryInfo tli = libAnalysis.run(mod, mam);
   rv::PlatformInfo platInfo(mod, &tti, &tli);
+
+  // assign a proper vector function name
+  if (generateVectorName) {
+    StringRef scaName = scalarFn->getName();
+    StringRef mangledVectorName = platInfo.createMangledVectorName(scaName, vectorizerJob.argShapes, vectorizerJob.vectorWidth, vectorizerJob.maskPos);
+    vectorizerJob.vectorFn->setName(mangledVectorName);
+  }
 
   // clone source function for transformations
   ValueToValueMapTy valueMap;
@@ -339,12 +346,12 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes) {
   PB.registerModuleAnalyses(mam);
 
   // configure RV
-  rv::Config config;
-  config.useSLEEF = true;
-  config.print(outs());
+  auto config = rv::Config::createForFunction(*scalarFn);
+  config.maxULPErrorBound = ulpErrorBound;
+  IF_VERBOSE { config.print(outs()); }
 
   // link in SIMD library
-  addSleefResolver(config, platInfo, 35);
+  addSleefResolver(config, platInfo);
   // vectorize recursively
   addRecursiveResolver(config, platInfo);
 
@@ -414,7 +421,7 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes) {
   domTree.recalculate(*scalarCopy);
   postDomTree.recalculate(*scalarCopy);
 
-  loopInfo.print(errs());
+  IF_VERBOSE { loopInfo.print(errs()); }
   loopInfo.verify(domTree);
 
   // vectorizationAnalysis
@@ -509,34 +516,38 @@ rv::VectorShape decodeShape(std::stringstream &shapestream) {
 
 static void PrintHelp() {
   std::cerr << "RV command line tool (rvTool)\n"
-            << "No operation specified (-wfv,-loopvec,-normalize,-lower)\n"
-            << "-i MODULE [-k KERNELNAME] [-t TARGET_DECL] [-normalize] "
+            << "No command specified!\n"
+            << "-i MODULE [-k KERNELNAME] [-t TARGET_DECL] [-normalize] ..."
                "[-lower] [-v] "
             << "[-o OUTPUT_LL] [-w 8] [-s SHAPES] [-x GV_SHAPES]\n"
-            << "commands:\n"
-            << "-wfv/-loopvec : vectorize a whole-function or an outer loop\n"
-            << "-analyze      : normalize, print vectorization analysis "
+            << "\nCommands:\n"
+            << "-wfv/-loopvec      : vectorize a whole-function or an outer loop\n"
+            << "-analyze           : normalize, print vectorization analysis "
                "results and exit.\n"
-            << "-lower-func   : lower predicate intrinsics in scalar kernel.\n"
-            << "-lower        : lower predicate intrinsics in entire module.\n"
-            << "-normalize    : normalize kernel and quit.\n"
-            << "options:\n"
-            << "-i MODULE     : LLVM input module.\n"
-            << "-o MODULE     : LLVM output module.\n"
-            << "-k KERNEL     : name of the function to vectorize/function "
+            << "-lower-func        : lower predicate intrinsics in scalar kernel.\n"
+            << "-lower             : lower predicate intrinsics in entire module.\n"
+            << "-normalize         : normalize kernel and quit.\n"
+            << "\nOptions:\n"
+            << "-i MODULE          : LLVM input module.\n"
+            << "-o MODULE          : LLVM output module.\n"
+            << "-k KERNEL          : name of the function to vectorize/function "
                "with loop to vectorize.\n"
-            << "-t DECL       : target SIMD declaration (WFV mode only, will "
+            << "-t DECL            : target SIMD declaration (WFV mode only, will "
                "be auto generated if missing).\n"
-            << "-s SHAPES     : WFV argument shapes.\n"
-            << "-m MaskPos    : (wfv only) mask argument position.\n"
-            << "-x GVSHAPES   : comma-separated list of global value and "
+            << "-s SHAPES          : WFV argument shapes.\n"
+            << "-m MaskPos         : (wfv only) mask argument position.\n"
+            << "--math-prec <ulp>  : ULP error bound on math functions (n/10).\n"
+            << "-x GVSHAPES        : comma-separated list of global value and "
                "function-return shapes, e.g. \"gvar=C,func=S4\".\n"
-            << "-w WIDTH      : vectorization factor.\n"
-            << "-v            : enable verbose output (rvTool level output).\n";
+            << "-w WIDTH           : vectorization factor.\n"
+            << "-v                 : enable verbose output (rvTool level output).\n";
 }
 
 int main(int argc, char **argv) {
   ArgumentReader reader(argc, argv);
+
+  // verbose debug output (rvTool level)
+  verbose = reader.hasOption("-v");
 
   std::string inFile;
   bool hasFile = reader.readOption<std::string>("-i", inFile);
@@ -561,8 +572,9 @@ int main(int argc, char **argv) {
 
   bool runNormalize = reader.hasOption("-normalize");
 
-  // verbose debug output (rvTool level)
-  verbose = reader.hasOption("-v");
+  int ulpErrorBound = 10;
+  reader.readOption<int>("--math-prec", ulpErrorBound);
+  IF_VERBOSE { errs() << "SLEEF ulpErrorBound: " << (ulpErrorBound/10.0) << "\n"; }
 
   if (!hasFile) {
     PrintHelp();
@@ -673,20 +685,13 @@ int main(int argc, char **argv) {
     unsigned vectorWidth = reader.getOption<unsigned>("-w", 8);
 
     if (wfvMode) {
-
-      // Create simd decl
-      Function *vectorFn = nullptr;
-      if (!hasTargetDeclName) {
+      // request SIMD decl (with a requested name, if any)
+      Function *vectorFn = hasTargetDeclName ? mod->getFunction(targetDeclName) : nullptr;
+      if (!vectorFn) {
         vectorFn = rv::createVectorDeclaration(*scalarFn, resShape, argShapes,
                                                vectorWidth, maskPos);
-      } else {
-        vectorFn = mod->getFunction(targetDeclName);
-        // TODO verify shapes
-        if (!vectorFn) {
-          llvm::errs() << "Target declaration " << targetDeclName
-                       << " not found. Aborting!\n";
-          return 3;
-        }
+
+        if (hasTargetDeclName) vectorFn->setName(targetDeclName);
       }
       assert(vectorFn);
 
@@ -702,10 +707,11 @@ int main(int argc, char **argv) {
                         << "\" with vector size " << vectorizerJob.vectorWidth
                         << "... \n";
 
-      vectorizeFunction(vectorizerJob, shapeMap);
+      // vectorize and assign a mangled name (if no specific name was requested beforehand)
+      vectorizeFunction(vectorizerJob, shapeMap, !hasTargetDeclName, ulpErrorBound);
 
     } else if (loopVecMode) {
-      vectorizeFirstLoop(*scalarFn, vectorWidth);
+      vectorizeFirstLoop(*scalarFn, vectorWidth, ulpErrorBound);
     }
 
     if (lowerIntrinsicsFunc) {

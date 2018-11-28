@@ -57,8 +57,6 @@ namespace rv {
     llvm::Type *i1Ty;
     llvm::Type *i32Ty;
 
-    rv::Region *region;
-
     // the predicate argument in the vector function (WFV mode)
     llvm::Value * vecMaskArg;
 

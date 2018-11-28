@@ -63,6 +63,10 @@ public:
 
   void dump() const;
   void print(llvm::raw_ostream & out) const;
+
+  // return the mangled vector function name for this target platform
+  std::string createMangledVectorName(llvm::StringRef scaName, const VectorShapeVec & argShapes, int vectorWidth, int maskPos);
+
 private:
   // Direct access to builtin list resolver.
   llvm::Module &mod;

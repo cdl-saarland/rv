@@ -101,7 +101,7 @@ ReductionOptimization::optimize(PHINode & phi, Reduction & red) {
 
 bool
 ReductionOptimization::run() {
-  if (!vecInfo.getRegion()->isVectorLoop()) return false; // not applicable in WFV mode (wouldn't help)
+  if (!vecInfo.getRegion().isVectorLoop()) return false; // not applicable in WFV mode (wouldn't help)
 
   size_t numOptimizedReductions = 0;
 

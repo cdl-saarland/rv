@@ -62,20 +62,6 @@ WFVPass::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<TargetLibraryInfoWrapperPass>();
 }
 
-static
-int
-ParseRegisterWidth(char c) {
-  switch (c) {
-    case 'b': return 128; // SSE
-    case 'c': // AVX
-    case 'd': return 256; // AVX2
-    case 'e': return 512; // AVX512
-    default:
-      abort();
-  };
-}
-
-
 void
 WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob) {
   // clone scalar function
@@ -186,12 +172,11 @@ WFVPass::runOnModule(Module & M) {
 
   // FIXME this assumes that all functions were compiled for the same target
   auto & TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(*wfvJobs[0].scalarFn);
-  Config rvConfig; // TODO parse machine attributes of scalar function
+  Config rvConfig = Config::createForFunction(*wfvJobs[0].scalarFn);
 
   // configure platInfo
-  rvConfig.useSLEEF = true;
   PlatformInfo platInfo(M, &TTI, &TLI);
-  addSleefResolver(rvConfig, platInfo, 35);
+  addSleefResolver(rvConfig, platInfo);
 
   // add mappings for recursive vectorization
   for (auto & job : wfvJobs) {

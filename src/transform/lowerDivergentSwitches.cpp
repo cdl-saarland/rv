@@ -78,7 +78,7 @@ bool
 LowerDivergentSwitches::run() {
   std::vector<SwitchInst*> switchInsts;
 
-  vecInfo.getRegion()->for_blocks([&](const BasicBlock & block) {
+  vecInfo.getRegion().for_blocks([&](const BasicBlock & block) {
       auto * swInst = dyn_cast<SwitchInst>(block.getTerminator());
       if (!swInst) return true;
       if (vecInfo.getVectorShape(*swInst->getCondition()).isUniform()) return true;

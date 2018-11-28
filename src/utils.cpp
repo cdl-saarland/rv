@@ -92,7 +92,7 @@ parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & 
   }
 
   Function * simdDecl = scalarFn.getParent()->getFunction(attribText);
- if (!createMissingDecl && !simdDecl) return false;
+  if (!createMissingDecl && !simdDecl) return false;
 
   mapping.scalarFn = &scalarFn;
   mapping.resultShape = VectorShape::varying();
@@ -149,8 +149,14 @@ createVectorDeclaration(Function& scalarFn, VectorShape resShape,
 
     auto* vectorFnTy = FunctionType::get(vectorRetTy, vectorArgTys, false);
 
-    return llvm::Function::Create(vectorFnTy, scalarFn.getLinkage(), scalarFn.getName() + "_SIMD",
+    auto * vectorFn = llvm::Function::Create(vectorFnTy, scalarFn.getLinkage(), scalarFn.getName() + "_SIMD",
                                   scalarFn.getParent());
+
+    if (scalarFn.hasPersonalityFn()) {
+      vectorFn->setPersonalityFn(scalarFn.getPersonalityFn());
+    }
+
+    return vectorFn;
 }
 
 } // namespace rv

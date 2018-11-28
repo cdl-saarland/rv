@@ -157,7 +157,6 @@ NatBuilder::NatBuilder(Config _config, PlatformInfo &_platInfo, VectorizationInf
     layout(_vecInfo.getScalarFunction().getParent()),
     i1Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 32)),
-    region(_vecInfo.getRegion()),
     vecMaskArg(nullptr),
     keepScalar(),
     cascadeLoadMap(),
@@ -182,7 +181,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
 
   // map arguments first
 
-  if (!region->isVectorLoop()) {
+  if (!vecInfo.getRegion().isVectorLoop()) {
     IF_DEBUG_NAT { errs() << "VecFuncType: " << *vecFunc->getFunctionType() << "\n"; }
     int i = 0;
     int shapeIdx = 0;
@@ -218,7 +217,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
 
   // create all BasicBlocks first and map them
   for (auto &block : *func) {
-    if (!region->contains(&block)) continue;
+    if (!vecInfo.inRegion(block)) continue;
 
     BasicBlock *vecBlock = BasicBlock::Create(vecFunc->getContext(), block.getName() + ".rv", vecFunc);
     mapVectorValue(&block, vecBlock);
@@ -235,7 +234,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
 
     // vectorize
     BasicBlock *bb = node->getBlock();
-    if (!region->contains(bb)) continue;
+    if (!vecInfo.inRegion(*bb)) continue;
 
     BasicBlock *vecBlock = cast<BasicBlock>(getVectorValue(bb));
     vectorize(bb, vecBlock);
@@ -252,14 +251,14 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   // report statistics
   printStatistics();
 
-  if (!region->isVectorLoop()) return;
+  if (!vecInfo.getRegion().isVectorLoop()) return;
 
   // TODO what about outside uses?
 
   // register vector insts
   if (vecInstMap) {
     for (auto & BB : *vecFunc) {
-      if (region->contains(&BB)) {
+      if (vecInfo.inRegion(BB)) {
         (*vecInstMap)[&BB] = getVectorValue(&BB);
       }
       for (auto & I : BB) {
@@ -278,7 +277,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   // rewire branches outside the region to go to the region instead
   std::vector<BasicBlock *> oldBlocks;
   for (auto &BB : *vecFunc) {
-    if (region->contains(&BB)) {
+    if (vecInfo.inRegion(BB)) {
       oldBlocks.push_back(&BB);
       continue; // keep old region
     }
@@ -287,7 +286,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
       auto *termOp = termInst.getOperand(i);
       auto *branchTarget = dyn_cast<BasicBlock>(termOp);
       if (!branchTarget) continue;
-      if (region->contains(branchTarget)) {
+      if (vecInfo.inRegion(*branchTarget)) {
         termInst.setOperand(i, getVectorValue(branchTarget));
       }
     }
@@ -906,8 +905,13 @@ NatBuilder::vectorizeShuffleCall(CallInst *rvCall) {
 
 // non-uniform arg
   auto * vecVal = requestVectorValue(vecArg);
-  assert(getVectorShape(*rvCall->getArgOperand(1)).isUniform());
-  int64_t shiftVal = cast<ConstantInt>(rvCall->getArgOperand(1))->getSExtValue();
+  auto * amountVal = rvCall->getArgOperand(1);
+  if (!isa<ConstantInt>(amountVal)) {
+    Error() << *rvCall << "\n";
+    fail("rv_shuffle: shift amount needs to be a constant!\n");
+  }
+
+  int64_t shiftVal = cast<ConstantInt>(amountVal)->getSExtValue();
   if (shiftVal < 0) {
     shiftVal = vectorWidth() + shiftVal;
   }
@@ -1129,6 +1133,23 @@ MayRecurse(const Function &F) {
   return !F.doesNotRecurse();
 }
 
+static void
+CopyTargetAttributes(Function & destFunc, Function & srcFunc) {
+  auto attribSet = srcFunc.getAttributes().getFnAttributes();
+
+  // parse SIMD signatures
+  for (auto attrib : attribSet) {
+    if (!attrib.isStringAttribute()) continue;
+    StringRef attribText = attrib.getKindAsString();
+
+    if ((attribText == "target-cpu") ||
+       (attribText == "target-features"))
+    {
+      destFunc.addFnAttr(attrib);
+    }
+  }
+}
+
 void
 NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   Value * callee = scalCall->getCalledValue();
@@ -1147,10 +1168,12 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   std::unique_ptr<FunctionResolver> funcResolver = nullptr;
   bool hasCallPredicate = !hasUniformPredicate(scaBlock);
   if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth(), hasCallPredicate);
-  if (funcResolver) {
+  if (funcResolver && !CheckFlag("RV_SPLIT")) {
     Function &simdFunc = funcResolver->requestVectorized();
+    CopyTargetAttributes(simdFunc, vecInfo.getScalarFunction());
 
     bool needsGuardedCall =
+      funcResolver->getCallSitePredicateMode() != CallPredicateMode::SafeWithoutPredicate &&
       hasCallPredicate && // call site with a non trivial predicate
       MayRecurse(simdFunc) && // the called function may actually recurse
       !undeadMasks.isUndead(scaMask, scaBlock); // there is not at least one live thread
@@ -1190,6 +1213,8 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
         // doublePrecision = scalCall->getArgOperand(0)->getType()->isDoubleTy();
       // }
       Function &simdFunc = funcResolver->requestVectorized();
+      CopyTargetAttributes(simdFunc, vecInfo.getScalarFunction());
+
       ShuffleBuilder appender(vectorWidth());
       ShuffleBuilder extractor(vecWidth);
 
@@ -1915,9 +1940,12 @@ NatBuilder::requestVectorValue(Value *const value) {
 
 Value&
 NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
-  Value * vecValue = nullptr;
+  if (isa<Constant>(scaValue)) {
+    return *getConstantVector(vectorWidth(), &cast<Constant>(scaValue));
+  }
 
   // create a vector GEP to widen pointers
+  Value * vecValue = nullptr;
   if (scaValue.getType()->isPointerTy()) {
     auto * scalarPtrTy = scaValue.getType();
     auto * intTy = builder.getInt32Ty();
@@ -1935,11 +1963,7 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
     }
 
   } else {
-    if (isa<Constant>(scaValue)) {
-      vecValue = getConstantVector(vectorWidth(), &cast<Constant>(scaValue));
-    } else {
-      vecValue = builder.CreateVectorSplat(vectorWidth(), &scaValue);
-    }
+    vecValue = builder.CreateVectorSplat(vectorWidth(), &scaValue);
 
     if (!vecShape.isUniform()) {
       assert(scaValue.getType()->isIntegerTy() || scaValue.getType()->isFloatingPointTy());
@@ -1950,6 +1974,7 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
                                              : builder.CreateAdd(vecValue, contVec, "contiguous_add");
     }
   }
+  assert(vecValue);
 
   return *vecValue;
 }
@@ -2460,7 +2485,7 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
 
 bool
 NatBuilder::hasUniformPredicate(const BasicBlock & BB) const {
-  if (!vecInfo.getRegion()->contains(&BB) || !vecInfo.getPredicate(BB)) return true;
+  if (!vecInfo.getRegion().contains(&BB) || !vecInfo.getPredicate(BB)) return true;
   else return vecInfo.getVectorShape(*vecInfo.getPredicate(BB)).isUniform();
 }
 
@@ -2806,7 +2831,7 @@ void NatBuilder::mapVectorValue(const Value *const value, Value *vecValue) {
 
 Value *NatBuilder::getVectorValue(Value *const value, bool getLastBlock) {
   if (isa<BasicBlock>(value)) {
-    if (!region->contains(cast<BasicBlock>(value))) {
+    if (!vecInfo.inRegion(*cast<BasicBlock>(value))) {
       return value; // preserve BBs outside of the region
     }
 
@@ -2837,9 +2862,9 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
 
   // in case of regions, keep any values that are live into the region
   // FIXME make this generic through explicit argument mapping
-  if (region->isVectorLoop() && isa<Argument>(value)) {
+  if (vecInfo.getRegion().isVectorLoop() && isa<Argument>(value)) {
     return value;
-  } else if (region->isVectorLoop() && isa<Instruction>(value) && !region->contains(cast<Instruction>(value)->getParent())) {
+  } else if (vecInfo.getRegion().isVectorLoop() && isa<Instruction>(value) && !vecInfo.inRegion(*cast<Instruction>(value)->getParent())) {
     return value;
   }
 
@@ -2863,7 +2888,7 @@ Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
 BasicBlockVector
 NatBuilder::getMappedBlocks(BasicBlock *const block) {
   auto blockIt = basicBlockMap.find(block);
-  if (!region->contains(block)) {
+  if (!vecInfo.inRegion(*block)) {
     BasicBlockVector blocks;
     blocks.push_back(const_cast<BasicBlock*>(block));
     return blocks;

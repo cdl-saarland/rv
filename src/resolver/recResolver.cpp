@@ -64,6 +64,9 @@ class RecursiveResolver : public FunctionResolver {
   VectorMapping recMapping;
 
 public:
+  StringRef
+  getVectorName() const { return recMapping.vectorFn->getName(); }
+
   // a reference to it
   llvm::Function &requestVectorized() {
     return *recMapping.vectorFn;
@@ -188,61 +191,79 @@ public:
     recMapping.resultShape = nextResultShape; //callMapping.resultShape; // final inferred result shape
     recMapping.vectorFn = vecFunc;
 
-    // TODO copy last round results
-    VectorizationInfo vecInfo(funcRegion, recMapping);
-    vectorizer.analyze(vecInfo, DT, PDT, LI);
-    vecFunc->copyAttributesFrom(&scaFunc);
+    std::string mangledName = vectorizer.getPlatformInfo().createMangledVectorName(scaFunc.getName(), callMapping.argShapes, callMapping.vectorWidth, callMapping.maskPos);
+    auto * knownVecFunc = vectorizer.getModule().getFunction(mangledName);
 
-    // fix up the argument attributes that have been copied over.
-    // (all vector arguments after mask pos are off-by-one if there is a vector mask arg)
-    if (callMapping.maskPos >= 0) {
-      auto ItVecArg = vecFunc->arg_begin();
-      std::advance(ItVecArg, callMapping.maskPos);
+    // Have we already emitted this function in a recursive incovation?
+    if (knownVecFunc) {
+      vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
+      vecFunc->eraseFromParent();
 
-      // shift attribs from ItVecArg to (ItVecArg+1)
-      auto ItVecMaskArg = ItVecArg;
+      // use new vector func in all places
+      vecFunc = knownVecFunc;
+      callMapping.vectorFn = knownVecFunc;
+      vectorizer.getPlatformInfo().addMapping(callMapping); // TODO this has already been handled by recursive invocation
 
-      auto ItNextArg = ItVecArg;
-      if (ItNextArg != vecFunc->arg_end()) {
-        ++ItNextArg;
-        while (ItNextArg != vecFunc->arg_end()) {
+    // Otw, start emitting code
+    } else {
+      vecFunc->setName(mangledName);
 
-#if 0
-          // FIXME this is what we actually want
-          auto VecArgAttribs = ItNextArg->getAttributes();
-          // TODO ItNextVecArg->setAttributes(VecArgAttribs);
-#else
-          // this is a temporary work around
-          ItNextArg->removeAttr(Attribute::Returned);
-          ItNextArg->removeAttr(Attribute::ReadOnly);
-          ItNextArg->removeAttr(Attribute::WriteOnly);
-#endif
+      // TODO copy last round results
+      VectorizationInfo vecInfo(funcRegion, recMapping);
+      vectorizer.analyze(vecInfo, DT, PDT, LI);
+      vecFunc->copyAttributesFrom(&scaFunc);
 
-          ++ItVecArg;
+      // fix up the argument attributes that have been copied over.
+      // (all vector arguments after mask pos are off-by-one if there is a vector mask arg)
+      if (callMapping.maskPos >= 0) {
+        auto ItVecArg = vecFunc->arg_begin();
+        std::advance(ItVecArg, callMapping.maskPos);
+
+        // shift attribs from ItVecArg to (ItVecArg+1)
+        auto ItVecMaskArg = ItVecArg;
+
+        auto ItNextArg = ItVecArg;
+        if (ItNextArg != vecFunc->arg_end()) {
           ++ItNextArg;
+          while (ItNextArg != vecFunc->arg_end()) {
+
+  #if 0
+            // FIXME this is what we actually want
+            auto VecArgAttribs = ItNextArg->getAttributes();
+            // TODO ItNextVecArg->setAttributes(VecArgAttribs);
+  #else
+            // this is a temporary work around
+            ItNextArg->removeAttr(Attribute::Returned);
+            ItNextArg->removeAttr(Attribute::ReadOnly);
+            ItNextArg->removeAttr(Attribute::WriteOnly);
+  #endif
+
+            ++ItVecArg;
+            ++ItNextArg;
+          }
         }
+
+        // TODO set proper mask attributes
+        ItVecMaskArg->removeAttr(Attribute::Returned);
+        ItVecMaskArg->removeAttr(Attribute::ReadOnly);
       }
 
-      // TODO set proper mask attributes
-      ItVecMaskArg->removeAttr(Attribute::Returned);
-      ItVecMaskArg->removeAttr(Attribute::ReadOnly);
+      // fix
+      // FIXME we can not copy the
+      //
+      // vecFunc->setName(vecFuncName); // TODO use an OpenMP "pragma omp SIMD" name.
+
+      // discard temporary mapping
+      vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
+      // register final mapping
+      callMapping.vectorFn = vecFunc;
+      vectorizer.getPlatformInfo().addMapping(callMapping);
+
+  // fill in SIMD code
+      vectorizer.linearize(vecInfo, DT, PDT, LI, &BPI);
+      vectorizer.vectorize(vecInfo, DT, LI, SE, MDR, nullptr);
+      vectorizer.finalize();
     }
-
-    // fix
-    // FIXME we can not copy the
-    //
-    // vecFunc->setName(vecFuncName); // TODO use an OpenMP "pragma omp SIMD" name.
-
-    // discard temporary mapping
-    vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
-    // register final mapping
-    callMapping.vectorFn = vecFunc;
-    vectorizer.getPlatformInfo().addMapping(callMapping);
-
-// fill in SIMD code
-    vectorizer.linearize(vecInfo, DT, PDT, LI, &BPI);
-    vectorizer.vectorize(vecInfo, DT, LI, SE, MDR, nullptr);
-    vectorizer.finalize();
 
     // can dispose of temporary function now
     clonedFunc->eraseFromParent();
@@ -282,7 +303,7 @@ RecursiveResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType &
     return nullptr;
   }
 
-  Report() << "recursively vectorized function " << funcName << "\n";
+  Report() << "recursively vectorized function " << funcName << " -> " << recResolver->getVectorName() << "\n";
   return std::unique_ptr<FunctionResolver>(std::move(recResolver));
 }
 

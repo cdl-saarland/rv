@@ -4,8 +4,6 @@
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
-//
-// @author kloessner, simon
 
 #include <iostream>
 #include <sstream>
@@ -92,7 +90,7 @@ unsigned VectorShape::getAlignmentGeneral() const {
       return gcd(alignment, (unsigned) std::abs(stride));
   }
   else
-    return alignment; // General alignment in case of varying or undef shapes
+    return alignment; // General alignment in case of varying shape
 }
 
 bool VectorShape::operator==(const VectorShape &a) const {
@@ -284,5 +282,4 @@ VectorShape::parse(StringRef text, int & nextPos) {
   }
 }
 
-
-}
+} // namespace rv

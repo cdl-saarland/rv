@@ -8,7 +8,7 @@
 #include <llvm/Transforms/Utils/ValueMapper.h>
 
 #include "rv/analysis/reductions.h"
-#include "rv/vectorShape.h"
+#include "rv/shape/vectorShape.h"
 
 #include <set>
 #include <map>

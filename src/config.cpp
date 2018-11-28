@@ -1,7 +1,29 @@
 #include "rv/config.h"
 #include "report.h"
 
-using namespace rv;
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Function.h>
+#include <llvm/Target/TargetMachine.h>
+
+#include <sstream>
+
+using namespace llvm;
+
+namespace {
+
+inline
+std::string
+ulp_to_string(int ulp) {
+  std::stringstream ss;
+  ss << (ulp / 10) << '.' << (ulp % 10);
+  return ss.str();
+}
+
+}
+
+
+namespace rv {
+
 
 Config::Config()
 : vaMethod(VA_Full)
@@ -26,7 +48,11 @@ Config::Config()
 , enableIRPolish(CheckFlag("RV_ENABLE_POLISH"))
 , enableHeuristicBOSCC(CheckFlag("RV_EXP_BOSCC"))
 
-// feature flags (FIXME: infer from function attributes)
+// enable greedy inter-procedural vectorization
+, enableGreedyIPV(CheckFlag("RV_IPV"))
+, maxULPErrorBound(10)
+
+// feature flags
 , useVE(true)
 , useSSE(false)
 , useAVX(false)
@@ -34,32 +60,96 @@ Config::Config()
 , useAVX512(false)
 , useNEON(false)
 , useADVSIMD(false)
-, useSLEEF(false)
-{
+{}
+
+Config
+Config::createDefaultConfig() {
+  rv::Config config;
+
   char * rawArch = getenv("RV_ARCH");
-  if (!rawArch) return;
+  if (!rawArch) return config;
 
   std::string arch = rawArch;
   if (arch == "avx2") {
     Report() << "RV_ARCH: configured for avx2!\n";
-    useAVX2 = true;
-    useSSE = true;
+    config.useAVX2 = true;
+    config.useSSE = true;
   } else if (arch == "avx512") {
     Report() << "RV_ARCH: configured for avx512!\n";
-    useAVX512 = true;
-    useAVX2 = true;
-    useSSE = true;
+    config.useAVX512 = true;
+    config.useAVX2 = true;
+    config.useSSE = true;
   } else if (arch == "advsimd") {
     Report() << "RV_ARCH: configured for arm advsimd!\n";
-    useADVSIMD = true;
+    config.useADVSIMD = true;
   } else if (arch == "ve") {
     Report() << "RV_ARCH: configured for nec VE!\n";
-    useVE = true;
+    config.useVE = true;
   }
+
+  return config;
+}
+
+void
+for_elems(StringRef listText, std::function<bool(StringRef elem)> UserFunc) {
+  size_t NextPos;
+  size_t Start = 0;
+
+  if (listText.empty()) return;
+
+  do {
+    NextPos = listText.find(',', Start);
+    size_t N = (NextPos == StringRef::npos) ? NextPos : NextPos - Start;
+    auto elem = listText.substr(Start, N);
+    bool CarryOn = UserFunc(elem);
+    if (!CarryOn) return;
+
+    Start = NextPos + 1;
+  } while (NextPos != StringRef::npos);
+}
+
+Config
+Config::createForFunction(Function & F) {
+  Config config;
+
+  // maps a target-feature entry to a handler
+  const std::map<std::string, std::function<void()>> handlerMap = {
+      {"+sse2", [&config]() { config.useSSE = true; } },
+      {"+avx", [&config]() { config.useAVX = true; } },
+      {"+avx2", [&config]() { config.useAVX2 = true; } },
+      {"+avx512f", [&config]() { config.useAVX512 = true; } },
+      {"+neon", [&config]() { config.useADVSIMD = true; config.useNEON = true; } }
+  };
+
+  auto attribSet = F.getAttributes().getFnAttributes();
+  // parse SIMD signatures
+  for (auto attrib : attribSet) {
+    if (!attrib.isStringAttribute()) continue;
+    StringRef attribText = attrib.getKindAsString();
+
+    if (attribText.size() < 2) continue;
+
+    if (attribText != "target-features") {
+      continue;
+    }
+
+    // process all target-features
+    for_elems(attrib.getValueAsString(), [&handlerMap](StringRef elem) {
+      if (elem.size() == 0 || elem[0] != '+') return true;
+
+      auto ItHandler = handlerMap.find(elem.str());
+      if (ItHandler == handlerMap.end()) return true;
+      ItHandler->second();
+      return true;
+    });
+
+  }
+
+  return config;
 }
 
 std::string
-rv::to_string(Config::VAMethod vam) {
+to_string(Config::VAMethod vam) {
   switch(vam) {
     case Config::VA_Full: return "sa-lattice";
     case Config::VA_TopBot: return "topbot-lattice";
@@ -90,7 +180,9 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
         << ", enableStructOpt = " << config.enableStructOpt
         << ", enableSROV = " << config.enableSROV
         << ", enableHeuristicBOSCC = " << config.enableHeuristicBOSCC
-        << ", enableIRPolish = " << config.enableIRPolish;
+        << ", enableIRPolish = " << config.enableIRPolish
+        << ", greedyIPV = " << config.enableGreedyIPV
+        << ", maxULPErrorBound = " << ulp_to_string(config.maxULPErrorBound);
 }
 
 static void
@@ -111,3 +203,7 @@ Config::print(llvm::raw_ostream & out) const {
   printFeatureFlags(*this, out);
   out << "\n}\n";
 }
+
+
+
+} // namespace rv

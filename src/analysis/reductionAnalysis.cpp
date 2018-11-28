@@ -14,7 +14,7 @@
 #include <llvm/IR/IRBuilder.h>
 
 #include "rvConfig.h"
-#include "rv/vectorShape.h"
+#include "rv/shape/vectorShape.h"
 #include "rv/annotations.h"
 
 #if -1
@@ -429,7 +429,7 @@ ReductionAnalysis::analyze(Loop & hostLoop) {
       reductMap[inst] = red;
     }
 
-    red->dump();
+    IF_DEBUG_RED { red->dump(); }
   }
 }
 

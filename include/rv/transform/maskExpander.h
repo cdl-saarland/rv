@@ -48,22 +48,13 @@ class MaskExpander {
     loopPhis[&loop] = &phi;
   }
 
-  // request a mask for this loop and its child loops
-  // returns the outer most loop this loop exits to
-  llvm::Loop* requestLoopMasks(llvm::Loop & loop);
-
-
   // attach entry masks to loops (post step)
   void patchLoopMasks();
 
-  void gatherLoopDivergenceInfo(llvm::Loop & loop,
-                                VectorShape & oLoopDivergenceShape,
-                                EdgeVec & oDivergentExits,
-                                EdgeVec & oKillExits);
 public:
 // lazy mask creation
   // request the block-local branch predicate
-  llvm::Value & requestBranchMask(llvm::TerminatorInst & term,
+  llvm::Value & requestBranchMask(llvm::Instruction & term,
                                   int succIdx,
                                   llvm::IRBuilder<> & builder);
 
@@ -71,14 +62,14 @@ public:
   llvm::Value & requestBlockMask(llvm::BasicBlock & BB);
 
   // live mask on this edge
-  llvm::Value & requestJoinedEdgeMask(llvm::TerminatorInst & term, IndexSet succIdx);
+  llvm::Value & requestJoinedEdgeMask(llvm::Instruction & term, IndexSet succIdx);
 
   // live mask on this edge (given that the destinations live mask holds)
-  llvm::Value & requestEdgeMask(llvm::TerminatorInst & term, int succIdx);
+  llvm::Value & requestEdgeMask(llvm::Instruction & term, int succIdx);
   llvm::Value & requestEdgeMask(llvm::BasicBlock & source, llvm::BasicBlock & dest);
 
   // the successor indices of termInst that BB post-dominates
-  void getPredecessorEdges(const llvm::TerminatorInst & termInst,
+  void getPredecessorEdges(const llvm::Instruction & termInst,
                            const llvm::BasicBlock & BB,
                            IndexSet & oPredIndices) const;
 
@@ -98,7 +89,7 @@ public:
     }
   }
 
-  llvm::Value* getEdgeMask(const llvm::TerminatorInst & branch, int succIdx) const {
+  llvm::Value* getEdgeMask(const llvm::Instruction & branch, int succIdx) const {
     auto * branchBlock = branch.getParent();
     auto it = edgeMasks.find(branchBlock);
     if (it == edgeMasks.end()) return nullptr;
@@ -106,7 +97,7 @@ public:
     return edgeVec[succIdx].edgeMask;
   }
 
-  llvm::Value* getBranchMask(const llvm::TerminatorInst & branch, int succIdx) const {
+  llvm::Value* getBranchMask(const llvm::Instruction & branch, int succIdx) const {
     auto * branchBlock = branch.getParent();
     auto it = edgeMasks.find(branchBlock);
     if (it == edgeMasks.end()) return nullptr;

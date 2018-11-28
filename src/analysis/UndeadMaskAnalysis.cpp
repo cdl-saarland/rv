@@ -133,7 +133,7 @@ UndeadMaskAnalysis::isUndead(const Value & mask, const BasicBlock & where) {
 
   while (domNode) {
     const auto * block = domNode->getBlock();
-    if (!vecInfo.getRegion()->contains(block)) return false; // TODO query the entry predicate
+    if (!vecInfo.getRegion().contains(block)) return false; // TODO query the entry predicate
 
   // whether the unique predecessor of this block has an edge predicate that implies that at least one lane is live in the mask predicate
     int succIdx;

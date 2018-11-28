@@ -10,6 +10,8 @@ using namespace llvm;
 
 namespace rv {
 
+
+
 void
 addPreparatoryPasses(legacy::PassManagerBase & PM) {
    PM.add(createLoopSimplifyPass());
@@ -26,14 +28,29 @@ addCleanupPasses(legacy::PassManagerBase & PM) {
 }
 
 void
-addOuterLoopVectorizer(legacy::PassManagerBase & PM, Config config) {
-   // PM.add(rv::createCNSPass());
+addOuterLoopVectorizer(legacy::PassManagerBase & PM) {
    PM.add(rv::createLoopVectorizerPass());
 }
 
 
-void addWholeFunctionVectorizer(llvm::legacy::PassManagerBase & PM) {
+void
+addWholeFunctionVectorizer(llvm::legacy::PassManagerBase & PM) {
   PM.add(rv::createWFVPass());
+}
+
+void
+addRVPasses(llvm::legacy::PassManagerBase & PM) {
+  // normalize loops
+  addPreparatoryPasses(PM);
+
+  // vectorize scalar functions that have VectorABI attributes
+  addWholeFunctionVectorizer(PM);
+
+  // vectorize annotated loops
+  addOuterLoopVectorizer(PM);
+
+  // DCE, instcombine, ..
+  addCleanupPasses(PM);
 }
 
 }

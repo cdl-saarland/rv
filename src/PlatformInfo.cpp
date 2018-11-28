@@ -15,6 +15,8 @@
 
 #include "rvConfig.h"
 
+#include <sstream>
+
 using namespace llvm;
 
 namespace rv {
@@ -31,7 +33,7 @@ PlatformInfo::registerDeclareSIMDFunction(Function & F) {
     if (attribText.size() < 2) continue;
 
     VectorMapping vecMapping;
-    if (!parseVectorMapping(F, attribText, vecMapping, false)) continue;
+    if (!parseVectorMapping(F, attribText, vecMapping, true)) continue;
     addMapping(std::move(vecMapping));
   }
 }
@@ -163,5 +165,32 @@ PlatformInfo::print(llvm::raw_ostream & out) const {
   }
   out << "] }\n";
 }
+
+std::string
+PlatformInfo::createMangledVectorName(StringRef scalarName, const VectorShapeVec & argShapes, int vectorWidth, int maskPos) {
+  // TODO use VectorABI mangling when aplicable
+
+  std::stringstream ss;
+  ss
+    << scalarName.str()
+    << "_v" << vectorWidth << "_";
+
+  // mangle mask position (if defined)
+  if (maskPos >= 0) {
+    ss << "M" << maskPos;
+  } else {
+    ss << "N";
+  }
+
+  ss << "_";
+
+  // attach arg shapes
+  for (const auto & argShape : argShapes) {
+    ss << argShape.serialize();
+  }
+
+  return ss.str();
+}
+
 
 }

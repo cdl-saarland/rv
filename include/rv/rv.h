@@ -90,6 +90,7 @@ public:
 
     PlatformInfo & getPlatformInfo() const { return platInfo; }
     const Config & getConfig() { return config; }
+    llvm::Module & getModule() const { return getPlatformInfo().getModule(); }
 
 private:
     Config config;

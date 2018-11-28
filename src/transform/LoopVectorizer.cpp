@@ -22,6 +22,7 @@
 #include "rv/analysis/costModel.h"
 #include "rv/transform/remTransform.h"
 
+#include "rv/config.h"
 #include "rvConfig.h"
 #include "rv/rvDebug.h"
 
@@ -177,15 +178,9 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
   int VectorWidth = getAnnotatedVectorWidth(L);
 
+  char * userWidthText = getenv("RV_FORCE_WIDTH");
   bool hasFixedWidth = false;
-  if (VectorWidth == 0 || VectorWidth == 1) {
-    char * userWidthText = getenv("RV_FORCE_WIDTH");
-    if (!userWidthText) {
-      if (enableDiagOutput) {
-        Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Dep dist was "  << depDist << " Vector width was " << VectorWidth << "\n";
-      }
-      return false;
-    }
+  if (userWidthText) {
     hasFixedWidth = true;
     VectorWidth = atoi(userWidthText);
     if (enableDiagOutput) Report() << "loopVecPass: with user-provided vector width (RV_FORCE_WIDTH=" << VectorWidth << ")\n";
@@ -193,17 +188,19 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
 // pick a vectorization factor (unless user override is set)
   if (!hasFixedWidth) {
-    CostModel costModel(vectorizer->getPlatformInfo());
+    size_t initialWidth = VectorWidth == 0 ? depDist : VectorWidth;
+
+    CostModel costModel(vectorizer->getPlatformInfo(), config);
     LoopRegion tmpLoopRegionImpl(L);
     Region tmpLoopRegion(tmpLoopRegionImpl);
-    size_t refinedWidth = costModel.pickWidthForRegion(tmpLoopRegion, VectorWidth); // TODO run VA first
+    size_t refinedWidth = costModel.pickWidthForRegion(tmpLoopRegion, initialWidth); // TODO run VA first
 
     if (refinedWidth <= 1) {
       if (enableDiagOutput) { Report() << "loopVecPass, costModel: vectorization not beneficial\n"; }
       return false;
     } else if (refinedWidth != (size_t) VectorWidth) {
       if (enableDiagOutput) {
-        Report() << "loopVecPass, costModel: refined vector width to " << refinedWidth << " from ";
+        Report() << "loopVecPass, costModel: refined vector width to " << DepDistToString(refinedWidth) << " from ";
         if (VectorWidth > 1) Report() << VectorWidth << "\n";
         else ReportContinue() << " unbounded\n";
       }
@@ -231,7 +228,8 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
   // print configuration banner once
   if (!introduced) {
-    config.print(Report());
+    Report() << " rv::Config: ";
+    config.print(ReportContinue());
     introduced = true;
   }
 
@@ -259,13 +257,21 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
       rv::Reduction * redInfo = reda->getReductionInfo(*phi);
       IF_DEBUG { errs() << "loopVecPass: header phi  " << *phi << " : "; }
 
+      // failure to derive a reduction descriptor
       if (!redInfo) {
-        errs() << "\n\tskip: unrecognized phi use in vector loop " << L.getName() << "\n";
+        Report() << "\n\tskip: unrecognized phi use in vector loop " << L.getName() << "\n";
         return false;
-      } else {
-        IF_DEBUG { redInfo->dump(); }
-        phiShape = redInfo->getShape(VectorWidth);
       }
+
+      // unsupported reduction kind
+      if (redInfo->kind == RedKind::Top) {
+        Report() << " can not vectorize this recurrence: "; redInfo->print(ReportContinue()); ReportContinue() << "\n";
+        return false;
+      }
+
+      // Otw, this is a privatizable reduction pattern
+      IF_DEBUG { redInfo->dump(); }
+      phiShape = redInfo->getShape(VectorWidth);
     }
 
     IF_DEBUG { errs() << "header phi " << phi->getName() << " has shape " << phiShape.str() << "\n"; }
@@ -364,7 +370,7 @@ bool LoopVectorizer::vectorizeLoopOrSubLoops(Loop &L) {
 }
 
 bool LoopVectorizer::runOnFunction(Function &F) {
-  // have we introduced or self? (reporting output)
+  // have we introduced ourself? (reporting output)
   enableDiagOutput = CheckFlag("LV_DIAG");
   introduced = false;
 
@@ -384,20 +390,26 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   this->SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   this->MDR = &getAnalysis<MemoryDependenceWrapperPass>().getMemDep();
   this->PB = &getAnalysis<BranchProbabilityInfoWrapperPass>().getBPI();
+  this->config = Config::createForFunction(F);
 
 // setup PlatformInfo
   TargetTransformInfo & tti = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
   TargetLibraryInfo & tli = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
   PlatformInfo platInfo(*F.getParent(), &tti, &tli);
 
-  // TODO query target capabilities
-  config.useSLEEF = true;
-
   // TODO translate fast-math flag to ULP error bound
+  addSleefResolver(config, platInfo);
 
-  addSleefResolver(config, platInfo, 35);
+  // enable inter-procedural vectorization
+  if (config.enableGreedyIPV) {
+    Report() << "Using greedy inter-procedural vectorization.\n";
+    addRecursiveResolver(config, platInfo);
+  }
+
   vectorizer.reset(new VectorizerInterface(platInfo, config));
 
+
+  if (enableDiagOutput) { platInfo.print(ReportContinue()); }
 
   std::vector<Loop*> loops;
   for (Loop *L : *LI) loops.push_back(L);

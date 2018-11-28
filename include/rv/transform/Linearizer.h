@@ -37,7 +37,6 @@ namespace llvm {
   class LoopInfo;
   class Loop;
   class BasicBlock;
-  class TerminatorInst;
 }
 
 namespace rv {
@@ -79,6 +78,8 @@ namespace rv {
       size_t numBlends;
       // number of simplified blends (including pre-existing blends)
       size_t numSimplifiedBlends;
+      // number of incoming values that were folded into the default input
+      size_t numRedundantIncomingValues;
 
   // relay logic
     // we need to defer these edges to we can schedule linearized blocks in between
@@ -248,7 +249,7 @@ namespace rv {
     RelayNode & getRelayUnchecked(unsigned i) { return relays[i]; }
     void mergeInReaching(RelayNode & dest, RelayNode & source);
 
-    bool needsFolding(llvm::TerminatorInst & branch);
+    bool needsFolding(llvm::Instruction & termInst);
 
   // transformations
     // partially linearize a range of blocks in the blockIndex
@@ -260,7 +261,7 @@ namespace rv {
 
     // process all blocks and branches in the loop
     // if that loop is divergent, processLoop will make it uniform before processing its body
-    int processLoop(int headId, llvm::Loop * loop);
+    int processLoop(int headId, llvm::Loop & loop);
 
     // update the relays for all branch targets of @block, linking them to @exitRelay
     void processBranch(llvm::BasicBlock & block, RelayNode * exitRelay, llvm::Loop * parentLoop);
@@ -326,14 +327,13 @@ namespace rv {
 
     VectorizationInfo & vecInfo;
     MaskExpander & maskEx;
-    Region * region;
     llvm::DominatorTree & dt;
     llvm::LoopInfo & li;
     llvm::Function & func;
     llvm::LLVMContext & context;
 
   // region support
-    bool inRegion(const llvm::BasicBlock & block) const { return !region || region->contains(&block); }
+    bool inRegion(const llvm::BasicBlock & block) const { return vecInfo.inRegion(block); }
 
   // topological sorted blocks in the region
     BlockIndex blockIndex;
@@ -401,7 +401,6 @@ namespace rv {
 
     , vecInfo(_vecInfo)
     , maskEx(_maskEx)
-    , region(vecInfo.getRegion())
     , dt(_dt)
     , li(_li)
     , func(vecInfo.getScalarFunction()) // TODO really always our target?

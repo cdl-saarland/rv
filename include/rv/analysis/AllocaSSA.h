@@ -86,17 +86,19 @@ enum DescType : int32_t {
 
 struct Desc {
   DescType descType;
+  const llvm::BasicBlock * place;
 
-  Desc(DescType _descType)
+  Desc(DescType _descType, const llvm::BasicBlock* _place)
   : descType(_descType)
+  , place(_place)
   {}
 };
 
 struct Join : public Desc {
   PtrProvenance provSet; // affected allocations if this is a join of divergent, disjoint paths
 
-  Join()
-  : Desc(DescType::JoinDesc)
+  Join(const llvm::BasicBlock * _place)
+  : Desc(DescType::JoinDesc, _place)
   {}
 };
 
@@ -104,7 +106,7 @@ struct Effect : public Desc {
   const llvm::Instruction * inst;
 
   Effect(const llvm::Instruction * _inst)
-  : Desc(DescType::EffectDesc)
+  : Desc(DescType::EffectDesc, _inst ? _inst->getParent() : nullptr)
   , inst(_inst)
   {}
 };
@@ -133,7 +135,7 @@ class AllocaSSA {
 
     BlockSummary(const llvm::BasicBlock & _bb)
     : BB(_bb)
-    , allocJoin()
+    , allocJoin(&_bb)
     {}
   };
 
