@@ -36,14 +36,21 @@ GenericTransfer(rv::VectorShape a, Shapes... nextShapes) {
 }
 
 
+// whether the effect of \p func is idempotant when calle with the same argument values.
 static
 bool
-HasSideEffects(const Function & func) {
-  if (func.hasFnAttribute(Attribute::ReadOnly) || func.hasFnAttribute(Attribute::ReadNone)) {
-    return false;
+IsIdempotent(const Function & func) {
+  auto id = func.getIntrinsicID();
+
+  if (id == Intrinsic::ve_lvl) {
+    return true;
   }
 
-  return true;
+  if (func.hasFnAttribute(Attribute::ReadOnly) || func.hasFnAttribute(Attribute::ReadNone)) {
+    return true;
+  }
+
+  return false;
 }
 
 
@@ -223,7 +230,7 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       }
 
     // safe defaults in case we do not know anything about this function.
-      bool isUniformCall = allArgsUniform && !HasSideEffects(*callee);
+      bool isUniformCall = allArgsUniform && IsIdempotent(*callee);
       if (isUniformCall) return VectorShape::uni();
 
       return VectorShape::varying();
