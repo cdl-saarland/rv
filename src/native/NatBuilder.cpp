@@ -2460,21 +2460,16 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
 
 // new generic code path
   if (!config.enableIRPolish) {
-    Intrinsic::ID funcID = isRv_all ? Intrinsic::experimental_vector_reduce_and : Intrinsic::experimental_vector_reduce_or;
-    auto & redFunc = *Intrinsic::getDeclaration(&platInfo.getModule(), funcID, {vector->getType()});
-    return builder.CreateCall(&redFunc, vector, "red_mask");
+    RedKind kind = isRv_all ? RedKind::And : RedKind::Or;
+    return &CreateVectorReduce(builder, kind, *vector, nullptr);
   }
 
-// old IR polish based code path
+// legacy IR-polisher based code path
   if (isRv_all) {
     vector = builder.CreateNot(vector, "rvall_cond_not");
   }
 
   Value * ptest = nullptr;
-  // TODO from LLVM >= 5.0 use reduction intrinsics
-  // rv_all(x) == !rv_any(!x)
-  // this is a workaround until LLVM reduction intrinsics are available
-  // emit a rv_ptest intrinsic
   auto * redFunc = platInfo.requestVectorMaskReductionFunc("rv_reduce_or", vector->getType()->getVectorNumElements());
   ptest = builder.CreateCall(redFunc, vector, "ptest");
 
