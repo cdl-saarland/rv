@@ -97,7 +97,8 @@ CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vecVal, Value
   Intrinsic::ID ID = GetIntrinsicID(redKind, elemTy);
   if (ID != Intrinsic::not_intrinsic) {
     auto & mod = *builder.GetInsertBlock()->getParent()->getParent();
-    auto & redFunc = *Intrinsic::getDeclaration(&mod, ID, vecVal.getType());
+    auto & vecTy = *vecVal.getType();
+    auto & redFunc = *Intrinsic::getDeclaration(&mod, ID, {vecTy.getVectorElementType(), &vecTy});
     auto & redVal = *builder.CreateCall(&redFunc, &vecVal, "red" + to_string(redKind));
 
     // add init val (if applicable)

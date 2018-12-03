@@ -771,7 +771,9 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
   Value *reduction;
   if (shape.isVarying()) {
     Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
-    reduction = createPTest(vecPredicate, isRv_all);
+    RedKind kind = isRv_all ? RedKind::And : RedKind::Or;
+    reduction = &CreateVectorReduce(builder, kind, *vecPredicate, nullptr);
+    // reduction = createPTest(vecPredicate, isRv_all);
   } else {
     reduction = requestScalarValue(predicate);
   }
