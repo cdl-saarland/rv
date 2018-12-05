@@ -386,26 +386,9 @@ namespace rv {
 
   // simplify blend code
     size_t simplifyBlends();
-  public:
-    Linearizer(VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _dt, llvm::LoopInfo & _li)
-    : numUniformAssignments(0)
-    , numPreservedAssignments(0)
-    , numFoldedAssignments(0)
-    , numDivertedHeads(0)
-    , numDelayedReturns(0)
-    , numFoldedBranches(0)
-    , numPreservedBranches(0)
-    , numUniformLoops(0)
-    , numBlends(0)
-    , numSimplifiedBlends(0)
 
-    , vecInfo(_vecInfo)
-    , maskEx(_maskEx)
-    , dt(_dt)
-    , li(_li)
-    , func(vecInfo.getScalarFunction()) // TODO really always our target?
-    , context(func.getContext())
-    {}
+  public:
+    Linearizer(VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _dt, llvm::LoopInfo & _li);
 
     void run();
   };

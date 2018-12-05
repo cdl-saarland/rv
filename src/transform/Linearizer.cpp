@@ -56,6 +56,26 @@ using namespace llvm;
 
 namespace rv {
 
+Linearizer::Linearizer(VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _dt, llvm::LoopInfo & _li)
+: numUniformAssignments(0)
+, numPreservedAssignments(0)
+, numFoldedAssignments(0)
+, numDivertedHeads(0)
+, numDelayedReturns(0)
+, numFoldedBranches(0)
+, numPreservedBranches(0)
+, numUniformLoops(0)
+, numBlends(0)
+, numSimplifiedBlends(0)
+, numRedundantIncomingValues(0)
+, vecInfo(_vecInfo)
+, maskEx(_maskEx)
+, dt(_dt)
+, li(_li)
+, func(vecInfo.getScalarFunction())
+, context(func.getContext())
+{}
+
 void
 Linearizer::addToBlockIndex(BasicBlock & block) {
   assert(relays.size() < INT_MAX);
@@ -571,7 +591,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
   numFoldedAssignments += blocks.size() - 1;
 
-  int phiRedundantIncomingValues = hasShadowInput ? 0 : -1;
+  int phiRedundantIncomingValues = 0;
 
   auto phiShape = vecInfo.getVectorShape(phi);
   for (size_t i = 0; i < blocks.size(); ++i) {
@@ -617,7 +637,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
   // stat update
   assert(phiRedundantIncomingValues >= 0);
-  numRedundantIncomingValues += (size_t) phiRedundantIncomingValues;
+  numRedundantIncomingValues += (size_t) std::max<int>(0, phiRedundantIncomingValues - (int) hasShadowInput);
 
   return blendedVal;
 }
