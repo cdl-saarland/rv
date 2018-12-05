@@ -35,7 +35,7 @@
 #include <map>
 #include <set>
 
-#if 1
+#if 0
 #define IF_DEBUG_REM IF_DEBUG
 #else
 #define IF_DEBUG_REM if (true)
@@ -69,7 +69,8 @@ UnwindCasts(Value* val) {
 }
 
 class
-BranchCondition {
+BranchCondition { // LoopExitCondition
+  bool loopExitOnTrue;
   CmpInst & cmp;
   int cmpReductIdx;
   StridePattern & sp;
@@ -77,8 +78,12 @@ BranchCondition {
 
 public:
 
-  BranchCondition(llvm::CmpInst & _cmp, int _cmpReductIdx, StridePattern & _sp, int vectorWidth)
-  : cmp(_cmp)
+  bool
+  exitsOnTrue() const { return loopExitOnTrue; }
+
+  BranchCondition(bool _loopExitOnTrue, llvm::CmpInst & _cmp, int _cmpReductIdx, StridePattern & _sp, int vectorWidth)
+  : loopExitOnTrue(_loopExitOnTrue)
+  , cmp(_cmp)
   , cmpReductIdx(_cmpReductIdx)
   , sp(_sp)
   , redShape(sp.getShape(vectorWidth))
@@ -86,11 +91,25 @@ public:
 
   // return a branch condition object if this condition can be transformed
   static BranchCondition *
-  analyze(llvm::CmpInst & cmp, int vectorWidth, ReductionAnalysis & reda, Loop & loop) {
+  analyze(llvm::BranchInst & loopExitBr, int vectorWidth, ReductionAnalysis & reda, Loop & loop) {
+    if (!loopExitBr.isConditional()) {
+      Report() << "loopExitCond: not an conditional loop exit!\n";
+      return nullptr;
+    }
+
+    const bool loopExitOnTrue = !loop.contains(loopExitBr.getSuccessor(0));
+
+    auto * testCmp = dyn_cast<ICmpInst>(loopExitBr.getOperand(0));
+    if (!testCmp) {
+      Report() << "loopExitCond: not an ICmpInst loop exit!\n";
+      return nullptr;
+    }
+    ICmpInst & cmp = *testCmp;
+
     int reductIdx = -1;
     StridePattern * red = nullptr;
 
-    for (size_t i = 0; i < cmp.getNumOperands(); ++i) {
+    for (int i = 0; i < (int) cmp.getNumOperands(); ++i) {
       auto * opVal = cmp.getOperand(i);
       auto * inst = dyn_cast<Instruction>(opVal);
 
@@ -106,13 +125,13 @@ public:
 
       auto * valRed = reda.getStrideInfo(*inst);
       if (!valRed) {
-        Report() << "reda: is not an inductive stride " << *inst << "\n";
+        Report() << "loopExitCond: is not an inductive stride " << *inst << "\n";
         // loop carried operand is not part of a recognized reduction -> abort
         return nullptr;
       }
 
       if (reductIdx > -1) {
-        Report() << "reda: both cmp operands are loop carried " << *inst << "\n";
+        Report() << "loopExitCond: both cmp operands are loop carried " << *inst << "\n";
         return nullptr; // multiple loop carried values enter this cmp -> abort
       }
 
@@ -121,19 +140,22 @@ public:
     }
 
     if (!red) {
-      Report() << "reda: branch condition does not operate on inductive strides " << cmp << "\n";
+      Report() << "loopExitCond: branch condition does not operate on inductive strides " << cmp << "\n";
       return nullptr;
     }
 
-    return new BranchCondition(cmp, reductIdx, *red, vectorWidth);
+    return new BranchCondition(loopExitOnTrue, cmp, reductIdx, *red, vectorWidth);
   }
 
   /// re-synthesize this condition with builder @builder
   // call embedFunc for all loop carred instructions
   // the test will be true if it applies for all iterations from [phi to phi + iterOffset]
   Value&
-  synthesize(bool exitOnTrue, int iterOffset, std::string suffix, IRBuilder<> & builder, std::set<Value*> * valueSet, std::function<IterValue (Instruction&)> embedFunc) {
+  synthesize(int iterOffset, std::string suffix, IRBuilder<> & builder, std::set<Value*> * valueSet, std::function<IterValue (Instruction&)> embedFunc) {
     auto * origReduct = cast<Instruction>(cmp.getOperand(cmpReductIdx));
+
+    // used to keep track
+    bool tmpExitOnTrue = loopExitOnTrue;
 
     // the returned value evaluates to the mapped requested value at iteration offset @embReduct.timeOffset
     IterValue embReduct = embedFunc(*origReduct);
@@ -150,35 +172,81 @@ public:
       return *clonedCmp;
     }
 
-  // iteration interval test
-    bool nswFlag = sp.reductor->hasNoSignedWrap();
-    bool nuwFlag = sp.reductor->hasNoUnsignedWrap();
+  // normalize the loop exit condition
+    // this implicitly assumes that the loop iteration variable I is incremented by a constant C without wrapping
+    const bool nswFlag = sp.reductor->hasNoSignedWrap();
+    const bool nuwFlag = sp.reductor->hasNoUnsignedWrap();
 
-    // lift the predicate form NE/EQ to LT/GT
-    // the exit is taken on (%v == %n) send to exit if %V >= %n (if posStride)
-    auto cmpPred = clonedCmp->getPredicate();
-    if ((cmpPred == CmpInst::ICMP_EQ) || (cmpPred == CmpInst::ICMP_NE)) {
-      bool posStride = redShape.getStride() > 0;
+    const auto cmpPred = clonedCmp->getPredicate();
+    CmpInst::Predicate adjustedPred = cmpPred;
 
-      CmpInst::Predicate adjustedPred;
-      if (nswFlag) {
-        adjustedPred  = (exitOnTrue ^ posStride) ? CmpInst::ICMP_SGE : CmpInst::ICMP_SLT;
-      } else {
-        assert(nuwFlag && "can not extrapolate wrapping exit conditions");
-        assert(sp.reductor->hasNoUnsignedWrap());
-        adjustedPred  = (exitOnTrue ^ posStride) ? CmpInst::ICMP_UGE : CmpInst::ICMP_ULT;
-      }
-
-      clonedCmp->setPredicate(adjustedPred);
+    // (negatePhi) normalize to positive increments
+    // "br (i < n), exit, loop" -> "br (-i > n), exit, loop"
+    int incStep = redShape.getStride();
+    bool negatePhi = false;
+    if (incStep < 0) {
+      negatePhi = true;
+      adjustedPred = CmpInst::getSwappedPredicate(adjustedPred);
     }
 
-    // adjust iteration value for the tested iteration
+    // br (i != n), A, B --> br (i == n) B, A
+    if (cmpPred == CmpInst::ICMP_NE) {
+      adjustedPred = CmpInst::ICMP_EQ; // for completeness
+      tmpExitOnTrue = !tmpExitOnTrue;
+    }
+
+    // (exitWhenEqual) determine whether the exit will be taken on "phi == n"
+    bool exitWhenEqual = false;
+    if (
+        // br (i < n), loop, exit
+        (((cmpPred == CmpInst::ICMP_SLT) || (cmpPred == CmpInst::ICMP_ULT)) && !tmpExitOnTrue) ||
+        // br (i >= n), exit, loop
+        (((cmpPred == CmpInst::ICMP_SGE) || (cmpPred == CmpInst::ICMP_UGE)) && tmpExitOnTrue) ||
+        // br (i == n), exit, loop
+        ((cmpPred == CmpInst::ICMP_EQ) && tmpExitOnTrue)
+    ) {
+          exitWhenEqual = true;
+    }
+
+    // br (i == n), A, B --> br (i >= n), A, B
+    if (cmpPred == CmpInst::ICMP_EQ) {
+      assert(adjustedPred == CmpInst::ICMP_EQ);
+      if (nswFlag) {
+        adjustedPred = CmpInst::ICMP_SGE;
+      } else {
+        assert(nuwFlag && "can not extrapolate wrapping exit conditions");
+        adjustedPred = CmpInst::ICMP_UGE;
+      }
+    }
+
+    // return to orientation of the original branch (loopExitOnTrue)
+    if (tmpExitOnTrue != loopExitOnTrue) {
+      adjustedPred = CmpInst::getInversePredicate(adjustedPred);
+      tmpExitOnTrue = loopExitOnTrue;
+    }
+
+    // replace "-phi < n" with "phi > n"
+    if (negatePhi) {
+      adjustedPred = CmpInst::getSwappedPredicate(adjustedPred);
+    }
+
+    // finalize the predicate
+    clonedCmp->setPredicate(adjustedPred);
+
+  // determine the phi offset to test
+    assert(tmpExitOnTrue == loopExitOnTrue);
+    int offset = redShape.getStride() * effectiveOffset;
+
+    // dont test "phi", but "phi-1" if the cmp predicate is exit on equal
+    int offByOne = redShape.getStride() < 0 ? -1 : 1;
+
+    offset = offset - offByOne * (int) (!exitWhenEqual);
+
+  // emit the test
     auto & val = embReduct.val;
-    auto * adjusted = builder.CreateAdd(&val, ConstantInt::get(val.getType(), redShape.getStride() * effectiveOffset), "", nswFlag, nuwFlag);
+    auto * adjusted = builder.CreateAdd(&val, ConstantInt::get(val.getType(), offset), "", nswFlag, nuwFlag);
     if (isa<Instruction>(adjusted)) if (valueSet) valueSet->insert(adjusted);
     clonedCmp->setOperand(cmpReductIdx, adjusted);
-
-    // insert cmp
     builder.Insert(clonedCmp, cmp.getName().str() + suffix);
 
     if (valueSet) valueSet->insert(clonedCmp);
@@ -327,7 +395,11 @@ struct LoopTransformer {
     // TODO cost model / pre-conditions
     auto * vecLoopCond = constTrue;
 
-    BranchInst::Create(&vecHead, scalarGuardBlock, vecLoopCond, vecGuardBlock);
+    if (exitConditionBuilder.exitsOnTrue()) {
+      BranchInst::Create(scalarGuardBlock, &vecHead, vecLoopCond, vecGuardBlock);
+    } else {
+      BranchInst::Create(&vecHead, scalarGuardBlock, vecLoopCond, vecGuardBlock);
+    }
 
   // make the vector loop exit to vecToScalar
     auto * scaExiting = ScalarL.getExitingBlock();
@@ -496,10 +568,8 @@ struct LoopTransformer {
     // replicate the vector loop exit condition
     IRBuilder<> builder(&vecHead, vecHead.getTerminator()->getIterator());
 
-    bool exitOnTrue = ClonedL.contains(vecExitingBr.getSuccessor(0)); // false; // FIXME infer from program
-
     auto & exitVal =
-      exitConditionBuilder.synthesize(exitOnTrue, 2 * vectorWidth, ".vecExit", builder, &uniOverrides,
+      exitConditionBuilder.synthesize(2 * vectorWidth, ".vecExit", builder, &uniOverrides,
          [&](Instruction & inst) -> IterValue {
            assert (!isa<CallInst>(inst));
 
@@ -521,7 +591,7 @@ struct LoopTransformer {
              assert(reductors.find(&inst) != reductors.end() && "not testing a reductor");
              auto * matchingHeaderPhi = reductors[&inst];
              headerPhi = matchingHeaderPhi;
-             offset = 1; // testing the reductor
+             offset = -1; // phi is at iteration -1 relative to reductor
            }
 
            return IterValue(*headerPhi, offset);
@@ -560,11 +630,9 @@ struct LoopTransformer {
     // replicate the vector loop exit condition
     IRBuilder<> builder(vecGuardBlock, vecGuardBr.getIterator());
 
-    bool exitOnTrue = true; // FIXME
-
     // synthesize(int iterOffset, std::string suffix, IRBuilder<> & builder, std::function<Instruction& (Instruction&)> embedFunc) {
     auto & exitVal =
-      exitConditionBuilder.synthesize(exitOnTrue, vectorWidth, ".vecGuard", builder, nullptr,
+      exitConditionBuilder.synthesize(vectorWidth, ".vecGuard", builder, nullptr,
          [&](Instruction & inst) -> IterValue {
            assert (!isa<CallInst>(inst));
 
@@ -588,7 +656,7 @@ struct LoopTransformer {
              auto * matchingHeaderPhi = reductors[&inst];
              headerPhi = matchingHeaderPhi;
              // we are testing the reductor that evaluates to the next iteration value
-             offset = 1;
+             offset = -1; // phi is at iteration -1
            }
 
            // translate to vector loopt
@@ -602,7 +670,6 @@ struct LoopTransformer {
           }
       );
 
-    // TODO negate condition as necessary
     // use forwarded exit condition
     vecGuardBr.setCondition(&exitVal);
   }
@@ -759,13 +826,7 @@ RemainderTransform::analyzeExitCondition(llvm::Loop & L, int vectorWidth) {
     return nullptr;
   }
 
-  auto * exitingCmp = dyn_cast<CmpInst>(exitingBr->getCondition());
-  if (!exitingCmp) {
-    Report() << "remTrans: loop exit condition is not a compare: " << *exitingBr->getCondition() << "\n";
-    return nullptr;
-  }
-
-  return BranchCondition::analyze(*exitingCmp, vectorWidth, reda, L);
+  return BranchCondition::analyze(*exitingBr, vectorWidth, reda, L);
 }
 
 bool
@@ -846,7 +907,10 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
   // rebuild reduction information for cloned loop
   reda.analyze(clonedLoop);
 
-  IF_DEBUG Dump(F);
+  IF_DEBUG_REM {
+    errs() << "-- function after remTrans --\n";
+    Dump(F);
+  }
 
   delete branchCond;
 
