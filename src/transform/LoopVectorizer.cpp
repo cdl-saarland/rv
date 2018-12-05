@@ -18,6 +18,7 @@
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
 #include "rv/resolver/resolvers.h"
+#include "rv/analysis/loopAnnotations.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/analysis/costModel.h"
 #include "rv/transform/remTransform.h"
@@ -66,15 +67,6 @@ bool LoopVectorizer::canVectorizeLoop(Loop &L) {
 }
 
 int
-LoopVectorizer::getDependenceDistance(Loop & L) {
-  int vectorWidth = getAnnotatedVectorWidth(L);
-  if (vectorWidth > 0) return vectorWidth;
-
-  if (!canVectorizeLoop(L)) return 1;
-  return ParallelDistance; // fully parallel
-}
-
-int
 LoopVectorizer::getTripAlignment(Loop & L) {
   int tripCount = getTripCount(L);
   if (tripCount > 0) return tripCount;
@@ -102,49 +94,6 @@ LoopVectorizer::getTripCount(Loop &L) {
   return BTCVal + 1;
 }
 
-int LoopVectorizer::getAnnotatedVectorWidth(Loop &L) {
-  auto *LID = L.getLoopID();
-
-  // try to recover from latch
-  if (!LID) {
-    auto * latch = L.getLoopLatch();
-    LID = latch->getTerminator()->getMetadata("llvm.loop");
-    if (LID) IF_DEBUG { errs() << "Recovered loop MD from latch!\n"; }
-  }
-
-  if (!LID) return 0;
-
-  bool hasVectorizeEnable = false;
-
-  for (int i = 0, e = LID->getNumOperands(); i < e; i++) {
-    const MDOperand &Op = LID->getOperand(i);
-    auto *OpMD = dyn_cast<MDNode>(Op);
-    if (!OpMD || OpMD->getNumOperands() != 2)
-      continue;
-
-    auto *Str = dyn_cast<MDString>(OpMD->getOperand(0));
-    auto *Cst = dyn_cast<ConstantAsMetadata>(OpMD->getOperand(1));
-    if (!Str || !Cst)
-      continue;
-
-    if (Str->getString().equals("llvm.loop.vectorize.enable")) {
-      if (Cst->getValue()->isNullValue()) {
-        return 0;
-      } else {
-        hasVectorizeEnable = true;
-      }
-    }
-
-    if (Str->getString().equals("llvm.loop.vectorize.width")) {
-      if (auto *CstInt = dyn_cast<ConstantInt>(Cst->getValue()))
-        return CstInt->getSExtValue();
-    }
-  }
-
-  return hasVectorizeEnable ? -1 : 0;
-}
-
-
 Loop*
 LoopVectorizer::transformToVectorizableLoop(Loop &L, int VectorWidth, int tripAlign, ValueSet & uniformOverrides) {
   IF_DEBUG { errs() << "\tCreating scalar remainder Loop for " << L.getName() << "\n"; }
@@ -156,19 +105,18 @@ LoopVectorizer::transformToVectorizableLoop(Loop &L, int VectorWidth, int tripAl
   return preparedLoop;
 }
 
-std::string
-DepDistToString(int depDist) {
-  if (depDist == LoopVectorizer::ParallelDistance) {
-    return "unbounded";
-  } else {
-    return std::to_string(depDist);
-  }
-}
-
 bool
 LoopVectorizer::vectorizeLoop(Loop &L) {
 // check the dependence distance of this loop
-  int depDist = getDependenceDistance(L);
+  LoopMD mdAnnot = GetLoopAnnotation(L);
+
+  if (enableDiagOutput) { Report() << "loopVecPass: "; mdAnnot.print(Report()) << "\n"; }
+
+  // only trigger if vectorization hint is set
+  if (!mdAnnot.vectorizeEnable.safeGet(false)) return false;
+
+  iter_t depDist = mdAnnot.minDepDist.safeGet(ParallelDistance);
+
   if (depDist <= 1) {
     // too verbose
     if (enableDiagOutput) Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Min dependence distance was " << depDist << "\n";
@@ -178,10 +126,12 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   //
   int tripAlign = getTripAlignment(L);
 
-  int VectorWidth = getAnnotatedVectorWidth(L);
+  // use the explicitVectorWidth (if specified). Otherwise
+  bool hasFixedWidth = mdAnnot.explicitVectorWidth.isSet();
+  int VectorWidth = hasFixedWidth ? mdAnnot.explicitVectorWidth.get() : depDist;
 
+  // environment user override
   char * userWidthText = getenv("RV_FORCE_WIDTH");
-  bool hasFixedWidth = false;
   if (userWidthText) {
     hasFixedWidth = true;
     VectorWidth = atoi(userWidthText);

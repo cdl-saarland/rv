@@ -361,7 +361,7 @@ void VectorizationAnalysis::compute(const Function &F) {
       // allow incomplete inputs for PHI nodes
       New = vecShapeTrans.computeShapeForPHINode(cast<PHINode>(I));
       if (!New.isDefined())
-        pushMissingOperands(I);
+        pushMissingOperands(I); // FIXME this could diverge
     } else if (pushMissingOperands(I)) {
       // If any operand is bottom put them in the work list.
       continue;

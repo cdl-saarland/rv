@@ -31,6 +31,7 @@ add_rv_library(RV
   analysis/AllocaSSA.cpp
   analysis/costModel.cpp
   analysis/DFG.cpp
+  analysis/loopAnnotations.cpp
   analysis/predicateAnalysis.cpp
   analysis/VectorizationAnalysis.cpp
   analysis/reductionAnalysis.cpp

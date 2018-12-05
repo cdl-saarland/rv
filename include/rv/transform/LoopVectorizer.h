@@ -15,9 +15,8 @@
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "rv/transform/remTransform.h"
 #include "rv/analysis/reductionAnalysis.h"
+#include "rv/analysis/loopAnnotations.h"
 #include "rv/config.h"
-
-#include <limits>
 
 namespace llvm {
   class Loop;
@@ -58,7 +57,6 @@ public:
   /// Register all analyses and transformation required.
   void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
-  static const int ParallelDistance = std::numeric_limits<int>::max();
 private:
   Config config;
 
@@ -85,13 +83,6 @@ private:
 
   // return the trip count of L if it is constant. Otw, returns -1
   int getTripCount(llvm::Loop &L);
-  // return the annotated vector width
-  // return -1, if unspecified
-  int getAnnotatedVectorWidth(llvm::Loop &L);
-
-  // minimal distance between dependent loop trips
-  // returns ParallelDistance for fully parallel loops
-  int getDependenceDistance(llvm::Loop & L);
 
   // the trip count of the loop is always a multiple of this value
   // returns 1 for loop w/o known alignment
