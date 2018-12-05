@@ -73,14 +73,29 @@ GetScalarType(Value & val) {
 
 static
 Intrinsic::ID
-GetIntrinsicID(RedKind kind, Type & elemTy) {
+GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal) {
+  oHasInitVal = false;
   switch (kind) {
     default:
       return Intrinsic::not_intrinsic;
-    case RedKind::Add: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fadd : Intrinsic::experimental_vector_reduce_add;
+    case RedKind::Add: {
+     if (elemTy.isFloatingPointTy()) {
+       oHasInitVal = true;
+       return Intrinsic::experimental_vector_reduce_fadd;
+     } else {
+       return Intrinsic::experimental_vector_reduce_add;
+     }
+    }
+    case RedKind::Mul: {
+     if (elemTy.isFloatingPointTy()) {
+       oHasInitVal = true;
+       return Intrinsic::experimental_vector_reduce_fmul;
+     } else {
+       return Intrinsic::experimental_vector_reduce_mul;
+     }
+    }
     case RedKind::And: return Intrinsic::experimental_vector_reduce_and;
     case RedKind::Or: return Intrinsic::experimental_vector_reduce_or;
-    case RedKind::Mul: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmul : Intrinsic::experimental_vector_reduce_mul;
     case RedKind::SMax: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmax : Intrinsic::experimental_vector_reduce_smax;
     case RedKind::UMax: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmax : Intrinsic::experimental_vector_reduce_umax;
     case RedKind::SMin: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmin : Intrinsic::experimental_vector_reduce_smin;
@@ -96,18 +111,32 @@ CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vecVal, Value
   auto & elemTy = *vecTy.getVectorElementType();
 
 // use LLVM's experimental intrinsics where possible
-  Intrinsic::ID ID = GetIntrinsicID(redKind, elemTy);
+  bool hasInitValArg = false; // whether the intrinsic has an initial value argument
+  Intrinsic::ID ID = GetIntrinsicID(redKind, elemTy, hasInitValArg);
   if (ID != Intrinsic::not_intrinsic) {
     auto & mod = *builder.GetInsertBlock()->getParent()->getParent();
-    auto & redFunc = *Intrinsic::getDeclaration(&mod, ID, {vecTy.getVectorElementType(), &vecTy});
-    auto & redVal = *builder.CreateCall(&redFunc, &vecVal, "red" + to_string(redKind));
 
-    // add init val (if applicable)
-    if (initVal && initVal != &GetNeutralElement(redKind, elemTy)) {
-      return CreateReductInst(builder, redKind, redVal, *initVal);
+    std::vector<Type*> reduceTypeVec{&elemTy};
+    if (hasInitValArg) reduceTypeVec.push_back(&elemTy);
+    reduceTypeVec.push_back(&vecTy);
+
+    auto & redFunc = *Intrinsic::getDeclaration(&mod, ID, reduceTypeVec);
+
+    Value * redVal = nullptr;
+
+    if (hasInitValArg) {
+      Value * initArg = initVal ? initVal : &GetNeutralElement(redKind, elemTy);
+      return *builder.CreateCall(&redFunc, {initArg, &vecVal}, "red" + to_string(redKind));
     }
 
-    return redVal;
+    assert(!hasInitValArg);
+    redVal = builder.CreateCall(&redFunc, &vecVal, "red" + to_string(redKind));
+    // add init val (if applicable)
+    if (initVal && initVal != &GetNeutralElement(redKind, elemTy)) {
+      return CreateReductInst(builder, redKind, *redVal, *initVal);
+    }
+
+    return *redVal;
   }
 
 // Otw, use fallback code path
