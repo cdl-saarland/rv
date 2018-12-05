@@ -35,7 +35,7 @@
 #include <map>
 #include <set>
 
-#if 0
+#if 1
 #define IF_DEBUG_REM IF_DEBUG
 #else
 #define IF_DEBUG_REM if (true)
@@ -636,7 +636,7 @@ struct LoopTransformer {
          [&](Instruction & inst) -> IterValue {
            assert (!isa<CallInst>(inst));
 
-           IF_DEBUG errs() << inst << "\n";
+           IF_DEBUG { errs() << inst << "\n"; }
 
            // loop invariant value
            if (!ScalarL.contains(inst.getParent())) return IterValue(inst, 0);
