@@ -70,8 +70,10 @@ UnwindCasts(Value* val) {
 
 class
 BranchCondition { // LoopExitCondition
-  bool loopExitOnTrue;
-  CmpInst & cmp;
+  bool loopExitOnTrue; // exit taken if \p evaluates to true
+  bool exitWhenEqual; // exit on phi == n
+  CmpInst & cmp; // the original comparison
+  CmpInst::Predicate adjustedPred; // predicate to be used
   int cmpReductIdx;
   StridePattern & sp;
   VectorShape redShape;
@@ -81,9 +83,11 @@ public:
   bool
   exitsOnTrue() const { return loopExitOnTrue; }
 
-  BranchCondition(bool _loopExitOnTrue, llvm::CmpInst & _cmp, int _cmpReductIdx, StridePattern & _sp, int vectorWidth)
+  BranchCondition(bool _loopExitOnTrue, bool _exitWhenEqual, llvm::CmpInst & _cmp, CmpInst::Predicate _adjustedPred, int _cmpReductIdx, StridePattern & _sp, int vectorWidth)
   : loopExitOnTrue(_loopExitOnTrue)
+  , exitWhenEqual(_exitWhenEqual)
   , cmp(_cmp)
+  , adjustedPred(_adjustedPred)
   , cmpReductIdx(_cmpReductIdx)
   , sp(_sp)
   , redShape(sp.getShape(vectorWidth))
@@ -97,6 +101,8 @@ public:
       return nullptr;
     }
 
+
+  // match the loop exit condition to a ICmpInst of phi with a loop invariant bound.
     const bool loopExitOnTrue = !loop.contains(loopExitBr.getSuccessor(0));
 
     auto * testCmp = dyn_cast<ICmpInst>(loopExitBr.getOperand(0));
@@ -144,44 +150,21 @@ public:
       return nullptr;
     }
 
-    return new BranchCondition(loopExitOnTrue, cmp, reductIdx, *red, vectorWidth);
-  }
+    const StridePattern & sp = *red;
 
-  /// re-synthesize this condition with builder @builder
-  // call embedFunc for all loop carred instructions
-  // the test will be true if it applies for all iterations from [phi to phi + iterOffset]
-  Value&
-  synthesize(int iterOffset, std::string suffix, IRBuilder<> & builder, std::set<Value*> * valueSet, std::function<IterValue (Instruction&)> embedFunc) {
-    auto * origReduct = cast<Instruction>(cmp.getOperand(cmpReductIdx));
-
-    // used to keep track
+  // analyze the loop exit condition
     bool tmpExitOnTrue = loopExitOnTrue;
 
-    // the returned value evaluates to the mapped requested value at iteration offset @embReduct.timeOffset
-    IterValue embReduct = embedFunc(*origReduct);
-
-    auto * clonedCmp = cast<CmpInst>(cmp.clone());
-
-    // remaining offset amount
-    int effectiveOffset = iterOffset - embReduct.timeOffset;
-
-    // short cut for same iteration tests
-    if (effectiveOffset == 0) {
-      clonedCmp->setOperand(cmpReductIdx, &embReduct.val);
-      builder.Insert(clonedCmp, cmp.getName().str() + suffix);
-      return *clonedCmp;
-    }
-
-  // normalize the loop exit condition
     // this implicitly assumes that the loop iteration variable I is incremented by a constant C without wrapping
     const bool nswFlag = sp.reductor->hasNoSignedWrap();
     const bool nuwFlag = sp.reductor->hasNoUnsignedWrap();
 
-    const auto cmpPred = clonedCmp->getPredicate();
+    const auto cmpPred = cmp.getPredicate();
     CmpInst::Predicate adjustedPred = cmpPred;
 
     // (negatePhi) normalize to positive increments
     // "br (i < n), exit, loop" -> "br (-i > n), exit, loop"
+    auto redShape = sp.getShape(vectorWidth);
     int incStep = redShape.getStride();
     bool negatePhi = false;
     if (incStep < 0) {
@@ -214,7 +197,10 @@ public:
       if (nswFlag) {
         adjustedPred = CmpInst::ICMP_SGE;
       } else {
-        assert(nuwFlag && "can not extrapolate wrapping exit conditions");
+        if (!nuwFlag) {
+          Report() << "loopExitCond: could not legalize ICMP_EQ to ICMP_*GE!\n";
+          return nullptr;
+        }
         adjustedPred = CmpInst::ICMP_UGE;
       }
     }
@@ -230,6 +216,34 @@ public:
       adjustedPred = CmpInst::getSwappedPredicate(adjustedPred);
     }
 
+    return new BranchCondition(loopExitOnTrue, exitWhenEqual, cmp, adjustedPred, reductIdx, *red, vectorWidth);
+  }
+
+  /// re-synthesize this condition with builder @builder
+  // call embedFunc for all loop carred instructions
+  // the test will be true if it applies for all iterations from [phi to phi + iterOffset]
+  Value&
+  synthesize(int iterOffset, std::string suffix, IRBuilder<> & builder, std::set<Value*> * valueSet, std::function<IterValue (Instruction&)> embedFunc) {
+    auto * origReduct = cast<Instruction>(cmp.getOperand(cmpReductIdx));
+
+    // used to keep track
+    bool tmpExitOnTrue = loopExitOnTrue;
+
+    // the returned value evaluates to the mapped requested value at iteration offset @embReduct.timeOffset
+    IterValue embReduct = embedFunc(*origReduct);
+
+    auto * clonedCmp = cast<CmpInst>(cmp.clone());
+
+    // remaining offset amount
+    int effectiveOffset = iterOffset - embReduct.timeOffset;
+
+    // short cut for same iteration tests
+    if (effectiveOffset == 0) {
+      clonedCmp->setOperand(cmpReductIdx, &embReduct.val);
+      builder.Insert(clonedCmp, cmp.getName().str() + suffix);
+      return *clonedCmp;
+    }
+
     // finalize the predicate
     clonedCmp->setPredicate(adjustedPred);
 
@@ -242,9 +256,20 @@ public:
 
     offset = offset - offByOne * (int) (!exitWhenEqual);
 
+
   // emit the test
     auto & val = embReduct.val;
-    auto * adjusted = builder.CreateAdd(&val, ConstantInt::get(val.getType(), offset), "", nswFlag, nuwFlag);
+
+    // increment the iteration variable as necessary
+    Value * adjusted = nullptr;
+    if (offset != 0) {
+      const bool nswFlag = sp.reductor->hasNoSignedWrap();
+      const bool nuwFlag = sp.reductor->hasNoUnsignedWrap();
+      adjusted = builder.CreateAdd(&val, ConstantInt::get(val.getType(), offset), "", nswFlag, nuwFlag);
+    } else {
+      adjusted = &val;
+    }
+
     if (isa<Instruction>(adjusted)) if (valueSet) valueSet->insert(adjusted);
     clonedCmp->setOperand(cmpReductIdx, adjusted);
     builder.Insert(clonedCmp, cmp.getName().str() + suffix);
