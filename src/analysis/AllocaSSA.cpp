@@ -65,6 +65,9 @@ AllocaSSA::computeLiveness() {
     for (auto * pred : predecessors(&currBlock)) {
       bool predChanged = changed;
 
+      // dont need to transfer to self
+      if (pred == &currBlock) continue;
+
       // transfer liveness to predecessors
       auto & predSummary = requestBlockSummary(*pred);
       for (auto * liveAlloc : summary.liveAllocas) {
