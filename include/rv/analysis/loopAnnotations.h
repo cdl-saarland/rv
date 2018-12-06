@@ -51,10 +51,16 @@ namespace rv {
     void dump() const;
   };
 
-  // optimistic reading of two conflicting loop annotations
+  // Clear all loop vectorize annotations from the loop \p L.
+  void ClearLoopVectorizeAnnotations(llvm::Loop & L);
+
+  // Encode \p loopMD as LLVM LoopVectorizer Metadata hints for the loop \p L.
+  void SetLLVMLoopAnnotations(llvm::Loop & L, LoopMD && loopMD);
+
+  // Optimistic reading of two conflicting loop annotations
   LoopMD OptimisticJoin(LoopMD && A, LoopMD && B);
 
-  // parse loop annotations for loop \p L
+  // Parse loop annotations for loop \p L
   LoopMD GetLoopAnnotation(llvm::Loop & L);
 }
 

@@ -123,4 +123,43 @@ GetLoopAnnotation(llvm::Loop & L) {
 }
 
 
+// Clear all loop vectorize annotations from the loop \p L.
+void
+ClearLoopVectorizeAnnotations(llvm::Loop & L) {
+  auto & ctx = L.getHeader()->getContext();
+
+  // empty loop metadata
+  llvm::Metadata* tmpNode        = llvm::MDNode::getTemporary(ctx, llvm::None).get();
+
+  // build loopID
+  llvm::MDNode *emptyLoopMetadata = llvm::MDNode::get(ctx, {tmpNode});
+  emptyLoopMetadata->replaceOperandWith(0, emptyLoopMetadata);
+
+  L.setLoopID(emptyLoopMetadata);
+}
+
+// Encode \p loopMD as LLVM LoopVectorizer Metadata hints for the loop \p L.
+void
+SetLLVMLoopAnnotations(llvm::Loop & L, LoopMD && llvmLoopMD) {
+  auto & ctx = L.getHeader()->getContext();
+
+  std::vector<Metadata*> mdArgs;
+
+  if (llvmLoopMD.vectorizeEnable.isSet()) {
+    llvm::Metadata *mdVectorizeEnable[] = { llvm::MDString::get(ctx, "llvm.loop.vectorize.enable"),
+                                              llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt1Ty(ctx), llvmLoopMD.vectorizeEnable.get()))};
+    mdArgs.push_back(llvm::MDNode::get(ctx, mdVectorizeEnable));
+  }
+  if (llvmLoopMD.explicitVectorWidth.isSet()) {
+    llvm::Metadata *mdVectorWidth[] = { llvm::MDString::get(ctx, "llvm.loop.vectorize.width"),
+                                              llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), llvmLoopMD.explicitVectorWidth.get()))};
+    mdArgs.push_back(llvm::MDNode::get(ctx, mdVectorWidth));
+  }
+
+  llvm::MDNode *emptyLoopMetadata = llvm::MDNode::get(ctx, mdArgs);
+  emptyLoopMetadata->replaceOperandWith(0, emptyLoopMetadata);
+
+  L.setLoopID(emptyLoopMetadata);
+}
+
 } // namespace rv

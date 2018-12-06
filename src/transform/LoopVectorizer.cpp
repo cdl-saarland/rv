@@ -174,9 +174,21 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   ValueSet uniOverrides;
   auto * PreparedLoop = transformToVectorizableLoop(L, VectorWidth, tripAlign, uniOverrides);
   if (!PreparedLoop) {
+
+    // reset any vectorizer hints to enable automatic loop vectorization.
+    ClearLoopVectorizeAnnotations(L);
+
     Report() << "loopVecPass: Can not prepare vectorization of the loop\n";
     return false;
   }
+
+  // mark the remainder loop as un-vectorizable
+  LoopMD llvmLoopMD;
+  llvmLoopMD.vectorizeEnable = false;
+  SetLLVMLoopAnnotations(L, std::move(llvmLoopMD));
+
+  // clear loop annotations from our copy of the lop
+  ClearLoopVectorizeAnnotations(*PreparedLoop);
 
   // print configuration banner once
   if (!introduced) {
