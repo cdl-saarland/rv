@@ -217,7 +217,13 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
       // unsupported reduction kind
       if (redInfo->kind == RedKind::Top) {
-        Report() << " can not vectorize this recurrence: "; redInfo->print(ReportContinue()); ReportContinue() << "\n";
+        Report() << " can not vectorize this non-trivial SCC: "; redInfo->print(ReportContinue()); ReportContinue() << "\n";
+        return false;
+      }
+
+      // FIXME rv codegen only supports trivial recurrences at the moment
+      if (redInfo->kind == RedKind::Bot) {
+        Report() << " can not vectorize this non-affine recurrence: "; redInfo->print(ReportContinue()); ReportContinue() << "\n";
         return false;
       }
 
