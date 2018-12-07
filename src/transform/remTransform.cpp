@@ -235,7 +235,7 @@ public:
     auto * clonedCmp = cast<CmpInst>(cmp.clone());
 
     // remaining offset amount
-    int effectiveOffset = iterOffset - embReduct.timeOffset;
+    int effectiveOffset = iterOffset + embReduct.timeOffset;
 
     // short cut for same iteration tests
     if (effectiveOffset == 0) {
@@ -252,10 +252,9 @@ public:
     int offset = redShape.getStride() * effectiveOffset;
 
     // dont test "phi", but "phi-1" if the cmp predicate is exit on equal
-    int offByOne = redShape.getStride() < 0 ? -1 : 1;
+    int offByOne = redShape.getStride() < 0 ? 1 : -1;
 
-    offset = offset - offByOne * (int) (!exitWhenEqual);
-
+    offset = offset + offByOne * (int) (exitWhenEqual);
 
   // emit the test
     auto & val = embReduct.val;
