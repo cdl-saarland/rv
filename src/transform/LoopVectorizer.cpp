@@ -343,8 +343,12 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   enableDiagOutput = CheckFlag("LV_DIAG");
   introduced = false;
 
-
   if (getenv("RV_DISABLE")) return false;
+
+  if (CheckFlag("RV_PRINT_FUNCTION")) {
+    errs() << "-- RV::LoopVectorizer::runOnFunction(F) --\n";
+    F.print(errs());
+  }
 
   IF_DEBUG { errs() << " -- module before RV --\n"; Dump(*F.getParent()); }
 
