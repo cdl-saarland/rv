@@ -175,9 +175,6 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   auto * PreparedLoop = transformToVectorizableLoop(L, VectorWidth, tripAlign, uniOverrides);
   if (!PreparedLoop) {
 
-    // reset any vectorizer hints to enable automatic loop vectorization.
-    ClearLoopVectorizeAnnotations(L);
-
     Report() << "loopVecPass: Can not prepare vectorization of the loop\n";
     return false;
   }
