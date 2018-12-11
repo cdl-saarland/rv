@@ -105,6 +105,24 @@ LoopVectorizer::transformToVectorizableLoop(Loop &L, int VectorWidth, int tripAl
   return preparedLoop;
 }
 
+static
+bool
+IsSupportedReduction(Loop & L, Reduction & red) {
+  // check that all users of the reduction are either (a) part of it or (b) outside the loop
+  for (auto * inst : red.elements) {
+    for (auto itUser : inst->users()) {
+      auto * userInst = dyn_cast<Instruction>(itUser);
+      if (!userInst) return false; // unsupported
+      if (L.contains(userInst->getParent()) &&
+        !red.elements.count(userInst))  {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
 bool
 LoopVectorizer::vectorizeLoop(Loop &L) {
 // check the dependence distance of this loop
@@ -221,6 +239,11 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
       // failure to derive a reduction descriptor
       if (!redInfo) {
         Report() << "\n\tskip: unrecognized phi use in vector loop " << L.getName() << "\n";
+        return false;
+      }
+
+      if (!IsSupportedReduction(*PreparedLoop, *redInfo)) {
+        Report() << " unsupported reduction: "; redInfo->print(ReportContinue()); ReportContinue() << "\n";
         return false;
       }
 
