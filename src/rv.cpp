@@ -289,7 +289,8 @@ lowerIntrinsicCall(CallInst* call) {
     case RVIntrinsic::All:
     case RVIntrinsic::Extract:
     case RVIntrinsic::Shuffle:
-    case RVIntrinsic::Align: {
+    case RVIntrinsic::Align:
+    case RVIntrinsic::Compact: {
       lowerIntrinsicCall(call, [] (const CallInst* call) {
         return call->getOperand(0);
       });
@@ -302,24 +303,30 @@ lowerIntrinsicCall(CallInst* call) {
     } break;
 
     case RVIntrinsic::VecLoad: {
-    lowerIntrinsicCall(call, [] (CallInst* call) {
-      IRBuilder<> builder(call);
-      auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
-      auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-      auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
-      return builder.CreateLoad(gep);
-    });
-                               } break;
+      lowerIntrinsicCall(call, [] (CallInst* call) {
+        IRBuilder<> builder(call);
+        auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
+        auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
+        auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
+        return builder.CreateLoad(gep);
+      });
+    } break;
 
     case RVIntrinsic::VecStore: {
-    lowerIntrinsicCall(call, [] (CallInst* call) {
-      IRBuilder<> builder(call);
-      auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
-      auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-      auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
-      return builder.CreateStore(call->getOperand(2), gep);
-    });
-  } break;
+      lowerIntrinsicCall(call, [] (CallInst* call) {
+        IRBuilder<> builder(call);
+        auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
+        auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
+        auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
+        return builder.CreateStore(call->getOperand(2), gep);
+      });
+    } break;
+
+    case RVIntrinsic::Mask: {
+      lowerIntrinsicCall(call, [] (CallInst* call) {
+        return ConstantInt::getTrue(call->getContext()); }
+      );
+    } break;
 
     case RVIntrinsic::Ballot:
     case RVIntrinsic::PopCount: {
@@ -328,14 +335,15 @@ lowerIntrinsicCall(CallInst* call) {
         return builder.CreateZExt(call->getOperand(0), builder.getInt32Ty());
       });
     } break;
-  default: break;
+
+    default: break;
   }
 }
 
 void
 lowerIntrinsics(Module & mod) {
   // TODO re-implement using RVIntrinsic enum
-  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align", "rv_popcount"};
+  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_mask", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align", "rv_popcount", "rv_compact"};
   for (int i = 0, n = sizeof(names) / sizeof(names[0]); i < n; i++) {
     auto func = mod.getFunction(names[i]);
     if (!func) continue;

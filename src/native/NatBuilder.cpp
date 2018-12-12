@@ -350,6 +350,8 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         case RVIntrinsic::All: vectorizeReductionCall(call, true); break;
         case RVIntrinsic::Extract: vectorizeExtractCall(call); break;
         case RVIntrinsic::Insert: vectorizeInsertCall(call); break;
+        case RVIntrinsic::Compact: vectorizeCompactCall(call); break;
+        case RVIntrinsic::Mask: mapVectorValue(call, requestVectorPredicate(*call->getParent())); break;
         case RVIntrinsic::VecLoad: vectorizeLoadCall(call); break;
         case RVIntrinsic::VecStore: vectorizeStoreCall(call); break;
         case RVIntrinsic::Shuffle: vectorizeShuffleCall(call); break;
@@ -1137,6 +1139,70 @@ NatBuilder::vectorizeAlignCall(CallInst *rvCall) {
     mapVectorValue(rvCall, requestVectorValue(vecArg));
   else
     mapScalarValue(rvCall, requestScalarValue(vecArg));
+}
+
+void
+NatBuilder::vectorizeCompactCall(CallInst *rvCall) {
+  ++numRVIntrinsics;
+
+  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_compact(vec, mask)");
+
+  Value *vecArg  = rvCall->getArgOperand(0);
+  Value *maskArg = rvCall->getArgOperand(1);
+
+// uniform arg
+  if (getVectorShape(*vecArg).isUniform()) {
+    mapScalarValue(rvCall, vecArg);
+    return;
+  }
+
+// non-uniform arg
+  auto * vecVal  = requestVectorValue(vecArg);
+  auto * maskVal = requestVectorValue(maskArg);
+
+  auto vecWidth = cast<VectorType>(maskVal->getType())->getVectorNumElements();
+  auto tableIndex = createVectorMaskSummary(maskVal, builder, RVIntrinsic::Ballot);
+  auto table = createCompactLookupTable(vecWidth);
+  auto indices = builder.CreateLoad(builder.CreateInBoundsGEP(table, { builder.getInt32(0), tableIndex }), "rv_compact_indices");
+  Value * compacted = UndefValue::get(vecVal->getType());
+  for (size_t i = 0; i < vecWidth; ++i) {
+    auto index = builder.CreateExtractElement(indices, builder.getInt32(i), "rv_compact_index");
+    auto elem = builder.CreateExtractElement(vecVal, index, "rv_compact_elem");
+    compacted = builder.CreateInsertElement(compacted, elem, builder.getInt32(i), "rv_compact");
+  }
+  mapVectorValue(rvCall, compacted);
+}
+
+Constant*
+NatBuilder::createCompactLookupTable(unsigned vecWidth) {
+  assert(vecWidth <= 8);
+  auto module = vecInfo.getVectorFunction().getParent();
+  auto tableName = "rv_compact_lookup_table" + std::to_string(vecWidth);
+  auto global = module->getGlobalVariable(tableName);
+  if (global)
+    return global;
+
+  // for all possible mask values
+  auto elemTy = builder.getInt32Ty();
+  std::vector<Constant*> tableElems;
+  std::vector<Constant*> elemValues(vecWidth);
+  for (unsigned i = 0; i < (1u << vecWidth); ++i) {
+    for (unsigned j = 0; j < vecWidth; ++j)
+      elemValues[j] = ConstantInt::get(elemTy, j);
+    for (unsigned j = 0, k = 0; j < vecWidth; ++j) {
+      if (i & (1 << j)) {
+        elemValues[k] = ConstantInt::get(elemTy, j);
+        k++;
+      }
+    }
+    // generate a lookup table element
+    tableElems.push_back(ConstantVector::get(elemValues));
+  }
+  auto tableValue = ConstantArray::get(ArrayType::get(tableElems[0]->getType(), tableElems.size()), tableElems);
+  auto table = cast<GlobalVariable>(module->getOrInsertGlobal(tableName, tableValue->getType()));
+  table->setConstant(true);
+  table->setInitializer(tableValue);
+  return table;
 }
 
 static

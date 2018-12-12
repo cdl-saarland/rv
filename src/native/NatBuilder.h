@@ -121,6 +121,10 @@ namespace rv {
     void vectorizePopCountCall(llvm::CallInst *rvCall);
     void vectorizeAlignCall(llvm::CallInst *rvCall);
     void vectorizeIndexCall(llvm::CallInst & rvCall);
+    void vectorizeCompactCall(llvm::CallInst * rvCall);
+
+    // create a lookup table for an efficient compaction intrinsic
+    llvm::Constant* createCompactLookupTable(unsigned vecWidth);
 
     // implement the mask summary function @mode (ballot/popcount) of @vecVal with @builder
     llvm::Value* createVectorMaskSummary(llvm::Value * vecVal, llvm::IRBuilder<> & builder, rv::RVIntrinsic mode);
