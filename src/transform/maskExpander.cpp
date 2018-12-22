@@ -8,6 +8,7 @@
 
 #include "rv/transform/maskExpander.h"
 #include "rvConfig.h"
+#include "utils/rvTools.h"
 
 #include "llvm/Transforms/Utils/SSAUpdater.h"
 #include "llvm/IR/Verifier.h"
@@ -28,14 +29,23 @@ using namespace llvm;
 
 namespace rv {
 
+static Value&
+MakeTotalOperation(Value* Val) {
+  auto * inst = dyn_cast<Instruction>(Val);
+  if (inst) {
+    setTotalOperationTag(*inst);
+  }
+  return *Val;
+}
+
 static
 Value&
 CreateAnd(IRBuilder<> & builder, Value & lhs, Value & rhs, const Twine & name=Twine()) {
 #ifdef RV_BLEND_MASKS
   auto * falseMask = ConstantInt::getFalse(lhs.getContext());
-  return *builder.CreateSelect(&lhs, &rhs, falseMask, name);
+  return MakeTotalOperation(*builder.CreateSelect(&lhs, &rhs, falseMask, name));
 #else
-  return *builder.CreateAnd(&lhs, &rhs, name);
+  return MakeTotalOperation(builder.CreateAnd(&lhs, &rhs, name));
 #endif
 }
 
@@ -44,9 +54,9 @@ Value&
 CreateOr(IRBuilder<> & builder, Value & lhs, Value & rhs, const Twine & name=Twine()) {
 #ifdef RV_BLEND_MASKS
   auto * trueMask = ConstantInt::getTrue(lhs.getContext());
-  return *builder.CreateSelect(&lhs, trueMask, &rhs, name);
+  return MakeTotalOperation(builder.CreateSelect(&lhs, trueMask, &rhs, name));
 #else
-  return *builder.CreateOr(&lhs, &rhs, name);
+  return MakeTotalOperation(builder.CreateOr(&lhs, &rhs, name));
 #endif
 }
 
@@ -56,12 +66,12 @@ CreateNot(IRBuilder<> & builder, Value & val, const Twine & name=Twine()) {
 #ifdef RV_BLEND_MASKS
   auto * sel = dyn_cast<SelectInst>(&val);
   if (sel) {
-    return *builder.CreateSelect(sel->getCondition(), sel->getFalseValue(), sel->getTrueValue(), name);
+    return MakeTotalOperation(builder.CreateSelect(sel->getCondition(), sel->getFalseValue(), sel->getTrueValue(), name));
   }
   // otw use default codepath
 #endif
 
-return *builder.CreateNot(&val, name);
+return MakeTotalOperation(builder.CreateNot(&val, name));
 }
 
 MaskExpander::MaskExpander(VectorizationInfo & _vecInfo, const DominatorTree & _domTree, const llvm::PostDominatorTree & _postDomTree, const llvm::LoopInfo & _loopInfo)
@@ -178,7 +188,7 @@ MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & b
     // case test, mask = (switchVal == caseVal)
     } else {
       auto & caseVal = *itCase->getCaseValue();
-      auto & caseCmp = *builder.CreateICmp(ICmpInst::ICMP_EQ, &caseVal, &switchVal, "caseeq_" + std::to_string(caseVal.getSExtValue()));
+      auto & caseCmp = MakeTotalOperation(builder.CreateICmp(ICmpInst::ICMP_EQ, &caseVal, &switchVal, "caseeq_" + std::to_string(caseVal.getSExtValue())));
       vecInfo.setVectorShape(caseCmp, valShape);
       setBranchMask(sourceBlock, succIdx, caseCmp);
       return caseCmp;

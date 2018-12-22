@@ -20,11 +20,13 @@
 #include "NatBuilder.h"
 #include "Utils.h"
 
+#include "utils/rvTools.h"
 #include "rv/transform/redTools.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/region/Region.h"
 #include "rv/rvDebug.h"
 #include "rv/intrinsics.h"
+#include <llvm/IR/EVLBuilder.h>
 
 #include "rvConfig.h"
 #include "ShuffleBuilder.h"
@@ -608,6 +610,51 @@ NatBuilder::requestVectorCallArgs(CallInst & scaCall, Function & vecFunc, int ma
   }
 }
 
+llvm::LLVMContext&
+NatBuilder::getContext() const {
+  return builder.getContext();
+}
+
+
+llvm::Value&
+NatBuilder::requestVectorizedBlockMask(llvm::BasicBlock& scaBlock) {
+  auto * scaMask = vecInfo.getPredicate(scaBlock);
+  if (!scaMask) {
+    auto * boolTy = Type::getInt1Ty(getContext());
+    auto * maskTy = VectorType::get(boolTy, vecInfo.getVectorWidth());
+    return *Constant::getAllOnesValue(maskTy);
+  }
+
+  return *requestVectorValue(scaMask);
+}
+
+
+Value*
+NatBuilder::requestVectorizedOperand(Instruction & scalInst, int opIdx) {
+  assert(builder.GetInsertBlock() && "no insertion point set");
+
+  // check for division. opcodes for divisions are (in order) UDiv, SDiv, FDiv. only care if non-trivial mask
+  auto opCode = scalInst.getOpcode();
+  auto * pred = vecInfo.getPredicate(*scalInst.getParent());
+  bool isPredicatedDiv = (opCode >= BinaryOperator::UDiv) && (opCode <= BinaryOperator::FDiv) && (pred && !isa<Constant>(pred));
+
+    Value *op = scalInst.getOperand(opIdx);
+    Value *mappedOp = requestVectorValue(op);
+
+    // only have to deal with the 2nd operand
+    if (config.useSafeDivisors && (isPredicatedDiv && opIdx > 0)) {
+      // create a select between mappedOp and neutral element vector (1)
+      Value *neutralVec = getConstantVector(vectorWidth(), op->getType(), 1);
+      Value *mask = vecInfo.getPredicate(*scalInst.getParent());
+      mask = requestVectorValue(mask);
+
+      mappedOp = builder.CreateSelect(mask, mappedOp, neutralVec, "divSelect");
+    }
+
+    return mappedOp;
+}
+
+
 // FIXME re-design this!
 /* expects that builder has valid insertion point set */
 void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst, bool vectorizedInst,
@@ -775,6 +822,31 @@ void NatBuilder::replicateInstruction(Instruction *const inst) {
 void NatBuilder::vectorizeInstruction(Instruction *const inst) {
   assert(inst && "no instruction to vectorize");
   assert(builder.GetInsertBlock() && "no insertion point set");
+
+  Value * vecBlockMask = nullptr;
+  if (!hasTotalOperationTag(*inst)) {
+    vecBlockMask = &requestVectorizedBlockMask(*inst->getParent());
+  }
+
+  EVLBuilder evlBuilder(builder);
+  evlBuilder.setEVL(nullptr); // unsupported
+  evlBuilder.setMask(vecBlockMask);
+  evlBuilder.setStaticVL(vecInfo.getVectorWidth());
+
+  // request all operands
+  SmallVector<Value*, 4> vecOperandVec;
+  for (int opIdx = 0; opIdx < (int) inst->getNumOperands(); ++opIdx) {
+    vecOperandVec.push_back(requestVectorizedOperand(*inst, opIdx));
+  }
+
+  // use EVL intrinsics where available
+  auto * evlInst = evlBuilder.CreateVectorCopy(*inst, vecOperandVec);
+  if (evlInst) {
+    mapVectorValue(inst, evlInst);
+    return;
+  }
+
+  // Otw, use the legacy code path
   Instruction *vecInst = inst->clone();
 
   if (!vecInst->getType()->isVoidTy())

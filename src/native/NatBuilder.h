@@ -94,6 +94,8 @@ namespace rv {
                const llvm::DominatorTree &_dominatorTree, llvm::MemoryDependenceResults &memDepRes,
                llvm::ScalarEvolution &_SE, rv::ReductionAnalysis & _reda);
 
+    llvm::LLVMContext& getContext() const;
+
     // if embedRegion is set, replace the scalar source blocks/instructions with the vectorized version
     // if vecInstMap is set, store the mapping from scalar source insts/blocks to vector versions
     void vectorize(bool embedRegion, llvm::ValueToValueMapTy * vecInstMap = nullptr);
@@ -134,6 +136,12 @@ namespace rv {
     void replicateInstruction(llvm::Instruction *const inst);
 
     void addValuesToPHINodes();
+
+    llvm::Value&
+    requestVectorizedBlockMask(llvm::BasicBlock& scaBlock);
+
+    llvm::Value*
+    requestVectorizedOperand(llvm::Instruction & scalInst, int opIdx);
 
     void mapOperandsInto(llvm::Instruction *const scalInst, llvm::Instruction *inst, bool vectorizedInst,
                          unsigned laneIdx = 0);
