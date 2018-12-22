@@ -1772,6 +1772,19 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
   maskNonConst ? (scatter ? ++numMaskedScatter : ++numMaskedGather) : (scatter ? ++numScatter : ++numGather);
 
   if (config.useScatterGatherIntrinsics) {
+
+#if 1
+  EVLBuilder evlBuilder(builder);
+  evlBuilder.setMask(mask);
+  evlBuilder.setStaticVL(vecInfo.getVectorWidth());
+  evlBuilder.setEVL(nullptr); // TODO
+  if (scatter) {
+     return &evlBuilder.CreateScatter(*values, *addr);
+  } else {
+     return &evlBuilder.CreateGather(*addr);
+  }
+
+#else
     auto * vecPtrTy = addr->getType();
 
     std::vector<Value *> args;
@@ -1785,9 +1798,11 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
                              : Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, {vecType, vecPtrTy});
     assert(intr && "scatter/gather not found!");
     return builder.CreateCall(intr, args);
+#endif
 
-  } else
+  } else {
     return scatter ? requestCascadeStore(values, addr, alignment, mask) : requestCascadeLoad(addr, alignment, mask);
+  }
 }
 
 void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std::vector<Value *> *addr, std::vector<Value *> *masks,
@@ -1891,6 +1906,14 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
 }
 
 Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, unsigned alignment, Value *mask) {
+#if 1
+  EVLBuilder evlBuilder(builder);
+  evlBuilder.setMask(mask);
+  evlBuilder.setStaticVL(vecInfo.getVectorWidth());
+  evlBuilder.setEVL(nullptr); // TODO
+  return &evlBuilder.CreateContiguousStore(*val, *ptr);
+
+#else
   if (mask) {
     return builder.CreateMaskedStore(val, ptr, alignment, mask);
 
@@ -1899,9 +1922,19 @@ Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, unsigned alignm
     store->setAlignment(alignment);
     return store;
   }
+#endif
 }
 
 Value *NatBuilder::createContiguousLoad(Value *ptr, unsigned alignment, Value *mask, Value *passThru) {
+#if 1
+  EVLBuilder evlBuilder(builder);
+  evlBuilder.setMask(mask);
+  evlBuilder.setStaticVL(vecInfo.getVectorWidth());
+  evlBuilder.setEVL(nullptr); // TODO
+  return &evlBuilder.CreateContiguousLoad(*ptr);
+
+#else
+
   if (mask) {
     return builder.CreateMaskedLoad(ptr, alignment, mask, passThru, "cont_load");
 
@@ -1910,6 +1943,7 @@ Value *NatBuilder::createContiguousLoad(Value *ptr, unsigned alignment, Value *m
     load->setAlignment(alignment);
     return load;
   }
+#endif
 }
 
 void NatBuilder::addLazyInstruction(Instruction *const instr) {
