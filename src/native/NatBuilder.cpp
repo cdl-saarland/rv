@@ -1477,9 +1477,8 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   } else if ((addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !(needsMask && !config.enableMaskedMove)) {
     // cast pointer to vector-width pointer
     Value *ptr = requestScalarValue(accessedPtr);
-    auto & ptrTy = *cast<PointerType>(ptr->getType());
-    PointerType *vecPtrType = vecType->getPointerTo(ptrTy.getAddressSpace());
-    addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
+    // PointerType *vecPtrType = PointerType::getUnqual(vecType); // TODO taken care of by EVLBuilder
+    addr.push_back(ptr); //builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
     alignment = addrShape.getAlignmentFirst();
 
   } else if ((addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) && !(needsMask && !config.enableMaskedMove)) {
@@ -1532,12 +1531,18 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     if (needsMask && addrShape.isUniform()) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       vecMem = createUniformMaskedMemory(load, accessedType, alignment, addr[0], predicate, mask, nullptr);
+      ++numUniMaskedLoads;
 
-    } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
+    } else if (!needsMask && addrShape.isUniform()) {
+      vecMem = builder.CreateLoad(addr[0], "sca_load");
+      cast<LoadInst>(vecMem)->setAlignment(alignment);
+      ++numUniLoads;
+
+    } else if (addrShape.isStrided(byteSize)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       vecMem = createContiguousLoad(addr[0], alignment, needsMask ? mask : nullptr, UndefValue::get(vecType));
-
       addrShape.isUniform() ? ++numUniLoads : needsMask ? ++numContMaskedLoads : ++numContLoads;
+      needsMask ? ++numContLoads : ++numContMaskedLoads;
 
     } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
@@ -1567,13 +1572,19 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr[0], predicate, mask, mappedStoredVal);
       }
 
-    } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
+    } else if (!needsMask && addrShape.isUniform()) {
+      auto * mappedStoredVal = requestScalarValue(storedValue);
+      vecMem = builder.CreateStore(mappedStoredVal, addr[0]);
+      cast<StoreInst>(vecMem)->setAlignment(alignment);
+      ++numUniStores;
+
+    } else if (addrShape.isStrided(byteSize)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                        : requestVectorValue(storedValue);
       vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment, needsMask ? mask : nullptr);
 
-      addrShape.isUniform() ? ++numUniStores : needsMask ? ++numContMaskedStores : ++numContStores;
+      needsMask ? ++numContStores : ++numContMaskedLoads;
 
     } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
