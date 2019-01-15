@@ -1360,7 +1360,8 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   } else if ((addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !(needsMask && !config.enableMaskedMove)) {
     // cast pointer to vector-width pointer
     Value *ptr = requestScalarValue(accessedPtr);
-    PointerType *vecPtrType = PointerType::getUnqual(vecType);
+    auto & ptrTy = *cast<PointerType>(ptr->getType());
+    PointerType *vecPtrType = vecType->getPointerTo(ptrTy.getAddressSpace());
     addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
     alignment = addrShape.getAlignmentFirst();
 
@@ -2264,7 +2265,8 @@ NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interlea
     interAddr = builder.CreateGEP(ptr, ConstantInt::get(i32Ty, vectorWidth() * interleavedIdx), "inter_gep");
   }
 
-  PointerType *vecPtrType = PointerType::getUnqual(vecType);
+  int AddrSpace = cast<PointerType>(addr->getType())->getAddressSpace();
+  PointerType *vecPtrType = vecType->getPointerTo(AddrSpace);
   return builder.CreatePointerCast(interAddr, vecPtrType, "inter_cast");
 }
 
