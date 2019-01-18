@@ -1,6 +1,8 @@
-# The Region Vectorizer (LLVM trunk version)
+# The Region Vectorizer (EVL intrinsic version)
 
 Compiler Design Lab / Saarland University / Saarland Informatics Campus
+
+This version of the Region Vectorizer uses Explicit Vector Length intrinsics (https://reviews.llvm.org/D53613).
 
 
 The Region Vectorizer (RV) is a general-purpose vectorization framework for LLVM.
