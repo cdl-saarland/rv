@@ -14,8 +14,8 @@
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "rv/transform/remTransform.h"
-#include "rv/config.h"
 #include "rv/analysis/reductionAnalysis.h"
+#include "rv/config.h"
 
 #include <limits>
 
@@ -23,7 +23,6 @@ namespace llvm {
   class Loop;
   class LoopInfo;
   class DominatorTree;
-  class PostDominatorTree;
   class ScalarEvolution;
   struct PostDominatorTree;
   class MemoryDependenceResults;

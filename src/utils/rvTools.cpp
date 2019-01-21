@@ -145,7 +145,7 @@ void
 writeModuleToFile(const Module& mod, const std::string& fileName)
 {
     std::error_code EC;
-    raw_fd_ostream file(fileName, EC);
+    raw_fd_ostream file(fileName, EC, sys::fs::OpenFlags::F_RW);
     mod.print(file, nullptr);
     file.close();
     if (EC)
@@ -158,7 +158,7 @@ void
 writeFunctionToFile(const Function& f, const std::string & fileName)
 {
     std::error_code EC;
-    raw_fd_ostream file(fileName, EC);
+    raw_fd_ostream file(fileName, EC, sys::fs::OpenFlags::F_RW);
     f.print(file);
     file.close();
     if (EC)

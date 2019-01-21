@@ -26,7 +26,7 @@ public:
   FunctionRegion(llvm::Function& _F) : F(_F) {};
   ~FunctionRegion() {}
 
-  bool contains(const llvm::BasicBlock* BB) const override { return true; }
+  bool contains(const llvm::BasicBlock* BB) const override { return BB->getParent() == &F; }
   llvm::BasicBlock& getRegionEntry() const override { return F.getEntryBlock(); }
   void getEndingBlocks(llvm::SmallPtrSet<llvm::BasicBlock*, 2>& endingBlocks) const override;
   std::string str() const override;

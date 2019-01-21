@@ -69,11 +69,6 @@ Impl(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo,  MaskExpander & _ma
 , bosccExitBlocks()
 {}
 
-Function &
-requestMaskIntrinsic(std::string name) {
-  return *platInfo.requestMaskReductionFunc("rv_any");
-}
-
 
 // mergePhis: map original phis to BOSCC region exit merge phis
 // mergeBlocks: map blocks containing original phis to BOSCC exit blocks
@@ -233,7 +228,7 @@ transformBranch(BranchInst & branch, int succIdx) {
   }
 
 // create BOSCC condition check
-  auto & anyFunc = requestMaskIntrinsic("rv_any");
+  auto & anyFunc = platInfo.requestRVIntrinsicFunc(RVIntrinsic::Any);
   auto * bosccCond = builder.CreateCall(&anyFunc, bosccMask, "boscc_test");
   vecInfo.setVectorShape(*bosccCond, VectorShape::uni());
 
@@ -328,7 +323,8 @@ getBlockScore(BasicBlock & entry) {
         argShapeVec.push_back(vecInfo.getVectorShape(*arg.getUser()));
       }
 
-      if (!platInfo.getResolver(callee->getName(), *callee->getFunctionType(), argShapeVec, vecInfo.getVectorWidth())) {
+      bool hasCallPredicate = false;
+      if (!platInfo.getResolver(callee->getName(), *callee->getFunctionType(), argShapeVec, vecInfo.getVectorWidth(), hasCallPredicate)) {
         score += 2;
       }
       score += 1;

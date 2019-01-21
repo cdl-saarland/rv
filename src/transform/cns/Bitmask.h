@@ -20,7 +20,7 @@ typedef std::vector<bool> BoolVector;
 inline BoolVector AND(BoolVector a, BoolVector b) {
   BoolVector mask(a.size(), false);
 
-  for (uint i = 0; i < a.size(); ++i) {
+  for (unsigned i = 0; i < a.size(); ++i) {
     mask[i] = a[i] && b[i];
   }
 
@@ -30,7 +30,7 @@ inline BoolVector AND(BoolVector a, BoolVector b) {
 inline BoolVector OR(BoolVector a, BoolVector b) {
   BoolVector mask(a.size(), false);
 
-  for (uint i = 0; i < a.size(); ++i) {
+  for (unsigned i = 0; i < a.size(); ++i) {
     mask[i] = a[i] || b[i];
   }
 
@@ -40,7 +40,7 @@ inline BoolVector OR(BoolVector a, BoolVector b) {
 inline BoolVector NOT(BoolVector a) {
   BoolVector mask(a.size(), false);
 
-  for (uint i = 0; i < a.size(); ++i) {
+  for (unsigned i = 0; i < a.size(); ++i) {
     mask[i] = !a[i];
   }
 
@@ -51,7 +51,7 @@ inline BoolVector NOT(BoolVector a) {
  * quantors
  */
 inline bool EXISTS(BoolVector a) {
-  for (uint i = 0; i < a.size(); ++i) {
+  for (unsigned i = 0; i < a.size(); ++i) {
     if (a[i])
       return true;
   }
@@ -64,7 +64,7 @@ inline bool NONE(BoolVector a) { return !EXISTS(a); }
 inline bool ALL(BoolVector a) { return !EXISTS(NOT(a)); }
 
 inline void dumpVector(BoolVector mask) {
-  for (uint i = 0; i < mask.size(); ++i) {
+  for (unsigned i = 0; i < mask.size(); ++i) {
     if (mask[i])
       std::cerr << "1";
     else

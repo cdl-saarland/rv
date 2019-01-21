@@ -781,6 +781,11 @@ RemainderTransform::canTransformLoop(llvm::Loop & L) {
     return false;
   }
 
+  if (!L.getLoopPreheader()) {
+    Report() << "remTrans: require a unique pre-header\n";
+    return false;
+  }
+
   // only attempt loops with recognized reduction patterns
   for (auto & Inst : *L.getHeader()) {
     auto * phi = dyn_cast<PHINode>(&Inst);

@@ -17,7 +17,7 @@
 #include "rv/vectorMapping.h"
 #include "rv/region/LoopRegion.h"
 #include "rv/region/Region.h"
-#include "rv/sleefLibrary.h"
+#include "rv/resolver/resolvers.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/analysis/costModel.h"
 #include "rv/transform/remTransform.h"
@@ -82,6 +82,10 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
   ValueToValueMapTy cloneMap;
   Function* scalarCopy = CloneFunction(wfvJob.scalarFn, cloneMap, nullptr);
   wfvJob.scalarFn = scalarCopy;
+
+  if (wfvJob.maskPos >= 0) {
+    MaterializeEntryMask(*scalarCopy, vectorizer.getPlatformInfo());
+  }
 
   // regino setup
   FunctionRegion funcRegion(*wfvJob.scalarFn);
@@ -182,12 +186,11 @@ WFVPass::runOnModule(Module & M) {
 
   // FIXME this assumes that all functions were compiled for the same target
   auto & TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(*wfvJobs[0].scalarFn);
-  Config rvConfig; // TODO parse machine attributes of scalar function
+  Config rvConfig = Config::createForFunction(*wfvJobs[0].scalarFn);
 
   // configure platInfo
-  rvConfig.useSLEEF = true;
   PlatformInfo platInfo(M, &TTI, &TLI);
-  addSleefResolver(rvConfig, platInfo, 35);
+  addSleefResolver(rvConfig, platInfo);
 
   // add mappings for recursive vectorization
   for (auto & job : wfvJobs) {

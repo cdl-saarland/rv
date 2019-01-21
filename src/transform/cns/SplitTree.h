@@ -17,7 +17,7 @@ class SplitTree {
   SplitTree *parent;
   BlockGraph::SubgraphMask mask;
   BlockGraph graph;
-  uint splitNode;
+  unsigned splitNode;
   std::set<SplitTree *> children;
   int depth;
 
@@ -25,7 +25,7 @@ class SplitTree {
   void removeChild(SplitTree *);
 
   SplitTree(SplitTree *_parent, BlockGraph::SubgraphMask _mask,
-            BlockGraph _graph, uint _splitNode, int _depth);
+            BlockGraph _graph, unsigned _splitNode, int _depth);
 
 public:
   int getDepth() const;
@@ -36,8 +36,8 @@ public:
   ~SplitTree();
 
   std::set<SplitTree *> &getChildren();
-  uint getNumChildren();
-  uint getSplitNode() const;
+  unsigned getNumChildren();
+  unsigned getSplitNode() const;
   bool isRoot() const;
   SplitTree *getParent() const;
 
@@ -45,7 +45,7 @@ public:
    * add a split to the tree
    */
   SplitTree *pushSplit(BlockGraph::SubgraphMask mask, BlockGraph graph,
-                       uint splitNode);
+                       unsigned splitNode);
 
   void dump();
 };

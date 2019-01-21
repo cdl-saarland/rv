@@ -89,12 +89,11 @@ public:
     void finalize();
 
     PlatformInfo & getPlatformInfo() const { return platInfo; }
+    llvm::Module & getModule() const { return getPlatformInfo().getModule(); }
 
 private:
     Config config;
     PlatformInfo & platInfo;
-
-    void addIntrinsics();
 };
 
 

@@ -245,7 +245,7 @@ namespace rv {
     }
 
     // merge all reaching blocks to source into dest
-    RelayNode & getRelayUnchecked(uint i) { return relays[i]; }
+    RelayNode & getRelayUnchecked(unsigned i) { return relays[i]; }
     void mergeInReaching(RelayNode & dest, RelayNode & source);
 
     bool needsFolding(llvm::TerminatorInst & branch);

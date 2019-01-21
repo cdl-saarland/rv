@@ -371,7 +371,7 @@ ReductionAnalysis::analyze(Loop & hostLoop) {
       IF_DEBUG_RED { errs() << "inspecting: " << *inst << " ..\n\t"; }
 
       for (Value * opVal : inst->operands()) {
-        // uint opIdx = itUse.getOperandNo();
+        // unsigned opIdx = itUse.getOperandNo();
         auto * opInst = dyn_cast<Instruction>(opVal);
         if (!opInst) {
           IF_DEBUG_RED { errs() << "\tnon-inst op: " << *opVal << "\n"; }

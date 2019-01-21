@@ -171,6 +171,31 @@ AllocaSSA::print(raw_ostream & out) const {
   return out;
 }
 
+using IntSet = std::set<int>;
+static IntSet
+GetUnwrittenArguments(const CallInst & call) {
+  IntSet unwrittenArgs;
+  auto * callee = dyn_cast<const Function>(call.getCalledValue());
+
+  // assume that all arguments are written
+  if (!callee) {
+    return unwrittenArgs;
+  }
+
+  // scan through declarations argument to identify unwritten pointer args
+  auto itArg = callee->arg_begin();
+  auto itArgEnd = callee->arg_end();
+  for (int i = 0; itArg != itArgEnd; ++itArg, ++i) {
+    const auto & arg = *itArg;
+    // this pointer arg mau ne written
+    if (arg.getType()->isPointerTy() && !arg.onlyReadsMemory()) continue;
+    // Otw, won;t write to memory through that argument
+    unwrittenArgs.insert(i);
+  }
+
+  return unwrittenArgs;
+}
+
 static bool
 GetWrittenPointers(const Instruction & inst, SmallVector<const Value*, 1> & writtenPtrs) {
   const auto * storeInst = dyn_cast<StoreInst>(&inst);
@@ -187,14 +212,26 @@ GetWrittenPointers(const Instruction & inst, SmallVector<const Value*, 1> & writ
     return true;
   }
 
+  // read-only call
   if (callInst) {
-    // scan through modified ptrs
-    const auto * callee = dyn_cast<Function>(callInst->getCalledValue());
-    for (const auto & arg : callee->args()) {
-      if (arg.getType()->isPointerTy() && !arg.onlyReadsMemory()) {
-        writtenPtrs.push_back(&arg);
-      }
+    if (callInst->onlyReadsMemory()) {
+      return false;
     }
+
+    // scan through modified ptrs
+    IntSet unwrittenArgIndices = GetUnwrittenArguments(*callInst);
+
+    for (int i = 0; i < (int) callInst->getNumArgOperands(); ++i) {
+      const auto * callArg = callInst->getArgOperand(i);
+      // can only write to pointers (well...)
+      if (!callArg->getType()->isPointerTy()) continue;
+
+      // if we could inspect the callee, dismiss read-only args
+      if (unwrittenArgIndices.count(i)) continue;
+
+      writtenPtrs.push_back(callArg);
+    }
+
     return !writtenPtrs.empty();
   }
 

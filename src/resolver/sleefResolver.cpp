@@ -5,8 +5,6 @@
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
 
-#include "rv/sleefLibrary.h"
-
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Transforms/Utils/Cloning.h>
@@ -47,6 +45,8 @@
 using namespace llvm;
 
 // vector-length agnostic
+extern "C" {
+
 extern const unsigned char * vla_sp_Buffer;
 extern const size_t vla_sp_BufferLen;
 
@@ -137,10 +137,7 @@ const unsigned char * avx512_extras_Buffer = nullptr;
 const size_t avx512_extras_BufferLen = 0;
 #endif
 
-#ifdef RV_ENABLE_CRT
-extern const unsigned char * crt_Buffer;
-extern const size_t crt_BufferLen;
-#endif
+} // extern "C"
 
 namespace rv {
 
@@ -241,10 +238,6 @@ static const unsigned char** extraModuleBuffers[] = {
 static Module *sleefModules[SLEEF_Enum_Entries * 2];
 static Module *extraModules[SLEEF_Enum_Entries * 2];
 
-#ifdef RV_ENABLE_CRT
-  static Module* scalarModule; // scalar implementations to be inlined
-#endif
-
 static
 void
 InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleWidth) {
@@ -285,11 +278,13 @@ InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleW
           {"fmod", "xfmod", doubleWidth},
           {"modf", "xmodf", floatWidth},
 
+          {"llvm.floor.f32", "xfloorf", floatWidth},
           {"llvm.fabs.f32", "xfabsf", floatWidth},
           {"llvm.copysign.f32", "xcopysignf", floatWidth},
           {"llvm.minnum.f32", "xfminf", floatWidth},
           {"llvm.maxnum.f32", "xfmaxf", floatWidth},
-          {"llvm.fabs.f64", "xfabs_vla", doubleWidth},
+          {"llvm.floor.f64", "xfloor", doubleWidth},
+          {"llvm.fabs.f64", "xfabs", doubleWidth},
           {"llvm.copysign.f64", "xcopysign", doubleWidth},
           {"llvm.minnum.f64", "xfmin", doubleWidth},
           {"llvm.maxnum.f64", "xfmax", doubleWidth},
@@ -381,7 +376,6 @@ InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleW
 
 class SleefResolverService : public ResolverService {
   PlatformInfo & platInfo;
-  const unsigned maxULPError;
 
   struct ArchFunctionList {
     SleefISA isaIndex;
@@ -406,23 +400,21 @@ class SleefResolverService : public ResolverService {
 
 
 public:
-  void reportConfig() const {
-    Report() << "SLEEFResolver:\n"
-             << "\tULP error bound is " << (maxULPError / 10) << '.' << (maxULPError % 10) << "\n"
+  void
+  print(llvm::raw_ostream & out) const override {
+    out << "SLEEFResolver:\n"
              << "\tarch order: ";
 
     bool later = false;
     for (const auto * archList : archLists) {
-      if (later) { ReportContinue() << ","; }
+      if (later) { out << ","; }
       later = true;
-      ReportContinue() << archList->archSuffix;
+      out << archList->archSuffix;
     }
-    ReportContinue() << "\n";
   }
 
-  SleefResolverService(PlatformInfo & _platInfo, const Config & _config, unsigned _maxULPError)
+  SleefResolverService(PlatformInfo & _platInfo, const Config & _config)
   : platInfo(_platInfo)
-  , maxULPError(_maxULPError)
   , config(_config)
   {
   // ARM
@@ -474,7 +466,7 @@ public:
     for (auto * archList : archLists) delete archList;
   }
 
-  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule);
+  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule);
 };
 
 
@@ -483,29 +475,6 @@ public:
 
 
 
-
-
-// existing vectorized function wrapper
-class ExistingResolver : public FunctionResolver {
-  Function & vecFunc;
-  VectorShape retShape;
-
-public:
-  ExistingResolver(Module & destModule, Function & _vecFunc, VectorShape _retShape)
-  : FunctionResolver(destModule)
-  , vecFunc(_vecFunc)
-  , retShape(_retShape)
-  {}
-
-  llvm::Function& requestVectorized() {
-    return vecFunc;
-  }
-
-  // result shape of function @funcName in target module @module
-  VectorShape requestResultShape() {
-    return VectorShape::varying();
-  }
-};
 
 // simply links-in the pre-vectorized SLEEF function
 class SleefLookupResolver : public FunctionResolver {
@@ -521,28 +490,32 @@ class SleefLookupResolver : public FunctionResolver {
     , destFuncName(_destFuncName)
   {}
 
+  CallPredicateMode getCallSitePredicateMode() {
+    // FIXME this is not entirely true for vector math
+    return CallPredicateMode::SafeWithoutPredicate;
+  }
+
+  // mask position (if any)
+  int getMaskPos() {
+    return -1; // FIXME vector math is unpredicated
+  }
+
   llvm::Function&
   requestVectorized() {
     auto * existingFunc = targetModule.getFunction(destFuncName);
-    if (existingFunc) return *existingFunc;
-    return cloneFunctionIntoModule(vecFunc, targetModule, destFuncName);
+    if (existingFunc) {
+      return *existingFunc;
+    }
+
+    Function & clonedVecFunc = cloneFunctionIntoModule(vecFunc, targetModule, destFuncName);
+    clonedVecFunc.setDoesNotRecurse(); // SLEEF math does not recurse
+    return clonedVecFunc;
   }
 
   // result shape of function @funcName in target module @module
   VectorShape requestResultShape() { return resShape; }
 };
 
-
-static
-std::string
-MangleFunction(StringRef sleefName, const VectorShapeVec & argShapes, int vectorWidth) {
-  std::stringstream ss;
-  ss << sleefName.str() << "_v" << vectorWidth << "_";
-  for (const auto & argShape : argShapes) {
-    ss << argShape.serialize();
-  }
-  return ss.str();
-}
 
 // on-the-fly vectorizing resolver
 struct SleefVLAResolver : public FunctionResolver {
@@ -558,7 +531,7 @@ struct SleefVLAResolver : public FunctionResolver {
 
   std::string vecFuncName;
 
-  SleefVLAResolver(PlatformInfo & platInfo, StringRef baseName, Config config, Function & _scaFunc, const VectorShapeVec & _argShapes, int _vectorWidth)
+  SleefVLAResolver(PlatformInfo & platInfo, std::string baseName, Config config, Function & _scaFunc, const VectorShapeVec & _argShapes, int _vectorWidth)
   : FunctionResolver(platInfo.getModule())
   , vectorizer(platInfo, config)
   , vecInfo(nullptr)
@@ -568,9 +541,19 @@ struct SleefVLAResolver : public FunctionResolver {
   , argShapes(_argShapes)
   , resShape(VectorShape::undef())
   , vectorWidth(_vectorWidth)
-  , vecFuncName(MangleFunction(baseName, argShapes, vectorWidth))
+  , vecFuncName(platInfo.createMangledVectorName(baseName, argShapes, vectorWidth, -1))
   {
     IF_DEBUG_SLEEF { errs() << "VLA: " << vecFuncName << "\n"; }
+  }
+
+  CallPredicateMode getCallSitePredicateMode() {
+    // FIXME this is not entirely true for vector math
+    return CallPredicateMode::SafeWithoutPredicate;
+  }
+
+  // mask position (if any)
+  int getMaskPos() {
+    return -1; // FIXME vector math is unpredicated
   }
 
   // materialized the vectorized function in the module @insertInto and returns a reference to it
@@ -583,16 +566,19 @@ struct SleefVLAResolver : public FunctionResolver {
     requestResultShape();
 
     // prepare scalar copy for transforming
-    const int maskPos = -1; // TODO add support for masking
     clonedFunc = &cloneFunctionIntoModule(scaFunc, targetModule, vecFuncName + ".tmp");
     assert(clonedFunc);
 
     // create SIMD declaration
-    vecFunc = createVectorDeclaration(*clonedFunc, resShape, argShapes, vectorWidth);
-    // TODO vecFunc->copyAttributesFrom(callerFunc);
+    const int maskPos = -1; // TODO add support for masking
+    vecFunc = createVectorDeclaration(*clonedFunc, resShape, argShapes, vectorWidth, maskPos);
     vecFunc->setName(vecFuncName);
 
-    VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes);
+    // override with no-recurse flag (so we won't get guards in the vector code)
+    vecFunc->copyAttributesFrom(&scaFunc);
+    vecFunc->setDoesNotRecurse();
+
+    VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes, CallPredicateMode::SafeWithoutPredicate);
     vectorizer.getPlatformInfo().addMapping(mapping); // prevent recursive vectorization
 
     // set-up vecInfo
@@ -630,6 +616,9 @@ struct SleefVLAResolver : public FunctionResolver {
     vectorizer.vectorize(vecInfo, DT, LI, SE, MDR, nullptr);
     vectorizer.finalize();
 
+    // discard temporary mapping
+    vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
+    // can dispose of temporary function now
     clonedFunc->eraseFromParent();
 
     return *vecFunc;
@@ -719,8 +708,10 @@ GetLeastPreciseImpl(Module & mod, const std::string & funcPrefix, const unsigned
 }
 
 std::unique_ptr<FunctionResolver>
-SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, llvm::Module & destModule) {
+SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule) {
   IF_DEBUG_SLEEF { errs() << "SLEEFResolverService: " << funcName << " for width " << vectorWidth << "\n"; }
+
+  (void) hasPredicate; // FIXME use predicated versions
 
   // Otw, start looking for a SIMD-ized implementation
   ArchFunctionList * archList = nullptr;
@@ -740,7 +731,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
 
     if (archList) break;
   }
-  IF_DEBUG_SLEEF { errs() << "\t n/a\n"; }
+  IF_DEBUG_SLEEF { errs() << "\tsleef: n/a\n"; }
   if (!archList) return nullptr;
 
   // decode bitwidth (for module lookup)
@@ -781,9 +772,8 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
 
   if (isa == SLEEF_VLA) {
     // on-the-fly vectorization module
-    Function &vlaFunc = GetLeastPreciseImpl(*mod, sleefName, maxULPError);
-    std::string baseName = vlaFunc.getName();
-    return std::make_unique<SleefVLAResolver>(platInfo, baseName, config, vlaFunc, argShapes, vectorWidth);
+    Function &vlaFunc = GetLeastPreciseImpl(*mod, sleefName, config.maxULPErrorBound);
+    return std::make_unique<SleefVLAResolver>(platInfo, vlaFunc.getName(), config, vlaFunc, argShapes, vectorWidth);
 
   } else {
     // these are pure functions
@@ -796,7 +786,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
     }
 
     // we'll have to link in the function
-    Function &vecFunc = GetLeastPreciseImpl(*mod, sleefName, maxULPError);
+    Function &vecFunc = GetLeastPreciseImpl(*mod, sleefName, config.maxULPErrorBound);
     std::string vecFuncName = vecFunc.getName().str() + "_" + archList->archSuffix;
     return std::make_unique<SleefLookupResolver>(destModule, resShape, vecFunc, vecFuncName);
   }
@@ -804,131 +794,10 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
 
 
 
-
 void
-addSleefResolver(const Config & config, PlatformInfo & platInfo, unsigned maxULPError) {
-  auto sleefRes = std::make_unique<SleefResolverService>(platInfo, config, maxULPError);
-  IF_DEBUG { sleefRes->reportConfig(); }
+addSleefResolver(const Config & config, PlatformInfo & platInfo) {
+  auto sleefRes = std::make_unique<SleefResolverService>(platInfo, config);
   platInfo.addResolverService(std::move(sleefRes), true);
 }
-
-
-
-
-
-
-// TODO move into separate file
-Constant & cloneConstant(Constant& constVal, Module & cloneInto) {
-  if (isa<GlobalValue>(constVal)) {
-    return cloneGlobalIntoModule(cast<GlobalValue>(constVal), cloneInto);
-  }
-  auto * expr = dyn_cast<ConstantExpr>(&constVal);
-  if (!expr) return constVal;
-
-  // descend into operands and replicate
-  const ConstantExpr & constExpr = *expr;
-
-  SmallVector<Constant*, 4> clonedOps;
-  for (size_t i = 0; i < constExpr.getNumOperands(); ++i) {
-    const Constant & cloned = cloneConstant(*constExpr.getOperand(i), cloneInto);
-    clonedOps.push_back(const_cast<Constant*>(&cloned));
-  }
-
-  return *constExpr.getWithOperands(clonedOps);
-}
-
-GlobalValue & cloneGlobalIntoModule(GlobalValue &gv, Module &cloneInto) {
-  if (isa<Function>(gv)) {
-    auto & func = cast<Function>(gv);
-    return cloneFunctionIntoModule(func, cloneInto, func.getName());
-
-  } else {
-    assert(isa<GlobalVariable>(gv));
-    auto & global = cast<GlobalVariable>(gv);
-    auto * clonedGv = cloneInto.getGlobalVariable(global.getName());
-    if (clonedGv) return *clonedGv;
-
-    // clone
-    auto * clonedGlobal = cast<GlobalVariable>(cloneInto.getOrInsertGlobal(global.getName(), global.getValueType()));
-
-    // clone initializer (could depend on other constants)
-    if (global.hasInitializer()) {
-      auto * initConst = const_cast<Constant*>(global.getInitializer());
-      Constant * clonedInitConst = initConst;
-      if (initConst) {
-        clonedInitConst = &cloneConstant(*initConst, cloneInto);
-      }
-      clonedGlobal->setInitializer(clonedInitConst);
-    }
-
-    clonedGlobal->setThreadLocalMode(global.getThreadLocalMode());
-    clonedGlobal->setAlignment(global.getAlignment());
-    clonedGlobal->copyAttributesFrom(&global);
-    return *clonedGlobal;
-  }
-
-  // unsupported global value
-  abort();
-}
-
-Function &cloneFunctionIntoModule(Function &func, Module &cloneInto, StringRef name) {
-  // eg already migrated
-  auto * existingFn = cloneInto.getFunction(name);
-  if (existingFn && (func.isDeclaration() == existingFn->isDeclaration())) {
-    return *existingFn;
-  }
-
-  // create function in new module, create the argument mapping, clone function into new function body, return
-  Function & clonedFn = *Function::Create(func.getFunctionType(), Function::LinkageTypes::ExternalLinkage,
-                                        name, &cloneInto);
-  clonedFn.copyAttributesFrom(&func);
-
-  // external decl
-  if (func.isDeclaration()) return clonedFn;
-
-  ValueToValueMapTy VMap;
-  auto CI = clonedFn.arg_begin();
-  for (auto I = func.arg_begin(), E = func.arg_end(); I != E; ++I, ++CI) {
-    Argument *arg = &*I, *carg = &*CI;
-    carg->setName(arg->getName());
-    VMap[arg] = carg;
-  }
-  // remap constants
-  for (auto I = inst_begin(func), E = inst_end(func); I != E; ++I) {
-    for (size_t i = 0; i < I->getNumOperands(); ++i) {
-      auto * usedConstant = dyn_cast<Constant>(I->getOperand(i));
-      if (!usedConstant) continue;
-
-      auto & clonedConstant = cloneConstant(*usedConstant, cloneInto);
-      VMap[usedConstant] = &clonedConstant;
-    }
-  }
-
-  SmallVector<ReturnInst *, 1> Returns; // unused
-
-  CloneFunctionInto(&clonedFn, &func, VMap, false, Returns);
-  return clonedFn;
-}
-
-
-// compiler-rt early inlining
-Function *
-requestScalarImplementation(const StringRef & funcName, FunctionType & funcTy, Module &insertInto) {
-#ifdef RV_ENABLE_CRT
-  if (!scalarModule) {
-    scalarModule = createModuleFromBuffer(reinterpret_cast<const char*>(&crt_Buffer), crt_BufferLen, insertInto.getContext());
-  }
-
-  if (!scalarModule) return nullptr; // could not load module
-
-  auto * scalarFn = scalarModule->getFunction(funcName);
-  if (!scalarFn) return nullptr;
-  return &cloneFunctionIntoModule(*scalarFn, insertInto, funcName);
-#else
-  return nullptr; // compiler-rt not available as bc module
-#endif
-}
-
-
 
 } // namespace rv

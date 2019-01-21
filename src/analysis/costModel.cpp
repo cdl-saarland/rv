@@ -4,6 +4,7 @@
 #include "rv/vectorizationInfo.h"
 #include "rv/region/Region.h"
 #include "rv/annotations.h"
+#include "rv/config.h"
 
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/BasicBlock.h"
@@ -11,13 +12,14 @@
 
 using namespace llvm;
 
-#define IF_DEBUG_CM if (true)
+#define IF_DEBUG_CM if (false)
 
 namespace rv {
 
 
-CostModel::CostModel(PlatformInfo & _platInfo)
+CostModel::CostModel(PlatformInfo & _platInfo, Config & _config)
 : platInfo(_platInfo)
+, config(_config)
 , tti(*platInfo.getTTI())
 {}
 
@@ -69,9 +71,13 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
     // check if this is a critical section
     if (IsCriticalSection(*callee)) return maxWidth;
 
-    VectorShapeVec botArgVec;
+    // can we vectorize the callee recursively
+    if (!callee->isDeclaration() && config.enableGreedyIPV) return maxWidth; // everything is possible with IPV..
+
+    VectorShapeVec topArgVec;
     for (int i = 0; i < (int) call->getNumArgOperands(); ++i) {
-      botArgVec.push_back(VectorShape::undef());
+      // botArgVec.push_back(VectorShape::undef()); // FIXME this causes divergence in the VA
+      topArgVec.push_back(VectorShape::varying());
     }
 
     // find widest available implementation
@@ -79,10 +85,9 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
     StringRef calleeName = callee->getName();
     for (; sampleWidth > 1; sampleWidth /= 2) {
 
-      VecMappingShortVec matchVec;
-      const bool needsPredication = false; // FIXME
-      if (platInfo.getMappingsForCall(matchVec, *callee, botArgVec, sampleWidth, needsPredication)) break;
-      if (platInfo.getResolver(calleeName, *callee->getFunctionType(), botArgVec, sampleWidth)) {
+      // if (platInfo.getMappingsForCall(matchVec, *callee, botArgVec, sampleWidth, needsPredication)) break; // FIXME deprecated
+      const bool needsPredicate = false; // FIXME
+      if (platInfo.getResolver(calleeName, *callee->getFunctionType(), topArgVec, sampleWidth, needsPredicate)) {
         break;
       }
     }
@@ -103,12 +108,14 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
 
 size_t
 CostModel::pickWidthForType(const Type & type, size_t maxWidth) const {
-  // assume that only floating point values are vectorized
-  if (type.isFloatingPointTy()) {
-    size_t typeBits = type.isFloatTy() ? 32 : 64;
-    maxWidth = std::min<size_t>(maxWidth, platInfo.getMaxVectorBits() / typeBits);
-  }
 
+  // assume that only floating point values are vectorized
+  size_t rawSize = type.getScalarSizeInBits();
+  if ((rawSize > 0) &&
+       (type.isIntegerTy() || type.isFloatingPointTy()))
+  {
+    maxWidth = std::min<size_t>(maxWidth, platInfo.getMaxVectorBits() / rawSize);
+  }
   return maxWidth;
 }
 
@@ -130,12 +137,12 @@ CostModel::pickWidthForBlock(const BasicBlock & block, size_t maxWidth) const {
 
 size_t
 CostModel::pickWidthForRegion(const Region & region, size_t maxWidth) const {
-  size_t width = maxWidth;
+  size_t width = std::min(maxWidth, platInfo.getMaxVectorBits());
 
-  IF_DEBUG_CM { errs() << "cm: bounding vector width for region " << region.str() << ", initial max width " << maxWidth << "\n"; }
+  IF_DEBUG_CM { errs() << "cm: bounding vector width for region " << region.str() << ", initial max width " << width << "\n"; }
 
   region.for_blocks([&](const BasicBlock & block) {
-      width = pickWidthForBlock(block, maxWidth);
+      width = pickWidthForBlock(block, width);
       return width > 1;
   });
 

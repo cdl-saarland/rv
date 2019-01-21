@@ -28,10 +28,13 @@ struct LoopCloner {
   LoopCloneInfo
   CloneLoop(Loop & L, ValueToValueMapTy & valueMap) {
     auto * loopPreHead = L.getLoopPreheader();
+    assert(loopPreHead && "can only loop with a unique pre-header (add RV norrmalization passes)");
+
     auto * preTerm = loopPreHead->getTerminator();
     auto & loopHead = *L.getHeader();
+
     auto * loopExiting = L.getExitingBlock();
-    assert(loopPreHead && loopExiting && " can only clone single exit loops");
+    assert(loopExiting && " can only clone single exit loops");
 
     auto * splitBranch = BranchInst::Create(&loopHead, &loopHead, ConstantInt::getTrue(loopHead.getContext()), loopPreHead);
 

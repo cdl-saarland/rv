@@ -23,7 +23,6 @@ namespace llvm {
   class BasicBlock;
   class TerminatorInst;
   class DominatorTree;
-  class DominatorTree;
   struct PostDominatorTree;
 }
 
