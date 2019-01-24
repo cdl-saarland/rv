@@ -305,7 +305,7 @@ void patchClonedBlocksForBranch(ValueMap &cloneMap,
 
 // Fix all branches coming from branchBlocks
     IF_DEBUG_CNS llvm::errs() << "## Patching branchBlocks\n";
-      llvm::TerminatorInst *termInst = branchBlock->getTerminator();
+      llvm::Instruction *termInst = branchBlock->getTerminator();
       IF_DEBUG_CNS {
         llvm::errs() << "unpatched:";
         termInst->dump();

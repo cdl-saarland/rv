@@ -59,7 +59,7 @@ BranchDependenceAnalysis::~BranchDependenceAnalysis() {
 
 /// \brief returns the set of blocks whose PHI nodes become divergent if @branch is divergent
 const ConstBlockSet &
-BranchDependenceAnalysis::join_blocks(const llvm::TerminatorInst & term) {
+BranchDependenceAnalysis::join_blocks(const llvm::Instruction & term) {
   IF_DEBUG_BDA { errs() << "-- BDA::join_block for " << term.getParent()->getName() << " --\n"; }
   if (term.getNumSuccessors() < 1) {
     return emptyBlockSet;

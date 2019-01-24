@@ -216,7 +216,7 @@ LoopExitCanonicalizer::replaceTarget(BasicBlock* source,
 {
     assert (source && target && newTarget);
 
-    TerminatorInst* terminator = source->getTerminator();
+    Instruction* terminator = source->getTerminator();
 
     bool replaced = false; RV_UNUSED(replaced);
     for (unsigned i=0, e=terminator->getNumSuccessors(); i<e; ++i)

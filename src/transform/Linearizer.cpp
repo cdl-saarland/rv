@@ -360,7 +360,7 @@ Linearizer::verifyBlockIndex() {
 }
 
 bool
-Linearizer::needsFolding(TerminatorInst & termInst) {
+Linearizer::needsFolding(Instruction & termInst) {
   if (isa<ReturnInst>(termInst) || isa<UnreachableInst>(termInst)) return false;
 
   // fold all non-uniform branches
@@ -805,7 +805,7 @@ Linearizer::emitBlock(int targetId) {
     Use & use = *(itUse++);
 
     int i = use.getOperandNo();
-    auto & term = *cast<TerminatorInst>(use.getUser());
+    auto & term = *cast<Instruction>(use.getUser());
     IF_DEBUG_LIN { errs() << "\t\tlinking " << term << " opIdx " << i << "\n"; }
 
     // forward branches from relay to target
@@ -824,7 +824,7 @@ Linearizer::emitBlock(int targetId) {
 
 // if there are any instructions stuck in @relayBlock move them to target now
   // repair LCSSA incoming blocks along the way
-  for (auto it = relayBlock->begin(); it != relayBlock->end() && !isa<TerminatorInst>(*it); it = relayBlock->begin()) {
+  for (auto it = relayBlock->begin(); it != relayBlock->end() && (!isa<Instruction>(*it) || !cast<Instruction>(it)->isTerminator()); it = relayBlock->begin()) {
     auto * phi = dyn_cast<PHINode>(it);
     if (phi && phi->getNumIncomingValues() == 1) {
       auto itPred = pred_begin(relayBlock);

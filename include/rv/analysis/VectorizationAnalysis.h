@@ -138,7 +138,7 @@ private:
 
   // Returns true iff the shape has been changed
   bool updateShape(const llvm::Value* const V, VectorShape AT);
-  void analyzeDivergence(const llvm::TerminatorInst& termInst);
+  void analyzeDivergence(const llvm::Instruction& termInst);
 
   // Adds all dependent values of V to the worklist:
   // - Any user of this value in the region (minus void-returning calls)

@@ -347,7 +347,7 @@ int
 GetNumPredecessors(BasicBlock & block) {
   int numPred = 0;
   for (auto * user : block.users()) {
-    if (isa<TerminatorInst>(user)) {
+    if (isa<Instruction>(user) && cast<Instruction>(user)->isTerminator()) {
       ++numPred;
     }
   }

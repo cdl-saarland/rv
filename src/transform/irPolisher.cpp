@@ -52,6 +52,24 @@ bool IRPolisher::isBooleanVector(const Type *type) {
   return vectorType && vectorType->getElementType() == Type::getInt1Ty(vectorType->getContext());
 }
 
+bool IRPolisher::isNot(const llvm::Value *value) {
+    auto binOp = llvm::dyn_cast<BinaryOperator>(value);
+    return binOp && binOp->getOpcode() == llvm::Instruction::Xor &&
+           ((llvm::isa<llvm::Constant>(binOp->getOperand(0)) &&
+             llvm::cast<llvm::Constant>(binOp->getOperand(0))->isAllOnesValue()) ||
+            (llvm::isa<llvm::Constant>(binOp->getOperand(1)) &&
+             llvm::cast<llvm::Constant>(binOp->getOperand(1))->isAllOnesValue()));
+}
+
+llvm::Value *IRPolisher::getNotArgument(llvm::Value *value) {
+    assert(isNot(value));
+    auto binOp = llvm::cast<BinaryOperator>(value);
+    if (llvm::isa<llvm::Constant>(binOp->getOperand(0)) &&
+        llvm::cast<llvm::Constant>(binOp->getOperand(0))->isAllOnesValue())
+        return binOp->getOperand(1);
+    return binOp->getOperand(0);
+}
+
 bool IRPolisher::canReplaceInst(llvm::Instruction *inst, unsigned& bitWidth) {
   auto instTy = inst->getType();
   if (!instTy->isVectorTy()) return false;
@@ -94,12 +112,12 @@ Value *IRPolisher::mapIntrinsicCall(llvm::IRBuilder<>& builder, llvm::CallInst* 
         right = binOp->getOperand(1);
 
         if (isReduceOr) {
-          if (BinaryOperator::isNot(left)) {
-            left = BinaryOperator::getNotArgument(left);
+          if (isNot(left)) {
+            left = getNotArgument(left);
             useNot = true;
           }
-          if (!useNot && BinaryOperator::isNot(right)) {
-            right = BinaryOperator::getNotArgument(right);
+          if (!useNot && isNot(right)) {
+            right = getNotArgument(right);
             std::swap(left, right);
             useNot = true;
           }
