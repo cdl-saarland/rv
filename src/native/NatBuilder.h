@@ -125,6 +125,7 @@ namespace rv {
     void vectorizeIndexCall(llvm::CallInst & rvCall);
 
     void vectorizeAlloca(llvm::AllocaInst *const allocaInst);
+    llvm::Type* vectorizeType(llvm::Type * scaTy);
 
     // implement the mask summary function @mode (ballot/popcount) of @vecVal with @builder
     llvm::Value* createVectorMaskSummary(llvm::Type & indexTy, llvm::Value * vecVal, llvm::IRBuilder<> & builder, rv::RVIntrinsic mode);

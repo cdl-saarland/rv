@@ -20,6 +20,11 @@ if (RV_ENABLE_SLEEF)
   endif()
 endif()
 
+if (RV_ENABLE_EVL)
+  Message("-- rv: Use the LLVM-EVL extension (experimental)")
+  add_definitions( "-DLLVM_HAVE_EVL" )
+endif()
+
 if (RV_DEBUG) 
   add_definitions( "-DRV_DEBUG" )
 endif()

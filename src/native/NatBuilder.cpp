@@ -26,7 +26,10 @@
 #include "rv/region/Region.h"
 #include "rv/rvDebug.h"
 #include "rv/intrinsics.h"
+
+#ifdef LLVM_HAVE_EVL
 #include <llvm/IR/EVLBuilder.h>
+#endif
 
 #include "rvConfig.h"
 #include "ShuffleBuilder.h"
@@ -823,6 +826,8 @@ void NatBuilder::vectorizeInstruction(Instruction *const inst) {
   assert(inst && "no instruction to vectorize");
   assert(builder.GetInsertBlock() && "no insertion point set");
 
+#ifdef LLVM_HAVE_EVL
+  // use the Explicit Vector Length extension
   Value * vecBlockMask = nullptr;
   if (!hasTotalOperationTag(*inst)) {
     vecBlockMask = &requestVectorizedBlockMask(*inst->getParent());
@@ -845,6 +850,7 @@ void NatBuilder::vectorizeInstruction(Instruction *const inst) {
     mapVectorValue(inst, evlInst);
     return;
   }
+#endif
 
   // Otw, use the legacy code path
   Instruction *vecInst = inst->clone();
@@ -1477,7 +1483,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   } else if ((addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !(needsMask && !config.enableMaskedMove)) {
     // cast pointer to vector-width pointer
     Value *ptr = requestScalarValue(accessedPtr);
-    // PointerType *vecPtrType = PointerType::getUnqual(vecType); // TODO taken care of by EVLBuilder
     addr.push_back(ptr); //builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
     alignment = addrShape.getAlignmentFirst();
 
@@ -1784,7 +1789,7 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
 
   if (config.useScatterGatherIntrinsics) {
 
-#if 1
+#ifdef LLVM_HAVE_EVL
   EVLBuilder evlBuilder(builder);
   evlBuilder.setMask(mask);
   evlBuilder.setStaticVL(vecInfo.getVectorWidth());
@@ -1916,41 +1921,55 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
   }
 }
 
-Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, unsigned alignment, Value *mask) {
-#if 1
+Value *NatBuilder::createContiguousStore(Value *val, Value *elemPtr, unsigned alignment, Value *mask) {
+#ifdef LLVM_HAVE_EVL
   EVLBuilder evlBuilder(builder);
   evlBuilder.setMask(mask);
   evlBuilder.setStaticVL(vecInfo.getVectorWidth());
   evlBuilder.setEVL(nullptr); // TODO
-  return &evlBuilder.CreateContiguousStore(*val, *ptr);
+  return &evlBuilder.CreateContiguousStore(*val, *rawPtr);
 
 #else
+  auto * scaPtrTy = cast<PointerType>(elemPtr->getType());
+  auto * vecPtrTy = val->getType()->getPointerTo(scaPtrTy->getAddressSpace());
+  auto * vecPtr = builder.CreatePointerCast(elemPtr, vecPtrTy, "vec_cast");
+
   if (mask) {
-    return builder.CreateMaskedStore(val, ptr, alignment, mask);
+    return builder.CreateMaskedStore(val, vecPtr, alignment, mask);
 
   } else {
-    StoreInst *store = builder.CreateStore(val, ptr);
+    StoreInst *store = builder.CreateStore(val, vecPtr);
     store->setAlignment(alignment);
     return store;
   }
 #endif
 }
 
-Value *NatBuilder::createContiguousLoad(Value *ptr, unsigned alignment, Value *mask, Value *passThru) {
-#if 1
+llvm::Type*
+NatBuilder::vectorizeType(llvm::Type * scaTy) {
+  return VectorType::get(scaTy, vectorWidth());
+}
+
+
+Value *NatBuilder::createContiguousLoad(Value *elemPtr, unsigned alignment, Value *mask, Value *passThru) {
+#ifdef LLVM_HAVE_EVL
   EVLBuilder evlBuilder(builder);
   evlBuilder.setMask(mask);
   evlBuilder.setStaticVL(vecInfo.getVectorWidth());
   evlBuilder.setEVL(nullptr); // TODO
-  return &evlBuilder.CreateContiguousLoad(*ptr);
+  return &evlBuilder.CreateContiguousLoad(*elemPtr);
 
 #else
+  auto * scaPtrTy = cast<PointerType>(elemPtr->getType());
+  auto * vecTy = vectorizeType(scaPtrTy->getElementType());
+  auto * vecPtrTy = vecTy->getPointerTo(scaPtrTy->getAddressSpace());
+  auto * vecPtr = builder.CreatePointerCast(elemPtr, vecPtrTy, "vptr_cast");
 
   if (mask) {
-    return builder.CreateMaskedLoad(ptr, alignment, mask, passThru, "cont_load");
+    return builder.CreateMaskedLoad(vecPtr, alignment, mask, passThru, "cont_load");
 
   } else {
-    LoadInst *load = builder.CreateLoad(ptr, "cont_load");
+    LoadInst *load = builder.CreateLoad(vecPtr, "cont_load");
     load->setAlignment(alignment);
     return load;
   }
