@@ -128,10 +128,10 @@ void NatBuilder::printStatistics() {
   file << "Feature,Frequency\n";
 
   // memory statistics
-  file << (config.useScatterGatherIntrinsics ? "masked-scatter," : "masked-casc-store,") << numMaskedScatter << "\n";
-  file << (config.useScatterGatherIntrinsics ? "masked-gather," : "masked-casc-load,") << numMaskedGather << "\n";
-  file << (config.useScatterGatherIntrinsics ? "scatter," : "cascade-store,") << numScatter << "\n";
-  file << (config.useScatterGatherIntrinsics ? "gather," : "cascade-load,")  << numGather << "\n";
+  file << "masked-casc-store," << numMaskedScatter << "\n";
+  file << "masked-casc-load," << numMaskedGather << "\n";
+  file << "cascade-store," << numScatter << "\n";
+  file << "cascade-load,"  << numGather << "\n";
   file << "pseudointer-masked-load," << numPseudoMaskedLoads << "\n";
   file << "pseudointer-masked-store," << numPseudoMaskedStores << "\n";
   file << "pseudointer-load," << numPseudoLoads << "\n";
@@ -1480,7 +1480,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     addr.push_back(requestScalarValue(accessedPtr));
     alignment = addrShape.getAlignmentFirst();
 
-  } else if ((addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !(needsMask && !config.enableMaskedMove)) {
+  } else if (addrShape.isStrided(byteSize) && !(needsMask && !config.enableMaskedMove)) {
     // cast pointer to vector-width pointer
     Value *ptr = requestScalarValue(accessedPtr);
     addr.push_back(ptr); //builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
@@ -1533,15 +1533,17 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
   Value *vecMem = nullptr;
   if (load) {
-    if (needsMask && addrShape.isUniform()) {
-      assert(addr.size() == 1 && "multiple addresses for single access!");
-      vecMem = createUniformMaskedMemory(load, accessedType, alignment, addr[0], predicate, mask, nullptr);
-      ++numUniMaskedLoads;
+    if (addrShape.isUniform()) {
+      if (needsMask) {
+        assert(addr.size() == 1 && "multiple addresses for single access!");
+        vecMem = createUniformMaskedMemory(load, accessedType, alignment, addr[0], predicate, mask, nullptr);
+        ++numUniMaskedLoads;
 
-    } else if (!needsMask && addrShape.isUniform()) {
-      vecMem = builder.CreateLoad(addr[0], "sca_load");
-      cast<LoadInst>(vecMem)->setAlignment(alignment);
-      ++numUniLoads;
+      } else {
+        vecMem = builder.CreateLoad(addr[0], "sca_load");
+        cast<LoadInst>(vecMem)->setAlignment(alignment);
+        ++numUniLoads;
+      }
 
     } else if (addrShape.isStrided(byteSize)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
@@ -1563,25 +1565,28 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     }
 
 
-  } else {
-    if (needsMask && addrShape.isUniform()) {
-      assert(addr.size() == 1 && "multiple addresses for single access!");
-      auto valShape = vecInfo.getVectorShape(*store->getValueOperand());
-      if (!valShape.isUniform()) {
-        Value *mappedStoredVal = requestVectorValue(storedValue);
-        vecMem = createVaryingToUniformStore(store, accessedType, alignment, addr[0], needsMask ? mask : nullptr, mappedStoredVal);
-      } else {
-        Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
-                                                       : requestVectorValue(storedValue);
 
-        vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr[0], predicate, mask, mappedStoredVal);
+  } else { // STORE
+    if (addrShape.isUniform()) {
+      if (needsMask) {
+        assert(addr.size() == 1 && "multiple addresses for single access!");
+        auto valShape = vecInfo.getVectorShape(*store->getValueOperand());
+        if (!valShape.isUniform()) {
+          Value *mappedStoredVal = requestVectorValue(storedValue);
+          vecMem = createVaryingToUniformStore(store, accessedType, alignment, addr[0], needsMask ? mask : nullptr, mappedStoredVal);
+        } else {
+          Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
+                                                         : requestVectorValue(storedValue);
+
+          vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr[0], predicate, mask, mappedStoredVal);
+        }
+
+      } else if (!needsMask && addrShape.isUniform()) {
+        auto * mappedStoredVal = requestScalarValue(storedValue);
+        vecMem = builder.CreateStore(mappedStoredVal, addr[0]);
+        cast<StoreInst>(vecMem)->setAlignment(alignment);
+        ++numUniStores;
       }
-
-    } else if (!needsMask && addrShape.isUniform()) {
-      auto * mappedStoredVal = requestScalarValue(storedValue);
-      vecMem = builder.CreateStore(mappedStoredVal, addr[0]);
-      cast<StoreInst>(vecMem)->setAlignment(alignment);
-      ++numUniStores;
 
     } else if (addrShape.isStrided(byteSize)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
@@ -1787,8 +1792,6 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
   bool maskNonConst(!isa<ConstantVector>(mask));
   maskNonConst ? (scatter ? ++numMaskedScatter : ++numMaskedGather) : (scatter ? ++numScatter : ++numGather);
 
-  if (config.useScatterGatherIntrinsics) {
-
 #ifdef LLVM_HAVE_EVL
   EVLBuilder evlBuilder(builder);
   evlBuilder.setMask(mask);
@@ -1815,10 +1818,6 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
     assert(intr && "scatter/gather not found!");
     return builder.CreateCall(intr, args);
 #endif
-
-  } else {
-    return scatter ? requestCascadeStore(values, addr, alignment, mask) : requestCascadeLoad(addr, alignment, mask);
-  }
 }
 
 void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std::vector<Value *> *addr, std::vector<Value *> *masks,

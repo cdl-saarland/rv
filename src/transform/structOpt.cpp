@@ -144,8 +144,9 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
 
   auto * castElemTy = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
 
-  const unsigned alignment = layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
-  vecInfo.setVectorShape(*castElemTy, VectorShape::cont(alignment));
+  unsigned scaElemBytes = layout.getTypeStoreSize(plainElemTy);
+  const unsigned alignment = scaElemBytes * vecInfo.getVectorWidth();
+  vecInfo.setVectorShape(*castElemTy, VectorShape::strided(scaElemBytes, alignment));
 
   if (load)  {
     auto * vecLoad = builder.CreateLoad(castElemTy, load->getName());
@@ -258,8 +259,9 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
     } else if (castInst) {
       auto vecTy = vectorizeType(*castInst->getDestTy()->getPointerElementType());
       auto vecPtrTy = PointerType::get(vecTy, castInst->getDestTy()->getPointerAddressSpace());
+      auto srcShape = vecInfo.getVectorShape(*transformMap[castInst->getOperand(0)]);
       auto vecBitCast = CastInst::CreatePointerCast(transformMap[castInst->getOperand(0)], vecPtrTy, castInst->getName(), castInst);
-      vecInfo.setVectorShape(*vecBitCast, VectorShape::cont()); // TODO alignment
+      vecInfo.setVectorShape(*vecBitCast, srcShape);
       transformMap[castInst] = vecBitCast;
     } else {
       assert(isa<AllocaInst>(inst) && "unexpected instruction in alloca transformation");
