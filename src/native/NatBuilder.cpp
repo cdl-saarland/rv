@@ -1926,7 +1926,7 @@ Value *NatBuilder::createContiguousStore(Value *val, Value *elemPtr, unsigned al
   evlBuilder.setMask(mask);
   evlBuilder.setStaticVL(vecInfo.getVectorWidth());
   evlBuilder.setEVL(nullptr); // TODO
-  return &evlBuilder.CreateContiguousStore(*val, *rawPtr);
+  return &evlBuilder.CreateContiguousStore(*val, *elemPtr);
 
 #else
   auto * scaPtrTy = cast<PointerType>(elemPtr->getType());
