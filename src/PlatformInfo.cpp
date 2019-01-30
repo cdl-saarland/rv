@@ -21,6 +21,27 @@ using namespace llvm;
 
 namespace rv {
 
+static bool
+GetBuiltinMapping(Function & F, VectorMapping & KnownMapping) {
+  if (F.getName() == "_ZdlPv") {
+    // operator delete - never replicate for the same base ptr (despite its side effects)
+    KnownMapping = VectorMapping(
+      &F,
+      &F,
+      0, // no specific vector width
+      -1, //
+      VectorShape::uni(),
+      {VectorShape::uni()},
+      CallPredicateMode::Unpredicated
+    );
+    return true;
+  }
+
+  // TODO free
+  return false;
+}
+
+
 void
 PlatformInfo::registerDeclareSIMDFunction(Function & F) {
   auto attribSet = F.getAttributes().getFnAttributes();
@@ -43,7 +64,16 @@ PlatformInfo::addMapping(VectorMapping&& mapping) { listResolver->addMapping(std
 
 void
 PlatformInfo::addIntrinsicMappings() {
+  //
   for (Function & func : getModule()) {
+    // Add mappings for known C++ ABI / stdlib functions (free)
+    VectorMapping builtinMapping;
+    if (GetBuiltinMapping(func, builtinMapping)) {
+      addMapping(std::move(builtinMapping));
+      continue;
+    }
+
+    // is this an RV intrinsic?
     RVIntrinsic id = GetIntrinsicID(func);
     if (id == RVIntrinsic::Unknown) continue;
     auto vecMapping = GetIntrinsicMapping(func, id);
