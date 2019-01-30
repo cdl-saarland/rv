@@ -1046,7 +1046,7 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
     auto vecWidth = vecInfo.getVectorWidth();
     assert(vecWidth == 4 || vecWidth == 8);
 
-    Intrinsic::ID id = vecWidth == 8 ? Intrinsic::x86_avx512_mask_expand_pd_512 : Intrinsic::x86_avx512_mask_expand_ps_512;
+    Intrinsic::ID id = Intrinsic::x86_avx512_mask_expand;
 
     assert(rvCall.getNumArgOperands() == 1 && "expected 1 argument for rv_index(mask)");
 
