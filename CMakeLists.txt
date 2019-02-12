@@ -94,7 +94,7 @@ OPTION(RV_ENABLE_SLEEF "Include the SLEEF vector math library as BC with RV" ON)
 OPTION(RV_ENABLE_CRT "Inline complex arithmetic using compiler-rt" OFF)
 OPTION(RV_DEBUG "Enable verbose debug output and expensive internal checks." OFF)
 
-OPTION(RV_ENABLE_EVL "(experimental) Use LLVM-EVL (Explicit Vector Length) (https://reviews.llvm.org/D53613)." OFF)
+OPTION(RV_ENABLE_VP "(experimental) Use LLVM-VP (Vector Predication) (https://reviews.llvm.org/D57504)." OFF)
 
 set(RV_TARGETS_TO_BUILD "Native" CACHE STRING "Semicolon-separated list of targets to build, or 'Native'.")
 string(REPLACE "Native" ${LLVM_NATIVE_ARCH} RV_TARGETS_TO_BUILD "${RV_TARGETS_TO_BUILD}")

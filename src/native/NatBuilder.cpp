@@ -27,8 +27,8 @@
 #include "rv/rvDebug.h"
 #include "rv/intrinsics.h"
 
-#ifdef LLVM_HAVE_EVL
-#include <llvm/IR/EVLBuilder.h>
+#ifdef LLVM_HAVE_VP
+#include <llvm/IR/VPBuilder.h>
 #endif
 
 #include "rvConfig.h"
@@ -826,17 +826,17 @@ void NatBuilder::vectorizeInstruction(Instruction *const inst) {
   assert(inst && "no instruction to vectorize");
   assert(builder.GetInsertBlock() && "no insertion point set");
 
-#ifdef LLVM_HAVE_EVL
+#ifdef LLVM_HAVE_VP
   // use the Explicit Vector Length extension
   Value * vecBlockMask = nullptr;
   if (!hasTotalOperationTag(*inst)) {
     vecBlockMask = &requestVectorizedBlockMask(*inst->getParent());
   }
 
-  EVLBuilder evlBuilder(builder);
-  evlBuilder.setEVL(nullptr); // unsupported
-  evlBuilder.setMask(vecBlockMask);
-  evlBuilder.setStaticVL(vecInfo.getVectorWidth());
+  VPBuilder vpBuilder(builder);
+  vpBuilder.setMask(vecBlockMask);
+  vpBuilder.setStaticVL(vecInfo.getVectorWidth());
+  vpBuilder.setEVL(nullptr); // TODO
 
   // request all operands
   SmallVector<Value*, 4> vecOperandVec;
@@ -844,10 +844,10 @@ void NatBuilder::vectorizeInstruction(Instruction *const inst) {
     vecOperandVec.push_back(requestVectorizedOperand(*inst, opIdx));
   }
 
-  // use EVL intrinsics where available
-  auto * evlInst = evlBuilder.CreateVectorCopy(*inst, vecOperandVec);
-  if (evlInst) {
-    mapVectorValue(inst, evlInst);
+  // use VP intrinsics where available
+  auto * vpInst = vpBuilder.CreateVectorCopy(*inst, vecOperandVec);
+  if (vpInst) {
+    mapVectorValue(inst, vpInst);
     return;
   }
 #endif
@@ -1792,15 +1792,15 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
   bool maskNonConst(!isa<ConstantVector>(mask));
   maskNonConst ? (scatter ? ++numMaskedScatter : ++numMaskedGather) : (scatter ? ++numScatter : ++numGather);
 
-#ifdef LLVM_HAVE_EVL
-  EVLBuilder evlBuilder(builder);
-  evlBuilder.setMask(mask);
-  evlBuilder.setStaticVL(vecInfo.getVectorWidth());
-  evlBuilder.setEVL(nullptr); // TODO
+#ifdef LLVM_HAVE_VP
+  VPBuilder vpBuilder(builder);
+  vpBuilder.setMask(mask);
+  vpBuilder.setStaticVL(vecInfo.getVectorWidth());
+  vpBuilder.setEVL(nullptr); // TODO
   if (scatter) {
-     return &evlBuilder.CreateScatter(*values, *addr);
+     return &vpBuilder.CreateScatter(*values, *addr);
   } else {
-     return &evlBuilder.CreateGather(*addr);
+     return &vpBuilder.CreateGather(*addr);
   }
 
 #else
@@ -1921,12 +1921,12 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
 }
 
 Value *NatBuilder::createContiguousStore(Value *val, Value *elemPtr, unsigned alignment, Value *mask) {
-#ifdef LLVM_HAVE_EVL
-  EVLBuilder evlBuilder(builder);
-  evlBuilder.setMask(mask);
-  evlBuilder.setStaticVL(vecInfo.getVectorWidth());
-  evlBuilder.setEVL(nullptr); // TODO
-  return &evlBuilder.CreateContiguousStore(*val, *elemPtr);
+#ifdef LLVM_HAVE_VP
+  VPBuilder vpBuilder(builder);
+  vpBuilder.setMask(mask);
+  vpBuilder.setStaticVL(vecInfo.getVectorWidth());
+  vpBuilder.setEVL(nullptr); // TODO
+  return &vpBuilder.CreateContiguousStore(*val, *elemPtr);
 
 #else
   auto * scaPtrTy = cast<PointerType>(elemPtr->getType());
@@ -1951,12 +1951,12 @@ NatBuilder::vectorizeType(llvm::Type * scaTy) {
 
 
 Value *NatBuilder::createContiguousLoad(Value *elemPtr, unsigned alignment, Value *mask, Value *passThru) {
-#ifdef LLVM_HAVE_EVL
-  EVLBuilder evlBuilder(builder);
-  evlBuilder.setMask(mask);
-  evlBuilder.setStaticVL(vecInfo.getVectorWidth());
-  evlBuilder.setEVL(nullptr); // TODO
-  return &evlBuilder.CreateContiguousLoad(*elemPtr);
+#ifdef LLVM_HAVE_VP
+  VPBuilder vpBuilder(builder);
+  vpBuilder.setMask(mask);
+  vpBuilder.setStaticVL(vecInfo.getVectorWidth());
+  vpBuilder.setEVL(nullptr); // TODO
+  return &vpBuilder.CreateContiguousLoad(*elemPtr);
 
 #else
   auto * scaPtrTy = cast<PointerType>(elemPtr->getType());
