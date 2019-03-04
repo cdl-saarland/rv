@@ -560,7 +560,14 @@ struct SleefVLAResolver : public FunctionResolver {
     vecFunc = targetModule.getFunction(vecFuncName);
     if (vecFunc) return *vecFunc;
 
-    // need a proper res shape
+    // FIXME this is a hacky workaround for sqrt
+    if (vectorizer.getConfig().useVE && scaFunc.getName().startswith("xsqrt")) {
+      auto funcTy = scaFunc.getFunctionType();
+      auto vecTy = VectorType::get(funcTy->getReturnType(), vectorWidth);
+      vecFunc = Intrinsic::getDeclaration(&targetModule, Intrinsic::sqrt, {vecTy});
+      return *vecFunc;
+    }
+
     requestResultShape();
 
     // prepare scalar copy for transforming
@@ -575,6 +582,9 @@ struct SleefVLAResolver : public FunctionResolver {
     // override with no-recurse flag (so we won't get guards in the vector code)
     vecFunc->copyAttributesFrom(&scaFunc);
     vecFunc->setDoesNotRecurse();
+
+    // TODO move prefered CC into (some) target descriptor class
+    if (vectorizer.getConfig().useVE) { vecFunc->setCallingConv(CallingConv::X86_RegCall); }
 
     VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes, CallPredicateMode::SafeWithoutPredicate);
     vectorizer.getPlatformInfo().addMapping(mapping); // prevent recursive vectorization
