@@ -211,6 +211,11 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
         callArgShapes.push_back(argShape);
       }
 
+      // known LLVM intrinsic shapes
+      if (allArgsUniform && (id == Intrinsic::lifetime_start || id == Intrinsic::lifetime_end)) {
+        return VectorShape::uni();
+      }
+
       // next: query resolver mechanism // TODO account for predicate
       bool hasVaryingBlockPredicate = false;
       if (!vecInfo.getVaryingPredicateFlag(BB, hasVaryingBlockPredicate)) {
