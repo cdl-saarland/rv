@@ -121,7 +121,7 @@ namespace rv {
     void vectorizeIndexCall(llvm::CallInst & rvCall);
 
     // implement the mask summary function @mode (ballot/popcount) of @vecVal with @builder
-    llvm::Value* createVectorMaskSummary(llvm::Value * vecVal, llvm::IRBuilder<> & builder, rv::RVIntrinsic mode);
+    llvm::Value* createVectorMaskSummary(llvm::Type & indexTy, llvm::Value * vecVal, llvm::IRBuilder<> & builder, rv::RVIntrinsic mode);
 
     void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
     void copyCallInstruction(llvm::CallInst *const scalCall, unsigned laneIdx = 0);

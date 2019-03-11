@@ -929,11 +929,11 @@ NatBuilder::vectorizeShuffleCall(CallInst *rvCall) {
 }
 
 Value*
-NatBuilder::createVectorMaskSummary(Value * vecVal, IRBuilder<> & builder, RVIntrinsic mode) {
+NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> & builder, RVIntrinsic mode) {
   Module *mod = vecInfo.getMapping().vectorFn->getParent();
 
   auto vecWidth = cast<VectorType>(vecVal->getType())->getVectorNumElements();
-  auto * intVecTy = VectorType::get(i32Ty, vecWidth);
+  auto * intVecTy = VectorType::get(&indexTy, vecWidth);
 
   Value * result = nullptr;
   switch (mode) {
@@ -951,20 +951,20 @@ NatBuilder::createVectorMaskSummary(Value * vecVal, IRBuilder<> & builder, RVInt
         }
 
         auto * lowerHalf = builder.CreateShuffleVector(vecVal, UndefValue::get(vecVal->getType()), ConstantVector::get(lowerLanes), "lowerLanes");
-        auto * lowerBallot = createVectorMaskSummary(lowerHalf, builder, mode);
+        auto * lowerBallot = createVectorMaskSummary(indexTy, lowerHalf, builder, mode);
 
         auto * upperHalf = builder.CreateShuffleVector(vecVal, UndefValue::get(vecVal->getType()), ConstantVector::get(higherLanes), "higherLanes");
-        auto * upperBallot = createVectorMaskSummary(upperHalf, builder, mode);
+        auto * upperBallot = createVectorMaskSummary(indexTy, upperHalf, builder, mode);
 
         // ballot(vecVal) =  upperHalf << (halfWidth) | lowerHalf
-        auto * up = builder.CreateShl(upperBallot, ConstantInt::get(i32Ty, halfWidth, false));
+        auto * up = builder.CreateShl(upperBallot, ConstantInt::get(&indexTy, halfWidth, false));
         return builder.CreateOr(up, lowerBallot);
       }
 
       // AVX-specific code path
       if (config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) {
       // non-uniform arg
-        uint32_t bits = 32;
+        uint32_t bits = indexTy.getScalarSizeInBits();
         Intrinsic::ID id;
         switch (vecWidth) {
         case 2: id = Intrinsic::x86_sse2_movmsk_pd; bits = 64; break;
@@ -1033,7 +1033,7 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
 
 // non-uniform arg
   auto * vecVal = maskInactiveLanes(requestVectorValue(condArg), rvCall->getParent(), false);
-  auto * mask = createVectorMaskSummary(vecVal, builder, RVIntrinsic::Ballot);
+  auto * mask = createVectorMaskSummary(*rvCall->getType(), vecVal, builder, RVIntrinsic::Ballot);
   mapScalarValue(rvCall, mask);
 }
 
@@ -1095,6 +1095,8 @@ void
 NatBuilder::vectorizePopCountCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
+  auto indexTy = rvCall->getType();
+
   assert(rvCall->getNumArgOperands() == 1 && "expected 1 argument for rv_ballot(cond)");
 
   Value *condArg = rvCall->getArgOperand(0);
@@ -1103,15 +1105,15 @@ NatBuilder::vectorizePopCountCall(CallInst *rvCall) {
 // uniform arg
   if (getVectorShape(*condArg).isUniform()) {
     auto * uniVal = requestScalarValue(condArg);
-    uniVal = builder.CreateSExt(uniVal, i32Ty, "rv_popcount");
-    uniVal = builder.CreateAnd(uniVal, ConstantInt::get(i32Ty, vecWidth, false));
+    uniVal = builder.CreateSExt(uniVal, indexTy, "rv_popcount");
+    uniVal = builder.CreateAnd(uniVal, ConstantInt::get(indexTy, vecWidth, false));
     mapScalarValue(rvCall, uniVal);
     return;
   }
 
   // FIXME mask out inactive threads also for uniform mask
   auto * vecVal = maskInactiveLanes(requestVectorValue(condArg), rvCall->getParent(), false);
-  auto * mask = createVectorMaskSummary(vecVal, builder, RVIntrinsic::PopCount);
+  auto * mask = createVectorMaskSummary(*rvCall->getType(), vecVal, builder, RVIntrinsic::PopCount);
   mapScalarValue(rvCall, mask);
 }
 

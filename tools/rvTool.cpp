@@ -305,6 +305,11 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   FunctionAnalysisManager fam;
   ModuleAnalysisManager mam;
 
+  // setup LLVM analysis infrastructure
+  PassBuilder PB;
+  PB.registerFunctionAnalyses(fam);
+  PB.registerModuleAnalyses(mam);
+
   // platform API
   TargetIRAnalysis irAnalysis;
   TargetTransformInfo tti = irAnalysis.run(*scalarFn, fam);
@@ -339,11 +344,6 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
 
   // normalize
   normalizeFunction(*scalarCopy);
-
-  // setup LLVM analysis infrastructure
-  PassBuilder PB;
-  PB.registerFunctionAnalyses(fam);
-  PB.registerModuleAnalyses(mam);
 
   // configure RV
   auto config = rv::Config::createForFunction(*scalarFn);

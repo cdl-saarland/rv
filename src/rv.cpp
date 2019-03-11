@@ -325,7 +325,7 @@ lowerIntrinsicCall(CallInst* call) {
     case RVIntrinsic::PopCount: {
       lowerIntrinsicCall(call, [] (CallInst* call) {
         IRBuilder<> builder(call);
-        return builder.CreateZExt(call->getOperand(0), builder.getInt32Ty());
+        return builder.CreateZExt(call->getOperand(0), call->getType());
       });
     } break;
   default: break;

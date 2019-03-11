@@ -10,7 +10,7 @@ namespace rv {
 RVIntrinsic GetIntrinsicID(const llvm::Function& func) {
   auto funcName = func.getName();
 #define RV_MAP_INTRINSIC(FUNC, VALUE) \
-  if (funcName == #FUNC ) return RVIntrinsic:: VALUE;
+  if ( StringRef(#FUNC).startswith(funcName) ) return RVIntrinsic:: VALUE;
 #include "rv/intrinsics.def"
 #undef RV_MAP_INTRINSIC
 
