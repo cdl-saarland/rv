@@ -1166,6 +1166,17 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     callArgShapes.push_back(argShape);
   }
 
+// this is a workaround to avoid predicated lifetime markers
+  if (calledFunction && config.useVE) {
+    switch (calledFunction->getIntrinsicID()) {
+      default: break;
+      case Intrinsic::lifetime_start:
+      case Intrinsic::lifetime_end:
+        Report() << "nat (ve target): dropped lifetime marker!\n";
+        return;
+    }
+  }
+
 // Vectorize this function using a resolver provided vector function.
   auto & scaBlock = *scalCall->getParent();
   auto & scaMask = *vecInfo.getPredicate(scaBlock);
