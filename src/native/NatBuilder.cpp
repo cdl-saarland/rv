@@ -33,6 +33,27 @@
 
 using namespace llvm;
 
+// TODO move to vector builder class...
+Value*
+CreateBroadcast(IRBuilder<> & builder, Value & vec, int idx) {
+  auto * intTy = Type::getInt32Ty(builder.getContext());
+  auto *vecTy = cast<VectorType>(vec.getType());
+  const size_t vectorWidth = vecTy->getNumElements();
+  std::vector<Constant*> shuffleConsts;
+  for (size_t i = 0; i < vectorWidth; ++i) {
+    shuffleConsts.push_back(ConstantInt::get(intTy, idx, false));
+  }
+  return builder.CreateShuffleVector(&vec, UndefValue::get(vecTy), ConstantVector::get(shuffleConsts));
+}
+
+Value*
+CreateScalarBroadcast(IRBuilder<> & builder, Value & scaValue, int elemCount) {
+  auto * vecTy = VectorType::get(scaValue.getType(), elemCount);
+  auto * udVal = UndefValue::get(vecTy);
+  auto & firstLaneVec = *builder.CreateInsertElement(udVal, &scaValue, (uint64_t) 0, scaValue.getName() + ".infirst");
+  return CreateBroadcast(builder, firstLaneVec, 0);
+}
+
 namespace rv {
 
 unsigned numMaskedGather, numMaskedScatter, numGather, numScatter, numPseudoMaskedLoads, numPseudoMaskedStores,
@@ -366,17 +387,17 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
           }
         }
       }
-    } else if (phi)
+    } else if (phi) {
       // phis need special treatment as they might contain not-yet mapped instructions
       vectorizePHIInstruction(phi);
-    else if (alloca && shouldVectorize(inst)) {
-      fallbackVectorize(inst);
+    } else if (alloca && shouldVectorize(inst)) {
+      vectorizeAlloca(alloca);
     } else if (gep || bc) {
       continue; // skipped
     } else if (canVectorize(inst) && shouldVectorize(inst))
       vectorizeInstruction(inst);
     else if (!canVectorize(inst) && shouldVectorize(inst))
-      fallbackVectorize(inst);
+      replicateInstruction(inst);
     else
       copyInstruction(inst);
   }
@@ -679,7 +700,41 @@ bool IsVectorizableTy(const Type & ty) {
   return ty.isPointerTy() || ty.isIntegerTy() || ty.isFloatingPointTy();
 }
 
-void NatBuilder::fallbackVectorize(Instruction *const inst) {
+void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
+  unsigned allocAlign = allocaInst->getAlignment();
+  auto * allocTy = allocaInst->getType()->getElementType();
+
+  auto name = allocaInst->getName();
+  if (!allocaInst->isArrayAllocation()) {
+    auto intTy = layout.getIndexType(allocaInst->getType());
+
+    // TODO support array allocation
+    // auto * scaElemCount = allocaInst->getArraySize();
+    // if (getVectorShape(*scaElemCount).isUniform()) {
+    // auto * vecElemCount = requestScalarValue(scaElemCount);
+    auto * scaleFactor = ConstantInt::get(intTy, vectorWidth());
+
+    auto * baseAlloca = builder.CreateAlloca(allocTy, allocaInst->getType()->getAddressSpace(), scaleFactor, name + ".scaled_alloca");
+    baseAlloca->setAlignment(allocAlign);
+
+    // extract basePtrs
+    auto * offsetVec = createContiguousVector(vectorWidth(), intTy, 0, 1);
+    auto * allocaPtrVec = builder.CreateGEP(baseAlloca, offsetVec, name + ".alloca_vec");
+
+    // register as vectorized alloca
+    mapVectorValue(allocaInst, allocaPtrVec);
+    return;
+  }
+
+  // TODO implement a batter vectorization scheme
+
+  // fallback code path
+  ++numSlowAllocas;
+  replicateInstruction(allocaInst);
+}
+
+
+void NatBuilder::replicateInstruction(Instruction *const inst) {
   // fallback for vectorizing varying instructions:
   // if !void: create result vector
   // clone instruction
@@ -704,10 +759,6 @@ void NatBuilder::fallbackVectorize(Instruction *const inst) {
     ValVec resVec = scalarizeCascaded(*inst->getParent(), *inst, packResult, replFunc);
   } else {
     scalarize(*inst->getParent(), *inst, packResult, replFunc);
-  }
-
-  if (isa<AllocaInst>(inst)) {
-    ++numSlowAllocas;
   }
 
   ++numFallbacked;
@@ -1288,7 +1339,7 @@ void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx)
 
 void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   if (keepScalar.count(inst)) {
-    return fallbackVectorize(inst);
+    return replicateInstruction(inst);
   }
 
   LoadInst *load = dyn_cast<LoadInst>(inst);
@@ -1823,7 +1874,7 @@ void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
     } else if (canVectorize(lazyInstr))
         vectorizeMemoryInstruction(lazyInstr);
     else if (shouldVectorize(lazyInstr))
-      fallbackVectorize(lazyInstr);
+      replicateInstruction(lazyInstr);
     else
       copyInstruction(lazyInstr);
 
@@ -2038,7 +2089,6 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
       if (isa<GetElementPtrInst>(mappedVal) && isa<GetElementPtrInst>(value)) {
         reqVal = builder.CreateGEP(mappedVal, ConstantInt::get(i32Ty, laneIdx));
       } else {
-        assert(!isa<GetElementPtrInst>(mappedVal) && "Extract from GEPs are not allowed!!");
         reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
       }
     }
@@ -2610,18 +2660,6 @@ NatBuilder::materializeStridePattern(rv::StridePattern & sp) {
                       return *liveOutView;
                     }
   );
-}
-
-Value*
-CreateBroadcast(IRBuilder<> & builder, Value & vec, int idx) {
-  auto * intTy = Type::getInt32Ty(builder.getContext());
-  auto *vecTy = cast<VectorType>(vec.getType());
-  const size_t vectorWidth = vecTy->getNumElements();
-  std::vector<Constant*> shuffleConsts;
-  for (size_t i = 0; i < vectorWidth; ++i) {
-    shuffleConsts.push_back(ConstantInt::get(intTy, idx, false));
-  }
-  return builder.CreateShuffleVector(&vec, UndefValue::get(vecTy), ConstantVector::get(shuffleConsts));
 }
 
 void

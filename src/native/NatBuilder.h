@@ -119,13 +119,16 @@ namespace rv {
     void vectorizeAlignCall(llvm::CallInst *rvCall);
     void vectorizeIndexCall(llvm::CallInst & rvCall);
 
+    void vectorizeAlloca(llvm::AllocaInst *const allocaInst);
+
     // implement the mask summary function @mode (ballot/popcount) of @vecVal with @builder
     llvm::Value* createVectorMaskSummary(llvm::Type & indexTy, llvm::Value * vecVal, llvm::IRBuilder<> & builder, rv::RVIntrinsic mode);
 
     void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
     void copyCallInstruction(llvm::CallInst *const scalCall, unsigned laneIdx = 0);
 
-    void fallbackVectorize(llvm::Instruction *const inst);
+    // "vectorize" the instruction by creating scalar replicas and inserting their results in a vector (where appropriate)
+    void replicateInstruction(llvm::Instruction *const inst);
 
     void addValuesToPHINodes();
 
