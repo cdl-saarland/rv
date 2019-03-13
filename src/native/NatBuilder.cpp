@@ -71,6 +71,13 @@ bool DumpStatistics(std::string &file) {
   else return !(file = envVal).empty();
 }
 
+Type*
+NatBuilder::getIndexTy(Value * val) const {
+  IF_DEBUG { errs() << " querying the indexType for value: " << *val << "\n"; }
+  auto * ptrTy = cast<PointerType>(val->getType());
+  return layout.getIndexType(ptrTy);
+}
+
 void NatBuilder::printStatistics() {
   // memory statistics
   Report() << "nat memory:\n"
@@ -706,19 +713,19 @@ void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
 
   auto name = allocaInst->getName();
   if (!allocaInst->isArrayAllocation()) {
-    auto intTy = layout.getIndexType(allocaInst->getType());
+    auto indexTy = getIndexTy(allocaInst);
 
     // TODO support array allocation
     // auto * scaElemCount = allocaInst->getArraySize();
     // if (getVectorShape(*scaElemCount).isUniform()) {
     // auto * vecElemCount = requestScalarValue(scaElemCount);
-    auto * scaleFactor = ConstantInt::get(intTy, vectorWidth());
+    auto * scaleFactor = ConstantInt::get(indexTy, vectorWidth());
 
     auto * baseAlloca = builder.CreateAlloca(allocTy, allocaInst->getType()->getAddressSpace(), scaleFactor, name + ".scaled_alloca");
     baseAlloca->setAlignment(allocAlign);
 
     // extract basePtrs
-    auto * offsetVec = createContiguousVector(vectorWidth(), intTy, 0, 1);
+    auto * offsetVec = createContiguousVector(vectorWidth(), indexTy, 0, 1);
     auto * allocaPtrVec = builder.CreateGEP(baseAlloca, offsetVec, name + ".alloca_vec");
 
     // register as vectorized alloca
@@ -1011,7 +1018,7 @@ NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> 
         std::vector<Constant*> constants(vecWidth, nullptr);
         for (unsigned i = 0; i < vecWidth; ++i) {
           unsigned int val = 1 << i;
-          Constant *constant = ConstantInt::get(i32Ty, val);
+          Constant *constant = ConstantInt::get(&indexTy, val);
           constants[i] = constant;
         }
         auto * flagVec = ConstantVector::get(constants);
@@ -1048,9 +1055,10 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
 
 // uniform arg
   if (getVectorShape(*condArg).isUniform()) {
+    auto intTy = rvCall->getType();
     auto * uniVal = requestScalarValue(condArg);
-    uniVal = builder.CreateSExt(uniVal, i32Ty, "rv_ballot");
-    uniVal = builder.CreateAnd(uniVal, builder.getInt32((1 << vecWidth) - 1), "rv_ballot");
+    uniVal = builder.CreateSExt(uniVal, intTy, "rv_ballot");
+    uniVal = builder.CreateAnd(uniVal, ConstantInt::get(intTy, (((uint64_t) 1) << vecWidth) - 1), "rv_ballot");
     mapScalarValue(rvCall, uniVal);
     return;
   }
@@ -1079,7 +1087,7 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
     auto * intLaneTy = IntegerType::getIntNTy(rvCall.getContext(), 512 / vecWidth);
     bool argUniform = hasUniformPredicate(*rvCall.getParent()) && vecInfo.getVectorShape(*condArg).isUniform();
 
-//   uniform arg
+// uniform arg
     if (argUniform) {
       mapScalarValue(&rvCall, createContiguousVector(vecWidth, intLaneTy, 0, 1));
       return;
@@ -1097,11 +1105,11 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
 
     auto * expandDecl = Intrinsic::getDeclaration(rvCall.getParent()->getParent()->getParent(), id, {});
 
-//   flatten mask (<W x i1> --> <iW>)
+//flatten mask (<W x i1> --> <iW>)
     auto * flatMaskTy = Type::getIntNTy(rvCall.getContext(), vecWidth);
     auto * flatMask = builder.CreateBitCast(maskVec, flatMaskTy, "flatmask");
 
-//   call expand
+// call expand
     auto * expandedVec = builder.CreateCall(expandDecl, {fpValVec, Constant::getNullValue(fpVecTy), flatMask}, "psum_bits");
 
     auto * indexVec = builder.CreateBitCast(expandedVec, intVecTy, "bc_ivec");
@@ -1692,7 +1700,6 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
   maskNonConst ? (scatter ? ++numMaskedScatter : ++numMaskedGather) : (scatter ? ++numScatter : ++numGather);
 
   if (config.useScatterGatherIntrinsics) {
-
     auto * vecPtrTy = addr->getType();
 
     std::vector<Value *> args;
@@ -2082,12 +2089,14 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     };
 
     // if the mappedVal is a alloca instruction, create a GEP instruction
-    if (isa<AllocaInst>(mappedVal))
-      reqVal = builder.CreateGEP(mappedVal, ConstantInt::get(i32Ty, laneIdx));
-    else {
+    if (isa<AllocaInst>(mappedVal)) {
+      auto indexTy = getIndexTy(mappedVal);
+      reqVal = builder.CreateGEP(mappedVal, ConstantInt::get(indexTy, laneIdx));
+    } else {
       // extract from GEPs are not allowed. in that case recreate the scalar instruction and get that new value
       if (isa<GetElementPtrInst>(mappedVal) && isa<GetElementPtrInst>(value)) {
-        reqVal = builder.CreateGEP(mappedVal, ConstantInt::get(i32Ty, laneIdx));
+        auto indexTy = getIndexTy(mappedVal);
+        reqVal = builder.CreateGEP(mappedVal, ConstantInt::get(indexTy, laneIdx));
       } else {
         reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
       }
@@ -2298,7 +2307,8 @@ NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interlea
 
   else {
     Value *ptr = requestScalarValue(addr, 0, true);
-    interAddr = builder.CreateGEP(ptr, ConstantInt::get(i32Ty, vectorWidth() * interleavedIdx), "inter_gep");
+    auto * indexTy = getIndexTy(ptr);
+    interAddr = builder.CreateGEP(ptr, ConstantInt::get(indexTy, vectorWidth() * interleavedIdx), "inter_gep");
   }
 
   int AddrSpace = cast<PointerType>(addr->getType())->getAddressSpace();

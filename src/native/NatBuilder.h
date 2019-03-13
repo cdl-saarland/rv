@@ -64,6 +64,9 @@ namespace rv {
 
     rv::VectorShape getVectorShape(const llvm::Value &val);
 
+    // get the appropriate integer ty to index into the ptr-typed \p val.
+    llvm::Type* getIndexTy(llvm::Value * val) const;
+
     // repair outside uses of redChainInst using repairFunc
     void repairOutsideUses(llvm::Instruction & scaChainInst, std::function<llvm::Value& (llvm::Value &,llvm::BasicBlock &)> repairFunc);
 
