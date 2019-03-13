@@ -53,6 +53,7 @@ struct Config {
   int maxULPErrorBound;
 
 // target features
+  bool useVE;
   bool useSSE;
   bool useAVX;
   bool useAVX2;

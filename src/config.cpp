@@ -53,6 +53,7 @@ Config::Config()
 , maxULPErrorBound(10)
 
 // feature flags
+, useVE(false)
 , useSSE(false)
 , useAVX(false)
 , useAVX2(false)
@@ -81,6 +82,9 @@ Config::createDefaultConfig() {
   } else if (arch == "advsimd") {
     Report() << "RV_ARCH: configured for arm advsimd!\n";
     config.useADVSIMD = true;
+  } else if (arch == "ve") {
+    Report() << "RV_ARCH: configured for NEC SX-Aurora!\n";
+    config.useVE = true;
   }
 
   return config;
@@ -107,6 +111,14 @@ for_elems(StringRef listText, std::function<bool(StringRef elem)> UserFunc) {
 Config
 Config::createForFunction(Function & F) {
   Config config;
+
+
+  std::string triple = F.getParent()->getTargetTriple();
+  if (StringRef(triple).startswith("ve-")) {
+    config.useVE = true;
+    return config;
+  }
+
 
   // maps a target-feature entry to a handler
   const std::map<std::string, std::function<void()>> handlerMap = {
@@ -183,7 +195,7 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
 
 static void
 printFeatureFlags(const Config & config, llvm::raw_ostream & out) {
-  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << ", useADVSIMD = " << config.useADVSIMD << "\n";
+  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << ", useADVSIMD = " << config.useADVSIMD << ", useVE = " << config.useVE << "\n";
 }
 
 
