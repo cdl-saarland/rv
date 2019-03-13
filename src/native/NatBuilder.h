@@ -108,7 +108,6 @@ namespace rv {
     void vectorizePHIInstruction(llvm::PHINode *const scalPhi);
     void vectorizeMemoryInstruction(llvm::Instruction *const inst);
     void vectorizeCallInstruction(llvm::CallInst *const scalCall);
-    void vectorizeAllocaInstruction(llvm::AllocaInst *const alloca);
     void vectorizeReductionCall(llvm::CallInst *rvCall, bool isRv_all);
     void vectorizeExtractCall(llvm::CallInst *rvCall);
     void vectorizeInsertCall(llvm::CallInst *rvCall);

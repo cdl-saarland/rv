@@ -38,7 +38,8 @@ namespace rv {
 unsigned numMaskedGather, numMaskedScatter, numGather, numScatter, numPseudoMaskedLoads, numPseudoMaskedStores,
     numInterMaskedLoads, numInterMaskedStores, numPseudoLoads, numPseudoStores, numInterLoads, numInterStores,
     numContMaskedLoads, numContMaskedStores, numContLoads, numContStores, numUniMaskedLoads, numUniMaskedStores,
-    numUniLoads, numUniStores;
+    numUniLoads, numUniStores, numSlowAllocas;
+
 unsigned numVecGEPs, numScalGEPs, numInterGEPs, numVecBCs, numScalBCs;
 unsigned numVecCalls, numSemiCalls, numFallCalls, numCascadeCalls, numRVIntrinsics;
 unsigned numScalarized, numVectorized, numFallbacked, numLazy;
@@ -52,6 +53,7 @@ bool DumpStatistics(std::string &file) {
 void NatBuilder::printStatistics() {
   // memory statistics
   Report() << "nat memory:\n"
+           << "\tslow allocas: " << numSlowAllocas << "\n"
            << "\tscatter/gather: " << numScatter << "/" << numGather << ", masked " << numMaskedScatter << "/" << numMaskedGather << "\n"
            << "\tpsi loads/stores: " << numPseudoLoads << "/" << numPseudoStores << ". masked " << numPseudoMaskedLoads << "/" << numPseudoMaskedStores << "\n"
            << "\tinter load/store: " << numInterLoads << "/" << numInterStores << ", masked " << numInterMaskedLoads << "/" << numInterMaskedStores << "\n"
@@ -368,17 +370,6 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       // phis need special treatment as they might contain not-yet mapped instructions
       vectorizePHIInstruction(phi);
     else if (alloca && shouldVectorize(inst)) {
-      // note: this is ONLY allowed IFF
-      // (1) no calls that have alloca instructions as arguments OR
-      // (2) there exists a function mapping which allows that. e.g.: float * -> <4 x float> *
-      // TODO: fix alloca mapping/vectorization
-//      if (canVectorize(inst))
-//        vectorizeAllocaInstruction(alloca);
-//      else {
-//        for (unsigned lane = 0; lane < vectorWidth(); ++lane) {
-//          copyInstruction(inst, lane);
-//        }
-//    }
       fallbackVectorize(inst);
     } else if (gep || bc) {
       continue; // skipped
@@ -624,28 +615,6 @@ void NatBuilder::mapOperandsInto(Instruction *const scalInst, Instruction *inst,
   }
 }
 
-void NatBuilder::vectorizeAllocaInstruction(AllocaInst *const alloca) {
-  Type *allocaType = alloca->getType()->getElementType();
-
-  // if aggregate or vector type: create <vector_width> types. if not: create vector_type
-  Type *type;
-  Value *numElements = nullptr;
-//  bool mapVector = false;
-  if (allocaType->isAggregateType() || allocaType->isVectorTy()) {
-    type = allocaType;
-    numElements = ConstantInt::get(i32Ty, vectorWidth());
-  } else {
-    type = getVectorType(allocaType, vectorWidth());
-//    mapVector = true;
-  }
-
-  AllocaInst *vecAlloca = builder.CreateAlloca(type, numElements, alloca->getName());
-//  if (mapVector)
-    mapVectorValue(alloca, vecAlloca);
-//  else
-//    mapScalarValue(alloca, vecAlloca);
-}
-
 void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
   assert(vecInfo.hasKnownShape(*scalPhi) && "no VectorShape for PHINode available!");
   VectorShape shape = getVectorShape(*scalPhi);
@@ -735,6 +704,10 @@ void NatBuilder::fallbackVectorize(Instruction *const inst) {
     ValVec resVec = scalarizeCascaded(*inst->getParent(), *inst, packResult, replFunc);
   } else {
     scalarize(*inst->getParent(), *inst, packResult, replFunc);
+  }
+
+  if (isa<AllocaInst>(inst)) {
+    ++numSlowAllocas;
   }
 
   ++numFallbacked;
