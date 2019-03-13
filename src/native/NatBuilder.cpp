@@ -827,28 +827,30 @@ void NatBuilder::vectorizeInstruction(Instruction *const inst) {
   assert(builder.GetInsertBlock() && "no insertion point set");
 
 #ifdef LLVM_HAVE_VP
-  // use the Explicit Vector Length extension
-  Value * vecBlockMask = nullptr;
-  if (!hasTotalOperationTag(*inst)) {
-    vecBlockMask = &requestVectorizedBlockMask(*inst->getParent());
-  }
+  if (config.enableVP) {
+    // use the Explicit Vector Length extension
+    Value * vecBlockMask = nullptr;
+    if (!hasTotalOperationTag(*inst)) {
+      vecBlockMask = &requestVectorizedBlockMask(*inst->getParent());
+    }
 
-  VPBuilder vpBuilder(builder);
-  vpBuilder.setMask(vecBlockMask);
-  vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-  vpBuilder.setEVL(nullptr); // TODO
+    VPBuilder vpBuilder(builder);
+    vpBuilder.setMask(vecBlockMask);
+    vpBuilder.setStaticVL(vecInfo.getVectorWidth());
+    vpBuilder.setEVL(nullptr); // TODO
 
-  // request all operands
-  SmallVector<Value*, 4> vecOperandVec;
-  for (int opIdx = 0; opIdx < (int) inst->getNumOperands(); ++opIdx) {
-    vecOperandVec.push_back(requestVectorizedOperand(*inst, opIdx));
-  }
+    // request all operands
+    SmallVector<Value*, 4> vecOperandVec;
+    for (int opIdx = 0; opIdx < (int) inst->getNumOperands(); ++opIdx) {
+      vecOperandVec.push_back(requestVectorizedOperand(*inst, opIdx));
+    }
 
-  // use VP intrinsics where available
-  auto * vpInst = vpBuilder.CreateVectorCopy(*inst, vecOperandVec);
-  if (vpInst) {
-    mapVectorValue(inst, vpInst);
-    return;
+    // use VP intrinsics where available
+    auto * vpInst = vpBuilder.CreateVectorCopy(*inst, vecOperandVec);
+    if (vpInst) {
+      mapVectorValue(inst, vpInst);
+      return;
+    }
   }
 #endif
 
@@ -1793,31 +1795,33 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
   maskNonConst ? (scatter ? ++numMaskedScatter : ++numMaskedGather) : (scatter ? ++numScatter : ++numGather);
 
 #ifdef LLVM_HAVE_VP
-  VPBuilder vpBuilder(builder);
-  vpBuilder.setMask(mask);
-  vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-  vpBuilder.setEVL(nullptr); // TODO
-  if (scatter) {
-     return &vpBuilder.CreateScatter(*values, *addr);
-  } else {
-     return &vpBuilder.CreateGather(*addr);
+  if (config.enableVP) {
+    VPBuilder vpBuilder(builder);
+    vpBuilder.setMask(mask);
+    vpBuilder.setStaticVL(vecInfo.getVectorWidth());
+    vpBuilder.setEVL(nullptr); // TODO
+    if (scatter) {
+       return &vpBuilder.CreateScatter(*values, *addr);
+    } else {
+       return &vpBuilder.CreateGather(*addr);
+    }
   }
-
-#else
-    auto * vecPtrTy = addr->getType();
-
-    std::vector<Value *> args;
-    if (scatter) args.push_back(values);
-    args.push_back(addr);
-    args.push_back(ConstantInt::get(i32Ty, alignment));
-    args.push_back(mask);
-    if (!scatter) args.push_back(UndefValue::get(vecType));
-    Module *mod = vecInfo.getMapping().vectorFn->getParent();
-    Function *intr = scatter ? Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, {vecType, vecPtrTy})
-                             : Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, {vecType, vecPtrTy});
-    assert(intr && "scatter/gather not found!");
-    return builder.CreateCall(intr, args);
 #endif
+
+// non LLVM-VP codepath
+  auto * vecPtrTy = addr->getType();
+
+  std::vector<Value *> args;
+  if (scatter) args.push_back(values);
+  args.push_back(addr);
+  args.push_back(ConstantInt::get(i32Ty, alignment));
+  args.push_back(mask);
+  if (!scatter) args.push_back(UndefValue::get(vecType));
+  Module *mod = vecInfo.getMapping().vectorFn->getParent();
+  Function *intr = scatter ? Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, {vecType, vecPtrTy})
+                           : Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, {vecType, vecPtrTy});
+  assert(intr && "scatter/gather not found!");
+  return builder.CreateCall(intr, args);
 }
 
 void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std::vector<Value *> *addr, std::vector<Value *> *masks,
@@ -1922,13 +1926,15 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
 
 Value *NatBuilder::createContiguousStore(Value *val, Value *elemPtr, unsigned alignment, Value *mask) {
 #ifdef LLVM_HAVE_VP
-  VPBuilder vpBuilder(builder);
-  vpBuilder.setMask(mask);
-  vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-  vpBuilder.setEVL(nullptr); // TODO
-  return &vpBuilder.CreateContiguousStore(*val, *elemPtr);
+  if (config.enableVP) {
+    VPBuilder vpBuilder(builder);
+    vpBuilder.setMask(mask);
+    vpBuilder.setStaticVL(vecInfo.getVectorWidth());
+    vpBuilder.setEVL(nullptr); // TODO
+    return &vpBuilder.CreateContiguousStore(*val, *elemPtr);
+  }
+#endif
 
-#else
   auto * scaPtrTy = cast<PointerType>(elemPtr->getType());
   auto * vecPtrTy = val->getType()->getPointerTo(scaPtrTy->getAddressSpace());
   auto * vecPtr = builder.CreatePointerCast(elemPtr, vecPtrTy, "vec_cast");
@@ -1941,7 +1947,6 @@ Value *NatBuilder::createContiguousStore(Value *val, Value *elemPtr, unsigned al
     store->setAlignment(alignment);
     return store;
   }
-#endif
 }
 
 llvm::Type*
@@ -1952,13 +1957,15 @@ NatBuilder::vectorizeType(llvm::Type * scaTy) {
 
 Value *NatBuilder::createContiguousLoad(Value *elemPtr, unsigned alignment, Value *mask, Value *passThru) {
 #ifdef LLVM_HAVE_VP
-  VPBuilder vpBuilder(builder);
-  vpBuilder.setMask(mask);
-  vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-  vpBuilder.setEVL(nullptr); // TODO
-  return &vpBuilder.CreateContiguousLoad(*elemPtr);
+  if (config.enableVP) {
+    VPBuilder vpBuilder(builder);
+    vpBuilder.setMask(mask);
+    vpBuilder.setStaticVL(vecInfo.getVectorWidth());
+    vpBuilder.setEVL(nullptr); // TODO
+    return &vpBuilder.CreateContiguousLoad(*elemPtr);
+  }
 
-#else
+#endif
   auto * scaPtrTy = cast<PointerType>(elemPtr->getType());
   auto * vecTy = vectorizeType(scaPtrTy->getElementType());
   auto * vecPtrTy = vecTy->getPointerTo(scaPtrTy->getAddressSpace());
@@ -1972,7 +1979,6 @@ Value *NatBuilder::createContiguousLoad(Value *elemPtr, unsigned alignment, Valu
     load->setAlignment(alignment);
     return load;
   }
-#endif
 }
 
 void NatBuilder::addLazyInstruction(Instruction *const instr) {

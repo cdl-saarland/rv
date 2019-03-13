@@ -45,8 +45,9 @@ struct Config {
   bool enableIRPolish;
   bool enableHeuristicBOSCC;
 
-// greedy inter-procedural vectorizatoin
+// greedy inter-procedural vectorization
   bool enableGreedyIPV;
+  bool enableVP; // use LLVM-VP intrinsics (requires cmake -DRV_ENABLE_VP=on)
 
   // maximum ULP error bound for math functions
   // unit for maxULPErrorBound is tenth of ULP (a value of 10 implies that an ULP error of <= 1.0 is acceptable)

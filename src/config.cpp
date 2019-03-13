@@ -50,6 +50,11 @@ Config::Config()
 
 // enable greedy inter-procedural vectorization
 , enableGreedyIPV(CheckFlag("RV_IPV"))
+#ifdef LLVM_HAVE_VP
+, enableVP(CheckFlag("RV_USE_VP"))
+#else
+, enableVP(false)
+#endif
 , maxULPErrorBound(10)
 
 // feature flags
@@ -195,6 +200,10 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
 
 static void
 printFeatureFlags(const Config & config, llvm::raw_ostream & out) {
+#ifdef LLVM_HAVE_VP
+  out << "LLVM-VP build.\n";
+  if (config.enableVP) out << "nat: using LLVM-VP intrinsics\n";
+#endif
   out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << ", useADVSIMD = " << config.useADVSIMD << ", useVE = " << config.useVE << "\n";
 }
 

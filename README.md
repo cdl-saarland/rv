@@ -2,7 +2,6 @@
 
 Compiler Design Lab / Saarland University / Saarland Informatics Campus
 
-This version of the Region Vectorizer uses Vector Predication intrinsics (https://reviews.llvm.org/D57504).
 
 
 The Region Vectorizer (RV) is a general-purpose vectorization framework for LLVM.
@@ -21,6 +20,7 @@ For any questions, please get in touch with Simon Moll (moll@cs.uni-saarland.de)
 * Automatically uses [SLEEF](https://github.com/shibatch/sleef) vector math functions.
 * Whole-Function vectorizer (`min -> min_avx2`).
 * Outer-loop vectorizer.
+* (Opt-in) support for LLVM-VP (https://reviews.llvm.org/D57504). 
 
 ## Buildling libRV
 
@@ -29,6 +29,12 @@ Clone this repository into llvm/tools/rv where llvm is your LLVM source director
 Run `git submodule update --init` to pull the SLEEF submodule.
 RV requires a C++14, shared library build of LLVM (cmake options `-DBUILD_SHARED_LIBS=on -DLLVM_ENABLE_CXX1Y=on`).
 To (optionally) enable vectorized complex arithmetic through compiler-rt checkout compiler-rt in llvm/runtimes and configure cmake with `-DRV_ENABLE_CRT=on`.
+
+
+## Building with LLVM-VP
+
+Configure with `cmake -DRV_ENABLE_VP=on` to enable LLVM-VP support. Note that doing so for vanilla LLVM will break the build.
+To make RV emit VP intrinsics, set the environment variable `RV_USE_VP=1`.
 
 ### Build prerequisites 
 
