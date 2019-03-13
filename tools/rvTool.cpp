@@ -512,6 +512,7 @@ rv::VectorShape decodeShape(std::stringstream &shapestream) {
     return rv::VectorShape::strided(stridedOf, alignment);
 
   fail("Expected stride specifier.");
+  abort();
 }
 
 static void PrintHelp() {
