@@ -311,6 +311,22 @@ static bool VectorizableType(Type & type) {
   return type.isIntegerTy() || type.isFloatingPointTy();
 }
 
+bool
+StructOpt::IsGEPByBitcast(Type * actualTy, Type * bcDestTy) {
+  IF_DEBUG { errs() << "actual type: " << *actualTy << ", bcDestType: " << *bcDestTy << "\n"; }
+
+  // type has to align with data structure
+  if (layout.getTypeAllocSize(bcDestTy) > layout.getTypeAllocSize(actualTy)) return false;
+
+  // perfect match
+  if (layout.getTypeAllocSize(bcDestTy) == layout.getTypeAllocSize(actualTy)) return true;
+
+  // Otw, recursive into first element
+  auto * compTy = dyn_cast<CompositeType>(actualTy);
+  if (!compTy) return false;
+  return IsGEPByBitcast(compTy->getTypeAtIndex((unsigned) 0), bcDestTy);
+}
+
 /// whether any address computation on this alloc is uniform
 /// the alloca can still be varying because of stored varying values
 bool
@@ -396,7 +412,11 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
 
         // if the pointer is used to access data make sure that the store size is identical
         if (needCompatibleType) {
-          if (layout.getTypeAllocSize(userInst->getType()->getPointerElementType()) != layout.getTypeAllocSize(inst->getType()->getPointerElementType())) {
+          auto * bcDestTy = userInst->getType()->getPointerElementType();
+          auto * actualTy = inst->getType()->getPointerElementType();
+
+          if (
+              !IsGEPByBitcast(actualTy, bcDestTy)) {
             IF_DEBUG_SO { errs() << "skip: casting to non-aligned type (that is accessed) : " << *userInst << "\n"; }
             return false;
           }

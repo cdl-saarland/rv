@@ -31,6 +31,9 @@ class StructOpt {
   /// try to optimize the layout of this alloca
   bool optimizeAlloca(llvm::AllocaInst & allocInst);
 
+  /// whether a bitcast from %p with type actualType to %bsDestType can be interpreted as a zero-index GEP
+  bool IsGEPByBitcast(llvm::Type * actualType, llvm::Type * bcDestType);
+
   /// return a vectorized type for this type
   /// this translates AoS to SoA
   /// returns nullptr if the struct can not be vectorized
