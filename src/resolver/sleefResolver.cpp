@@ -417,7 +417,7 @@ public:
   {
   // ARM
 #ifdef RV_ENABLE_ADVSIMD
-    if (config.useADVSIMD) {
+    if (config.desc.useADVSIMD) {
       auto * advSimdArch = new ArchFunctionList(SleefISA::SLEEF_ADVSIMD, "advsimd");
       InitSleefMappings(advSimdArch->commonVectorMappings, 4, 2);
       archLists.push_back(advSimdArch);
@@ -426,22 +426,22 @@ public:
 
   // x86
 #ifdef RV_ENABLE_X86
-    if (config.useAVX512) {
+    if (config.desc.useAVX512) {
       auto * avx512Arch = new ArchFunctionList(SleefISA::SLEEF_AVX512, "avx512");
       InitSleefMappings(avx512Arch->commonVectorMappings, 16, 8);
       archLists.push_back(avx512Arch);
     }
-    if (config.useAVX2 || config.useAVX512) {
+    if (config.desc.useAVX2 || config.desc.useAVX512) {
       auto * avx2Arch = new ArchFunctionList(SleefISA::SLEEF_AVX2, "avx2");
       InitSleefMappings(avx2Arch->commonVectorMappings, 8, 4);
       archLists.push_back(avx2Arch);
     }
-    if (config.useAVX) {
+    if (config.desc.useAVX) {
       auto * avxArch = new ArchFunctionList(SleefISA::SLEEF_AVX, "avx");
       InitSleefMappings(avxArch->commonVectorMappings, 8, 4);
       archLists.push_back(avxArch);
     }
-    if (config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) {
+    if (config.desc.useSSE || config.desc.useAVX || config.desc.useAVX2 || config.desc.useAVX512) {
       auto * sseArch = new ArchFunctionList(SleefISA::SLEEF_SSE, "sse");
       InitSleefMappings(sseArch->commonVectorMappings, 4, 2);
       archLists.push_back(sseArch);
@@ -561,7 +561,7 @@ struct SleefVLAResolver : public FunctionResolver {
     if (vecFunc) return *vecFunc;
 
     // FIXME this is a hacky workaround for sqrt
-    if (vectorizer.getConfig().useVE && scaFunc.getName().startswith("xsqrt")) {
+    if (vectorizer.getConfig().desc.useVE && scaFunc.getName().startswith("xsqrt")) {
       auto funcTy = scaFunc.getFunctionType();
       auto vecTy = VectorType::get(funcTy->getReturnType(), vectorWidth);
       vecFunc = Intrinsic::getDeclaration(&targetModule, Intrinsic::sqrt, {vecTy});
@@ -584,7 +584,7 @@ struct SleefVLAResolver : public FunctionResolver {
     vecFunc->setDoesNotRecurse();
 
     // TODO move prefered CC into (some) target descriptor class
-    if (vectorizer.getConfig().useVE) { vecFunc->setCallingConv(CallingConv::X86_RegCall); }
+    if (vectorizer.getConfig().desc.useVE) { vecFunc->setCallingConv(CallingConv::X86_RegCall); }
 
     VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes, CallPredicateMode::SafeWithoutPredicate);
     vectorizer.getPlatformInfo().addMapping(mapping); // prevent recursive vectorization

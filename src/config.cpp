@@ -55,111 +55,10 @@ Config::Config()
 #else
 , enableVP(false)
 #endif
+, desc()
+
 , maxULPErrorBound(10)
-
-// feature flags
-, useVE(false)
-, useSSE(false)
-, useAVX(false)
-, useAVX2(false)
-, useAVX512(false)
-, useNEON(false)
-, useADVSIMD(false)
 {}
-
-Config
-Config::createDefaultConfig() {
-  rv::Config config;
-
-  char * rawArch = getenv("RV_ARCH");
-  if (!rawArch) return config;
-
-  std::string arch = rawArch;
-  if (arch == "avx2") {
-    Report() << "RV_ARCH: configured for avx2!\n";
-    config.useAVX2 = true;
-    config.useSSE = true;
-  } else if (arch == "avx512") {
-    Report() << "RV_ARCH: configured for avx512!\n";
-    config.useAVX512 = true;
-    config.useAVX2 = true;
-    config.useSSE = true;
-  } else if (arch == "advsimd") {
-    Report() << "RV_ARCH: configured for arm advsimd!\n";
-    config.useADVSIMD = true;
-  } else if (arch == "ve") {
-    Report() << "RV_ARCH: configured for NEC SX-Aurora!\n";
-    config.useVE = true;
-  }
-
-  return config;
-}
-
-void
-for_elems(StringRef listText, std::function<bool(StringRef elem)> UserFunc) {
-  size_t NextPos;
-  size_t Start = 0;
-
-  if (listText.empty()) return;
-
-  do {
-    NextPos = listText.find(',', Start);
-    size_t N = (NextPos == StringRef::npos) ? NextPos : NextPos - Start;
-    auto elem = listText.substr(Start, N);
-    bool CarryOn = UserFunc(elem);
-    if (!CarryOn) return;
-
-    Start = NextPos + 1;
-  } while (NextPos != StringRef::npos);
-}
-
-Config
-Config::createForFunction(Function & F) {
-  Config config;
-
-
-  std::string triple = F.getParent()->getTargetTriple();
-  if (StringRef(triple).startswith("ve-")) {
-    config.useVE = true;
-    return config;
-  }
-
-
-  // maps a target-feature entry to a handler
-  const std::map<std::string, std::function<void()>> handlerMap = {
-      {"+sse2", [&config]() { config.useSSE = true; } },
-      {"+avx", [&config]() { config.useAVX = true; } },
-      {"+avx2", [&config]() { config.useAVX2 = true; } },
-      {"+avx512f", [&config]() { config.useAVX512 = true; } },
-      {"+neon", [&config]() { config.useADVSIMD = true; config.useNEON = true; } }
-  };
-
-  auto attribSet = F.getAttributes().getFnAttributes();
-  // parse SIMD signatures
-  for (auto attrib : attribSet) {
-    if (!attrib.isStringAttribute()) continue;
-    StringRef attribText = attrib.getKindAsString();
-
-    if (attribText.size() < 2) continue;
-
-    if (attribText != "target-features") {
-      continue;
-    }
-
-    // process all target-features
-    for_elems(attrib.getValueAsString(), [&handlerMap](StringRef elem) {
-      if (elem.size() == 0 || elem[0] != '+') return true;
-
-      auto ItHandler = handlerMap.find(elem.str());
-      if (ItHandler == handlerMap.end()) return true;
-      ItHandler->second();
-      return true;
-    });
-
-  }
-
-  return config;
-}
 
 std::string
 to_string(Config::VAMethod vam) {
@@ -198,15 +97,6 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
         << ", maxULPErrorBound = " << ulp_to_string(config.maxULPErrorBound);
 }
 
-static void
-printFeatureFlags(const Config & config, llvm::raw_ostream & out) {
-#ifdef LLVM_HAVE_VP
-  out << "LLVM-VP build.\n";
-  if (config.enableVP) out << "nat: using LLVM-VP intrinsics\n";
-#endif
-  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << ", useADVSIMD = " << config.useADVSIMD << ", useVE = " << config.useVE << "\n";
-}
-
 
 void
 Config::print(llvm::raw_ostream & out) const {
@@ -216,11 +106,20 @@ Config::print(llvm::raw_ostream & out) const {
   printOptFlags(*this, out);
   out << "\n\t";
   printNativeFlags(*this, out);
+#ifdef LLVM_HAVE_VP
   out << "\n\t";
-  printFeatureFlags(*this, out);
-  out << "\n}\n";
+  out << "LLVM-VP build.\n";
+  if (enableVP) out << "nat: using LLVM-VP intrinsics\n";
+#endif
+  desc.print(out);
+  out << "}\n";
 }
 
 
+Config
+Config::createDefaultConfig() { Config config; config.desc = TargetDesc::createDefaultConfig(); return config; }
 
+  // auto-detect target machine features (SIMD ISAs) for function \p F.
+Config
+Config::createForFunction(llvm::Function & F) { Config config; config.desc = TargetDesc::createForFunction(F); return config; }
 } // namespace rv

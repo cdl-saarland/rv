@@ -2,6 +2,7 @@
 #define RV_CONFIG_H
 
 #include <llvm/Support/raw_ostream.h>
+#include "TargetDesc.h"
 
 namespace llvm {
   class Function;
@@ -49,19 +50,11 @@ struct Config {
   bool enableGreedyIPV;
   bool enableVP; // use LLVM-VP intrinsics (requires cmake -DRV_ENABLE_VP=on)
 
+  TargetDesc desc;
+
   // maximum ULP error bound for math functions
   // unit for maxULPErrorBound is tenth of ULP (a value of 10 implies that an ULP error of <= 1.0 is acceptable)
   int maxULPErrorBound;
-
-// target features
-  bool useVE;
-  bool useSSE;
-  bool useAVX;
-  bool useAVX2;
-  bool useAVX512;
-  bool useNEON;
-  bool useADVSIMD;
-
 
   void print(llvm::raw_ostream&) const;
 

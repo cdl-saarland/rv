@@ -1050,7 +1050,7 @@ NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> 
   switch (mode) {
     case RVIntrinsic::Ballot: {
       // If SSE is available, but AVX and above are not, and the vector width is greater than 4, split the vector
-      bool shouldSplitForISA = vecWidth > 4 && config.useSSE && !config.useAVX && !config.useAVX2 && !config.useAVX512;
+      bool shouldSplitForISA = vecWidth > 4 && config.desc.useSSE && !config.desc.useAVX && !config.desc.useAVX2 && !config.desc.useAVX512;
       if (vecWidth > 8 || shouldSplitForISA) {
         // split up vector
         std::vector<Constant*> lowerLanes;
@@ -1073,7 +1073,7 @@ NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> 
       }
 
       // AVX-specific code path
-      if (config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) {
+      if (config.desc.useSSE || config.desc.useAVX || config.desc.useAVX2 || config.desc.useAVX512) {
       // non-uniform arg
         uint32_t bits = indexTy.getScalarSizeInBits();
         Intrinsic::ID id;
@@ -1154,7 +1154,7 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
   ++numRVIntrinsics;
 
 // avx512vl - expand based implementation
-  if (config.useAVX512) {
+  if (config.desc.useAVX512) {
     auto vecWidth = vecInfo.getVectorWidth();
     assert(vecWidth == 4 || vecWidth == 8);
 
@@ -1199,7 +1199,7 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
   }
 
 // generic implementation
-  assert(config.useAVX512 && "TODO generic implementation (avx512vl only)");
+  assert(config.desc.useAVX512 && "TODO generic implementation (avx512vl only)");
   abort(); // "TODO generic implementation (avx512vl only)"
 }
 
@@ -1279,7 +1279,7 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   }
 
 // this is a workaround to avoid predicated lifetime markers
-  if (calledFunction && config.useVE) {
+  if (calledFunction && config.desc.useVE) {
     switch (calledFunction->getIntrinsicID()) {
       default: break;
       case Intrinsic::lifetime_start:
