@@ -220,7 +220,6 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     return true;
 }
 
-// flag is set if the env var holds a string that starts on a non-'0' char
 bool
 VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTree, LoopInfo & loopInfo, ScalarEvolution & SE, MemoryDependenceResults & MDR, ValueToValueMapTy * vecInstMap) {
   // divergent memcpy lowering
