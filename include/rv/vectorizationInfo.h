@@ -11,10 +11,10 @@
 #define INCLUDE_RV_VECTORIZATIONINFO_H_
 
 namespace llvm {
-class LLVMContext;
-class BasicBlock;
-class Instruction;
-class Value;
+  class LLVMContext;
+  class BasicBlock;
+  class Instruction;
+  class Value;
 } // namespace llvm
 
 #include "region/Region.h"
@@ -33,6 +33,19 @@ namespace rv {
 
 class Region;
 
+struct Mask {
+  llvm::WeakTrackingVH predicate;
+  llvm::WeakTrackingVH activeVectorLength;
+
+  void print(llvm::raw_ostream & out) const;
+  void dump() const;
+
+  Mask()
+  : predicate(nullptr)
+  , activeVectorLength(nullptr)
+  {}
+};
+
 // provides vectorization information (vector shapes, block predicates) for a
 // function
 class VectorizationInfo {
@@ -50,8 +63,7 @@ class VectorizationInfo {
 
   // basic block properties // TODO fuse into struct
   // materialized basic block predicates
-  std::unordered_map<const llvm::BasicBlock *, llvm::TrackingVH<llvm::Value>>
-      predicates;
+  std::unordered_map<const llvm::BasicBlock *, Mask> masks;
   // whether the block is the exit of a divergent loop exit
   std::set<const llvm::BasicBlock *> DivergentLoopExits;
   // whether the block is a join point of disjoint paths from a varying branch
@@ -138,10 +150,15 @@ public:
   void setVaryingPredicateFlag(const llvm::BasicBlock &, bool toVarying);
   void removeVaryingPredicateFlag(const llvm::BasicBlock &);
 
+  // mask == i1 predicate X avl
+  bool hasMask(const llvm::BasicBlock & block) const;
+  Mask& requestMask(const llvm::BasicBlock & block);
+  const Mask& getMask(const llvm::BasicBlock & block) const;
+  void dropMask(const llvm::BasicBlock &block);
+
   // actual basic block predicates
   llvm::Value *getPredicate(const llvm::BasicBlock &block) const;
   void setPredicate(const llvm::BasicBlock &block, llvm::Value &predicate);
-  void dropPredicate(const llvm::BasicBlock &block);
   void remapPredicate(llvm::Value &dest, llvm::Value &old);
 
   // print

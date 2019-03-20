@@ -32,14 +32,6 @@ bool VectorizationInfo::inRegion(const Instruction &inst) const {
   return region.contains(inst.getParent());
 }
 
-void VectorizationInfo::remapPredicate(Value &dest, Value &old) {
-  for (auto it : predicates) {
-    if (it.second == &old) {
-      predicates[it.first] = &dest;
-    }
-  }
-}
-
 void VectorizationInfo::dump(const Value *val) const { print(val, errs()); }
 
 void VectorizationInfo::print(const Value *val, llvm::raw_ostream &out) const {
@@ -78,8 +70,6 @@ void VectorizationInfo::dumpBlockInfo(const BasicBlock &block) const {
 
 void VectorizationInfo::printBlockInfo(const BasicBlock &block,
                                        llvm::raw_ostream &out) const {
-  const Value *predicate = getPredicate(block);
-
   // block name
   out << "Block ";
   block.printAsOperand(out, false);
@@ -93,8 +83,8 @@ void VectorizationInfo::printBlockInfo(const BasicBlock &block,
       else out << ", uni-pred";
     }
 
-    if (predicate) {
-      out << ", predicate: " << *predicate;
+    if (hasMask(block)) {
+      getMask(block).print(out);
     }
 
     if (isDivergentLoopExit(block)) {
@@ -277,27 +267,58 @@ VectorizationInfo::removeVaryingPredicateFlag(const llvm::BasicBlock & BB) {
   VaryingPredicateBlocks.erase(&BB);
 }
 
-// predicate handling
-void VectorizationInfo::dropPredicate(const BasicBlock &block) {
-  auto it = predicates.find(&block);
-  if (it == predicates.end())
-    return;
-  predicates.erase(it);
+bool
+VectorizationInfo::hasMask(const BasicBlock & block) const {
+  auto it = masks.find(&block);
+  return it != masks.end();
 }
 
-llvm::Value *
-VectorizationInfo::getPredicate(const llvm::BasicBlock &block) const {
-  auto it = predicates.find(&block);
-  if (it == predicates.end()) {
-    return nullptr;
+Mask&
+VectorizationInfo::requestMask(const llvm::BasicBlock & block) {
+  auto it = masks.find(&block);
+  if (it == masks.end()) {
+    auto ItInserted = masks.insert(std::pair<const BasicBlock*, Mask>(&block, Mask()));
+    return ItInserted.first->second;
+
   } else {
     return it->second;
   }
 }
 
+const Mask&
+VectorizationInfo::getMask(const llvm::BasicBlock & block) const {
+  auto it = masks.find(&block);
+  assert(it != masks.end());
+  return it->second;
+}
+
+// predicate handling
+void VectorizationInfo::dropMask(const BasicBlock &block) {
+  auto it = masks.find(&block);
+  if (it == masks.end())
+    return;
+  masks.erase(it);
+}
+
+llvm::Value *
+VectorizationInfo::getPredicate(const llvm::BasicBlock &block) const {
+  if (hasMask(block)) {
+    return getMask(block).predicate;
+  }
+  return nullptr;
+}
+
 void VectorizationInfo::setPredicate(const llvm::BasicBlock &block,
                                      llvm::Value &predicate) {
-  predicates[&block] = &predicate;
+  requestMask(block).predicate = &predicate;
+}
+
+void VectorizationInfo::remapPredicate(Value &dest, Value &old) {
+  for (auto it : masks) {
+    if (it.second.predicate == &old) {
+      it.second.predicate = &dest;
+    }
+  }
 }
 
 // loop divergence
@@ -379,5 +400,27 @@ bool VectorizationInfo::isTemporalDivergent(const LoopInfo &LI,
 
   return false;
 }
+
+
+
+// struct Mask
+void
+Mask::print(llvm::raw_ostream & out) const {
+  out << "Mask {";
+    bool hasText = false;
+    if (predicate) {
+      out << "P: ";
+      predicate->printAsOperand(out);
+      hasText = true;
+    }
+    if (activeVectorLength) {
+      if (hasText) out << ", ";
+      activeVectorLength->printAsOperand(out);
+    }
+  out << "}";
+}
+
+void
+Mask::dump() const { print(errs()); }
 
 } // namespace rv
