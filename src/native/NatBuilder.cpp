@@ -61,6 +61,16 @@ CreateScalarBroadcast(IRBuilder<> & builder, Value & scaValue, int elemCount) {
 
 namespace rv {
 
+bool
+VectorizedMask::hasAllOnesPredicate() const {
+  if (!predicate) return true;
+  auto * predConst = dyn_cast<ConstantInt>(predicate);
+  if (predConst) {
+    return predConst->isAllOnesValue();
+  }
+  return false;
+}
+
 unsigned numMaskedGather, numMaskedScatter, numGather, numScatter, numPseudoMaskedLoads, numPseudoMaskedStores,
     numInterMaskedLoads, numInterMaskedStores, numPseudoLoads, numPseudoStores, numInterLoads, numInterStores,
     numContMaskedLoads, numContMaskedStores, numContLoads, numContStores, numUniMaskedLoads, numUniMaskedStores,
@@ -192,6 +202,7 @@ NatBuilder::NatBuilder(Config _config, PlatformInfo &_platInfo, VectorizationInf
     layout(_vecInfo.getScalarFunction().getParent()),
     i1Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 32)),
+    vecMaskTy(VectorType::get(Type::getInt1Ty(builder.getContext()), vecInfo.getVectorWidth())),
     vecMaskArg(nullptr),
     keepScalar(),
     cascadeLoadMap(),
@@ -619,16 +630,25 @@ NatBuilder::getContext() const {
 }
 
 
-llvm::Value&
+VectorizedMask
 NatBuilder::requestVectorizedBlockMask(llvm::BasicBlock& scaBlock) {
   auto * scaMask = vecInfo.getPredicate(scaBlock);
+  Value * vecMask = nullptr;
   if (!scaMask) {
     auto * boolTy = Type::getInt1Ty(getContext());
     auto * maskTy = VectorType::get(boolTy, vecInfo.getVectorWidth());
-    return *Constant::getAllOnesValue(maskTy);
+    vecMask = Constant::getAllOnesValue(maskTy);
+  } else {
+    vecMask = requestVectorValue(scaMask);
   }
 
-  return *requestVectorValue(scaMask);
+  Value * vecEVL = nullptr;
+  auto * scaEVL = vecInfo.getActiveVectorLength(scaBlock);
+  if (scaEVL) {
+    vecEVL = requestScalarValue(scaEVL);
+  }
+
+  return VectorizedMask(vecMask, vecEVL);
 }
 
 
@@ -828,16 +848,18 @@ void NatBuilder::vectorizeInstruction(Instruction *const inst) {
 
 #ifdef LLVM_HAVE_VP
   if (config.enableVP) {
+    VPBuilder vpBuilder(builder);
+
     // use the Explicit Vector Length extension
-    Value * vecBlockMask = nullptr;
+    VectorizedMask blockMask;
     if (!hasTotalOperationTag(*inst)) {
-      vecBlockMask = &requestVectorizedBlockMask(*inst->getParent());
+      blockMask = requestVectorizedBlockMask(*inst->getParent());
     }
 
-    VPBuilder vpBuilder(builder);
-    vpBuilder.setMask(vecBlockMask);
+    // configure predicate
+    vpBuilder.setMask(blockMask.predicate);
+    vpBuilder.setEVL(blockMask.activeVectorLength);
     vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-    vpBuilder.setEVL(nullptr); // TODO
 
     // request all operands
     SmallVector<Value*, 4> vecOperandVec;
@@ -1453,15 +1475,14 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   VectorShape addrShape = getVectorShape(*accessedPtr);
   Type *vecType = getVectorType(accessedType, vectorWidth());
 
-  Value *mask = nullptr;
   Value *predicate = vecInfo.getPredicate(*inst->getParent());
   assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
   bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
 
-  if (needsMask)
-    mask = requestVectorValue(predicate);
-  else
-    mask = getConstantVector(vectorWidth(), i1Ty, 1);
+  VectorizedMask mask;
+  if (needsMask) {
+    mask = requestVectorizedBlockMask(*inst->getParent());
+  }
 
   // generate the address for the memory instruction now
   // uniform: uniform GEP
@@ -1471,7 +1492,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
   std::vector<Value *> addr;
   std::vector<Value *> srcs;
-  std::vector<Value *> masks;
   unsigned alignment;
   bool interleaved = false;
   bool pseudoInter = false;
@@ -1487,43 +1507,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     Value *ptr = requestScalarValue(accessedPtr);
     addr.push_back(ptr); //builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
     alignment = addrShape.getAlignmentFirst();
-
-  } else if ((addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) && !(needsMask && !config.enableMaskedMove)) {
-    // interleaved access. ptrs: base, base+vector, base+2vector, ...
-    Value *srcPtr = getPointerOperand(cast<Instruction>(srcs[0]));
-    for (unsigned i = 0; i < srcs.size(); ++i) {
-      Value *ptr = requestInterleavedAddress(srcPtr, i, vecType);
-      addr.push_back(ptr);
-      if (needsMask)
-        masks.push_back(mask);
-    }
-    alignment = addrShape.getAlignmentFirst();
-    interleaved = true;
-
-  } else if ((addrShape.isStrided() && isPseudointerleaved(inst, accessedPtr, byteSize)) && !(needsMask && !config.enableMaskedMove)) {
-    // pseudo-interleaved: same as above. we don't know the array limits, so we skip the last index of the last load
-    unsigned stride = (unsigned) addrShape.getStride() / byteSize;
-    srcs.push_back(inst);
-    Value *srcPtr = getPointerOperand(inst);
-    Type *interType = vecType;
-    for (unsigned i = 0; i < stride; ++i) {
-      if (config.cropPseudoInterleaved && i == (stride - 1)) {
-        interType = getVectorType(accessedType, vectorWidth() - (stride-1));
-      }
-      Value *ptr = requestInterleavedAddress(srcPtr, i, interType);
-      addr.push_back(ptr);
-    }
-
-    if (store && needsMask) {
-      masks.push_back(mask);
-      for (unsigned i = 1; i < stride; ++i) {
-        unsigned width = i == (stride - 1) && config.cropPseudoInterleaved ? vectorWidth() - (stride - 1) : vectorWidth();
-        masks.push_back(getConstantVector(width, i1Ty, 0));
-      }
-    }
-
-    alignment = addrShape.getAlignmentFirst();
-    pseudoInter = true;
 
   } else {
     addr.push_back(requestVectorValue(accessedPtr));
@@ -1549,17 +1532,9 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
     } else if (addrShape.isStrided(byteSize)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
-      vecMem = createContiguousLoad(addr[0], alignment, needsMask ? mask : nullptr, UndefValue::get(vecType));
+      vecMem = createContiguousLoad(addr[0], alignment, mask, UndefValue::get(vecType));
       addrShape.isUniform() ? ++numUniLoads : needsMask ? ++numContMaskedLoads : ++numContLoads;
       needsMask ? ++numContLoads : ++numContMaskedLoads;
-
-    } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
-      assert(addr.size() > 1 && "only one address for multiple accesses!");
-      createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs);
-
-    } else if (pseudoInter && !(needsMask && !config.enableMaskedMove)) {
-      assert(addr.size() > 1 && "only one address for multiple accesses!");
-      createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs, true);
 
     } else {
       assert(addr.size() == 1 && "multiple addresses for single access!");
@@ -1575,7 +1550,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         auto valShape = vecInfo.getVectorShape(*store->getValueOperand());
         if (!valShape.isUniform()) {
           Value *mappedStoredVal = requestVectorValue(storedValue);
-          vecMem = createVaryingToUniformStore(store, accessedType, alignment, addr[0], needsMask ? mask : nullptr, mappedStoredVal);
+          vecMem = createVaryingToUniformStore(store, accessedType, alignment, addr[0], mask, mappedStoredVal);
         } else {
           Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                          : requestVectorValue(storedValue);
@@ -1594,29 +1569,9 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                        : requestVectorValue(storedValue);
-      vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment, needsMask ? mask : nullptr);
+      vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment, mask);
 
       needsMask ? ++numContStores : ++numContMaskedLoads;
-
-    } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
-      assert(addr.size() > 1 && "only one address for multiple accesses!");
-      std::vector<Value *> vals;
-      vals.reserve(addr.size());
-      for (unsigned i = 0; i < addr.size(); ++i) {
-        Value *srcVal = cast<StoreInst>(srcs[i])->getValueOperand();
-        Value *val = requestVectorValue(srcVal);
-        vals.push_back(val);
-      }
-      createInterleavedMemory(vecType, alignment, &addr, &masks, &vals, &srcs);
-
-    } else if (pseudoInter && !(needsMask && !config.enableMaskedMove)) {
-      assert(addr.size() > 1 && "only one address for multiple accesses!");
-      Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
-                                                       : requestVectorValue(storedValue);
-      std::vector<Value *> vals;
-      vals.reserve(addr.size());
-      vals.push_back(mappedStoredVal);
-      createInterleavedMemory(vecType, alignment, &addr, &masks, &vals, &srcs, true);
 
     } else {
       assert(addr.size() == 1 && "multiple addresses for single access!");
@@ -1658,12 +1613,12 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
 
 Value *
-NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, unsigned int alignment, Value *addr, Value *mask, Value *values) {
+NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, unsigned int alignment, Value *addr, VectorizedMask mask, Value *values) {
   Value * indexVal = nullptr;
   auto & ctx = builder.getContext();
 
   BasicBlock * continueBlock = nullptr;
-  if (!mask) {
+  if (mask.hasAllOnesPredicate()) {
     // under uniform contexts store the value of the last lane
     indexVal = ConstantInt::get(Type::getInt32Ty(ctx), vectorWidth() - 1);
   } else {
@@ -1718,7 +1673,7 @@ NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, u
     Value * branchMask = builder.CreateICmpNE(regMaskInt, ConstantInt::getNullValue(nativeIntTy)); // createPTest(mask, false); //
 #else
     // rather use a ptest to allow folding with outer stores
-    Value * branchMask = createPTest(mask, false);
+    Value * branchMask = createPTest(mask.predicate, false);
 #endif
 
     builder.CreateCondBr(branchMask, memBlock, continueBlock);
@@ -1732,7 +1687,7 @@ NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, u
     // generic but slow implementation
     // SExt to full width int
     auto * vecLaneTy = VectorType::get(nativeIntTy, vectorWidth());
-    auto * sxMask = builder.CreateSExt(mask, vecLaneTy);
+    auto * sxMask = builder.CreateSExt(mask.predicate, vecLaneTy);
 
     // AND with lane index vector
     auto * laneIdxConst = createContiguousVector(vectorWidth(), nativeIntTy, 0, 1);
@@ -1768,7 +1723,7 @@ NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, u
 }
 
 Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedType, unsigned int alignment,
-                                             Value *addr, Value * scalarMask, Value * vectorMask, Value *values) {
+                                             Value *addr, Value * scalarMask, VectorizedMask vectorMask, Value *values) {
   values ? ++numUniMaskedStores : ++numUniMaskedLoads;
 
   // emit a scalar memory acccess within a any-guarded section
@@ -1788,18 +1743,18 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedTy
   });
 }
 
-Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Value *addr, Value *mask,
+Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Value *addr, VectorizedMask mask,
                                        Value *values) {
   bool scatter(values != nullptr);
-  bool maskNonConst(!isa<ConstantVector>(mask));
+  bool maskNonConst = !mask.hasAllOnesPredicate();
   maskNonConst ? (scatter ? ++numMaskedScatter : ++numMaskedGather) : (scatter ? ++numScatter : ++numGather);
 
 #ifdef LLVM_HAVE_VP
   if (config.enableVP) {
     VPBuilder vpBuilder(builder);
-    vpBuilder.setMask(mask);
+    vpBuilder.setMask(mask.predicate);
     vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-    vpBuilder.setEVL(nullptr); // TODO
+    vpBuilder.setEVL(mask.activeVectorLength);
     if (scatter) {
        return &vpBuilder.CreateScatter(*values, *addr);
     } else {
@@ -1811,11 +1766,14 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
 // non LLVM-VP codepath
   auto * vecPtrTy = addr->getType();
 
+  // FIXME
+  auto * vecPredicate = mask.predicate ? mask.predicate : ConstantVector::getAllOnesValue(vecMaskTy);
+
   std::vector<Value *> args;
   if (scatter) args.push_back(values);
   args.push_back(addr);
   args.push_back(ConstantInt::get(i32Ty, alignment));
-  args.push_back(mask);
+  args.push_back(vecPredicate);
   if (!scatter) args.push_back(UndefValue::get(vecType));
   Module *mod = vecInfo.getMapping().vectorFn->getParent();
   Function *intr = scatter ? Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, {vecType, vecPtrTy})
@@ -1824,113 +1782,13 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
   return builder.CreateCall(intr, args);
 }
 
-void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std::vector<Value *> *addr, std::vector<Value *> *masks,
-                                         std::vector<Value *> *values, std::vector<Value *> *srcs, bool isPseudoInter) {
-
-  unsigned stride = (unsigned) addr->size();
-  bool needsMask = masks->size() > 0;
-  bool load = values == nullptr;
-
-  if (load) {
-    if (needsMask)
-      isPseudoInter ? ++numPseudoMaskedLoads : numInterMaskedLoads += stride;
-    else
-      isPseudoInter ? ++numPseudoLoads : numInterLoads += stride;
-  } else {
-    if (needsMask)
-      isPseudoInter ? ++numPseudoMaskedStores : numInterMaskedStores += stride;
-    else
-      isPseudoInter ? ++numPseudoStores : numInterStores += stride;
-  }
-
-  // search if address was already pseudo interleaved by a load before
-  if (isPseudoInter && !load) {
-    Value *srcAddr = cast<StoreInst>(srcs->front())->getPointerOperand();
-    if (pseudointerValueMap.count(srcAddr)) {
-      LaneValueVector &pseudoValues = pseudointerValueMap[srcAddr];
-      for (unsigned i = 1; i < pseudoValues.size(); ++i) {
-        values->push_back(pseudoValues[i]);
-      }
-
-      if (!needsMask) {
-        unsigned width = vectorWidth() - (stride - 1);
-        std::vector<unsigned> trueMask(width, 1);
-        masks->push_back(getConstantVectorPadded(vectorWidth(), i1Ty, trueMask, true));
-      }
-
-    } else {
-      // fill with undefined else
-      Type *interType = vecType;
-      if (!needsMask)
-        masks->push_back(getConstantVector(vectorWidth(), i1Ty, 1));
-      unsigned width = vectorWidth();
-      for (unsigned i = 1; i < addr->size(); ++i) {
-        if (i == (stride - 1) && config.cropPseudoInterleaved) {
-          width = vectorWidth() - (stride - 1);
-          interType = getVectorType(vecType->getVectorElementType(), width);
-        }
-
-        values->push_back(UndefValue::get(interType));
-        masks->push_back(getConstantVector(width, i1Ty, 0));
-      }
-      needsMask = true;
-    }
-  } else if (isPseudoInter && load && !config.cropPseudoInterleaved) {
-    unsigned width = vectorWidth() - (stride - 1);
-    std::vector<unsigned> trueMask(width, 1);
-    masks->push_back(getConstantVectorPadded(vectorWidth(), i1Ty, trueMask, true));
-  }
-
-  // tranpose mask and values if needed
-  ShuffleBuilder maskTransposer(vectorWidth());
-  if (needsMask)
-    maskTransposer.add(*masks);
-
-  // build interleaved loads/stores
-  Value *vecMem;
-  ShuffleBuilder transposer(vectorWidth());
-  if (!load)
-    transposer.add(*values);
-
-  for (unsigned i = 0; i < stride; ++i) {
-    Value *ptr = (*addr)[i];
-    Value *mask = needsMask ? maskTransposer.shuffleToInterleaved(builder, stride, i) : nullptr;
-
-    if (masks->size() == 1 && i == (stride - 1)) {
-      needsMask = true;
-      mask = masks->front();
-    }
-
-    if (load) {
-      vecMem = createContiguousLoad(ptr, alignment, mask, UndefValue::get(vecType));
-      transposer.add(vecMem);
-    } else {
-      Value *val = transposer.shuffleToInterleaved(builder, stride, i);
-      vecMem = createContiguousStore(val, ptr, alignment, mask);
-      if (i < srcs->size())
-        mapVectorValue((*srcs)[i], vecMem);
-    }
-  }
-  if (load) {
-    // de-interleave and map
-    Value *srcAddr = cast<LoadInst>(srcs->front())->getPointerOperand();
-    for (unsigned i = 0; i < stride; ++i) {
-      vecMem = transposer.shuffleFromInterleaved(builder, stride, i);
-      if (i < srcs->size())
-        mapVectorValue((*srcs)[i], vecMem);
-
-      pseudointerValueMap[srcAddr].push_back(vecMem);
-    }
-  }
-}
-
-Value *NatBuilder::createContiguousStore(Value *val, Value *elemPtr, unsigned alignment, Value *mask) {
+Value *NatBuilder::createContiguousStore(Value *val, Value *elemPtr, unsigned alignment, VectorizedMask mask) {
 #ifdef LLVM_HAVE_VP
   if (config.enableVP) {
     VPBuilder vpBuilder(builder);
-    vpBuilder.setMask(mask);
+    vpBuilder.setMask(mask.predicate);
     vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-    vpBuilder.setEVL(nullptr); // TODO
+    vpBuilder.setEVL(mask.activeVectorLength);
     return &vpBuilder.CreateContiguousStore(*val, *elemPtr);
   }
 #endif
@@ -1939,8 +1797,8 @@ Value *NatBuilder::createContiguousStore(Value *val, Value *elemPtr, unsigned al
   auto * vecPtrTy = val->getType()->getPointerTo(scaPtrTy->getAddressSpace());
   auto * vecPtr = builder.CreatePointerCast(elemPtr, vecPtrTy, "vec_cast");
 
-  if (mask) {
-    return builder.CreateMaskedStore(val, vecPtr, alignment, mask);
+  if (!mask.hasAllOnesPredicate()) {
+    return builder.CreateMaskedStore(val, vecPtr, alignment, mask.predicate);
 
   } else {
     StoreInst *store = builder.CreateStore(val, vecPtr);
@@ -1955,11 +1813,11 @@ NatBuilder::vectorizeType(llvm::Type * scaTy) {
 }
 
 
-Value *NatBuilder::createContiguousLoad(Value *elemPtr, unsigned alignment, Value *mask, Value *passThru) {
+Value *NatBuilder::createContiguousLoad(Value *elemPtr, unsigned alignment, VectorizedMask mask, Value *passThru) {
 #ifdef LLVM_HAVE_VP
   if (config.enableVP) {
     VPBuilder vpBuilder(builder);
-    vpBuilder.setMask(mask);
+    vpBuilder.setMask(mask.predicate);
     vpBuilder.setStaticVL(vecInfo.getVectorWidth());
     vpBuilder.setEVL(nullptr); // TODO
     return &vpBuilder.CreateContiguousLoad(*elemPtr);
@@ -1971,8 +1829,8 @@ Value *NatBuilder::createContiguousLoad(Value *elemPtr, unsigned alignment, Valu
   auto * vecPtrTy = vecTy->getPointerTo(scaPtrTy->getAddressSpace());
   auto * vecPtr = builder.CreatePointerCast(elemPtr, vecPtrTy, "vptr_cast");
 
-  if (mask) {
-    return builder.CreateMaskedLoad(vecPtr, alignment, mask, passThru, "cont_load");
+  if (!mask.hasAllOnesPredicate()) {
+    return builder.CreateMaskedLoad(vecPtr, alignment, mask.predicate, passThru, "cont_load");
 
   } else {
     LoadInst *load = builder.CreateLoad(vecPtr, "cont_load");

@@ -282,6 +282,15 @@ void VectorizationInfo::dropMask(const BasicBlock &block) {
 }
 
 llvm::Value *
+VectorizationInfo::getActiveVectorLength(const llvm::BasicBlock &block) const {
+  if (hasMask(block)) {
+    return getMask(block).activeVectorLength;
+  }
+  return nullptr;
+}
+
+
+llvm::Value *
 VectorizationInfo::getPredicate(const llvm::BasicBlock &block) const {
   if (hasMask(block)) {
     return getMask(block).predicate;

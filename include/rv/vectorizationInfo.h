@@ -151,6 +151,8 @@ public:
   const Mask& getMask(const llvm::BasicBlock & block) const;
   void dropMask(const llvm::BasicBlock &block);
 
+  llvm::Value *getActiveVectorLength(const llvm::BasicBlock &block) const;
+
   // actual basic block predicates
   llvm::Value *getPredicate(const llvm::BasicBlock &block) const;
   void setPredicate(const llvm::BasicBlock &block, llvm::Value &predicate);
