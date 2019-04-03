@@ -200,7 +200,8 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
     if (idxVal->getType()->getScalarSizeInBits() > 32) {
       // Tolerate sign extensions for indices
       if (dyn_cast<CastInst>(idxVal) &&
-          cast<CastInst>(idxVal)->getOpcode() == Instruction::CastOps::SExt &&
+          (cast<CastInst>(idxVal)->getOpcode() == Instruction::CastOps::SExt ||
+           cast<CastInst>(idxVal)->getOpcode() == Instruction::CastOps::ZExt) &&
           cast<CastInst>(idxVal)->getOperand(0)->getType()->getScalarSizeInBits() <= 32) {
         idxVal = cast<CastInst>(idxVal)->getOperand(0);
       } else {
