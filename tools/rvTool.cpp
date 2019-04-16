@@ -319,8 +319,8 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
 
   // assign a proper vector function name
   if (generateVectorName) {
-    StringRef scaName = scalarFn->getName();
-    StringRef mangledVectorName = platInfo.createMangledVectorName(scaName, vectorizerJob.argShapes, vectorizerJob.vectorWidth, vectorizerJob.maskPos);
+    auto scaName = scalarFn->getName();
+    auto mangledVectorName = platInfo.createMangledVectorName(scaName, vectorizerJob.argShapes, vectorizerJob.vectorWidth, vectorizerJob.maskPos);
     vectorizerJob.vectorFn->setName(mangledVectorName);
   }
 
