@@ -1,5 +1,6 @@
 #include "rv/analysis/UndeadMaskAnalysis.h"
 
+#include <llvm/IR/PatternMatch.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Constants.h>
@@ -17,6 +18,8 @@ using namespace llvm;
 #define IF_DEBUG_UDM if (true)
 #endif
 
+using namespace llvm::PatternMatch;
+
 namespace rv {
 
 static bool
@@ -27,19 +30,16 @@ IsConstMask(const Value & val, bool allTrue) {
 
 static Value*
 MatchNegation(const Value & val) {
-  const auto * inst = dyn_cast<Instruction>(&val);
-  if (!inst) return nullptr;
-  if (inst->getOpcode() != Instruction::Xor) return nullptr;
-
-  if (IsConstMask(*inst->getOperand(0), true)) return inst->getOperand(1); // true XOR V
-  if (IsConstMask(*inst->getOperand(1), true)) return inst->getOperand(0); // V XOR true
-
+  Value * Elem;
+  if (match(&val, m_Not(m_Value(Elem)))) {
+    return Elem;
+  }
   return nullptr;
 }
 
 bool
 UndeadMaskAnalysis::implies(const Value & lhs, bool lhsNegated, const Value & rhs, bool rhsNegated) {
-  IF_DEBUG_UDM { errs() << "UDM: implies " << lhs << ", lhsNegated=" << lhsNegated << ", rhs " << rhs << ", rhsNegated=" << rhsNegated << "\n"; }
+  IF_DEBUG_UDM { errs() << "UDM: whether " << lhs << ", lhsNegated=" << lhsNegated << " == implies ==> rhs " << rhs << ", rhsNegated=" << rhsNegated << "\n"; }
 
 // trivial cases
   if ((lhsNegated == rhsNegated) && (&lhs == &rhs)) {
@@ -55,6 +55,21 @@ UndeadMaskAnalysis::implies(const Value & lhs, bool lhsNegated, const Value & rh
   if (negatedLhs || negatedRhs) {
     return implies(negatedLhs ? *negatedLhs : lhs, ((bool) negatedLhs) ^ lhsNegated,
                    negatedRhs ? *negatedRhs : rhs, ((bool) negatedRhs) ^ rhsNegated);
+  }
+
+// see through LHS conjunctions
+  Value *A, *B;
+  if ((!lhsNegated && match(&lhs, m_And(m_Value(A), m_Value(B)))) ||
+      (lhsNegated && match(&lhs, m_Or(m_Value(A), m_Value(B))))) {
+    IF_DEBUG_UDM { errs() << "\tlhs conjunction case\n"; }
+    return implies(*A, lhsNegated, rhs, rhsNegated) || implies(*B, lhsNegated, rhs, rhsNegated);
+  }
+
+// see through RHS disjunctions
+  if ((!rhsNegated && match(&rhs, m_Or(m_Value(A), m_Value(B)))) ||
+      (rhsNegated && match(&rhs, m_And(m_Value(A), m_Value(B))))) {
+    IF_DEBUG_UDM { errs() << "\tlhs disjunction case\n"; }
+    return implies(*A, lhsNegated, rhs, rhsNegated) || implies(*B, lhsNegated, rhs, rhsNegated);
   }
 
 // mask predicate
