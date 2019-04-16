@@ -1,0 +1,3 @@
+; RUN: ./test_rv.py suite/test_* | FileCheck %s
+; CHECK-NOT: failed
+; CHECK-NOT: error
