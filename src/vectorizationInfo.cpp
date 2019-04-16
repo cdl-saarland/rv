@@ -20,6 +20,8 @@
 
 using namespace llvm;
 
+static bool IsLCSSA = true;
+
 namespace rv {
 
 bool VectorizationInfo::inRegion(const BasicBlock &block) const {
@@ -332,14 +334,28 @@ bool VectorizationInfo::isTemporalDivergent(const LoopInfo &LI,
   const auto *Inst = dyn_cast<const Instruction>(&Val);
   if (!Inst)
     return false;
-  // check whether any divergent loop carrying Val terminates before control
-  // proceeds to ObservingBlock
-  for (const auto *Loop = LI.getLoopFor(Inst->getParent());
-       Loop && inRegion(*Loop->getHeader()) && !Loop->contains(&ObservingBlock);
-       Loop = Loop->getParentLoop()) {
-    if (isDivergentLoop(*Loop)) {
-      return true;
+
+  const auto *DefLoop = LI.getLoopFor(Inst->getParent());
+  if (!DefLoop || DefLoop->contains(&ObservingBlock)) {
+    return false;
+  }
+
+  // FIXME this is imprecise (liveouts of uniform exits appear varying, eventhough they are uniform)
+  if (!IsLCSSA) {
+    // check whether any divergent loop carrying Val terminates before control
+    // proceeds to ObservingBlock
+    for (const auto *Loop = DefLoop;
+         Loop && inRegion(*Loop->getHeader()) && !Loop->contains(&ObservingBlock);
+         Loop = Loop->getParentLoop()) {
+      if (isDivergentLoop(*Loop)) {
+        return true;
+      }
     }
+
+  } else {
+    // all loop live-outs are funneled through LCSSA phis that sit on immediate exit blocks.
+    // As such, only LCSSA phi nodes can observed temporal divergence.
+    return isDivergentLoopExit(ObservingBlock);
   }
 
   return false;
