@@ -483,6 +483,7 @@ public:
   }
 
   // return the most frequent incoming value of this phi node
+  // TODO accept Undef (since extra-predication for undef is waste)
   Value*
   getFrequentIncomingValue(PHINode & phi) const {
     int incumbentCount = 1;

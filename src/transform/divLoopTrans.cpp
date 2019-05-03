@@ -109,10 +109,19 @@ TransformSession::transformLoop() {
   auto & loopHeader = *loop.getHeader();
   auto loopName = loop.getName().str();
 
-  IRBuilder<> trackerBuilder(&loopHeader, loopHeader.getFirstInsertionPt());
-  auto * boolTy = trackerBuilder.getInt1Ty();
+   auto & anyFunc = platInfo.requestRVIntrinsicFunc(RVIntrinsic::Any);
+
+// divExit will be the only exit from the transformed loop,
+   BasicBlock & latchExit =  *BasicBlock::Create(anyFunc.getContext(), loopName + ".divexit", loopHeader.getParent(), &loopHeader);
+   if (loop.getParentLoop()) {
+     loop.getParentLoop()->addBasicBlockToLoop(&latchExit, loopInfo);
+   }
 
   const VectorShape loopControlShape = VectorShape::varying();
+
+// insert phi_live (active live threads in the loop)
+  IRBuilder<> trackerBuilder(&loopHeader, loopHeader.getFirstInsertionPt());
+  auto * boolTy = trackerBuilder.getInt1Ty();
 
 // create the loop live mask (predicate of the loop header)
   liveMaskDesc.trackerPhi = trackerBuilder.CreatePHI(boolTy, 2, loopName + ".live");
@@ -120,6 +129,35 @@ TransformSession::transformLoop() {
 
 // create a dedicated latch block for the loop
   requestPureLatch(); // creates maskUpdatePHi and pureLatch
+
+// create !any(phi_live) loop exit and offset the original loop header (guarded by phi_live)
+   {
+     auto ItFirstInst = loopHeader.getFirstNonPHIOrDbgOrLifetime();
+
+     // the original loop header (without the phis)
+     auto & NestedHead = *loopHeader.splitBasicBlock(ItFirstInst->getIterator());
+     loop.addBasicBlockToLoop(&NestedHead, loopInfo);
+
+     // an immediate block to encode make loop execution conditional on phi_live
+     auto & TestHead = *BasicBlock::Create(NestedHead.getContext(), NestedHead.getName().str() + ".test", loopHeader.getParent(), &NestedHead);
+     loop.addBasicBlockToLoop(&TestHead, loopInfo);
+     {
+       IRBuilder<> testBuilder(&loopHeader);
+       testBuilder.CreateCondBr(liveMaskDesc.trackerPhi, &NestedHead, pureLatch);
+     }
+
+     // insert an all-false test on phi_live to exit the loop from the new header
+     loopHeader.getTerminator()->eraseFromParent();
+     {
+       IRBuilder<> headerBuilder(&loopHeader);
+       auto * continueCond =
+         headerBuilder.CreateCall(&anyFunc, ArrayRef<Value*>{liveMaskDesc.trackerPhi}, loopName + ".exec");
+       auto & anyBr = *headerBuilder.CreateCondBr(continueCond, &TestHead, &latchExit);
+       vecInfo.setVectorShape(anyBr, VectorShape::uni());
+       vecInfo.setVectorShape(*continueCond, VectorShape::uni());
+     }
+   }
+
   IRBuilder<> latchBuilder(pureLatch, pureLatch->getFirstInsertionPt());
 
 // create tracking infrastructure for the loop exits
@@ -241,23 +279,11 @@ TransformSession::transformLoop() {
 
 // create an exit cascade
    assert(pureLatch->getTerminator()->getNumSuccessors() == 1);
-   auto & anyFunc = platInfo.requestRVIntrinsicFunc(RVIntrinsic::Any);
-
-   // new joined latch exit
-   BasicBlock & latchExit =  *BasicBlock::Create(anyFunc.getContext(), loopName + ".divexit", pureLatch->getParent(), pureLatch);
-   if (loop.getParentLoop()) {
-     loop.getParentLoop()->addBasicBlockToLoop(&latchExit, loopInfo);
-   }
-
    // build the new uniform exit branch
    pureLatch->getTerminator()->eraseFromParent();
    {
-     IRBuilder<> builder(pureLatch);
-     auto * continueCond =
-       builder.CreateCall(&anyFunc, ArrayRef<Value*>{liveMaskDesc.updatePhi}, loopName + ".stay");
-     auto & anyBr= *builder.CreateCondBr(continueCond, &loopHeader, &latchExit);
-     vecInfo.setVectorShape(anyBr, VectorShape::uni());
-     vecInfo.setVectorShape(*continueCond, VectorShape::uni());
+     IRBuilder<> latchBuilder(pureLatch);
+     latchBuilder.CreateBr(&loopHeader);
    }
 
 // sort exits for cascading order
@@ -325,7 +351,7 @@ TransformSession::transformLoop() {
        vecInfo.setPredicate(exitBlock, *exitMaskPhi);
      }
 
-     exitMaskPhi->addIncoming(exitDescs[&exitBlock].updatePhi, pureLatch);
+     exitMaskPhi->addIncoming(exitDescs[&exitBlock].trackerPhi, &loopHeader);
 
      // re-connect the exit to the CFG
      BranchInst * exitBr = nullptr;
@@ -375,8 +401,8 @@ TransformSession::transformLoop() {
          // create an LCSSA phi
          exitPhi = divExitBuilder.CreatePHI(lcPhi.getType(), 1, liveOutVal.getName() + ".lcssa");
          vecInfo.setVectorShape(*exitPhi, exitShape);
-         auto * transformedLiveOut = vecInfo.isKillExit(exitBlock)  ? &liveOutVal : liveOutDescs[&liveOutVal].updatePhi;
-         exitPhi->addIncoming(transformedLiveOut, pureLatch);
+         auto * transformedLiveOut = vecInfo.isKillExit(exitBlock)  ? &liveOutVal : liveOutDescs[&liveOutVal].trackerPhi;
+         exitPhi->addIncoming(transformedLiveOut, &loopHeader);
          loPhis.trackedPhi[exitType] = exitPhi;
 
          // cache for reuse
@@ -410,6 +436,7 @@ TransformSession::requestPureLatch() {
   // we cache the pure latch since we make it impure again along the way
   if (pureLatch) return *pureLatch;
 
+  assert(liveMaskDesc.trackerPhi && "need to materialize live tracker first!");
   IF_DEBUG_DLT { errs() << "# reqPureLatch " << loop.getName() << "\n"; }
 
   std::string loopName = loop.getName().str();
