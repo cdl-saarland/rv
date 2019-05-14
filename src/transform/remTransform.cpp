@@ -764,8 +764,12 @@ struct LoopTransformer {
     for (auto * BB : ScalarL.blocks()) {
       for (auto & Inst : *BB) {
         PHINode * mergePhi = nullptr;
-        for (auto & use : Inst.uses()) {
-          auto * userInst = cast<Instruction>(use.getUser());
+        SmallVector<std::pair<User*, unsigned>, 3> CachedUses;
+        for (auto & use : Inst.uses()) { CachedUses.emplace_back(use.getUser(), use.getOperandNo()); }
+        for (auto cachedUse : CachedUses) {
+          auto * userInst = cast<Instruction>(cachedUse.first);
+          unsigned useOperandNo = cachedUse.second;
+
           if (ScalarL.contains(userInst)) continue;
 
           auto scaLiveOut = &Inst;
@@ -790,7 +794,7 @@ struct LoopTransformer {
               IF_DEBUG { errs() << "\tCreated merge phi " << *mergePhi << "\n"; }
             }
 
-            userInst->setOperand(use.getOperandNo(), mergePhi);
+            userInst->setOperand(useOperandNo, mergePhi);
             IF_DEBUG { errs() << "\t- fixed user " << *userInst << "\n"; }
           }
         }
