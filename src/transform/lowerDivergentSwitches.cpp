@@ -13,14 +13,12 @@ namespace rv {
 
 void
 LowerDivergentSwitches::replaceIncoming(BasicBlock & phiBlock, BasicBlock & oldIncoming, BasicBlock & newIncoming) {
-  for (auto & inst : phiBlock) {
-    if (!isa<PHINode>(inst)) break;
-    auto & phi = cast<PHINode>(inst);
+  for (auto & phi : phiBlock.phis()) {
     for (int i = 0; i < (int) phi.getNumIncomingValues(); ++i) {
       if (phi.getIncomingBlock(i) != &oldIncoming) continue;
       phi.setIncomingBlock(i, &newIncoming);
-      assert(vecInfo.getVectorShape(phi).isVarying() && "undetected divergent phi");
     }
+    assert(vecInfo.getVectorShape(phi).isVarying() && "undetected divergent phi");
   }
 }
 
@@ -44,7 +42,7 @@ LowerDivergentSwitches::lowerSwitch(SwitchInst & switchInst) {
     // first default block (actual switch default case)
     if (!defaultBlock) {
       defaultBlock = switchInst.getDefaultDest();
-      replaceIncoming(*defaultBlock, switchBlock, *defaultBlock);
+      replaceIncoming(*defaultBlock, switchBlock, *branchBlock);
     }
 
     // create case branch
