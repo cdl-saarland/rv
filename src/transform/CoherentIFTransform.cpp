@@ -743,12 +743,14 @@ run() {
 
     auto * branchCond = branchInst->getCondition();
     //if affine fails, then use high probability
-    if (IsAffine(dyn_cast<Instruction>(branchCond)))
+    //TODO find a RV compatible solution for this part
+    /*if (IsAffine(dyn_cast<Instruction>(branchCond)))
     {
       IF_DEBUG_CIF {errs()<< *branchCond << " is affine condition" << "\n";}
       transformCoherentCF(*branchInst, 0);
     }
     else
+    */
     {
       double regProb = 0.0;
       size_t regScore = 0;
