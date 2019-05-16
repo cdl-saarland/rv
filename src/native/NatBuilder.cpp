@@ -2038,12 +2038,30 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     mappedVal = getScalarValue(value);
     if (mappedVal && (shape.isContiguous() || shape.isStrided()) &&
         (type->isIntegerTy() || type->isFloatingPointTy())) {
+      // to avoid dominance problems as below
+      auto oldIP = builder.GetInsertPoint();
+      auto oldIB = builder.GetInsertBlock();
+      Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
+      if (mappedInst){
+        Instruction *nextNode = mappedInst->getNextNode();
+        while (nextNode && isa<PHINode>(nextNode))
+          nextNode = nextNode->getNextNode();
+        if (nextNode)
+          builder.SetInsertPoint(nextNode);
+        else if(mappedInst->getParent()->getTerminator())
+          builder.SetInsertPoint(mappedInst->getParent()->getTerminator());
+        else
+        builder.SetInsertPoint(mappedInst->getParent());
+      }
+
       Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())
                                                     : ConstantInt::get(type, laneIdx * shape.getStride());
       reqVal = type->isFloatingPointTy() ? builder.CreateFAdd(mappedVal, laneInt,
                                                               value->getName() + "lane" + std::to_string(laneIdx))
                                          : builder.CreateAdd(mappedVal, laneInt,
                                                              value->getName() + "_lane" + std::to_string(laneIdx));
+      if (mappedInst)
+        builder.SetInsertPoint(oldIB, oldIP);
     }
   }
 
