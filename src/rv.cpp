@@ -36,6 +36,7 @@
 #include "rv/transform/srovTransform.h"
 #include "rv/transform/irPolisher.h"
 #include "rv/transform/bosccTransform.h"
+#include "rv/transform/CoherentIFTransform.h"
 #include "rv/transform/redOpt.h"
 #include "rv/transform/memCopyElision.h"
 #include "rv/transform/lowerDivergentSwitches.h"
@@ -182,6 +183,12 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 
     postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
     domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+
+    // insert cif branches if desired
+    if (config.enableCoherentIF) {
+      CoherentIFTransform CoherentIFTrans(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo, pbInfo);
+      CoherentIFTrans.run();
+    }
 
     // insert BOSCC branches if desired
     if (config.enableHeuristicBOSCC) {

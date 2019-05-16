@@ -64,6 +64,7 @@ add_rv_library(RV
   transform/Linearizer.cpp
   transform/LoopVectorizer.cpp
   transform/bosccTransform.cpp
+  transform/CoherentIFTransform.cpp
   transform/crtLowering.cpp
   transform/cns/BlockGraph.cpp
   transform/cns/CNS.cpp

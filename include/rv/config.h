@@ -44,6 +44,7 @@ struct Config {
   bool enableSROV;
   bool enableIRPolish;
   bool enableHeuristicBOSCC;
+  bool enableCoherentIF;
 
 // greedy inter-procedural vectorizatoin
   bool enableGreedyIPV;
