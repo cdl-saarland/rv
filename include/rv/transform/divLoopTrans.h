@@ -50,11 +50,14 @@ struct TrackerDesc {
 // Divergence tracker for a loop
 struct TransformSession {
   llvm::Loop & loop;
+  std::string loopName;
   llvm::LoopInfo & loopInfo;
   VectorizationInfo & vecInfo;
   PlatformInfo & platInfo;
   MaskExpander & maskEx;
 
+  llvm::BasicBlock * testHead;
+  llvm::BasicBlock * offsetHead;
   llvm::BasicBlock * pureLatch; // nullptr if the latch is not pure (yet)
   llvm::BasicBlock * oldLatch; // if pureLatch, then oldLatch is the unique predecessor to pureLatch
 
@@ -65,12 +68,21 @@ struct TransformSession {
   // maps each live out to a tracker
   llvm::DenseMap<const llvm::Value*, TrackerDesc> liveOutDescs;
 
+  llvm::BasicBlock*
+  remapExitingBlock(llvm::BasicBlock * exitingBlock) {
+    if (exitingBlock == loop.getHeader()) return offsetHead;
+    return exitingBlock;
+  }
+
   TransformSession(llvm::Loop & _loop, llvm::LoopInfo & _loopInfo, VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx)
   : loop(_loop)
+  , loopName(loop.getName().str())
   , loopInfo(_loopInfo)
   , vecInfo(_vecInfo)
   , platInfo(_platInfo)
   , maskEx(_maskEx)
+  , testHead(nullptr)
+  , offsetHead(nullptr)
   , pureLatch(nullptr)
   , oldLatch(nullptr)
   , liveMaskDesc()

@@ -25,7 +25,11 @@
 #include <llvm/Transforms/Utils/SSAUpdater.h>
 #include <llvm/IR/Verifier.h>
 
+#if 0
 #define IF_DEBUG_DLT IF_DEBUG
+#else
+#define IF_DEBUG_DLT if (1)
+#endif
 
 using namespace llvm;
 
@@ -107,17 +111,15 @@ TransformSession::transformLoop() {
   loop.getExitEdges(loopExitEdges);
 
   auto & loopHeader = *loop.getHeader();
-  auto loopName = loop.getName().str();
-
-   auto & anyFunc = platInfo.requestRVIntrinsicFunc(RVIntrinsic::Any);
+  auto & anyFunc = platInfo.requestRVIntrinsicFunc(RVIntrinsic::Any);
 
 // divExit will be the only exit from the transformed loop,
-   BasicBlock & latchExit =  *BasicBlock::Create(anyFunc.getContext(), loopName + ".divexit", loopHeader.getParent(), &loopHeader);
+   BasicBlock & fusedExit =  *BasicBlock::Create(anyFunc.getContext(), loopName + ".divexit", loopHeader.getParent(), &loopHeader);
    if (loop.getParentLoop()) {
-     loop.getParentLoop()->addBasicBlockToLoop(&latchExit, loopInfo);
+     loop.getParentLoop()->addBasicBlockToLoop(&fusedExit, loopInfo);
    }
 
-  const VectorShape loopControlShape = VectorShape::varying();
+  const VectorShape loopControlShape = VectorShape::varying(); // FIXME TensorRV stub
 
 // insert phi_live (active live threads in the loop)
   IRBuilder<> trackerBuilder(&loopHeader, loopHeader.getFirstInsertionPt());
@@ -127,43 +129,66 @@ TransformSession::transformLoop() {
   liveMaskDesc.trackerPhi = trackerBuilder.CreatePHI(boolTy, 2, loopName + ".live");
   vecInfo.setVectorShape(*liveMaskDesc.trackerPhi, loopControlShape);
 
-// create a dedicated latch block for the loop
-  requestPureLatch(); // creates maskUpdatePHi and pureLatch
 
 // create !any(phi_live) loop exit and offset the original loop header (guarded by phi_live)
+   //
+   // loopHeader (br !any(live), divExitBlock, testHead)
+   //     |
+   // testHead (br live, offsetHead, pureLatch)
+   //     |
+   // offsetHead
+   //    ...
+   // pureLatch
+   //
    {
      auto ItFirstInst = loopHeader.getFirstNonPHIOrDbgOrLifetime();
 
      // the original loop header (without the phis)
-     auto & NestedHead = *loopHeader.splitBasicBlock(ItFirstInst->getIterator());
-     loop.addBasicBlockToLoop(&NestedHead, loopInfo);
+     this->offsetHead = loopHeader.splitBasicBlock(ItFirstInst->getIterator());
+     this->offsetHead->setName(loopName + ".offset");
+     loopHeader.getTerminator()->eraseFromParent();
+     loop.addBasicBlockToLoop(offsetHead, loopInfo);
 
      // an immediate block to encode make loop execution conditional on phi_live
-     auto & TestHead = *BasicBlock::Create(NestedHead.getContext(), NestedHead.getName().str() + ".test", loopHeader.getParent(), &NestedHead);
-     loop.addBasicBlockToLoop(&TestHead, loopInfo);
-     {
-       IRBuilder<> testBuilder(&loopHeader);
-       testBuilder.CreateCondBr(liveMaskDesc.trackerPhi, &NestedHead, pureLatch);
-     }
-
-     // insert an all-false test on phi_live to exit the loop from the new header
-     loopHeader.getTerminator()->eraseFromParent();
-     {
-       IRBuilder<> headerBuilder(&loopHeader);
-       auto * continueCond =
-         headerBuilder.CreateCall(&anyFunc, ArrayRef<Value*>{liveMaskDesc.trackerPhi}, loopName + ".exec");
-       auto & anyBr = *headerBuilder.CreateCondBr(continueCond, &TestHead, &latchExit);
-       vecInfo.setVectorShape(anyBr, VectorShape::uni());
-       vecInfo.setVectorShape(*continueCond, VectorShape::uni());
-     }
+     this->testHead = BasicBlock::Create(offsetHead->getContext(), loopName + ".test", loopHeader.getParent(), offsetHead);
+     loop.addBasicBlockToLoop(testHead, loopInfo);
    }
+
+  // create a dedicated latch block for the loop (also live tracking infrastructure)
+  requestPureLatch(); // creates maskUpdatePHi and pureLatch
+
+   {
+     IRBuilder<> testBuilder(testHead);
+     testBuilder.CreateCondBr(liveMaskDesc.trackerPhi, offsetHead, pureLatch);
+   }
+
+   // insert an all-false test on phi_live to exit the loop from the new header
+   {
+     IRBuilder<> headerBuilder(&loopHeader);
+     auto * continueCond =
+       headerBuilder.CreateCall(&anyFunc, ArrayRef<Value*>{liveMaskDesc.trackerPhi}, loopName + ".exec");
+     trackerBuilder.SetInsertPoint(continueCond);
+     auto & anyBr = *headerBuilder.CreateCondBr(continueCond, testHead, &fusedExit);
+     vecInfo.setVectorShape(anyBr, VectorShape::uni());
+     vecInfo.setVectorShape(*continueCond, VectorShape::uni());
+   }
+
+  IF_DEBUG_DLT { errs() << "after header offsetting. "; vecInfo.dump(); }
 
   IRBuilder<> latchBuilder(pureLatch, pureLatch->getFirstInsertionPt());
 
 // create tracking infrastructure for the loop exits
   for (auto & edge : loopExitEdges) {
     const VectorShape exitShape = VectorShape::varying();
-    auto & exitingBlock = *const_cast<BasicBlock*>(edge.first);
+    auto * exitingBlock = const_cast<BasicBlock*>(edge.first);
+    std::string exitingName;
+    if (exitingBlock == &loopHeader) {
+      // header exiting branches have been deferred to the offset header
+      exitingBlock = offsetHead;
+      exitingName = exitingBlock->getName().str();
+    } else {
+      exitingName = exitingBlock->getName().str();
+    }
     auto & exitBlock = *const_cast<BasicBlock*>(edge.second);
     auto exitName = exitBlock.getName().str();
 
@@ -178,12 +203,11 @@ TransformSession::transformLoop() {
     exitDesc.trackerPhi->addIncoming(exitDesc.updatePhi, pureLatch);
 
     // if exiting from a nested loop we will need to create LCSSA phis in the rebound block
-    Loop * leftLoop = loopInfo.getLoopFor(&exitingBlock);
+    Loop * leftLoop = loopInfo.getLoopFor(exitingBlock);
     bool reboundingNestedExit = leftLoop != &loop;
 
     // collect continue block, control context
-    auto exitingName = exitingBlock.getName().str();
-    auto & exitingBr = *cast<BranchInst>(exitingBlock.getTerminator());
+    auto & exitingBr = *cast<BranchInst>(exitingBlock->getTerminator());
     bool exitOnFalse = exitingBr.getSuccessor(1) == &exitBlock;
 
 // Rebound the exiting edge and create mask updates (loop live mask AND exit mask tracker)
@@ -209,9 +233,9 @@ TransformSession::transformLoop() {
     // exiting edge
 
     // since we will select on exiting, break the exiting edge if exiting from the old latch
-    BasicBlock * reboundBlock = &exitingBlock;
-    if (reboundingNestedExit || (oldLatch == &exitingBlock)) {
-      reboundBlock = BasicBlock::Create(exitingBlock.getContext(), exitName + ".rebound", exitingBlock.getParent(), pureLatch);
+    BasicBlock * reboundBlock = exitingBlock;
+    if (reboundingNestedExit || (oldLatch == exitingBlock)) {
+      reboundBlock = BasicBlock::Create(exitingBlock->getContext(), exitName + ".rebound", exitingBlock->getParent(), pureLatch);
       if (vecInfo.isDivergentLoopExit(exitBlock)) {
         vecInfo.addDivergentLoopExit(*reboundBlock);
       }
@@ -224,9 +248,9 @@ TransformSession::transformLoop() {
     }
 
     // mask out this thread in the live mask when the exit is taken
-    liveMaskDesc.updatePhi->addIncoming(ConstantInt::getFalse(exitingBlock.getContext()), reboundBlock);
+    liveMaskDesc.updatePhi->addIncoming(ConstantInt::getFalse(exitingBlock->getContext()), reboundBlock);
     // set the exit flag if the exit is taken
-    exitDesc.updatePhi->addIncoming(ConstantInt::getTrue(exitingBlock.getContext()), reboundBlock);
+    exitDesc.updatePhi->addIncoming(ConstantInt::getTrue(exitingBlock->getContext()), reboundBlock);
 
   // maintain LCSSA phis in reboundBlock
     if (reboundingNestedExit) {
@@ -235,7 +259,7 @@ TransformSession::transformLoop() {
           auto & liveOut = *lcPhi.getIncomingValue(slot);
           auto & nestedPhi = *rebBuilder.CreatePHI(liveOut.getType(), 1, liveOut.getName() + ".lcssa");
           vecInfo.setVectorShape(nestedPhi, vecInfo.getVectorShape(lcPhi));
-          nestedPhi.addIncoming(&liveOut, &exitingBlock);
+          nestedPhi.addIncoming(&liveOut, exitingBlock);
           lcPhi.setIncomingValue(slot, &nestedPhi);
       });
     }
@@ -267,15 +291,9 @@ TransformSession::transformLoop() {
         IF_DEBUG_DLT { errs() << "UPD PHI: " << *updatePhi <<  "\n"; }
       });
     }
-
-#if 0
-    // FIXME this should work..
-    if (vecInfo.isDivergentLoopExit(exitBlock) && !reboundingNestedExit) {
-      // no longer a divergent loop-exit
-      vecInfo.removeDivergentLoopExit(exitBlock);
-    }
-#endif
   }
+
+  IF_DEBUG_DLT { errs() << "after live out tracking. "; vecInfo.dump(); }
 
 // create an exit cascade
    assert(pureLatch->getTerminator()->getNumSuccessors() == 1);
@@ -292,19 +310,19 @@ TransformSession::transformLoop() {
    std::vector<std::pair<BasicBlock&, BasicBlock&>> exitStack;
    DenseSet<const BasicBlock*> seenExits;
    for (auto & edge : loopExitEdges) {
-     auto & exitingBlock = *const_cast<BasicBlock*>(edge.first);
+     auto & exitingBlock = *remapExitingBlock(const_cast<BasicBlock*>(edge.first));
      auto & exitBlock = *const_cast<BasicBlock*>(edge.second);
 
      if (!vecInfo.isKillExit(exitBlock)) exitStack.emplace_back(exitingBlock, exitBlock);
    }
    for (auto & edge : loopExitEdges) {
-     auto & exitingBlock = *const_cast<BasicBlock*>(edge.first);
+     auto & exitingBlock = *remapExitingBlock(const_cast<BasicBlock*>(edge.first));
      auto & exitBlock = *const_cast<BasicBlock*>(edge.second);
      if (vecInfo.isKillExit(exitBlock)) exitStack.emplace_back(exitingBlock, exitBlock);
    }
    BasicBlock & lastExit = exitStack[exitStack.size() - 1].second;
 
-   IRBuilder<> exitBuilder(&latchExit);
+   IRBuilder<> exitBuilder(&fusedExit);
 
    // divergence shape
    const VectorShape exitShape = VectorShape::varying();
@@ -319,6 +337,8 @@ TransformSession::transformLoop() {
      };
      LiveOutPhis() { trackedPhi[0] = trackedPhi[1] = nullptr; }
    };
+
+   IF_DEBUG_DLT vecInfo.dump();
 
    DenseMap<const Value*, LiveOutPhis> liveOutPhis; // LCSSA phis for liveOuts
    for (auto exitEdge : exitStack) {
@@ -343,8 +363,8 @@ TransformSession::transformLoop() {
    // create a exitmask LCSSA phi and set it as the predicate of the exitBlock
      PHINode * exitMaskPhi = nullptr;
      {
-       IRBuilder<> divExitBuilder(&latchExit);
-       if (!latchExit.empty()) divExitBuilder.SetInsertPoint(&*latchExit.begin());
+       IRBuilder<> divExitBuilder(&fusedExit);
+       if (!fusedExit.empty()) divExitBuilder.SetInsertPoint(&*fusedExit.begin());
        exitMaskPhi = divExitBuilder.CreatePHI(boolTy, 1, exitBlock.getName().str() + ".xlcssa");
        vecInfo.setVectorShape(*exitMaskPhi, exitShape);
        maskEx.setBlockMask(exitBlock, *exitMaskPhi);
@@ -376,8 +396,8 @@ TransformSession::transformLoop() {
      vecInfo.setVectorShape(*exitBr, branchShape);
 
   // fix up live out uses in exits
-     IRBuilder<> divExitBuilder(&latchExit);
-     if (!latchExit.empty()) divExitBuilder.SetInsertPoint(&*latchExit.begin());
+     IRBuilder<> divExitBuilder(&fusedExit);
+     if (!fusedExit.empty()) divExitBuilder.SetInsertPoint(&*fusedExit.begin());
 
      auto it = exitBlock.begin();
      for (; it != exitBlock.end() && isa<PHINode>(it); ) {
@@ -439,18 +459,18 @@ TransformSession::requestPureLatch() {
   assert(liveMaskDesc.trackerPhi && "need to materialize live tracker first!");
   IF_DEBUG_DLT { errs() << "# reqPureLatch " << loop.getName() << "\n"; }
 
-  std::string loopName = loop.getName().str();
   auto & latchBlock = *loop.getLoopLatch();
   auto & header = *loop.getHeader();
 
   // create a pure latch block
-  pureLatch = BasicBlock::Create(latchBlock.getContext(), latchBlock.getName() + ".pure", latchBlock.getParent(), &latchBlock);
+  pureLatch = BasicBlock::Create(latchBlock.getContext(), loopName + ".pure", latchBlock.getParent(), &latchBlock);
   oldLatch = &latchBlock;
 
   // create a mask update in the latch
   IRBuilder<> builder(pureLatch);
   liveMaskDesc.updatePhi = builder.CreatePHI(builder.getInt1Ty(), 2, loopName + ".live.upd");
-  liveMaskDesc.updatePhi->addIncoming(liveMaskDesc.trackerPhi, &latchBlock);
+  liveMaskDesc.updatePhi->addIncoming(liveMaskDesc.trackerPhi, oldLatch);
+  liveMaskDesc.updatePhi->addIncoming(liveMaskDesc.trackerPhi, testHead);
   vecInfo.setVectorShape(*liveMaskDesc.updatePhi, VectorShape::varying()); // TODO join of all exit shapes
 
   // latchPhi updates the loop mask depending on the predecessors
@@ -472,7 +492,6 @@ TransformSession::requestPureLatch() {
 
   // register with LoopInfo & LoopTracker
   loop.addBasicBlockToLoop(pureLatch, loopInfo);
-  oldLatch = &latchBlock;
 
   // fix header phi incoming blocks (the pure latch breaks this edge)
   for (auto & inst : header) {
