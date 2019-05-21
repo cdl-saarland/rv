@@ -184,7 +184,7 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
     domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
 
-    // insert cif branches if desired
+    // insert CIF branches if desired
     if (config.enableCoherentIF) {
       CoherentIFTransform CoherentIFTrans(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo, pbInfo);
       CoherentIFTrans.run();

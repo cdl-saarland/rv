@@ -2065,7 +2065,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
         else if(mappedInst->getParent()->getTerminator())
           builder.SetInsertPoint(mappedInst->getParent()->getTerminator());
         else
-        builder.SetInsertPoint(mappedInst->getParent());
+          builder.SetInsertPoint(mappedInst->getParent());
       }
 
       Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())

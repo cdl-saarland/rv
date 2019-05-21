@@ -5,7 +5,7 @@
 #include <llvm/Transforms/Utils/ValueMapper.h>
 
 #include "rv/PlatformInfo.h"
-#include "rv/vectorShape.h"
+#include "rv/shape/vectorShape.h"
 
 namespace llvm {
   class AllocaInst;
