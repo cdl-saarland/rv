@@ -29,9 +29,10 @@
 #include "rv/rvDebug.h"
 #include <rvConfig.h>
 #include "report.h"
+#include "rv/analysis/BranchEstimate.h"
 
-using namespace rv;
 using namespace llvm;
+using namespace rv;
 
 #if 1
 #define IF_DEBUG_BOSCC IF_DEBUG
@@ -39,7 +40,6 @@ using namespace llvm;
 #define IF_DEBUG_BOSCC if (true)
 #endif
 
-using RatioMap =  std::map<BasicBlock*,double>;
 using BlockSet = std::set<const BasicBlock*>;
 using PHIMap = std::map<const PHINode*, PHINode*>;
 using BlockMap = std::map<const BasicBlock*, BasicBlock*>;
@@ -271,107 +271,11 @@ transformBranch(BranchInst & branch, int succIdx) {
   }
 }
 
-size_t
-getDomRegionValue(BasicBlock & entry, BasicBlock & subBlock, SmallSet<BasicBlock*, 32> & seenBlocks) {
-  if (&entry != &subBlock && !domTree.dominates(&entry, &subBlock)) {
-    return 0; // not in our dominance region
-  }
-  if (!seenBlocks.insert(&subBlock).second) return 0; // already factores in
-
-  // compute own score
-  size_t score = getBlockScore(subBlock);
-
-  // compute score of other (dominated) reachable blocks in the region
-  auto * termInst = subBlock.getTerminator();
-  for (size_t i = 0; i < termInst->getNumSuccessors(); ++i) {
-    auto & nextBlock = *termInst->getSuccessor(i);
-    score += getDomRegionValue(entry, nextBlock, seenBlocks);
-  }
-  return score;
-}
-
-size_t
-getBlockScore(BasicBlock & entry) {
-  size_t score = 0;
-
-  for (auto & inst : entry) {
-    auto * store = dyn_cast<StoreInst>(&inst);
-    auto * load = dyn_cast<LoadInst>(&inst);
-    auto * call = dyn_cast<CallInst>(&inst);
-
-    Value * ptrOperand = nullptr;
-    if (load) ptrOperand = load->getPointerOperand();
-    else if (store) ptrOperand = store->getPointerOperand();
-
-    if (ptrOperand) {
-      if (vecInfo.getVectorShape(*ptrOperand).isVarying()) {
-        score += 8;
-      } else if (vecInfo.getVectorShape(*ptrOperand).isUniform()) {
-        score += 1;
-      } else { // strided
-        score += 2;
-      }
-      continue;
-    }
-
-    if (call) {
-      auto * callee = call->getCalledFunction();
-      if (!callee) { score += 8; continue; }
-
-      VectorShapeVec argShapeVec;
-      for (const auto & arg : call->arg_operands()) {
-        argShapeVec.push_back(vecInfo.getVectorShape(*arg.getUser()));
-      }
-
-      bool hasCallPredicate = false;
-      if (!platInfo.getResolver(callee->getName(), *callee->getFunctionType(), argShapeVec, vecInfo.getVectorWidth(), hasCallPredicate)) {
-        score += 2;
-      }
-      score += 1;
-      continue;
-    }
-
-    score += 1;
-  }
-
-  return score;
-}
-
-size_t
-getDomRegionScore(BasicBlock & entry) {
-  SmallSet<BasicBlock*, 32> seenBlocks;
-  return getDomRegionValue(entry, entry, seenBlocks);
-}
-
-int
-GetNumPredecessors(BasicBlock & block) {
-  int numPred = 0;
-  for (auto * user : block.users()) {
-    auto * inst = dyn_cast<Instruction>(user);
-    if (inst && inst->isTerminator()) {
-      ++numPred;
-    }
-  }
-  return numPred;
-}
-
-template<typename N>
-static N
-GetValue(const char * name, N defVal) {
-  auto * text = getenv(name);
-  if (!text) return defVal;
-  else {
-    std::stringstream ss(text);
-    N res;
-    ss >> res;
-    return res;
-  }
-}
 // 0  : do not BOSCC
 // -1 : boscc onTrue
 // 1 : boscc onFalse
 int
-bosccHeuristic(BranchInst & branch, double & regProb, size_t & regScore, const RatioMap & dispMap) {
+bosccHeuristic(BranchInst & branch) {
 // run legality checks
   BasicBlock * onTrueBlock = branch.getSuccessor(0);
   BasicBlock * onFalseBlock = branch.getSuccessor(1);
@@ -392,13 +296,7 @@ bosccHeuristic(BranchInst & branch, double & regProb, size_t & regScore, const R
   // do not speculate across BOSCC exits
   if (bosccExitBlocks.count(onTrueBlock) || bosccExitBlocks.count(onFalseBlock)) return 0;
 
-  assert(dispMap.count(onTrueBlock));
-  double trueRatio = dispMap.at(onTrueBlock);
-  assert(dispMap.count(onFalseBlock));
-  double falseRatio = dispMap.at(onFalseBlock);
-
-
-// per sucess legality
+  // per sucess legality
   // legality checks for speculating over onTrue
   bool onTrueLegal = GetNumPredecessors(*onTrueBlock) == 1; //domTree.dominates(branch.getParent(), onTrueBlock);
   onTrueLegal &= !onTrueLoop || onTrueLoop->getLoopLatch() != onTrueBlock;
@@ -407,18 +305,13 @@ bosccHeuristic(BranchInst & branch, double & regProb, size_t & regScore, const R
   bool onFalseLegal = GetNumPredecessors(*onFalseBlock) == 1; //domTree.dominates(branch.getParent(), onFalseBlock);
   onFalseLegal &= !onFalseLoop || onFalseLoop->getLoopLatch() != onFalseBlock;
 
-
-// score the dominates parts of either branch target
-  // only accept regions that are post dominated by the oposing branch
+  double trueRatio =0.0;
+  double falseRatio =0.0;
   size_t onTrueScore = 0;
-  if (onTrueLegal) { // && postDomTree.dominates(onFalseBlock, onTrueBlock)) {
-    onTrueScore = getDomRegionScore(*onTrueBlock);
-  }
-
   size_t onFalseScore = 0;
-  if (onFalseLegal) { //  && postDomTree.dominates(onTrueBlock, onFalseBlock)) {
-    onFalseScore = getDomRegionScore(*onFalseBlock);
-  }
+
+  BranchEstimate BranchEst(vecInfo, platInfo, domTree, loopInfo, pbInfo);
+  BranchEst.analysis(branch, trueRatio, falseRatio, onTrueScore, onFalseScore);
 
   const double maxRatio = GetValue<double>("BOSCC_T", 0.14);
   const size_t minScore = GetValue<size_t>("BOSCC_LIMIT", 17);
@@ -436,15 +329,11 @@ bosccHeuristic(BranchInst & branch, double & regProb, size_t & regScore, const R
   bool couldBosccFalse = onFalseBeneficial && onFalseLegal;
   bool couldBosccTrue = onTrueBeneficial && onTrueLegal;
 
-// otw try to skip the bigger dominated part
+  // otw try to skip the bigger dominated part
   // TODO could also give precedence by region size
   if (couldBosccTrue && (!couldBosccFalse || trueRatio < falseRatio)) {
-    regProb = trueRatio;
-    regScore = onTrueScore;
     return -1;
   } else if (couldBosccFalse) {
-    regProb = falseRatio;
-    regScore = onFalseScore;
     return 1;
   }
 
@@ -453,118 +342,9 @@ bosccHeuristic(BranchInst & branch, double & regProb, size_t & regScore, const R
   return 0;
 }
 
-double
-GetEdgeProb(BasicBlock & start, BasicBlock & end) {
-  // use BranchProbabilityInfo if available
-  if (pbInfo) {
-    auto prob = pbInfo->getEdgeProbability(&start, &end);
-    if (prob.isZero()) {
-      return 0.0;
-    } else if (!prob.isUnknown()) {
-      return prob.getNumerator() / (double) prob.getDenominator();
-    }
-  }
-
-  // otw use uniform distribution
-  return 1.0 / start.getTerminator()->getNumSuccessors();
-}
-
-#if 1
-#define IF_DEBUG_DISP IF_DEBUG_BOSCC
-#else
-#define IF_DEBUG_DISP if (true)
-#endif
-void
-computeDispersion(RatioMap & dispMap) {
-  std::vector<BasicBlock*> stack;
-
-  // bootstrap with region entry (executed by all ratio == 1.0)
-  auto & entry = vecInfo.getEntry();
-  dispMap[&entry] = 1.0;
-  for (auto * succ : successors(&entry)) {
-    if (succ == &entry)  continue;
-    if (!vecInfo.inRegion(*succ)) continue;
-    stack.push_back(succ);
-  }
-
-  IF_DEBUG_DISP errs() << "--- compute dispersion ---\n";
-
-  // disperse down branches
-  while (!stack.empty()) {
-    auto * block = stack.back();
-    stack.pop_back();
-
-    bool hadRatio = dispMap.count(block);
-    double oldRatio = dispMap[block]; // initialize to zero
-
-    Loop * blockLoop = loopInfo.getLoopFor(block);
-    bool isHeader = blockLoop && blockLoop->getHeader() == block;
-
-    // join incoming fractions
-    bool validRatio = true;
-    double ratio = 0.0;
-    SmallPtrSet<const BasicBlock*, 6> seenPreds;
-    for (auto * pred : predecessors(block)) {
-      if (!seenPreds.insert(pred).second) continue;
-      if (!vecInfo.inRegion(*pred)) {
-        continue;
-      }
-      if (isHeader && blockLoop->contains(pred)) {
-        // do not look into latches
-        continue;
-      }
-
-      if (!dispMap.count(pred)) {
-        // missing operand -> do not update ratio yet
-        stack.push_back(pred);
-        validRatio = false;
-      }
-      if (!validRatio) continue;
-
-      // keep computing a new result from the blocks predecessors
-      double inProb;
-      if (vecInfo.getVectorShape(*pred->getTerminator()).isUniform()) {
-        // there is no dispersion at uniform branches -> keep predecessor ratio
-        // this is an overapproximation that may lead to block ratios >> 1.0
-        inProb = dispMap[pred];
-      } else {
-        // the predecessor disperses control ratios
-        inProb = dispMap[pred] * GetEdgeProb(*pred, *block);
-      }
-      ratio += inProb;
-    }
-
-    // the ratio can exceed 1.0 if we have multiple reaching uniform paths
-    ratio = std::min<double>(ratio, 1.0); // cap at 1.0
-
-    // process operands first
-    if (!validRatio) continue;
-
-    auto & term = *block->getTerminator();
-    if (!hadRatio || (std::fabs(oldRatio - ratio) > 0.000001)) {
-      IF_DEBUG_DISP errs() << block->getName() << "  old " << oldRatio << "  new " << ratio << "\n";
-
-      // set new ratio
-      dispMap[block] = ratio;
-
-      // push all successors
-      for (size_t i = 0; i < term.getNumSuccessors(); ++i) {
-        auto * succ = term.getSuccessor(i);
-        if (!vecInfo.inRegion(*succ)) continue; // leaving the region -> don't care
-        if (blockLoop && succ == blockLoop->getHeader()) continue; // latches not taken
-        stack.push_back(succ);
-      }
-    }
-  }
-}
-
 bool
 run() {
   domTree.recalculate(vecInfo.getScalarFunction());
-
-  // compute approximate execution ratios
-  RatioMap dispMap;
-  computeDispersion(dispMap);
 
   size_t numBosccBranches = 0;
 
@@ -580,15 +360,13 @@ run() {
     if (!branchInst->isConditional()) continue;
     if (vecInfo.getVectorShape(*branchInst).isUniform()) continue;
 
-    double regProb = 0.0;
-    size_t regScore = 0;
-    int score = bosccHeuristic(*branchInst, regProb, regScore, dispMap);
+    int score = bosccHeuristic(*branchInst);
     if (score == 0) continue;
     int succIdx = score < 0 ? 0 : 1;
 
     ++numBosccBranches;
 
-    Report() << "boscc: skip succ " << branchInst->getSuccessor(succIdx)->getName() << " of block " << branchInst->getParent()->getName() << "  dispProb: " << format("%1.4f", regProb) << ", score: " << regScore << "\n";
+    Report() << "boscc: skip succ " << branchInst->getSuccessor(succIdx)->getName() << " of block " << branchInst->getParent()->getName() << "\n";
 
     // pull out all incoming values in the going-to-be-BOSCCed region into their own phi nodes in a dedicated block (if the boscc branch is taken these blens will be skipped)
     createMergeBlock(*branchInst, succIdx);
