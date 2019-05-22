@@ -34,9 +34,11 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/GenericDomTree.h"
 #include "llvm/Transforms/Utils/SSAUpdater.h"
+#include "rv/analysis/BranchEstimate.h"
 
-using namespace rv;
 using namespace llvm;
+using namespace rv;
+
 
 #if 1
 #define IF_DEBUG_CIF IF_DEBUG
@@ -44,10 +46,7 @@ using namespace llvm;
 #define IF_DEBUG_CIF if (true)
 #endif
 
-using RatioMap =  std::map<BasicBlock*,double>;
 using Blockset = std::set<const BasicBlock*>;
-using PHIMap = std::map<const PHINode*, PHINode*>;
-using BlockMap = std::map<const BasicBlock*, BasicBlock*>;
 
 struct CoherentIF{
   VectorizationInfo & vecInfo;
@@ -59,9 +58,6 @@ struct CoherentIF{
   Module & mod;
   BranchProbabilityInfo *pbInfo;
 
-  // BOSCC region exit blocks (containing merge phis)
-  Blockset bosccExitBlocks;
-
 CoherentIF(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo,  MaskExpander & _maskEx, DominatorTree & _domTree, PostDominatorTree & _postDomTree, LoopInfo & _loopInfo, BranchProbabilityInfo * _pbInfo)
 : vecInfo(_vecInfo)
 , platInfo(_platInfo)
@@ -71,296 +67,7 @@ CoherentIF(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo,  MaskExpander
 , loopInfo(_loopInfo)
 , mod(*vecInfo.getScalarFunction().getParent())
 , pbInfo(_pbInfo)
-, bosccExitBlocks()
 {}
-
-size_t
-getDomRegionValue(BasicBlock & entry, BasicBlock & subBlock, SmallSet<BasicBlock*, 32> & seenBlocks) {
-  if (&entry != &subBlock && !domTree.dominates(&entry, &subBlock)) {
-    return 0; // not in our dominance region
-  }
-  if (!seenBlocks.insert(&subBlock).second) return 0; // already factores in
-
-  // compute own score
-  size_t score = getBlockScore(subBlock);
-
-  // compute score of other (dominated) reachable blocks in the region
-  auto * termInst = subBlock.getTerminator();
-  for (size_t i = 0; i < termInst->getNumSuccessors(); ++i) {
-    auto & nextBlock = *termInst->getSuccessor(i);
-    score += getDomRegionValue(entry, nextBlock, seenBlocks);
-  }
-  return score;
-}
-
-size_t
-getBlockScore(BasicBlock & entry) {
-  size_t score = 0;
-
-  for (auto & inst : entry) {
-    auto * store = dyn_cast<StoreInst>(&inst);
-    auto * load = dyn_cast<LoadInst>(&inst);
-    auto * call = dyn_cast<CallInst>(&inst);
-
-    Value * ptrOperand = nullptr;
-    if (load) ptrOperand = load->getPointerOperand();
-    else if (store) ptrOperand = store->getPointerOperand();
-
-    if (ptrOperand) {
-      if (vecInfo.getVectorShape(*ptrOperand).isVarying()) {
-        score += 8;
-      } else if (vecInfo.getVectorShape(*ptrOperand).isUniform()) {
-        score += 1;
-      } else { // strided
-        score += 2;
-      }
-      continue;
-    }
-
-    if (call) {
-      auto * callee = call->getCalledFunction();
-      if (!callee) { score += 8; continue; }
-
-      VectorShapeVec argShapeVec;
-      for (const auto & arg : call->arg_operands()) {
-        argShapeVec.push_back(vecInfo.getVectorShape(*arg.getUser()));
-      }
-
-      bool hasCallPredicate = false;
-      if (!platInfo.getResolver(callee->getName(), *callee->getFunctionType(), argShapeVec, vecInfo.getVectorWidth(), hasCallPredicate)) {
-        score += 2;
-      }
-      score += 1;
-      continue;
-    }
-
-    score += 1;
-  }
-
-  return score;
-}
-
-size_t
-getDomRegionScore(BasicBlock & entry) {
-  SmallSet<BasicBlock*, 32> seenBlocks;
-  return getDomRegionValue(entry, entry, seenBlocks);
-}
-
-int
-GetNumPredecessors(BasicBlock & block) {
-  int numPred = 0;
-  for (auto * user : block.users()) {
-    if (isa<TerminatorInst>(user)) {
-      ++numPred;
-    }
-  }
-  return numPred;
-}
-
-template<typename N>
-static N
-GetValue(const char * name, N defVal) {
-  auto * text = getenv(name);
-  if (!text) return defVal;
-  else {
-    std::stringstream ss(text);
-    N res;
-    ss >> res;
-    return res;
-  }
-}
-
-// 0  : do not CIF
-// -1 : CIF onTrue
-// 1 : CIF onFalse
-//Reuse Boscc Heuristic mostly
-int
-CIFHeuristic(BranchInst & branch, double & regProb, size_t & regScore, const RatioMap & dispMap) {
-  // run legality checks
-  BasicBlock * onTrueBlock = branch.getSuccessor(0);
-  BasicBlock * onFalseBlock = branch.getSuccessor(1);
-
-  if (!vecInfo.inRegion(*onTrueBlock) || !vecInfo.inRegion(*onFalseBlock)) return 0;
-
-  auto * branchLoop = loopInfo.getLoopFor(branch.getParent());
-  auto * onTrueLoop = loopInfo.getLoopFor(onTrueBlock);
-  auto * onFalseLoop = loopInfo.getLoopFor(onFalseBlock);
-
-  // don't speculate over loop exits for now (TODO)
-  if (onTrueLoop != branchLoop || branchLoop != onFalseLoop) return 0;
-  if (onTrueLoop && onTrueLoop->getHeader() == onTrueBlock) return 0;
-  if (onFalseLoop && onFalseLoop->getHeader() == onTrueBlock) return 0;
-  if (maskEx.getBlockMask(*branch.getParent())) return 0; // FIXME this is a workaround transformed divergent loops (we may end up invalidating masks)
-  // FIXME in divLoopTrans: use predicate futures where possible
-
-  // do not speculate across CIF exits
-  if (bosccExitBlocks.count(onTrueBlock) || bosccExitBlocks.count(onFalseBlock)) return 0;
-
-  assert(dispMap.count(onTrueBlock));
-  double trueRatio = dispMap.at(onTrueBlock);
-  assert(dispMap.count(onFalseBlock));
-  double falseRatio = dispMap.at(onFalseBlock);
-
-  // per sucess legality
-  // legality checks for speculating over onTrue
-  bool onTrueLegal = GetNumPredecessors(*onTrueBlock) == 1; //domTree.dominates(branch.getParent(), onTrueBlock);
-  onTrueLegal &= !onTrueLoop || onTrueLoop->getLoopLatch() != onTrueBlock;
-
-  // legality checks for speculating over onTrue
-  bool onFalseLegal = GetNumPredecessors(*onFalseBlock) == 1; //domTree.dominates(branch.getParent(), onFalseBlock);
-  onFalseLegal &= !onFalseLoop || onFalseLoop->getLoopLatch() != onFalseBlock;
-
-  // score the dominates parts of either branch target
-  // only accept regions that are post dominated by the oposing branch
-  size_t onTrueScore = 0;
-  if (onTrueLegal) { // && postDomTree.dominates(onFalseBlock, onTrueBlock)) {
-    onTrueScore = getDomRegionScore(*onTrueBlock);
-  }
-
-  size_t onFalseScore = 0;
-  if (onFalseLegal) { //  && postDomTree.dominates(onTrueBlock, onFalseBlock)) {
-    onFalseScore = getDomRegionScore(*onFalseBlock);
-  }
-  
-  const double minRatio = GetValue<double>("CIF_T", 0.40);
-  const size_t minScore = GetValue<size_t>("CIF_LIMIT", 100);
-
-  IF_DEBUG_CIF { errs() << "CIF_T " << minRatio << " CIF_LIMIT " << minScore << "\n"; }
-
-  //Is there  any need for this? delete by hack
-  //if (falseRatio < 0.06) onFalseLegal = false; // DEBUG HACK
-  //if (trueRatio < 0.06) onTrueLegal = false; // DEBUG HACK
-
-  IF_DEBUG_CIF { errs() << "score (" << onTrueLegal << ") " << onTrueBlock->getName() << "   " << onTrueScore << "\nscore  (" << onFalseLegal << ") " << onFalseBlock->getName() << "   " << onFalseScore << "\n"; }
-  IF_DEBUG_CIF {errs() << "trueRatio: " << trueRatio << " onTrueScore: " << onTrueScore  << " falseRatio: " << falseRatio  << " onFalseScore: " << onFalseScore << " minRatio:" << minRatio << " minScore:  " << minScore << "\n";}
-  
-  bool onTrueBeneficial = onTrueScore >= minScore && trueRatio >= minRatio;
-  bool onFalseBeneficial = onFalseScore >= minScore && falseRatio >= minRatio;
-
-  bool couldBosccFalse = onFalseBeneficial && onFalseLegal;
-  bool couldBosccTrue = onTrueBeneficial && onTrueLegal;
-
-// otw try to skip the bigger dominated part
-  // TODO could also give precedence by region size
-  if (couldBosccTrue && (!couldBosccFalse || trueRatio < falseRatio)) {
-    regProb = trueRatio;
-    regScore = onTrueScore;
-    return -1;
-  } else if (couldBosccFalse) {
-    regProb = falseRatio;
-    regScore = onFalseScore;
-    return 1;
-  }
-
-  // can not distinguish --> don't CIF
-  // this holds e.g. if the branch does not dominate any of its successors
-  return 0;
-}
-
-double
-GetEdgeProb(BasicBlock & start, unsigned IndexInSuccessors) {
-  // use BranchProbabilityInfo if available
-  if (pbInfo) {
-    auto prob = pbInfo->getEdgeProbability(&start, IndexInSuccessors);
-    if (prob.isZero()) {
-      return 0.0;
-    } else if (!prob.isUnknown()) {
-      return prob.getNumerator() / (double) prob.getDenominator();
-    }
-  }
-
-  // otw use uniform distribution
-  return 1.0 / start.getTerminator()->getNumSuccessors();
-}
-
-#if 1
-#define IF_DEBUG_DISP IF_DEBUG_CIF
-#else
-#define IF_DEBUG_DISP if (true)
-#endif
-void
-computeDispersion(RatioMap & dispMap) {
-  std::vector<BasicBlock*> stack;
-
-  // bootstrap with region entry (executed by all ratio == 1.0)
-  auto & entry = vecInfo.getEntry();
-  dispMap[&entry] = 1.0;
-  for (auto * succ : successors(&entry)) {
-    if (succ == &entry)  continue;
-    if (!vecInfo.inRegion(*succ)) continue;
-    stack.push_back(succ);
-  }
-
-  IF_DEBUG_DISP errs() << "--- compute dispersion ---\n";
-
-  // disperse down branches
-  while (!stack.empty()) {
-    auto * block = stack.back();
-    stack.pop_back();
-
-    bool hadRatio = dispMap.count(block);
-    double oldRatio = dispMap[block]; // initialize to zero
-
-    Loop * blockLoop = loopInfo.getLoopFor(block);
-    bool isHeader = blockLoop && blockLoop->getHeader() == block;
-
-    // join incoming fractions
-    bool validRatio = true;
-    double ratio = 0.0;
-    for (auto * pred : predecessors(block)) {
-      if (!vecInfo.inRegion(*pred)) {
-        continue;
-      }
-      if (isHeader && blockLoop->contains(pred)) {
-        // do not look into latches
-        continue;
-      }
-
-      if (!dispMap.count(pred)) {
-        // missing operand -> do not update ratio yet
-        stack.push_back(pred);
-        validRatio = false;
-      }
-      if (!validRatio) continue;
-
-      // keep computing a new result from the blocks predecessors
-      double inProb;
-      //GetEdgeProb(*pred, *block)compute all the paths from pred to block while we only need the direct one to avoid repetitive computation
-      //No need for checking uniform
-      unsigned int IndexInSuccessors;
-      //find the index of block in pred´s successors
-      for (succ_iterator I = succ_begin(pred), E = succ_end(pred); I != E; ++I)
-         if (*I == block) {
-           IndexInSuccessors = I.getSuccessorIndex();
-           break;
-         }
-      inProb = dispMap[pred] * GetEdgeProb(*pred, IndexInSuccessors);
-      ratio += inProb;
-    }
-
-    // the ratio can exceed 1.0 if we have multiple reaching uniform paths
-    ratio = std::min<double>(ratio, 1.0); // cap at 1.0
-
-    // process operands first
-    if (!validRatio) continue;
-
-    auto & term = *block->getTerminator();
-    if (!hadRatio || (std::fabs(oldRatio - ratio) > 0.000001)) {
-      IF_DEBUG_DISP errs() << block->getName() << "  old " << oldRatio << "  new " << ratio << "\n";
-
-      // set new ratio
-      dispMap[block] = ratio;
-
-      // push all successors
-      for (size_t i = 0; i < term.getNumSuccessors(); ++i) {
-        auto * succ = term.getSuccessor(i);
-        if (!vecInfo.inRegion(*succ)) continue; // leaving the region -> don't care
-        if (blockLoop && succ == blockLoop->getHeader()) continue; // latches not taken
-        stack.push_back(succ);
-      }
-    }
-  }
-}
 
 void CloneBasicBlockForDominatedBBs(BasicBlock *BB, SmallVector<BasicBlock *, 16> DominatedBBs, std::vector<std::pair<BasicBlock *, BasicBlock *>> &CopiedBBPairs, Loop *loop, ValueToValueMapTy &cloneMap)
 {
@@ -385,7 +92,7 @@ void CloneBasicBlockForDominatedBBs(BasicBlock *BB, SmallVector<BasicBlock *, 16
       return elem.first == child;
     });
 
-    if ((std::find(DominatedBBs.begin(), DominatedBBs.end(), child) == DominatedBBs.end()) && (it == CopiedBBPairs.end())) 
+    if ((std::find(DominatedBBs.begin(), DominatedBBs.end(), child) == DominatedBBs.end()) && (it == CopiedBBPairs.end()))
       continue;
 
     BasicBlock *clonedchild;
@@ -497,7 +204,7 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
   auto * wccCond = builder.CreateCall(&anyFunc, wccMask, "wcc_test");
   vecInfo.setVectorShape(*wccCond, VectorShape::uni());
 
-  // Create the runtime ckeck and insert the code variant 
+  // Create the runtime ckeck and insert the code variant
   auto * wccBr = builder.CreateCondBr(wccCond, clonedConBlock, EndBlock);
   vecInfo.setVectorShape(*wccBr, VectorShape::uni());
 
@@ -525,7 +232,6 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
         }
         if (needpatch == false) continue;
 
-        auto thenLiveOut = &Inst;
         auto clonedthenLiveOut = &LookUp(cloneMap, Inst);
         if (isa<PHINode>(userInst)){
           auto * userPhi = dyn_cast<PHINode>(userInst);
@@ -629,10 +335,11 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
   errs() << "LLVM IR after transformCoherentCF" << "\n";
   branch.getFunction()->print(errs());
   }
-  
+
 }
 
 //TODO This is very conservative for now.
+/*
 bool
 IsAffine(Instruction* instruction)
 {
@@ -714,14 +421,82 @@ IsAffine(Instruction* instruction)
   }
   return affine;
 }
+*/
+
+// 0  : do not CIF
+// -1 : CIF onTrue
+// 1 : CIF onFalse
+// Reuse Boscc Heuristic mostly
+int
+CIFHeuristic(BranchInst & branch) {
+  // run legality checks
+  BasicBlock * onTrueBlock = branch.getSuccessor(0);
+  BasicBlock * onFalseBlock = branch.getSuccessor(1);
+
+  if (!vecInfo.inRegion(*onTrueBlock) || !vecInfo.inRegion(*onFalseBlock)) return 0;
+
+  auto * branchLoop = loopInfo.getLoopFor(branch.getParent());
+  auto * onTrueLoop = loopInfo.getLoopFor(onTrueBlock);
+  auto * onFalseLoop = loopInfo.getLoopFor(onFalseBlock);
+
+  // don't speculate over loop exits for now (TODO)
+  if (onTrueLoop != branchLoop || branchLoop != onFalseLoop) return 0;
+  if (onTrueLoop && onTrueLoop->getHeader() == onTrueBlock) return 0;
+  if (onFalseLoop && onFalseLoop->getHeader() == onTrueBlock) return 0;
+  if (maskEx.getBlockMask(*branch.getParent())) return 0; // FIXME this is a workaround transformed divergent loops (we may end up invalidating masks)
+  // FIXME in divLoopTrans: use predicate futures where possible
+
+  // per sucess legality
+  // legality checks for speculating over onTrue
+  bool onTrueLegal = GetNumPredecessors(*onTrueBlock) == 1; //domTree.dominates(branch.getParent(), onTrueBlock);
+  onTrueLegal &= !onTrueLoop || onTrueLoop->getLoopLatch() != onTrueBlock;
+
+  // legality checks for speculating over onTrue
+  bool onFalseLegal = GetNumPredecessors(*onFalseBlock) == 1; //domTree.dominates(branch.getParent(), onFalseBlock);
+  onFalseLegal &= !onFalseLoop || onFalseLoop->getLoopLatch() != onFalseBlock;
+
+  double trueRatio =0.0;
+  double falseRatio =0.0;
+  size_t onTrueScore = 0;
+  size_t onFalseScore = 0;
+
+  BranchEstimate BranchEstim(vecInfo, platInfo, domTree, loopInfo, pbInfo);
+  BranchEstim.analysis(branch, trueRatio, falseRatio, onTrueScore, onFalseScore);
+
+  const double minRatio = GetValue<double>("CIF_T", 0.40);
+  const size_t minScore = GetValue<size_t>("CIF_LIMIT", 100);
+
+  IF_DEBUG_CIF { errs() << "CIF_T " << minRatio << " CIF_LIMIT " << minScore << "\n"; }
+
+  //Is there  any need for this? delete by hack
+  //if (falseRatio < 0.06) onFalseLegal = false; // DEBUG HACK
+  //if (trueRatio < 0.06) onTrueLegal = false; // DEBUG HACK
+
+  IF_DEBUG_CIF { errs() << "score (" << onTrueLegal << ") " << onTrueBlock->getName() << "   " << onTrueScore << "\nscore  (" << onFalseLegal << ") " << onFalseBlock->getName() << "   " << onFalseScore << "\n"; }
+  IF_DEBUG_CIF {errs() << "trueRatio: " << trueRatio << " onTrueScore: " << onTrueScore  << " falseRatio: " << falseRatio  << " onFalseScore: " << onFalseScore << " minRatio:" << minRatio << " minScore:  " << minScore << "\n";}
+
+  bool onTrueBeneficial = onTrueScore >= minScore && trueRatio >= minRatio;
+  bool onFalseBeneficial = onFalseScore >= minScore && falseRatio >= minRatio;
+
+  bool couldCIFFalse = onFalseBeneficial && onFalseLegal;
+  bool couldCIFTrue = onTrueBeneficial && onTrueLegal;
+
+  // otw try to skip the bigger dominated part
+  // TODO could also give precedence by region size
+  if (couldCIFTrue && (!couldCIFFalse || trueRatio < falseRatio)) {
+    return -1;
+  } else if (couldCIFFalse) {
+    return 1;
+  }
+
+  // can not distinguish --> don't CIF
+  // this holds e.g. if the branch does not dominate any of its successors
+  return 0;
+}
 
 bool
 run() {
   domTree.recalculate(vecInfo.getScalarFunction());
-
-  // compute approximate execution ratios
-  RatioMap dispMap;
-  computeDispersion(dispMap);
 
   size_t numCIFBranches = 0;
 
@@ -748,15 +523,13 @@ run() {
     else
     */
     {
-      double regProb = 0.0;
-      size_t regScore = 0;
-      int score = CIFHeuristic(*branchInst, regProb, regScore, dispMap);
+      int score = CIFHeuristic(*branchInst);
       if (score == 0) continue;
       int succIdx = score < 0 ? 0 : 1;
 
       ++numCIFBranches;
 
-      Report() << "CIF: dynamic variant succ " << branchInst->getSuccessor(succIdx)->getName() << " of block " << branchInst->getParent()->getName() << "  dispProb: " << format("%1.4f", regProb) << ", score: " << regScore << "\n";
+      Report() << "CIF: dynamic variant succ " << branchInst->getSuccessor(succIdx)->getName() << " of block " << "\n";
 
       IF_DEBUG_CIF {errs()<< *branchCond <<  " has high probabilty for CIF " << "\n";}
       transformCoherentCF(*branchInst, succIdx);

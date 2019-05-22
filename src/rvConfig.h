@@ -32,11 +32,11 @@
 //----------------------------------------------------------------------------//
 
 #ifdef RV_DEBUG
-#   define IF_VERBOSE if (true)
-#   define IF_DEBUG if (true)
+#  define IF_VERBOSE if (true)
+#  define IF_DEBUG if (true)
 #else
-#   define IF_VERBOSE if (false)
-#   define IF_DEBUG if (false)
+#  define IF_VERBOSE if (false)
+#  define IF_DEBUG if (false)
 #endif
 
 //----------------------------------------------------------------------------//
@@ -49,3 +49,11 @@
 
 
 #endif // _RVCONFIG_H
+
+namespace rv {
+
+template<typename N>
+extern N
+GetValue(const char * name, N defVal);
+
+}

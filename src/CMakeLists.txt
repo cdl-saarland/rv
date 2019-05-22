@@ -13,14 +13,14 @@ if (RV_ENABLE_ADVSIMD)
   add_definitions( "-DRV_ENABLE_ADVSIMD" )
 endif()
 
-if (RV_ENABLE_SLEEF) 
+if (RV_ENABLE_SLEEF)
   add_definitions( "-DRV_ENABLE_BUILTINS" )
   if (RV_ENABLE_CRT)
     add_definitions( "-DRV_ENABLE_CRT" )
   endif()
 endif()
 
-if (RV_DEBUG) 
+if (RV_DEBUG)
   add_definitions( "-DRV_DEBUG" )
 endif()
 
@@ -37,6 +37,7 @@ add_rv_library(RV
   analysis/reductionAnalysis.cpp
   analysis/reductions.cpp
   analysis/UndeadMaskAnalysis.cpp
+  analysis/BranchEstimate.cpp
   config.cpp
   init.cpp
   intrinsics.cpp
