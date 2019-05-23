@@ -1340,7 +1340,7 @@ Linearizer::cacheMasks(){
    auto & term = *block.getTerminator();
    for (size_t i = 0; i < term.getNumSuccessors(); ++i) {
      auto * succBlock = term.getSuccessor(i);
-     auto * edgeMask = maskEx.getEdgeMask(term, i); // .getExitMask(block, *succBlock);
+     auto * edgeMask = maskEx.getEdgeMask(term, i); // .getExitMask(block, *succBlock); // OOB access for DLT if the original loop did not have a conditional exit in the header (edgeVec)
      if (edgeMask) setEdgeMask(block, *succBlock, edgeMask);
    }
   }

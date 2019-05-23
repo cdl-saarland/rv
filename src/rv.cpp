@@ -173,7 +173,7 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
       domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
     }
 
-    // lazy mask generator
+    // FIXME materialize masks only very late in the process (risk of mask invalidation through transformations)
     MaskExpander maskEx(vecInfo, domTree, postDomTree, loopInfo);
 
     // convert divergent loops inside the region to uniform loops
@@ -215,6 +215,7 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     redOpt.run();
 
     // partially linearize acyclic control in the region
+
     Linearizer linearizer(vecInfo, maskEx, domTree, loopInfo);
     linearizer.run();
 
