@@ -102,7 +102,7 @@ public:
     auto it = edgeMasks.find(branchBlock);
     if (it == edgeMasks.end()) return nullptr;
     auto & edgeVec = it->second;
-    assert(succIdx < edgeVec.size());
+    assert(succIdx >= 0 && ((size_t) succIdx < edgeVec.size()));
     return edgeVec[succIdx].edgeMask;
   }
 
@@ -111,7 +111,7 @@ public:
     auto it = edgeMasks.find(branchBlock);
     if (it == edgeMasks.end()) return nullptr;
     auto & edgeVec = it->second;
-    assert(succIdx < edgeVec.size());
+    assert(succIdx >= 0 && ((size_t) succIdx < edgeVec.size()));
     return edgeVec[succIdx].branchMask;
   }
 
