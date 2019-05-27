@@ -79,6 +79,8 @@ struct TransformSession {
     return exitingBlock;
   }
 
+  size_t numKillExits;
+
   TransformSession(llvm::Loop & _loop, llvm::LoopInfo & _loopInfo, VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx)
   : loop(_loop)
   , loopName(loop.getName().str())
@@ -91,6 +93,7 @@ struct TransformSession {
   , pureLatch(nullptr)
   , oldLatch(nullptr)
   , liveMaskDesc()
+  , numKillExits(0)
   {}
 
   // transform to a uniform loop

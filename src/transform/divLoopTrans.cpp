@@ -173,7 +173,8 @@ TransformSession::transformLoop() {
 
    {
      IRBuilder<> testBuilder(testHead);
-     testBuilder.CreateCondBr(liveMaskDesc.trackerPhi, offsetHead, pureLatch);
+     auto & liveBr = *testBuilder.CreateCondBr(liveMaskDesc.trackerPhi, offsetHead, pureLatch);
+     vecInfo.setVectorShape(liveBr, VectorShape::varying());
    }
 
    // insert an all-false test on phi_live to exit the loop from the new header
@@ -341,7 +342,10 @@ TransformSession::transformLoop() {
    for (auto & edge : loopExitEdges) {
      auto & exitingBlock = *remapExitingBlock(const_cast<BasicBlock*>(edge.first));
      auto & exitBlock = *const_cast<BasicBlock*>(edge.second);
-     if (vecInfo.isKillExit(exitBlock)) exitStack.emplace_back(exitingBlock, exitBlock);
+     if (vecInfo.isKillExit(exitBlock)) {
+       ++numKillExits; // stats
+       exitStack.emplace_back(exitingBlock, exitBlock);
+     }
    }
    BasicBlock & lastExit = exitStack[exitStack.size() - 1].second;
 
@@ -534,6 +538,7 @@ TransformSession::requestPureLatch() {
 
 void
 DivLoopTrans::addLoopInitMasks(llvm::Loop & loop) {
+  // FIXME use mask futures instead
   for (auto * childLoop : loop) {
     addLoopInitMasks(*childLoop);
   }
@@ -591,6 +596,7 @@ DivLoopTrans::transformDivergentLoopControl(Loop & loop) {
 
     auto * loopSession = new TransformSession(loop, loopInfo, vecInfo, platInfo, maskEx);
     loopSession->transformLoop();
+    numKillExits += loopSession->numKillExits; // accumulate global stats
     sessions[&loop] = loopSession;
 
     // mark loop as uniform
