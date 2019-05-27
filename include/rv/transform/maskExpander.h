@@ -48,17 +48,10 @@ class MaskExpander {
   };
 
   std::map<const llvm::BasicBlock*, llvm::Value*> blockMasks;
-  std::map<const llvm::BasicBlock*, std::vector<EdgePred>> edgeMasks;
+  std::map<std::pair<const llvm::BasicBlock*, int>, EdgePred> edgeMasks;
 
-  // loopPhis that need patching after all acyclic masks have been generated
-  std::map<const llvm::Loop*, llvm::PHINode*> loopPhis;
-  void setLoopLiveMask(const llvm::Loop& loop, llvm::PHINode& phi) {
-    loopPhis[&loop] = &phi;
-  }
-
-  // attach entry masks to loops (post step)
-  void patchLoopMasks();
-
+  const EdgePred* getEdgePred(const llvm::BasicBlock & srcBlock, int succIdx) const;
+  EdgePred & requestEdgePred(const llvm::BasicBlock & srcBlock, int succIdx);
 public:
 // lazy mask creation
   // request the block-local branch predicate
@@ -98,21 +91,15 @@ public:
   }
 
   llvm::Value* getEdgeMask(const llvm::Instruction & branch, int succIdx) const {
-    auto * branchBlock = branch.getParent();
-    auto it = edgeMasks.find(branchBlock);
-    if (it == edgeMasks.end()) return nullptr;
-    auto & edgeVec = it->second;
-    assert(succIdx >= 0 && ((size_t) succIdx < edgeVec.size()));
-    return edgeVec[succIdx].edgeMask;
+    auto * edgePred = getEdgePred(*branch.getParent(), succIdx);
+    if (!edgePred) return nullptr;
+    return edgePred->edgeMask;
   }
 
   llvm::Value* getBranchMask(const llvm::Instruction & branch, int succIdx) const {
-    auto * branchBlock = branch.getParent();
-    auto it = edgeMasks.find(branchBlock);
-    if (it == edgeMasks.end()) return nullptr;
-    auto & edgeVec = it->second;
-    assert(succIdx >= 0 && ((size_t) succIdx < edgeVec.size()));
-    return edgeVec[succIdx].branchMask;
+    auto * edgePred = getEdgePred(*branch.getParent(), succIdx);
+    if (!edgePred) return nullptr;
+    return edgePred->branchMask;
   }
 
   // expand all masks in the region

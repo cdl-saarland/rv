@@ -74,11 +74,6 @@ MaskExpander::MaskExpander(VectorizationInfo & _vecInfo, const DominatorTree & _
 , trueConst(ConstantInt::getTrue(vecInfo.getContext()))
 , falseConst(ConstantInt::getFalse(vecInfo.getContext()))
 {
-  // initialize edge masks
-  for (auto & BB :vecInfo.getScalarFunction()) {
-    if (!vecInfo.inRegion(BB)) continue;
-     edgeMasks[&BB] = std::vector<EdgePred>(BB.getTerminator()->getNumSuccessors(), EdgePred());
-  }
 }
 
 MaskExpander::~MaskExpander()
@@ -218,11 +213,29 @@ MaskExpander::requestEdgeMask(llvm::BasicBlock & source, BasicBlock & dest) {
   return requestJoinedEdgeMask(srcTerm, edgeIndices);
 }
 
+MaskExpander::EdgePred &
+MaskExpander::requestEdgePred(const llvm::BasicBlock & srcBlock, int succIdx) {
+  auto key = std::make_pair(&srcBlock, succIdx);
+  auto it = edgeMasks.find(key);
+  if (it != edgeMasks.end()) return it->second;
+  return edgeMasks.insert(std::make_pair(key, EdgePred())).first->second;
+}
+
+const MaskExpander::EdgePred*
+MaskExpander::getEdgePred(const llvm::BasicBlock & srcBlock, int succIdx) const {
+  auto key = std::make_pair(&srcBlock, succIdx);
+  auto it = edgeMasks.find(key);
+  if (it != edgeMasks.end()) return &it->second;
+  return nullptr;
+}
+
 Value&
 MaskExpander::requestEdgeMask(Instruction & term, int succIdx) {
   auto *cachedMask = getEdgeMask(term, succIdx);
   if (cachedMask) return *cachedMask;
 
+  // allocate an edge handle
+  requestEdgePred(*term.getParent(), succIdx);
   auto & BB = *term.getParent();
   IF_DEBUG_ME { errs() << "# requestEdgeMask( " << BB.getName() << ", " << succIdx << ")\n"; }
 
@@ -436,50 +449,12 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
 
 void
 MaskExpander::setEdgeMask(BasicBlock & BB, int succIdx, Value & mask) {
-  auto it = edgeMasks.find(&BB);
-  if (it != edgeMasks.end()) {
-    if (it->second.size() <= (size_t) succIdx) {
-      it->second.resize(succIdx + 1);
-    }
-  } else {
-    size_t minSize = std::max(succIdx + 1, 4);
-    edgeMasks[&BB] = std::vector<EdgePred>(minSize);
-  }
-
-  edgeMasks[&BB][succIdx].edgeMask = &mask;
+  requestEdgePred(BB, succIdx).edgeMask = &mask;
 }
 
 void
 MaskExpander::setBranchMask(BasicBlock & BB, int succIdx, Value & mask) {
-  auto it = edgeMasks.find(&BB);
-  if (it != edgeMasks.end()) {
-    if (it->second.size() <= (size_t) succIdx) {
-      it->second.resize(succIdx + 1);
-    }
-  } else {
-    edgeMasks[&BB] = std::vector<EdgePred>(succIdx + 1);
-  }
-
-  edgeMasks[&BB][succIdx].branchMask = &mask;
-}
-
-void
-MaskExpander::patchLoopMasks() {
-  IF_DEBUG_ME {
-    errs() << "- loop entry masks -";
-  }
-
-  for (auto & it : loopPhis) {
-    const auto & loop = *it.first;
-    auto & headerPhi = *it.second;
-
-    auto & preHeaderBlock = *loop.getLoopPreheader();
-    IndexSet loopEntryIndices;
-    auto & preTerm = *preHeaderBlock.getTerminator();
-    getPredecessorEdges(preTerm, *headerPhi.getParent(), loopEntryIndices);
-    auto & loopEntryMask = requestJoinedEdgeMask(preTerm, loopEntryIndices);
-    headerPhi.addIncoming(&loopEntryMask, &preHeaderBlock);
-  }
+  requestEdgePred(BB, succIdx).branchMask = &mask;
 }
 
 void
