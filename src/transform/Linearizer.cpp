@@ -557,10 +557,10 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
   auto & blocks = superInput.inBlocks;
 
 // fetch the shadow input as default value (if any)
-  auto * defaultValue = getShadowInput(phi);
-  IF_DEBUG_LIN if (defaultValue) { errs() << "LIN: folding phi with shadow input " << *defaultValue << "\n"; }
+  auto * shadowValue = getShadowInput(phi);
+  IF_DEBUG_LIN if (shadowValue) { errs() << "LIN: folding phi with shadow input " << *shadowValue << "\n"; }
 
-  bool hasShadowInput = (bool) defaultValue;
+  auto * defaultValue = shadowValue;
   if (!defaultValue) {
     // just default to the first incoming value, otw
     defaultValue = superInput.getFrequentIncomingValue(phi);
@@ -586,7 +586,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
   if (isa<Instruction>(defaultValue)) {
     auto & defFuture = createRepairPhi(*defaultValue, *superInput.blendBlock);
     defFuture.addIncoming(defaultValue, blocks[0]);
-    defFuture.addIncoming(defaultValue->getType() == falseMask->getType() ? falseMask : UndefValue::get(defaultValue->getType()), superInput.blendBlock);
+    defFuture.addIncoming(shadowValue ? shadowValue : UndefValue::get(defaultValue->getType()), superInput.blendBlock);
     blendedVal = &defFuture;
   }
 
@@ -626,7 +626,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     if (isa<Instruction>(inVal)) {
       auto & inValFuture = createRepairPhi(*inVal, *superInput.blendBlock);
       inValFuture.addIncoming(inVal, inBlock);
-      inValFuture.addIncoming(inVal->getType() == falseMask->getType() ? falseMask : UndefValue::get(inVal->getType()), superInput.blendBlock);
+      inValFuture.addIncoming(shadowValue ? shadowValue : UndefValue::get(inVal->getType()), superInput.blendBlock);
       inVal = &inValFuture;
     }
 
@@ -643,7 +643,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
   // stat update
   assert(phiRedundantIncomingValues >= 0);
-  numRedundantIncomingValues += (size_t) std::max<int>(0, phiRedundantIncomingValues - (int) hasShadowInput);
+  numRedundantIncomingValues += (size_t) std::max<int>(0, phiRedundantIncomingValues - (shadowValue ? 1 : 0));
 
   return blendedVal;
 }
