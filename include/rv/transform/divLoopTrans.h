@@ -39,10 +39,13 @@ class LiveValueTracker;
 
 
 struct TrackerDesc {
-  llvm::PHINode * trackerPhi;
-  llvm::PHINode * updatePhi;
+  llvm::PHINode * wrapPhi;    // kill exit live-out wrapper (@header)
+  llvm::PHINode * trackerPhi; // divergent live out tracker (@header)
+  llvm::PHINode * updatePhi;  // divergent live out updater (@pureLatch)
+
   TrackerDesc()
-  : trackerPhi(nullptr)
+  : wrapPhi(nullptr)
+  , trackerPhi(nullptr)
   , updatePhi(nullptr)
   {}
 };
@@ -67,6 +70,8 @@ struct TransformSession {
   llvm::DenseMap<const llvm::BasicBlock*, TrackerDesc> exitDescs;
   // maps each live out to a tracker
   llvm::DenseMap<const llvm::Value*, TrackerDesc> liveOutDescs;
+  TrackerDesc & requestTrackerDesc(const llvm::Value& val); // creates an emty tracker if missing
+  const TrackerDesc & getTrackerDesc(const llvm::Value& val) const; // asserting getter
 
   llvm::BasicBlock*
   remapExitingBlock(llvm::BasicBlock * exitingBlock) {
@@ -92,10 +97,10 @@ struct TransformSession {
   // returns the canonical live mask phi
   void transformLoop();
 
-  // replace latch updates with selects
-  void lowerTrackerUpdates();
+  //
+  void finalizeLiveOutTrackers();
 
-  llvm::Instruction& lowerLatchUpdate(TrackerDesc & desc);
+  void finalizeLiveOutTracker(TrackerDesc & desc);
 
   llvm::BasicBlock & requestPureLatch();
 };

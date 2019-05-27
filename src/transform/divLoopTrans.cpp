@@ -71,8 +71,10 @@ AttachMissingInputs(PHINode & phi, Value & inputVal) {
   }
 }
 
-Instruction&
-TransformSession::lowerLatchUpdate(TrackerDesc & desc) {
+void
+TransformSession::finalizeLiveOutTracker(TrackerDesc & desc) {
+  if (!desc.trackerPhi || !desc.updatePhi) return;
+
   auto & trackerPhi = *desc.trackerPhi;
   auto & updPhi = *desc.updatePhi;
 
@@ -83,21 +85,33 @@ TransformSession::lowerLatchUpdate(TrackerDesc & desc) {
 
   // preserve the tracker also on active lanes if the thread stays in the loop.
   AttachMissingInputs(updPhi, trackerPhi);
-
-  // done
-  return updPhi;
 }
 
 void
-TransformSession::lowerTrackerUpdates() {
-  lowerLatchUpdate(liveMaskDesc);
+TransformSession::finalizeLiveOutTrackers() {
+  // FIXME repair SSA (non-dominating defs)
+  finalizeLiveOutTracker(liveMaskDesc);
 
   for (auto & itUpdate : liveOutDescs) {
-    lowerLatchUpdate(itUpdate.second);
+    finalizeLiveOutTracker(itUpdate.second);
   }
   for (auto & itUpdate : exitDescs) {
-    lowerLatchUpdate(itUpdate.second);
+    finalizeLiveOutTracker(itUpdate.second);
   }
+}
+
+const TrackerDesc &
+TransformSession::getTrackerDesc(const llvm::Value& val) const {
+  auto it = liveOutDescs.find(&val);
+  assert(it != liveOutDescs.end());
+  return it->second;
+}
+
+TrackerDesc &
+TransformSession::requestTrackerDesc(const llvm::Value& val) {
+  auto it = liveOutDescs.find(&val);
+  if (it != liveOutDescs.end()) return it->second;
+  return liveOutDescs.insert(std::make_pair(&val, TrackerDesc())).first->second;
 }
 
 void
@@ -178,6 +192,7 @@ TransformSession::transformLoop() {
   IRBuilder<> latchBuilder(pureLatch, pureLatch->getFirstInsertionPt());
 
 // create tracking infrastructure for the loop exits
+  assert(liveOutDescs.empty() && "start indexing live out values");
   for (auto & edge : loopExitEdges) {
     const VectorShape exitShape = VectorShape::varying();
     auto * exitingBlock = const_cast<BasicBlock*>(edge.first);
@@ -265,32 +280,40 @@ TransformSession::transformLoop() {
     }
 
   // create live out trackers
-    if (vecInfo.isDivergentLoopExit(exitBlock)) {
-      ForAllLiveouts(exitBlock, [&](PHINode & lcPhi, int slot) {
-        auto & liveOut = *lcPhi.getIncomingValue(slot);
+    IF_DEBUG_DLT { errs() << "Creating live-out trackers for exit (" << exitName <<").\n"; }
+    const bool IsDivExit = vecInfo.isDivergentLoopExit(exitBlock);
+    ForAllLiveouts(exitBlock, [&](PHINode & lcPhi, int slot) {
+      auto & liveOut = *lcPhi.getIncomingValue(slot);
+      auto & trackerDesc = requestTrackerDesc(liveOut);
 
-      // request a tracker for this live out value
-        auto it = liveOutDescs.find(&liveOut);
-        PHINode * updatePhi = nullptr;
-        if (it != liveOutDescs.end()) {
-          updatePhi = it->second.updatePhi;
-        } else {
-          TrackerDesc desc;
-          desc.trackerPhi = trackerBuilder.CreatePHI(liveOut.getType(), 2, liveOut.getName() + ".track");
-          vecInfo.setVectorShape(*desc.trackerPhi, exitShape);
-          desc.trackerPhi->addIncoming(UndefValue::get(liveOut.getType()), loop.getLoopPreheader());
-          updatePhi = latchBuilder.CreatePHI(liveOut.getType(), 2, liveOut.getName() + ".upd");
-          desc.trackerPhi->addIncoming(updatePhi, pureLatch);
-          vecInfo.setVectorShape(*updatePhi, exitShape);
-          desc.updatePhi = updatePhi;
-          liveOutDescs[&liveOut] = desc;
+      IF_DEBUG_DLT { errs() << "Live out " << liveOut.getName() << "\n"; }
+
+      if (IsDivExit) {
+        // divergent live-outs need a tracker/update setup
+        if (!trackerDesc.updatePhi) {
+          assert(!trackerDesc.trackerPhi && "tracker/update infrastructure already initialized?");
+          trackerDesc.trackerPhi = trackerBuilder.CreatePHI(liveOut.getType(), 2, liveOut.getName() + ".track");
+          vecInfo.setVectorShape(*trackerDesc.trackerPhi, exitShape);
+          trackerDesc.trackerPhi->addIncoming(UndefValue::get(liveOut.getType()), loop.getLoopPreheader());
+          trackerDesc.updatePhi = latchBuilder.CreatePHI(liveOut.getType(), 2, liveOut.getName() + ".upd");
+          trackerDesc.trackerPhi->addIncoming(trackerDesc.updatePhi, pureLatch);
+          vecInfo.setVectorShape(*trackerDesc.updatePhi, exitShape);
         }
 
       // if the exit was taken write the current value of @liveOut to the tracker
-        updatePhi->addIncoming(&liveOut, reboundBlock);
-        IF_DEBUG_DLT { errs() << "UPD PHI: " << *updatePhi <<  "\n"; }
-      });
-    }
+        trackerDesc.updatePhi->addIncoming(&liveOut, reboundBlock);
+
+      } else {
+        // Kill-exit liveouts only need a dominating def at the loop header (wrapPhi)
+        if (trackerDesc.wrapPhi) { return; }
+
+        trackerDesc.wrapPhi = trackerBuilder.CreatePHI(liveOut.getType(), 2, liveOut.getName() + ".wrap");
+        trackerDesc.wrapPhi->addIncoming(UndefValue::get(liveOut.getType()), loop.getLoopPreheader());
+        trackerDesc.wrapPhi->addIncoming(&liveOut, pureLatch);
+        auto loShape = vecInfo.getVectorShape(liveOut);
+        vecInfo.setVectorShape(*trackerDesc.wrapPhi, loShape);
+      }
+    });
   }
 
   IF_DEBUG_DLT { errs() << "after live out tracking. "; vecInfo.dump(); }
@@ -330,7 +353,7 @@ TransformSession::transformLoop() {
 // materialize the exit cascade
    // materialize all exits in the stack after the loop
    struct LiveOutPhis {
-     PHINode * trackedPhi[2];
+     PHINode * trackedPhi[2]; // one slot for each exit type
      enum Type {
        KILL = 0,
        DIVERGENT = 1
@@ -414,6 +437,7 @@ TransformSession::transformLoop() {
        LiveOutPhis loPhis;
 
        if (itKnown != liveOutPhis.end() && itKnown->second.trackedPhi[exitType]) {
+         // we already have an LCSSA phi for this live-out value and exit type (divergent or kill)
          exitPhi = itKnown->second.trackedPhi[exitType];
        } else {
          LiveOutPhis loPhis = liveOutPhis[&liveOutVal];
@@ -421,8 +445,9 @@ TransformSession::transformLoop() {
          // create an LCSSA phi
          exitPhi = divExitBuilder.CreatePHI(lcPhi.getType(), 1, liveOutVal.getName() + ".lcssa");
          vecInfo.setVectorShape(*exitPhi, exitShape);
-         auto * transformedLiveOut = vecInfo.isKillExit(exitBlock)  ? &liveOutVal : liveOutDescs[&liveOutVal].trackerPhi;
-         exitPhi->addIncoming(transformedLiveOut, &loopHeader);
+         auto & trackerDesc = getTrackerDesc(liveOutVal);
+         auto * liveOutDef = killExit ? trackerDesc.wrapPhi : trackerDesc.trackerPhi;
+         exitPhi->addIncoming(liveOutDef, &loopHeader);
          loPhis.trackedPhi[exitType] = exitPhi;
 
          // cache for reuse
@@ -537,8 +562,8 @@ DivLoopTrans::addLoopInitMasks(llvm::Loop & loop) {
   maskEx.setBlockMask(*divExit, initMask);
   vecInfo.setPredicate(*divExit, initMask);
 
-// lower latch updates to selects
-  loopSession->lowerTrackerUpdates();
+// add defaulting definitions on tracker phis
+  loopSession->finalizeLiveOutTrackers();
 }
 
 DivLoopTrans::DivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo)
