@@ -320,7 +320,61 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
   errs() << "LLVM IR after transformCoherentCF" << "\n";
   branch.getFunction()->print(errs());
   }
+}
 
+//TODO This is very conservative for now.
+bool
+IsAffine(Instruction* instruction)
+{
+  //Whether there is need to record the visited instructions to optimize it
+  //std::set<Instruction*> visitedInstructions;
+  //first check the opcode
+  unsigned Opcode = instruction->getOpcode();
+  switch (Opcode) {
+    case Instruction::GetElementPtr: return false;
+    case Instruction::Mul:
+    case Instruction::Sub:
+    case Instruction::Add:
+    case Instruction::FMul:
+    case Instruction::FSub:
+    case Instruction::FAdd:
+    case Instruction::And:
+    case Instruction::ICmp:
+    case Instruction::FCmp:
+    case Instruction::Or: break;
+    default:
+    {
+      return false;
+    }
+  }
+  //Then check the operands
+  bool affine = true;
+  for (unsigned i = 0; i < instruction->getNumOperands(); i++) {
+    auto* instructionOperand = instruction->getOperand(i);
+    if (auto* instructionOperandAsInstruction = dyn_cast<Instruction>(instructionOperand))
+    {
+      auto condShape = vecInfo.getVectorShape(*instructionOperandAsInstruction);
+      if(condShape.hasStridedShape() && !condShape.isUniform())
+        continue;
+      else
+        affine &= IsAffine(instructionOperandAsInstruction);
+    }
+    else if (isa<ConstantData>(instructionOperand))
+    {
+      continue;
+    }
+    else if (isa<Argument>(instructionOperand))
+    {
+      if (instructionOperand->getType()->isIntegerTy() | instructionOperand->getType()->isFloatingPointTy ())
+        continue;
+      else
+        return false;
+    }
+    else{
+      return false;
+    }
+  }
+  return affine;
 }
 
 // 0  : do not CIF
@@ -415,8 +469,7 @@ run() {
     auto * branchCond = branchInst->getCondition();
 
     //if affine fails, then use high probability
-    auto condShape = vecInfo.getVectorShape(*branchCond);
-    if (condShape.hasStridedShape() && !condShape.isUniform()) {
+    if (IsAffine(dyn_cast<Instruction>(branchCond))) {
       IF_DEBUG_CIF {errs()<< *branchCond << " is affine condition" << "\n";}
       transformCoherentCF(*branchInst, 0);
     }
