@@ -311,7 +311,7 @@ bosccHeuristic(BranchInst & branch) {
   size_t onFalseScore = 0;
 
   BranchEstimate BranchEst(vecInfo, platInfo, domTree, loopInfo, pbInfo);
-  BranchEst.analysis(branch, trueRatio, falseRatio, onTrueScore, onFalseScore);
+  BranchEst.analyze(branch, trueRatio, falseRatio, onTrueScore, onFalseScore);
 
   const double maxRatio = GetValue<double>("BOSCC_T", 0.14);
   const size_t minScore = GetValue<size_t>("BOSCC_LIMIT", 17);

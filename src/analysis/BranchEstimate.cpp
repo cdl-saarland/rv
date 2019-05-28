@@ -210,7 +210,7 @@ BranchEstimate::computeDispersion(std::map<BasicBlock*,double> & dispMap) {
 }
 
 bool
-BranchEstimate::analysis(BranchInst &branch, double &trueRatio, double &falseRatio, size_t &onTrueScore, size_t &onFalseScore)
+BranchEstimate::analyze(BranchInst &branch, double &trueRatio, double &falseRatio, size_t &onTrueScore, size_t &onFalseScore)
 {
   // run legality checks
   BasicBlock * onTrueBlock = branch.getSuccessor(0);
