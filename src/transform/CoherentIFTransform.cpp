@@ -69,7 +69,22 @@ CoherentIF(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo,  MaskExpander
 , pbInfo(_pbInfo)
 {}
 
-void CloneBasicBlockForDominatedBBs(BasicBlock *BB, SmallVector<BasicBlock *, 16> DominatedBBs, std::vector<std::pair<BasicBlock *, BasicBlock *>> &CopiedBBPairs, Loop *loop, ValueToValueMapTy &cloneMap) {
+void MaintainCloneLoopwithHeader (Loop * clonedParentLoop, Loop & L, ValueToValueMapTy & valueMap) {
+  // create a loop object
+  auto * clonedHead = &LookUp(valueMap, *L.getHeader());
+  auto * clonedLoop = loopInfo.AllocateLoop();
+
+  // embed the loop object in the loop tree
+  if (!clonedParentLoop) {
+    loopInfo.addTopLevelLoop(clonedLoop);
+  } else {
+    clonedParentLoop->addChildLoop(clonedLoop);
+  }
+  // add the header first
+  clonedLoop->addBasicBlockToLoop(clonedHead, loopInfo);
+}
+
+void CloneBasicBlockForDominatedBBs (BasicBlock *BB, SmallVector<BasicBlock *, 16> DominatedBBs, std::vector<std::pair<BasicBlock *, BasicBlock *>> &CopiedBBPairs, ValueToValueMapTy &cloneMap) {
   auto *inst = BB->getTerminator();
 
   unsigned int numsuc = inst->getNumSuccessors();
@@ -110,11 +125,25 @@ void CloneBasicBlockForDominatedBBs(BasicBlock *BB, SmallVector<BasicBlock *, 16
         vecInfo.setVectorShape(*CSI,vecInfo.getVectorShape(*I));
       }
 
-      if (loop) loop->addBasicBlockToLoop(clonedchild, loopInfo);
+      auto * loop = loopInfo.getLoopFor(child);
+      if (loopInfo.isLoopHeader(child)) {
+        auto * Parentloop = loop->getParentLoop();
+        llvm::Loop* ClonedParentloop = nullptr;
+        if (Parentloop) {
+          auto* clonedHead = &LookUp(cloneMap, *Parentloop->getHeader());
+          ClonedParentloop = loopInfo.getLoopFor(clonedHead);
+        } 
+        MaintainCloneLoopwithHeader(ClonedParentloop, *loop, cloneMap);
+      } else if (loop) {
+        auto * clonedHead = &LookUp(cloneMap, *loop->getHeader());
+        auto * Clonedloop = loopInfo.getLoopFor(clonedHead);
+        Clonedloop->addBasicBlockToLoop(clonedchild, loopInfo);
+      }
+
       //Add copied block to the pairs
       CopiedBBPairs.push_back(std::make_pair(child,clonedchild));
       //Recursively copy the blocks successors
-      CloneBasicBlockForDominatedBBs(clonedchild, DominatedBBs, CopiedBBPairs, loop, cloneMap);
+      CloneBasicBlockForDominatedBBs(clonedchild, DominatedBBs, CopiedBBPairs, cloneMap);
     }
     //Replace the succeeding block with its copy
     inst->setSuccessor(i,clonedchild);
@@ -128,7 +157,7 @@ void CloneBasicBlockForDominatedBBs(BasicBlock *BB, SmallVector<BasicBlock *, 16
 //Utilizing uttermost the coherent control flow and mimimize the masked instruction numbers
 //Transform Warp-Coherent Condition
 void
-transformCoherentCF(BranchInst & branch, int succIdx) {
+transformCoherentCF (BranchInst & branch, int succIdx) {
   auto & context = branch.getContext();
   assert(0 <= succIdx && succIdx <= 1);
   assert(branch.isConditional());
@@ -161,8 +190,12 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
   for(auto I = ConBlock->begin(), IE = ConBlock->end(); I != IE; ++I, CSI++) {
     vecInfo.setVectorShape(*CSI,vecInfo.getVectorShape(*I));
   }
-
-  if (loop) loop->addBasicBlockToLoop(clonedConBlock, loopInfo);
+  
+  if(loopInfo.isLoopHeader(ConBlock)) {
+    MaintainCloneLoopwithHeader(loop, *loopInfo.getLoopFor(ConBlock), cloneMap);
+  }
+  else
+     if (loop) loop->addBasicBlockToLoop(clonedConBlock, loopInfo);
 
   if (isa<BranchInst>(clonedConBlock->getTerminator()))
     vecInfo.setVectorShape(*clonedConBlock->getTerminator(),vecInfo.getVectorShape(*ConBlock->getTerminator()));
@@ -175,7 +208,7 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
   std::vector< std::pair< BasicBlock *, BasicBlock *> > CopiedBBPairs;
   CopiedBBPairs.push_back(std::make_pair(ConBlock,clonedConBlock));
 
-  CloneBasicBlockForDominatedBBs(clonedConBlock, DominatedBBs, CopiedBBPairs, loop, cloneMap);
+  CloneBasicBlockForDominatedBBs(clonedConBlock, DominatedBBs, CopiedBBPairs, cloneMap);
 
   //Generate the condition check block
   auto * TrueBlock = BasicBlock::Create(context, ConBlock->getName()+ ".wcc", &vecInfo.getScalarFunction(), clonedConBlock);
@@ -312,10 +345,6 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
   domTree.verify();
   postDomTree.verify();
 
-  LoopInfo loopInfo1(domTree);
-  loopInfo1.verify(domTree);
-  loopInfo = std::move(loopInfo1);
-
   IF_DEBUG_CIF {
   errs() << "LLVM IR after transformCoherentCF" << "\n";
   branch.getFunction()->print(errs());
@@ -324,7 +353,7 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
 
 //TODO This is very conservative for now.
 bool
-IsAffine(Instruction* instruction)
+IsAffine (Instruction* instruction)
 {
   //Whether there is need to record the visited instructions to optimize it
   //std::set<Instruction*> visitedInstructions;
@@ -382,7 +411,7 @@ IsAffine(Instruction* instruction)
 // 1 : CIF onFalse
 // Reuse Boscc Heuristic mostly
 int
-CIFHeuristic(BranchInst & branch) {
+CIFHeuristic (BranchInst & branch) {
   // run legality checks
   BasicBlock * onTrueBlock = branch.getSuccessor(0);
   BasicBlock * onFalseBlock = branch.getSuccessor(1);
@@ -504,14 +533,13 @@ run() {
 
 };
 
-
 bool
 CoherentIFTransform::run() {
   CoherentIF coherentif(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo, pbInfo);
   return coherentif.run();
 }
 
-CoherentIFTransform::CoherentIFTransform(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::PostDominatorTree & _postDomTree, llvm::LoopInfo & _loopInfo, BranchProbabilityInfo * _pbInfo)
+CoherentIFTransform::CoherentIFTransform (VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::PostDominatorTree & _postDomTree, llvm::LoopInfo & _loopInfo, BranchProbabilityInfo * _pbInfo)
 : vecInfo(_vecInfo)
 , platInfo(_platInfo)
 , maskEx(_maskEx)
