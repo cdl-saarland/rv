@@ -2026,6 +2026,19 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
   return *vecValue;
 }
 
+void
+NatBuilder::SetInsertPointAfterMappedInst (IRBuilder<> & builder, Instruction * mappedInst) {
+  Instruction *nextNode = mappedInst->getNextNode();
+  while (nextNode && isa<PHINode>(nextNode))
+    nextNode = nextNode->getNextNode();
+  if (nextNode)
+    builder.SetInsertPoint(nextNode);
+  else if (mappedInst->getParent()->getTerminator())
+    builder.SetInsertPoint(mappedInst->getParent()->getTerminator());
+  else
+    builder.SetInsertPoint(mappedInst->getParent());
+}
+
 
 Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool skipMapping) {
   if (isa<GetElementPtrInst>(value))
@@ -2057,15 +2070,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
       auto oldIB = builder.GetInsertBlock();
       Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
       if (mappedInst){
-        Instruction *nextNode = mappedInst->getNextNode();
-        while (nextNode && isa<PHINode>(nextNode))
-          nextNode = nextNode->getNextNode();
-        if (nextNode)
-          builder.SetInsertPoint(nextNode);
-        else if(mappedInst->getParent()->getTerminator())
-          builder.SetInsertPoint(mappedInst->getParent()->getTerminator());
-        else
-          builder.SetInsertPoint(mappedInst->getParent());
+        SetInsertPointAfterMappedInst(builder, mappedInst);
       }
 
       Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())
@@ -2088,15 +2093,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     auto oldIP = builder.GetInsertPoint();
     auto oldIB = builder.GetInsertBlock();
     if (mappedInst) {
-      Instruction *nextNode = mappedInst->getNextNode();
-      while (nextNode && isa<PHINode>(nextNode))
-        nextNode = nextNode->getNextNode();
-      if (nextNode) {
-        builder.SetInsertPoint(nextNode);
-      } else if (mappedInst->getParent()->getTerminator())
-        builder.SetInsertPoint(mappedInst->getParent()->getTerminator());
-      else
-        builder.SetInsertPoint(mappedInst->getParent());
+      SetInsertPointAfterMappedInst(builder, mappedInst);
     }
     IF_DEBUG {
       errs() << "Extracting a scalar value from a vector:\n";

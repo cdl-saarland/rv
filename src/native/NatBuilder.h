@@ -153,6 +153,7 @@ namespace rv {
     void requestLazyInstructions(llvm::Instruction *const upToInstruction);
     llvm::Value* requestVectorPredicate(const llvm::BasicBlock& scaBlock);
     llvm::Value *requestVectorValue(llvm::Value *const value);
+    void SetInsertPointAfterMappedInst(llvm::IRBuilder<> & builder, llvm::Instruction * mappedInst);
     llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
                                     bool skipMapping = false);
     llvm::Value *buildGEP(llvm::GetElementPtrInst *const gep, bool buildScalar, unsigned laneIdx);

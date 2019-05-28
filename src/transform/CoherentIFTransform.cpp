@@ -69,26 +69,22 @@ CoherentIF(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo,  MaskExpander
 , pbInfo(_pbInfo)
 {}
 
-void CloneBasicBlockForDominatedBBs(BasicBlock *BB, SmallVector<BasicBlock *, 16> DominatedBBs, std::vector<std::pair<BasicBlock *, BasicBlock *>> &CopiedBBPairs, Loop *loop, ValueToValueMapTy &cloneMap)
-{
+void CloneBasicBlockForDominatedBBs(BasicBlock *BB, SmallVector<BasicBlock *, 16> DominatedBBs, std::vector<std::pair<BasicBlock *, BasicBlock *>> &CopiedBBPairs, Loop *loop, ValueToValueMapTy &cloneMap) {
   auto *inst = BB->getTerminator();
 
   unsigned int numsuc = inst->getNumSuccessors();
   assert( 1 <= numsuc && numsuc <= 2);
 
   //For each succeeding block
-  for (unsigned int i = 0; i < numsuc; i++)
-  {
+  for (unsigned int i = 0; i < numsuc; i++) {
     BasicBlock *child = inst->getSuccessor(i);
 
    //Check if child has already been copied
-    auto it = std::find_if(CopiedBBPairs.begin(), CopiedBBPairs.end(), [&child](std::pair<BasicBlock *, BasicBlock *> const & elem)
-    {
+    auto it = std::find_if(CopiedBBPairs.begin(), CopiedBBPairs.end(), [&child](std::pair<BasicBlock *, BasicBlock *> const & elem) {
       return elem.second == child;
     });
 
-    auto firstit = std::find_if(CopiedBBPairs.begin(), CopiedBBPairs.end(), [&child](std::pair<BasicBlock *, BasicBlock *> const & elem)
-    {
+    auto firstit = std::find_if(CopiedBBPairs.begin(), CopiedBBPairs.end(), [&child](std::pair<BasicBlock *, BasicBlock *> const & elem) {
       return elem.first == child;
     });
 
@@ -98,16 +94,13 @@ void CloneBasicBlockForDominatedBBs(BasicBlock *BB, SmallVector<BasicBlock *, 16
     BasicBlock *clonedchild;
 
     //Block is already copied, use the copy
-    if (it != CopiedBBPairs.end())
-    {
+    if (it != CopiedBBPairs.end()) {
       clonedchild = (*it).second;
     }
-    else if (firstit != CopiedBBPairs.end())
-    {
+    else if (firstit != CopiedBBPairs.end()) {
       clonedchild = (*firstit).second;
     }
-    else
-    {
+    else {
       //Block still has to be copied
       clonedchild = cloneBlockAndMapInstructions(child, cloneMap);
       cloneMap[child] = clonedchild;
@@ -214,18 +207,15 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
   //We have to make sure that all the live-out value from ThenBlock will be patched for clonedThenBlock
   //Live out value include the live in value from the previous block and not consumed by the current block and also include the new live out from this basic block
   //all the live-out value, we check all their use in the successor block and also maybe used in other blocks
-  for (const auto &vecpair : CopiedBBPairs)
-  {
+  for (const auto &vecpair : CopiedBBPairs) {
     for (auto & Inst : *(vecpair.first)) {
       for (auto UI = Inst.use_begin(), E = Inst.use_end(); UI != E;) {
         Use &use = *UI++;
         auto * userInst = cast<Instruction>(use.getUser());
 
         bool needpatch = true;
-        for (auto *BB:DominatedBBs)
-        {
-          if (userInst->getParent() == BB)
-          {
+        for (auto *BB:DominatedBBs) {
+          if (userInst->getParent() == BB) {
             needpatch = false;
             break;
           }
@@ -236,16 +226,13 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
         if (isa<PHINode>(userInst)){
           auto * userPhi = dyn_cast<PHINode>(userInst);
           //Tackle the case that the phi node basic block is not the same with the the inst.parent
-          for (size_t inIdx = 0; inIdx < userPhi->getNumIncomingValues(); ++inIdx)
-          {
+          for (size_t inIdx = 0; inIdx < userPhi->getNumIncomingValues(); ++inIdx) {
             auto * inBlock = userPhi->getIncomingBlock(inIdx);
             auto * inVal = userPhi->getIncomingValue(inIdx);
             auto * inInst = dyn_cast<Instruction>(inVal);
-            auto *Instin = dyn_cast<Instruction>(&Inst);
-            if (inInst==Instin)
-            {
-              auto it = std::find_if(CopiedBBPairs.begin(), CopiedBBPairs.end(), [&inBlock](std::pair<BasicBlock *, BasicBlock *> const & elem)
-              {
+            auto * Instin = dyn_cast<Instruction>(&Inst);
+            if (inInst==Instin) {
+              auto it = std::find_if(CopiedBBPairs.begin(), CopiedBBPairs.end(), [&inBlock](std::pair<BasicBlock *, BasicBlock *> const & elem) {
                 return elem.first == inBlock;
               });
               userPhi->addIncoming(clonedthenLiveOut, (*it).second);
@@ -285,13 +272,12 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
   }
 
   //Here tackle all the constant value Phi nodes from the successor of the DominatedBB
-  for (const auto &vecpair : CopiedBBPairs){
+  for (const auto & vecpair : CopiedBBPairs) {
     BasicBlock *predBlock = vecpair.first;
     for (llvm::succ_iterator itSucc = llvm::succ_begin(predBlock); itSucc != llvm::succ_end(predBlock); ++itSucc) {
       llvm::BasicBlock *succBlock = *itSucc;
       bool needpatch = true;
-      for (auto *BB:DominatedBBs)
-      {
+      for (auto *BB : DominatedBBs) {
         if(succBlock == BB){
           needpatch = false;
           break;
@@ -301,12 +287,11 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
 
       llvm::BasicBlock::iterator itPHI;
       for (itPHI = succBlock->begin(); itPHI != succBlock->end(); itPHI++){
-        if(isa<PHINode>(itPHI)){
+        if (isa<PHINode>(itPHI)){
           auto * userPhi = dyn_cast<PHINode>(itPHI);
           for (size_t inIdx = 0; inIdx < userPhi->getNumIncomingValues(); ++inIdx) {
             auto * inBlock = userPhi->getIncomingBlock(inIdx);
-            if (inBlock == predBlock)
-            {
+            if (inBlock == predBlock) {
               auto * inVal = userPhi->getIncomingValue(inIdx);
               auto * inInst = dyn_cast<Instruction>(inVal);
               if(inInst)
@@ -337,91 +322,6 @@ transformCoherentCF(BranchInst & branch, int succIdx) {
   }
 
 }
-
-//TODO This is very conservative for now.
-/*
-bool
-IsAffine(Instruction* instruction)
-{
-  //Whether there is need to record the visited instructions
-  //std::set<Instruction*> visitedInstructions;
-  //first check the opcode
-  unsigned Opcode = instruction->getOpcode();
-  switch (Opcode) {
-    case Instruction::GetElementPtr:
-    {
-      return false;
-    }
-    case Instruction::Mul:
-    case Instruction::Sub:
-    case Instruction::Add:
-    case Instruction::FMul:
-    case Instruction::FSub:
-    case Instruction::FAdd:
-    case Instruction::And:
-    case Instruction::ICmp:
-    case Instruction::FCmp:
-    case Instruction::Or:break;
-    case Instruction::Call:
-    {
-      auto CI = dyn_cast<CallInst>(instruction);
-      auto called = CI->getCalledFunction();
-      if (called) {
-        if (called->isIntrinsic()) {
-          switch (called->getIntrinsicID()) {
-            case Intrinsic::pacxx_read_tid_x:
-            case Intrinsic::pacxx_read_tid_y:
-            case Intrinsic::pacxx_read_tid_z:
-            case Intrinsic::pacxx_read_ctaid_x:
-            case Intrinsic::pacxx_read_ctaid_y:
-            case Intrinsic::pacxx_read_ctaid_z:
-            case Intrinsic::pacxx_read_nctaid_x:
-            case Intrinsic::pacxx_read_nctaid_y:
-            case Intrinsic::pacxx_read_nctaid_z:
-            case Intrinsic::pacxx_read_ntid_x:
-            case Intrinsic::pacxx_read_ntid_y:
-            case Intrinsic::pacxx_read_ntid_z: return true;
-            default:
-            {
-              return false;
-            }
-          }
-        }
-      }
-    }
-    default:
-    {
-      return false;
-    }
-  }
-
-  //Then check the operands
-  bool affine = true;
-  for (unsigned i = 0; i < instruction->getNumOperands(); i++) {
-    auto* instructionOperand = instruction->getOperand(i);
-
-    if (auto instructionOperandAsInstruction = dyn_cast<Instruction>(instructionOperand))
-    {
-      affine &= IsAffine(instructionOperandAsInstruction);
-    }
-    else if (isa<ConstantData>(instructionOperand))
-    {
-      continue;
-    }
-    else if (isa<Argument>(instructionOperand))
-    {
-      if (instructionOperand->getType()->isIntegerTy() | instructionOperand->getType()->isFloatingPointTy ())
-        continue;
-      else
-        return false;
-    }
-    else{
-      return false;
-    }
-  }
-  return affine;
-}
-*/
 
 // 0  : do not CIF
 // -1 : CIF onTrue
@@ -461,7 +361,7 @@ CIFHeuristic(BranchInst & branch) {
   size_t onFalseScore = 0;
 
   BranchEstimate BranchEstim(vecInfo, platInfo, domTree, loopInfo, pbInfo);
-  BranchEstim.analysis(branch, trueRatio, falseRatio, onTrueScore, onFalseScore);
+  BranchEstim.analyze(branch, trueRatio, falseRatio, onTrueScore, onFalseScore);
 
   const double minRatio = GetValue<double>("CIF_T", 0.40);
   const size_t minScore = GetValue<size_t>("CIF_LIMIT", 100);
@@ -473,7 +373,7 @@ CIFHeuristic(BranchInst & branch) {
   //if (trueRatio < 0.06) onTrueLegal = false; // DEBUG HACK
 
   IF_DEBUG_CIF { errs() << "score (" << onTrueLegal << ") " << onTrueBlock->getName() << "   " << onTrueScore << "\nscore  (" << onFalseLegal << ") " << onFalseBlock->getName() << "   " << onFalseScore << "\n"; }
-  IF_DEBUG_CIF {errs() << "trueRatio: " << trueRatio << " onTrueScore: " << onTrueScore  << " falseRatio: " << falseRatio  << " onFalseScore: " << onFalseScore << " minRatio:" << minRatio << " minScore:  " << minScore << "\n";}
+  IF_DEBUG_CIF { errs() << "trueRatio: " << trueRatio << " onTrueScore: " << onTrueScore  << " falseRatio: " << falseRatio  << " onFalseScore: " << onFalseScore << " minRatio:" << minRatio << " minScore:  " << minScore << "\n";}
 
   bool onTrueBeneficial = onTrueScore >= minScore && trueRatio >= minRatio;
   bool onFalseBeneficial = onFalseScore >= minScore && falseRatio >= minRatio;
@@ -513,16 +413,14 @@ run() {
     if (vecInfo.getVectorShape(*branchInst).isUniform()) continue;
 
     auto * branchCond = branchInst->getCondition();
+
     //if affine fails, then use high probability
-    //TODO find a RV compatible solution for this part
-    /*if (IsAffine(dyn_cast<Instruction>(branchCond)))
-    {
+    auto condShape = vecInfo.getVectorShape(*branchCond);
+    if (condShape.hasStridedShape() && !condShape.isUniform()) {
       IF_DEBUG_CIF {errs()<< *branchCond << " is affine condition" << "\n";}
       transformCoherentCF(*branchInst, 0);
     }
-    else
-    */
-    {
+    else {
       int score = CIFHeuristic(*branchInst);
       if (score == 0) continue;
       int succIdx = score < 0 ? 0 : 1;

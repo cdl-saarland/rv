@@ -30,7 +30,7 @@ public:
   ,pbInfo(_pbInfo)
   {}
 
-  bool analysis(llvm::BranchInst & branch,
+  bool analyze(llvm::BranchInst & branch,
                 double & trueRatio,
                 double & falseRatio,
                 size_t & onTrueScore,
