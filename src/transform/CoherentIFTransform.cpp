@@ -357,6 +357,7 @@ IsAffine (Instruction* instruction)
 {
   //Whether there is need to record the visited instructions to optimize it
   //std::set<Instruction*> visitedInstructions;
+
   //first check the opcode
   unsigned Opcode = instruction->getOpcode();
   switch (Opcode) {
@@ -406,38 +407,43 @@ IsAffine (Instruction* instruction)
   return affine;
 }
 
-// 0  : do not CIF
-// -1 : CIF onTrue
-// 1 : CIF onFalse
-// Reuse Boscc Heuristic mostly
-int
-CIFHeuristic (BranchInst & branch) {
+bool
+CIFCheckLegality (BranchInst & branch, bool & onTrueLegal, bool & onFalseLegal) {
   // run legality checks
   BasicBlock * onTrueBlock = branch.getSuccessor(0);
   BasicBlock * onFalseBlock = branch.getSuccessor(1);
 
-  if (!vecInfo.inRegion(*onTrueBlock) || !vecInfo.inRegion(*onFalseBlock)) return 0;
+  if (!vecInfo.inRegion(*onTrueBlock) || !vecInfo.inRegion(*onFalseBlock)) return false;
 
   auto * branchLoop = loopInfo.getLoopFor(branch.getParent());
   auto * onTrueLoop = loopInfo.getLoopFor(onTrueBlock);
   auto * onFalseLoop = loopInfo.getLoopFor(onFalseBlock);
 
   // don't speculate over loop exits for now (TODO)
-  if (onTrueLoop != branchLoop || branchLoop != onFalseLoop) return 0;
-  if (onTrueLoop && onTrueLoop->getHeader() == onTrueBlock) return 0;
-  if (onFalseLoop && onFalseLoop->getHeader() == onTrueBlock) return 0;
-  if (maskEx.getBlockMask(*branch.getParent())) return 0; // FIXME this is a workaround transformed divergent loops (we may end up invalidating masks)
+  if (onTrueLoop != branchLoop || branchLoop != onFalseLoop) return false;
+  if (onTrueLoop && onTrueLoop->getHeader() == onTrueBlock) return false;
+  if (onFalseLoop && onFalseLoop->getHeader() == onTrueBlock) return false;
+  if (maskEx.getBlockMask(*branch.getParent())) return false; // FIXME this is a workaround transformed divergent loops (we may end up invalidating masks)
   // FIXME in divLoopTrans: use predicate futures where possible
 
   // per sucess legality
   // legality checks for speculating over onTrue
-  bool onTrueLegal = GetNumPredecessors(*onTrueBlock) == 1; //domTree.dominates(branch.getParent(), onTrueBlock);
+  onTrueLegal = GetNumPredecessors(*onTrueBlock) == 1; //domTree.dominates(branch.getParent(), onTrueBlock);
   onTrueLegal &= !onTrueLoop || onTrueLoop->getLoopLatch() != onTrueBlock;
 
   // legality checks for speculating over onTrue
-  bool onFalseLegal = GetNumPredecessors(*onFalseBlock) == 1; //domTree.dominates(branch.getParent(), onFalseBlock);
+  onFalseLegal = GetNumPredecessors(*onFalseBlock) == 1; //domTree.dominates(branch.getParent(), onFalseBlock);
   onFalseLegal &= !onFalseLoop || onFalseLoop->getLoopLatch() != onFalseBlock;
 
+  return true;
+}
+
+// 0  : do not CIF
+// -1 : CIF onTrue
+// 1 : CIF onFalse
+// Reuse Boscc Heuristic mostly
+int
+CIFHeuristic (BranchInst & branch, bool & onTrueLegal, bool & onFalseLegal) {
   double trueRatio =0.0;
   double falseRatio =0.0;
   size_t onTrueScore = 0;
@@ -455,7 +461,7 @@ CIFHeuristic (BranchInst & branch) {
   //if (falseRatio < 0.06) onFalseLegal = false; // DEBUG HACK
   //if (trueRatio < 0.06) onTrueLegal = false; // DEBUG HACK
 
-  IF_DEBUG_CIF { errs() << "score (" << onTrueLegal << ") " << onTrueBlock->getName() << "   " << onTrueScore << "\nscore  (" << onFalseLegal << ") " << onFalseBlock->getName() << "   " << onFalseScore << "\n"; }
+  IF_DEBUG_CIF { errs() << "score (" << onTrueLegal << ") " << branch.getSuccessor(0)->getName() << "   " << onTrueScore << "\nscore  (" << onFalseLegal << ") " << branch.getSuccessor(1)->getName() << "   " << onFalseScore << "\n"; }
   IF_DEBUG_CIF { errs() << "trueRatio: " << trueRatio << " onTrueScore: " << onTrueScore  << " falseRatio: " << falseRatio  << " onFalseScore: " << onFalseScore << " minRatio:" << minRatio << " minScore:  " << minScore << "\n";}
 
   bool onTrueBeneficial = onTrueScore >= minScore && trueRatio >= minRatio;
@@ -497,13 +503,17 @@ run() {
 
     auto * branchCond = branchInst->getCondition();
 
+    //run legality checks
+    bool onTrueLegal, onFalseLegal;
+    if (!CIFCheckLegality(*branchInst, onTrueLegal, onFalseLegal)) continue;
+
     //if affine fails, then use high probability
     if (IsAffine(dyn_cast<Instruction>(branchCond))) {
       IF_DEBUG_CIF {errs()<< *branchCond << " is affine condition" << "\n";}
       transformCoherentCF(*branchInst, 0);
     }
     else {
-      int score = CIFHeuristic(*branchInst);
+      int score = CIFHeuristic(*branchInst, onTrueLegal, onFalseLegal);
       if (score == 0) continue;
       int succIdx = score < 0 ? 0 : 1;
 
