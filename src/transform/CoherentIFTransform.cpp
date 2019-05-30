@@ -132,12 +132,16 @@ void CloneBasicBlockForDominatedBBs (BasicBlock *BB, SmallVector<BasicBlock *, 1
         if (Parentloop) {
           auto* clonedHead = &LookUp(cloneMap, *Parentloop->getHeader());
           ClonedParentloop = loopInfo.getLoopFor(clonedHead);
-        } 
+        }
         MaintainCloneLoopwithHeader(ClonedParentloop, *loop, cloneMap);
       } else if (loop) {
         auto * clonedHead = &LookUp(cloneMap, *loop->getHeader());
-        auto * Clonedloop = loopInfo.getLoopFor(clonedHead);
-        Clonedloop->addBasicBlockToLoop(clonedchild, loopInfo);
+        if (clonedHead) {
+          auto * Clonedloop = loopInfo.getLoopFor(clonedHead);
+          Clonedloop->addBasicBlockToLoop(clonedchild, loopInfo);
+        } else {
+          loop->addBasicBlockToLoop(clonedchild, loopInfo);
+        }
       }
 
       //Add copied block to the pairs
@@ -190,7 +194,7 @@ transformCoherentCF (BranchInst & branch, int succIdx) {
   for(auto I = ConBlock->begin(), IE = ConBlock->end(); I != IE; ++I, CSI++) {
     vecInfo.setVectorShape(*CSI,vecInfo.getVectorShape(*I));
   }
-  
+
   if(loopInfo.isLoopHeader(ConBlock)) {
     MaintainCloneLoopwithHeader(loop, *loopInfo.getLoopFor(ConBlock), cloneMap);
   }
@@ -293,7 +297,7 @@ transformCoherentCF (BranchInst & branch, int succIdx) {
               ssaUpdater.AddAvailableValue(&defBlock, inInst);
 
               auto & fixedDef = *ssaUpdater.GetValueAtEndOfBlock(inBlock);
-              for (auto * phi : phiVec) 
+              for (auto * phi : phiVec)
                 vecInfo.setVectorShape(*phi, inShape);
 
               userPhi->setIncomingValue(inIdx, &fixedDef);
