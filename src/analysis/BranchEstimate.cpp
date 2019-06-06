@@ -1,6 +1,6 @@
+#include "rv/analysis/BranchEstimate.h"
 
 #include <vector>
-
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -21,16 +21,15 @@
 #include "rv/vectorizationInfo.h"
 #include "rv/PlatformInfo.h"
 #include "rv/shape/vectorShape.h"
+#include "rv/transform/maskExpander.h"
 
 #include "rv/rvDebug.h"
 #include "rvConfig.h"
-#include "rv/analysis/BranchEstimate.h"
-
 
 #if 1
-#define IF_DEBUG_DISP IF_DEBUG
+#define IF_DEBUG_BRANCH IF_DEBUG
 #else
-#define IF_DEBUG_DISP if (true)
+#define IF_DEBUG_BRANCH if (true)
 #endif
 
 using namespace llvm;
@@ -138,7 +137,7 @@ BranchEstimate::computeDispersion(std::map<BasicBlock*,double> & dispMap) {
     stack.push_back(succ);
   }
 
-  IF_DEBUG_DISP errs() << "--- compute dispersion ---\n";
+  IF_DEBUG_BRANCH errs() << "--- compute dispersion ---\n";
 
   // disperse down branches
   while (!stack.empty()) {
@@ -193,7 +192,7 @@ BranchEstimate::computeDispersion(std::map<BasicBlock*,double> & dispMap) {
 
     auto & term = *block->getTerminator();
     if (!hadRatio || (std::fabs(oldRatio - ratio) > 0.000001)) {
-      IF_DEBUG_DISP errs() << block->getName() << "  old " << oldRatio << "  new " << ratio << "\n";
+      IF_DEBUG_BRANCH errs() << block->getName() << "  old " << oldRatio << "  new " << ratio << "\n";
 
       // set new ratio
       dispMap[block] = ratio;
@@ -233,6 +232,80 @@ BranchEstimate::analyze(BranchInst &branch, double &trueRatio, double &falseRati
   onFalseScore = getDomRegionScore(*onFalseBlock);
 
   return true;
+}
+
+bool
+BranchEstimate::CheckLegality (BranchInst & branch, bool & onTrueLegal, bool & onFalseLegal) {
+  // run legality checks
+  BasicBlock * onTrueBlock = branch.getSuccessor(0);
+  BasicBlock * onFalseBlock = branch.getSuccessor(1);
+
+  if (!vecInfo.inRegion(*onTrueBlock) || !vecInfo.inRegion(*onFalseBlock)) return false;
+
+  auto * branchLoop = loopInfo.getLoopFor(branch.getParent());
+  auto * onTrueLoop = loopInfo.getLoopFor(onTrueBlock);
+  auto * onFalseLoop = loopInfo.getLoopFor(onFalseBlock);
+
+  // don't speculate over loop exits for now (TODO)
+  if (onTrueLoop != branchLoop || branchLoop != onFalseLoop) return false;
+  if (onTrueLoop && onTrueLoop->getHeader() == onTrueBlock) return false;
+  if (onFalseLoop && onFalseLoop->getHeader() == onTrueBlock) return false;
+  if (maskEx.getBlockMask(*branch.getParent())) return false; // FIXME this is a workaround transformed divergent loops (we may end up invalidating masks)
+  // FIXME in divLoopTrans: use predicate futures where possible
+
+  // per sucess legality
+  // legality checks for speculating over onTrue
+  onTrueLegal = GetNumPredecessors(*onTrueBlock) == 1; //domTree.dominates(branch.getParent(), onTrueBlock);
+  onTrueLegal &= !onTrueLoop || onTrueLoop->getLoopLatch() != onTrueBlock;
+
+  // legality checks for speculating over onTrue
+  onFalseLegal = GetNumPredecessors(*onFalseBlock) == 1; //domTree.dominates(branch.getParent(), onFalseBlock);
+  onFalseLegal &= !onFalseLoop || onFalseLoop->getLoopLatch() != onFalseBlock;
+
+  return true;
+}
+
+// 0  : do not TransformBranch
+// -1 : TransformBranch onTrue
+// 1 : TransformBranch onFalse
+// currently only cope with BOSCC and CIF
+int
+BranchEstimate::BranchHeuristic (BranchInst & branch, bool onTrueLegal, bool onFalseLegal, bool isBOSCC) {
+  double trueRatio = 0.0;
+  double falseRatio = 0.0;
+  size_t onTrueScore = 0;
+  size_t onFalseScore = 0;
+
+  analyze(branch, trueRatio, falseRatio, onTrueScore, onFalseScore);
+
+  const char * Ratio_T = isBOSCC? "BOSCC_T" : "CIF_T";
+  const char * Score_LIMIT = isBOSCC? "BOSCC_LIMIT" : "CIF_LIMIT";
+
+  const double maxminRatio = GetValue<double>(Ratio_T, 0.40);
+  const size_t minScore = GetValue<size_t>(Score_LIMIT, 100);
+
+  IF_DEBUG_BRANCH { errs() << *Ratio_T << maxminRatio << *Score_LIMIT << minScore << "\n"; }
+
+  IF_DEBUG_BRANCH { errs() << "score (" << onTrueLegal << ") " << branch.getSuccessor(0)->getName() << "   " << onTrueScore << "\nscore  (" << onFalseLegal << ") " << branch.getSuccessor(1)->getName() << "   " << onFalseScore << "\n"; }
+  IF_DEBUG_BRANCH { errs() << "trueRatio: " << trueRatio << " onTrueScore: " << onTrueScore  << " falseRatio: " << falseRatio  << " onFalseScore: " << onFalseScore << " maxminRatio:" << maxminRatio << " minScore:  " << minScore << "\n";}
+
+  bool onTrueBeneficial = onTrueScore >= minScore && (isBOSCC? trueRatio < maxminRatio : trueRatio >= maxminRatio);
+  bool onFalseBeneficial = onFalseScore >= minScore && (isBOSCC? falseRatio < maxminRatio : falseRatio >= maxminRatio);
+
+  bool couldTransFalse = onFalseBeneficial && onFalseLegal;
+  bool couldTransTrue = onTrueBeneficial && onTrueLegal;
+
+  // otw try to skip the bigger dominated part
+  // TODO could also give precedence by region size
+  if (couldTransTrue && (!couldTransFalse || onTrueScore > onFalseScore)) {
+    return -1;
+  } else if (couldTransFalse) {
+    return 1;
+  }
+
+  // can not distinguish --> don't TransformBranch
+  // this holds e.g. if the branch does not dominate any of its successors
+  return 0;
 }
 
 int

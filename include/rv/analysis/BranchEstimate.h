@@ -11,24 +11,30 @@ class BranchProbabilityInfo;
 }
 
 namespace rv {
-
+class MaskExpander;
 class VectorizationInfo;
 
 class BranchEstimate {
   VectorizationInfo & vecInfo;
   PlatformInfo & platInfo;
+  MaskExpander & maskEx;
   llvm::DominatorTree & domTree;
   llvm::LoopInfo & loopInfo;
   llvm::BranchProbabilityInfo * pbInfo;
 
 public:
-  BranchEstimate(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo, llvm::BranchProbabilityInfo * _pbInfo)
+  BranchEstimate(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo, llvm::BranchProbabilityInfo * _pbInfo)
   :vecInfo(_vecInfo)
   ,platInfo(_platInfo)
+  ,maskEx(_maskEx)
   ,domTree(_domTree)
   ,loopInfo(_loopInfo)
   ,pbInfo(_pbInfo)
   {}
+
+  bool CheckLegality (llvm::BranchInst & branch, bool & onTrueLegal, bool & onFalseLegal);
+
+  int BranchHeuristic (llvm::BranchInst & branch, bool onTrueLegal, bool onFalseLegal, bool isBOSCC);
 
   bool analyze(llvm::BranchInst & branch,
                 double & trueRatio,
