@@ -1,4 +1,5 @@
 #include "rv/transform/bosccTransform.h"
+#include "rv/analysis/BranchEstimate.h"
 
 #include <vector>
 #include <sstream>
@@ -29,7 +30,6 @@
 #include "rv/rvDebug.h"
 #include <rvConfig.h>
 #include "report.h"
-#include "rv/analysis/BranchEstimate.h"
 
 using namespace llvm;
 using namespace rv;
@@ -271,77 +271,6 @@ transformBranch(BranchInst & branch, int succIdx) {
   }
 }
 
-// 0  : do not BOSCC
-// -1 : boscc onTrue
-// 1 : boscc onFalse
-int
-bosccHeuristic(BranchInst & branch) {
-// run legality checks
-  BasicBlock * onTrueBlock = branch.getSuccessor(0);
-  BasicBlock * onFalseBlock = branch.getSuccessor(1);
-
-  if (!vecInfo.inRegion(*onTrueBlock) || !vecInfo.inRegion(*onFalseBlock)) return 0;
-
-  auto * branchLoop = loopInfo.getLoopFor(branch.getParent());
-  auto * onTrueLoop = loopInfo.getLoopFor(onTrueBlock);
-  auto * onFalseLoop = loopInfo.getLoopFor(onFalseBlock);
-
-// don't speculate over loop exits for now (TODO)
-  if (onTrueLoop != branchLoop || branchLoop != onFalseLoop) return 0;
-  if (onTrueLoop && onTrueLoop->getHeader() == onTrueBlock) return 0;
-  if (onFalseLoop && onFalseLoop->getHeader() == onTrueBlock) return 0;
-  if (maskEx.getBlockMask(*branch.getParent())) return 0; // FIXME this is a workaround transformed divergent loops (we may end up invalidating masks)
-  // FIXME in divLoopTrans: use predicate futures where possible
-
-  // do not speculate across BOSCC exits
-  if (bosccExitBlocks.count(onTrueBlock) || bosccExitBlocks.count(onFalseBlock)) return 0;
-
-  // per sucess legality
-  // legality checks for speculating over onTrue
-  bool onTrueLegal = GetNumPredecessors(*onTrueBlock) == 1; //domTree.dominates(branch.getParent(), onTrueBlock);
-  onTrueLegal &= !onTrueLoop || onTrueLoop->getLoopLatch() != onTrueBlock;
-
-  // legality checks for speculating over onTrue
-  bool onFalseLegal = GetNumPredecessors(*onFalseBlock) == 1; //domTree.dominates(branch.getParent(), onFalseBlock);
-  onFalseLegal &= !onFalseLoop || onFalseLoop->getLoopLatch() != onFalseBlock;
-
-  double trueRatio =0.0;
-  double falseRatio =0.0;
-  size_t onTrueScore = 0;
-  size_t onFalseScore = 0;
-
-  BranchEstimate BranchEst(vecInfo, platInfo, domTree, loopInfo, pbInfo);
-  BranchEst.analyze(branch, trueRatio, falseRatio, onTrueScore, onFalseScore);
-
-  const double maxRatio = GetValue<double>("BOSCC_T", 0.14);
-  const size_t minScore = GetValue<size_t>("BOSCC_LIMIT", 17);
-
-  IF_DEBUG_BOSCC { errs() << "BOSCC_T " << maxRatio << " BOSCC_LIMIT " << minScore << "\n"; }
-
-  if (falseRatio < 0.06) onFalseLegal = false; // DEBUG HACK
-  if (trueRatio < 0.06) onTrueLegal = false; // DEBUG HACK
-
-  IF_DEBUG_BOSCC { errs() << "score (" << onTrueLegal << ") " << onTrueBlock->getName() << "   " << onTrueScore << "\nscore  (" << onFalseLegal << ") " << onFalseBlock->getName() << "   " << onFalseScore << "\n"; }
-
-  bool onTrueBeneficial = onTrueScore >= minScore && trueRatio < maxRatio;
-  bool onFalseBeneficial = onFalseScore >= minScore && falseRatio < maxRatio;
-
-  bool couldBosccFalse = onFalseBeneficial && onFalseLegal;
-  bool couldBosccTrue = onTrueBeneficial && onTrueLegal;
-
-  // otw try to skip the bigger dominated part
-  // TODO could also give precedence by region size
-  if (couldBosccTrue && (!couldBosccFalse || trueRatio < falseRatio)) {
-    return -1;
-  } else if (couldBosccFalse) {
-    return 1;
-  }
-
-  // can not distinguish --> don't BOSCC
-  // this holds e.g. if the branch does not dominate any of its successors
-  return 0;
-}
-
 bool
 run() {
   domTree.recalculate(vecInfo.getScalarFunction());
@@ -355,12 +284,20 @@ run() {
     auto * term = BB->getTerminator();
     auto * branchInst = dyn_cast<BranchInst>(term);
 
-  // consider divergent conditional branches
+    // consider divergent conditional branches
     if (!branchInst) continue;
     if (!branchInst->isConditional()) continue;
     if (vecInfo.getVectorShape(*branchInst).isUniform()) continue;
 
-    int score = bosccHeuristic(*branchInst);
+    // do not speculate across BOSCC exits
+    if (bosccExitBlocks.count(branchInst->getSuccessor(0)) || bosccExitBlocks.count(branchInst->getSuccessor(1))) return 0;
+
+    BranchEstimate BranchEst(vecInfo, platInfo, maskEx, domTree, loopInfo, pbInfo);
+    //run legality checks
+    bool onTrueLegal, onFalseLegal;
+    if (!BranchEst.CheckLegality(*branchInst, onTrueLegal, onFalseLegal)) continue;
+
+    int score = BranchEst.BranchHeuristic(*branchInst, onTrueLegal, onFalseLegal, true);
     if (score == 0) continue;
     int succIdx = score < 0 ? 0 : 1;
 

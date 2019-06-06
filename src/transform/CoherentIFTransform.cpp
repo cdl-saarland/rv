@@ -1,4 +1,5 @@
 #include "rv/transform/CoherentIFTransform.h"
+#include "rv/analysis/BranchEstimate.h"
 
 #include <vector>
 #include <sstream>
@@ -34,7 +35,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/GenericDomTree.h"
 #include "llvm/Transforms/Utils/SSAUpdater.h"
-#include "rv/analysis/BranchEstimate.h"
 
 using namespace llvm;
 using namespace rv;
@@ -412,82 +412,6 @@ IsAffine (Instruction* instruction)
 }
 
 bool
-CIFCheckLegality (BranchInst & branch, bool & onTrueLegal, bool & onFalseLegal) {
-  // run legality checks
-  BasicBlock * onTrueBlock = branch.getSuccessor(0);
-  BasicBlock * onFalseBlock = branch.getSuccessor(1);
-
-  if (!vecInfo.inRegion(*onTrueBlock) || !vecInfo.inRegion(*onFalseBlock)) return false;
-
-  auto * branchLoop = loopInfo.getLoopFor(branch.getParent());
-  auto * onTrueLoop = loopInfo.getLoopFor(onTrueBlock);
-  auto * onFalseLoop = loopInfo.getLoopFor(onFalseBlock);
-
-  // don't speculate over loop exits for now (TODO)
-  if (onTrueLoop != branchLoop || branchLoop != onFalseLoop) return false;
-  if (onTrueLoop && onTrueLoop->getHeader() == onTrueBlock) return false;
-  if (onFalseLoop && onFalseLoop->getHeader() == onTrueBlock) return false;
-  if (maskEx.getBlockMask(*branch.getParent())) return false; // FIXME this is a workaround transformed divergent loops (we may end up invalidating masks)
-  // FIXME in divLoopTrans: use predicate futures where possible
-
-  // per sucess legality
-  // legality checks for speculating over onTrue
-  onTrueLegal = GetNumPredecessors(*onTrueBlock) == 1; //domTree.dominates(branch.getParent(), onTrueBlock);
-  onTrueLegal &= !onTrueLoop || onTrueLoop->getLoopLatch() != onTrueBlock;
-
-  // legality checks for speculating over onTrue
-  onFalseLegal = GetNumPredecessors(*onFalseBlock) == 1; //domTree.dominates(branch.getParent(), onFalseBlock);
-  onFalseLegal &= !onFalseLoop || onFalseLoop->getLoopLatch() != onFalseBlock;
-
-  return true;
-}
-
-// 0  : do not CIF
-// -1 : CIF onTrue
-// 1 : CIF onFalse
-// Reuse Boscc Heuristic mostly
-int
-CIFHeuristic (BranchInst & branch, bool & onTrueLegal, bool & onFalseLegal) {
-  double trueRatio =0.0;
-  double falseRatio =0.0;
-  size_t onTrueScore = 0;
-  size_t onFalseScore = 0;
-
-  BranchEstimate BranchEstim(vecInfo, platInfo, domTree, loopInfo, pbInfo);
-  BranchEstim.analyze(branch, trueRatio, falseRatio, onTrueScore, onFalseScore);
-
-  const double minRatio = GetValue<double>("CIF_T", 0.40);
-  const size_t minScore = GetValue<size_t>("CIF_LIMIT", 100);
-
-  IF_DEBUG_CIF { errs() << "CIF_T " << minRatio << " CIF_LIMIT " << minScore << "\n"; }
-
-  //Is there  any need for this? delete by hack
-  //if (falseRatio < 0.06) onFalseLegal = false; // DEBUG HACK
-  //if (trueRatio < 0.06) onTrueLegal = false; // DEBUG HACK
-
-  IF_DEBUG_CIF { errs() << "score (" << onTrueLegal << ") " << branch.getSuccessor(0)->getName() << "   " << onTrueScore << "\nscore  (" << onFalseLegal << ") " << branch.getSuccessor(1)->getName() << "   " << onFalseScore << "\n"; }
-  IF_DEBUG_CIF { errs() << "trueRatio: " << trueRatio << " onTrueScore: " << onTrueScore  << " falseRatio: " << falseRatio  << " onFalseScore: " << onFalseScore << " minRatio:" << minRatio << " minScore:  " << minScore << "\n";}
-
-  bool onTrueBeneficial = onTrueScore >= minScore && trueRatio >= minRatio;
-  bool onFalseBeneficial = onFalseScore >= minScore && falseRatio >= minRatio;
-
-  bool couldCIFFalse = onFalseBeneficial && onFalseLegal;
-  bool couldCIFTrue = onTrueBeneficial && onTrueLegal;
-
-  // otw try to skip the bigger dominated part
-  // TODO could also give precedence by region size
-  if (couldCIFTrue && (!couldCIFFalse || trueRatio < falseRatio)) {
-    return -1;
-  } else if (couldCIFFalse) {
-    return 1;
-  }
-
-  // can not distinguish --> don't CIF
-  // this holds e.g. if the branch does not dominate any of its successors
-  return 0;
-}
-
-bool
 run() {
   domTree.recalculate(vecInfo.getScalarFunction());
 
@@ -506,18 +430,19 @@ run() {
     if (vecInfo.getVectorShape(*branchInst).isUniform()) continue;
 
     auto * branchCond = branchInst->getCondition();
+    BranchEstimate BranchEstim(vecInfo, platInfo, maskEx, domTree, loopInfo, pbInfo);
 
-    //run legality checks
+    // run legality checks
     bool onTrueLegal, onFalseLegal;
-    if (!CIFCheckLegality(*branchInst, onTrueLegal, onFalseLegal)) continue;
+    if (!BranchEstim.CheckLegality(*branchInst, onTrueLegal, onFalseLegal)) continue;
 
-    //if affine fails, then use high probability
+    // if affine fails, then use high probability
     if (IsAffine(dyn_cast<Instruction>(branchCond))) {
       IF_DEBUG_CIF {errs()<< *branchCond << " is affine condition" << "\n";}
       transformCoherentCF(*branchInst, 0);
     }
     else {
-      int score = CIFHeuristic(*branchInst, onTrueLegal, onFalseLegal);
+      int score = BranchEstim.BranchHeuristic(*branchInst, onTrueLegal, onFalseLegal, false);
       if (score == 0) continue;
       int succIdx = score < 0 ? 0 : 1;
 
