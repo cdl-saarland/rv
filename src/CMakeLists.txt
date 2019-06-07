@@ -103,7 +103,7 @@ if (BUILD_SHARED_LIBS)
     LLVMSupport
     LLVMCore
     LLVMScalarOpts
-    LLVMInstCombine
+    LLVMAggressiveInstCombine
     LLVMTransformUtils
     LLVMAnalysis
     LLVMipo

@@ -23,7 +23,7 @@ void
 addCleanupPasses(legacy::PassManagerBase & PM) {
    // post rv cleanup
    PM.add(createAlwaysInlinerLegacyPass());
-   PM.add(createInstructionCombiningPass());
+   PM.add(createAggressiveInstCombinerPass());
    PM.add(createAggressiveDCEPass());
 }
 
