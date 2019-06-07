@@ -278,10 +278,12 @@ InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleW
           {"fmod", "xfmod", doubleWidth},
           {"modf", "xmodf", floatWidth},
 
+          {"llvm.floor.f32", "xfloorf", floatWidth},
           {"llvm.fabs.f32", "xfabsf", floatWidth},
           {"llvm.copysign.f32", "xcopysignf", floatWidth},
           {"llvm.minnum.f32", "xfminf", floatWidth},
           {"llvm.maxnum.f32", "xfmaxf", floatWidth},
+          {"llvm.floor.f64", "xfloor", doubleWidth},
           {"llvm.fabs.f64", "xfabs", doubleWidth},
           {"llvm.copysign.f64", "xcopysign", doubleWidth},
           {"llvm.minnum.f64", "xfmin", doubleWidth},

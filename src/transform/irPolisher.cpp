@@ -18,8 +18,7 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #include "llvm/Analysis/ValueTracking.h"
-#include "llvm/Transforms/Scalar.h"
-#include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
 
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/InstIterator.h"
@@ -57,6 +56,24 @@ void IRPolisher::enqueueInst(llvm::Instruction* inst, unsigned bitWidth) {
 bool IRPolisher::isBooleanVector(const Type *type) {
   auto vectorType = dyn_cast<VectorType>(type);
   return vectorType && vectorType->getElementType() == Type::getInt1Ty(vectorType->getContext());
+}
+
+bool IRPolisher::isNot(const llvm::Value *value) {
+    auto binOp = llvm::dyn_cast<BinaryOperator>(value);
+    return binOp && binOp->getOpcode() == llvm::Instruction::Xor &&
+           ((llvm::isa<llvm::Constant>(binOp->getOperand(0)) &&
+             llvm::cast<llvm::Constant>(binOp->getOperand(0))->isAllOnesValue()) ||
+            (llvm::isa<llvm::Constant>(binOp->getOperand(1)) &&
+             llvm::cast<llvm::Constant>(binOp->getOperand(1))->isAllOnesValue()));
+}
+
+llvm::Value *IRPolisher::getNotArgument(llvm::Value *value) {
+    assert(isNot(value));
+    auto binOp = llvm::cast<BinaryOperator>(value);
+    if (llvm::isa<llvm::Constant>(binOp->getOperand(0)) &&
+        llvm::cast<llvm::Constant>(binOp->getOperand(0))->isAllOnesValue())
+        return binOp->getOperand(1);
+    return binOp->getOperand(0);
 }
 
 bool IRPolisher::canReplaceInst(llvm::Instruction *inst, unsigned& bitWidth) {
@@ -101,14 +118,12 @@ Value *IRPolisher::mapIntrinsicCall(llvm::IRBuilder<>& builder, llvm::CallInst* 
         right = binOp->getOperand(1);
 
         if (isReduceOr) {
-          Value* matchLeft = getNotArgument(left);
-          if (matchLeft) {
-            left = matchLeft;
+          if (isNot(left)) {
+            left = getNotArgument(left);
             useNot = true;
           }
-          Value* matchRight = getNotArgument(right);
-          if (!useNot && matchRight) {
-            right = matchRight;
+          if (!useNot && isNot(right)) {
+            right = getNotArgument(right);
             std::swap(left, right);
             useNot = true;
           }
@@ -547,7 +562,7 @@ bool IRPolisher::polish() {
   FunctionAnalysisManager FAM;
   PassBuilder builder;
   builder.registerFunctionAnalyses(FAM);
-  FPM.addPass(AggressiveInstCombinePass());
+  FPM.addPass(InstCombinePass());
   FPM.run(F, FAM);
 
   visitedInsts.clear();

@@ -1,8 +1,8 @@
 #include "rv/passes.h"
 
-#include "llvm/Transforms/Utils.h"
 #include "llvm/Transforms/Scalar.h"
-#include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
+#include "llvm/Transforms/Utils.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "rv/transform/loopExitCanonicalizer.h"
 
@@ -23,7 +23,7 @@ void
 addCleanupPasses(legacy::PassManagerBase & PM) {
    // post rv cleanup
    PM.add(createAlwaysInlinerLegacyPass());
-   PM.add(createAggressiveInstCombinerPass());
+   PM.add(createInstructionCombiningPass());
    PM.add(createAggressiveDCEPass());
 }
 

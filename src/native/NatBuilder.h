@@ -121,6 +121,10 @@ namespace rv {
     void vectorizePopCountCall(llvm::CallInst *rvCall);
     void vectorizeAlignCall(llvm::CallInst *rvCall);
     void vectorizeIndexCall(llvm::CallInst & rvCall);
+    void vectorizeCompactCall(llvm::CallInst * rvCall);
+
+    // create a lookup table for an efficient compaction intrinsic
+    llvm::Constant* createCompactLookupTable(unsigned vecWidth);
 
     void vectorizeAlloca(llvm::AllocaInst *const allocaInst);
 

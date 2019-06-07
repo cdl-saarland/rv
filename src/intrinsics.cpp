@@ -58,7 +58,7 @@ VectorMapping
 GetIntrinsicMapping(Function & func, RVIntrinsic rvIntrin) {
   switch (rvIntrin) {
     default:
-      llvm_unreachable("unreognized RVIntrinsic!");
+      llvm_unreachable("unrecognized RVIntrinsic!");
     case RVIntrinsic::EntryMask: {
       return (VectorMapping(
         &func,
@@ -70,6 +70,19 @@ GetIntrinsicMapping(Function & func, RVIntrinsic rvIntrin) {
         CallPredicateMode::SafeWithoutPredicate
       ));
     } break;
+
+    case RVIntrinsic::Mask: {
+      return (VectorMapping(
+        &func,
+        &func,
+        0, // no specific vector width
+        -1, //
+        VectorShape::varying(),
+        {},
+        CallPredicateMode::SafeWithoutPredicate
+      ));
+    } break;
+
     case RVIntrinsic::Any:
     case RVIntrinsic::All: {
       return (VectorMapping(
@@ -187,6 +200,18 @@ GetIntrinsicMapping(Function & func, RVIntrinsic rvIntrin) {
         -1, //
         VectorShape::undef(),
         {VectorShape::undef(), VectorShape::uni()},
+        CallPredicateMode::SafeWithoutPredicate
+        ));
+    } break;
+
+    case RVIntrinsic::Compact: {
+      return (VectorMapping(
+        &func,
+        &func,
+        0, // no specific vector width
+        -1, //
+        VectorShape::varying(),
+        {VectorShape::varying(), VectorShape::varying()},
         CallPredicateMode::SafeWithoutPredicate
         ));
     } break;

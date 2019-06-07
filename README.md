@@ -1,4 +1,4 @@
-# The Region Vectorizer (LLVM trunk version)
+# The Region Vectorizer (LLVM 7 version)
 
 Compiler Design Lab / Saarland University / Saarland Informatics Campus
 
@@ -30,7 +30,7 @@ To (optionally) enable vectorized complex arithmetic through compiler-rt checkou
 
 ### Build prerequisites 
 
-* LLVM trunk (as of latest commit on this branch)
+* LLVM 7
 * Clang (for the vector math libraries)
 * compiler-rt [optional] (for complex arithmetic functions)
 
