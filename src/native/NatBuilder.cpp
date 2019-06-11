@@ -870,21 +870,27 @@ NatBuilder::vectorizeLoadCall(CallInst *rvCall) {
   auto * laneId = requestScalarValue(rvCall->getArgOperand(1));
 
 // uniform arg
+  Value * laneVal = nullptr;
   if (getVectorShape(*vecPtr).isUniform()) {
     auto * uniVal = requestScalarValue(vecPtr);
     auto addressSpace = uniVal->getType()->getPointerAddressSpace();
     auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
     auto * gepPtr = builder.CreateGEP(castPtr, laneId);
-    auto * loadVal = builder.CreateLoad(gepPtr);
-    mapScalarValue(rvCall, loadVal);
-    return;
+    laneVal = builder.CreateLoad(gepPtr);
+  } else {
+// non-uniform arg
+    auto * vecVal = requestVectorValue(vecPtr);
+    auto * lanePtr = builder.CreateExtractElement(vecVal, laneId, "rv_load");
+    laneVal = builder.CreateLoad(lanePtr, "rv_load");
   }
 
-// non-uniform arg
-  auto * vecVal = requestVectorValue(vecPtr);
-  auto * lanePtr = builder.CreateExtractElement(vecVal, laneId, "rv_load");
-  auto * laneVal = builder.CreateLoad(lanePtr, "rv_load");
-  mapScalarValue(rvCall, laneVal);
+  if (vecInfo.getVectorShape(*rvCall).isUniform()) {
+    mapScalarValue(rvCall, laneVal);
+  } else {
+    // imprecise mapping
+    auto & vecVal = widenScalar(*laneVal, VectorShape::uni());
+    mapVectorValue(rvCall, &vecVal);
+  }
 }
 
 void
@@ -894,9 +900,7 @@ NatBuilder::vectorizeStoreCall(CallInst *rvCall) {
   assert(rvCall->getNumArgOperands() == 3 && "expected 3 arguments for rv_store(vecPtr, laneId, value)");
 
   Value *vecPtr  = rvCall->getArgOperand(0);
-  assert(getVectorShape(*rvCall->getArgOperand(2)).isUniform());
   Value *elemVal = requestScalarValue(rvCall->getArgOperand(2));
-  assert(getVectorShape(*rvCall->getArgOperand(1)).isUniform());
   auto * laneId = requestScalarValue(rvCall->getArgOperand(1));
 
 // uniform arg
