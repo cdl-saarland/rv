@@ -37,8 +37,6 @@ Config::Config()
 , useScatterGatherIntrinsics(true)
 , enableMaskedMove(true)
 , enableInterleaved(false)
-, enablePseudoInterleaved(false)
-, cropPseudoInterleaved(false)
 , useSafeDivisors(true)
 
 // optimization defaults
@@ -177,8 +175,6 @@ static void
 printNativeFlags(const Config & config, llvm::raw_ostream & out) {
    out << "nat:  useScatterGather = " << config.useScatterGatherIntrinsics
        << ", enableInterleaved = " << config.enableInterleaved
-       << ", enablePseudoIL = " << config.enablePseudoInterleaved
-       << ", cropPseudoIL = " << config.cropPseudoInterleaved
        << ", useSafeDiv = " << config.useSafeDivisors;
 }
 
