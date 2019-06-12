@@ -69,6 +69,8 @@ public:
 
   // a reference to it
   llvm::Function &requestVectorized() {
+    assert(isValid());
+    assert(recMapping.vectorFn);
     return *recMapping.vectorFn;
   }
 
@@ -90,7 +92,7 @@ public:
   : FunctionResolver(*scaFunc.getParent())
   , hasValidVectorFunc(false)
   , vectorizer(vectorizer)
-  , recMapping(&scaFunc, nullptr, vectorWidth, hasCallSitePredicate ? 0 : -1, VectorShape::undef(), argShapes, hasCallSitePredicate ? CallPredicateMode::PredicateArg : CallPredicateMode::Unpredicated)
+  , recMapping(&scaFunc, nullptr, vectorWidth, hasCallSitePredicate ? argShapes.size() : -1, VectorShape::undef(), argShapes, hasCallSitePredicate ? CallPredicateMode::PredicateArg : CallPredicateMode::Unpredicated)
   {
 // create scalar copy
     ValueToValueMapTy cloneMap;
@@ -170,6 +172,8 @@ public:
       }
       errs() << "RR: refined result Shape for " << scaFunc.getName() << " to res shape " << callMapping.resultShape.str() << "\n";
 
+      vectorizer.getPlatformInfo().dump();
+
       // TODO re-run the analysis if the result changed (start with undef shape..)
     } while (!returnsVoid && (lastResShape != nextResultShape));
 
@@ -180,33 +184,33 @@ public:
     // bail if the return type did not turn out to be vectorizable
     if (nextResultShape.isVarying() && !CanVectorizeType(*clonedFunc->getReturnType())) {
       clonedFunc->eraseFromParent();
-      vectorizer.getPlatformInfo().forgetMapping(callMapping); // this mapping does not actually apply
       vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
       hasValidVectorFunc = false;
       return;
     }
 
-    // create a proper SIMD declaration with the inferred type
-    auto * vecFunc = createVectorDeclaration(*clonedFunc, nextResultShape, callMapping.argShapes, callMapping.vectorWidth, callMapping.maskPos);
-    recMapping.resultShape = nextResultShape; //callMapping.resultShape; // final inferred result shape
-    recMapping.vectorFn = vecFunc;
-
     std::string mangledName = vectorizer.getPlatformInfo().createMangledVectorName(scaFunc.getName(), callMapping.argShapes, callMapping.vectorWidth, callMapping.maskPos);
     auto * knownVecFunc = vectorizer.getModule().getFunction(mangledName);
 
     // Have we already emitted this function in a recursive incovation?
+    Function * vecFunc = nullptr;
     if (knownVecFunc) {
-      vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
-      vecFunc->eraseFromParent();
+      vecFunc = knownVecFunc; // reuse the existing function
 
       // use new vector func in all places
-      vecFunc = knownVecFunc;
+      vectorizer.getPlatformInfo().forgetMapping(callMapping);
       callMapping.vectorFn = knownVecFunc;
       vectorizer.getPlatformInfo().addMapping(callMapping); // TODO this has already been handled by recursive invocation
 
     // Otw, start emitting code
     } else {
+      // create a proper SIMD declaration with the inferred type
+      vecFunc = createVectorDeclaration(*clonedFunc, nextResultShape, callMapping.argShapes, callMapping.vectorWidth, callMapping.maskPos);
       vecFunc->setName(mangledName);
+
+      // register a mapping for recursive vectorization
+      recMapping.resultShape = nextResultShape; //callMapping.resultShape; // final inferred result shape
+      recMapping.vectorFn = vecFunc;
 
       // TODO copy last round results
       VectorizationInfo vecInfo(funcRegion, recMapping);
@@ -215,6 +219,7 @@ public:
 
       // fix up the argument attributes that have been copied over.
       // (all vector arguments after mask pos are off-by-one if there is a vector mask arg)
+#if 0
       if (callMapping.maskPos >= 0) {
         auto ItVecArg = vecFunc->arg_begin();
         std::advance(ItVecArg, callMapping.maskPos);
@@ -247,17 +252,16 @@ public:
         ItVecMaskArg->removeAttr(Attribute::Returned);
         ItVecMaskArg->removeAttr(Attribute::ReadOnly);
       }
+#endif
 
       // fix
       // FIXME we can not copy the
       //
       // vecFunc->setName(vecFuncName); // TODO use an OpenMP "pragma omp SIMD" name.
 
-      // discard temporary mapping
-      vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
       // register final mapping
-      callMapping.vectorFn = vecFunc;
-      vectorizer.getPlatformInfo().addMapping(callMapping);
+      vectorizer.getPlatformInfo().forgetMapping(callMapping);
+      vectorizer.getPlatformInfo().addMapping(recMapping);
 
   // fill in SIMD code
       vectorizer.linearize(vecInfo, DT, PDT, LI, &BPI);
@@ -266,9 +270,11 @@ public:
     }
 
     // can dispose of temporary function now
+    vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
     clonedFunc->eraseFromParent();
 
     // success!
+    assert(vecFunc);
     recMapping.vectorFn = vecFunc;
     hasValidVectorFunc = true;
   }

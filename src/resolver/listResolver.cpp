@@ -208,11 +208,11 @@ ListResolver::print(raw_ostream & out) const {
 }
 
 /// Forget one specific mapping.
-void
+bool
 ListResolver::forgetMapping(const VectorMapping & mapping) {
   auto itFunc = funcMappings.find(mapping.scalarFn);
   if (itFunc == funcMappings.end()) {
-    return;
+    return false;
   }
 
   VecMappingShortVec & vecMappings = *itFunc->second;
@@ -225,7 +225,7 @@ ListResolver::forgetMapping(const VectorMapping & mapping) {
 
     // found it!
     vecMappings.erase(it);
-    break;
+    return true;
   }
 }
 
