@@ -1292,12 +1292,14 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     requestVectorCallArgs(*scalCall, simdFunc, maskPos, vectorArgs);
     bool producesValue = !scalCall->getType()->isVoidTy();
 
+    std::string callName = producesValue ? scalCall->getName().str() + ".rv" : "";
+
     auto & vecCall = createAnyGuard(needsGuardedCall, *scalCall->getParent(), *scalCall, producesValue,
       [&](IRBuilder<> & builder) {
-        return builder.CreateCall(&simdFunc, vectorArgs, scalCall->getName() + ".rv");
+        return builder.CreateCall(&simdFunc, vectorArgs, callName);
       });
 
-    vecCall.setName(scalCall->getName() + ".mapped");
+    if (producesValue) { vecCall.setName(scalCall->getName() + ".mapped"); }
     mapVectorValue(scalCall, &vecCall);
     ++numVecCalls;
 
