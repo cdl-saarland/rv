@@ -117,7 +117,6 @@ CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vecVal, Value
     auto & mod = *builder.GetInsertBlock()->getParent()->getParent();
 
     std::vector<Type*> reduceTypeVec{&elemTy};
-    if (hasInitValArg) reduceTypeVec.push_back(&elemTy);
     reduceTypeVec.push_back(&vecTy);
 
     auto & redFunc = *Intrinsic::getDeclaration(&mod, ID, reduceTypeVec);
