@@ -12,6 +12,7 @@ namespace rv {
 raw_ostream&
 LoopMD::print(raw_ostream & out) const {
   out << "LoopMD {";
+  if (alreadyVectorized.isSet()) out << "alreadyVectorized = " << alreadyVectorized.get() << ", ";
   if (vectorizeEnable.isSet()) out << "vectorizeEnable = " << vectorizeEnable.get() << ", ";
   if (minDepDist.isSet()) out << "minDepDist = " << DepDistToString(minDepDist.get()) << ", ";
   if (explicitVectorWidth.isSet()) out << "explicitVectorWidth = " << explicitVectorWidth.get() << ", ";
@@ -37,6 +38,11 @@ DepDistToString(iter_t depDist) {
 LoopMD
 OptimisticJoin(LoopMD && A, LoopMD && B) {
   LoopMD md;
+
+  // don't re-vectorize
+  if (A.alreadyVectorized.isSet() || B.alreadyVectorized.isSet()) {
+    md.vectorizeEnable = A.alreadyVectorized.safeGet(false) || B.alreadyVectorized.safeGet(false);
+  }
 
   // enable vectorization if any hint says so
   if (A.vectorizeEnable.isSet() || B.vectorizeEnable.isSet()) {
@@ -118,6 +124,11 @@ GetLoopAnnotation(llvm::Loop & L) {
     }
   }
 
+  // consider parallel loops without vectorization hint
+  if (L.isAnnotatedParallel()) {
+    llvmAnnot.minDepDist = ParallelDistance;
+  }
+
   // re-concile the conflicting readings (if any)
   return OptimisticJoin(std::move(llvmAnnot), std::move(rvAnnot));
 }
@@ -144,6 +155,12 @@ SetLLVMLoopAnnotations(llvm::Loop & L, LoopMD && llvmLoopMD) {
   auto & ctx = L.getHeader()->getContext();
 
   std::vector<Metadata*> mdArgs;
+
+  if (llvmLoopMD.alreadyVectorized.isSet()) {
+    llvm::Metadata *mdAlreadyVectorized[] = { llvm::MDString::get(ctx, "llvm.loop.isvectorized"),
+                                              llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt1Ty(ctx), llvmLoopMD.alreadyVectorized.get()))};
+    mdArgs.push_back(llvm::MDNode::get(ctx, mdAlreadyVectorized));
+  }
 
   if (llvmLoopMD.vectorizeEnable.isSet()) {
     llvm::Metadata *mdVectorizeEnable[] = { llvm::MDString::get(ctx, "llvm.loop.vectorize.enable"),
