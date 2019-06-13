@@ -73,15 +73,17 @@ GetScalarType(Value & val) {
 
 static
 Intrinsic::ID
-GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal) {
+GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oRequiresRetTy) {
   oHasInitVal = false;
+  oRequiresRetTy = false;
   switch (kind) {
     default:
       return Intrinsic::not_intrinsic;
     case RedKind::Add: {
      if (elemTy.isFloatingPointTy()) {
        oHasInitVal = true;
-       return Intrinsic::experimental_vector_reduce_fadd;
+       oRequiresRetTy = false;
+       return Intrinsic::experimental_vector_reduce_v2_fadd;
      } else {
        return Intrinsic::experimental_vector_reduce_add;
      }
@@ -89,7 +91,8 @@ GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal) {
     case RedKind::Mul: {
      if (elemTy.isFloatingPointTy()) {
        oHasInitVal = true;
-       return Intrinsic::experimental_vector_reduce_fmul;
+       oRequiresRetTy = false;
+       return Intrinsic::experimental_vector_reduce_v2_fmul;
      } else {
        return Intrinsic::experimental_vector_reduce_mul;
      }
@@ -112,11 +115,13 @@ CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vecVal, Value
 
 // use LLVM's experimental intrinsics where possible
   bool hasInitValArg = false; // whether the intrinsic has an initial value argument
-  Intrinsic::ID ID = GetIntrinsicID(redKind, elemTy, hasInitValArg);
+  bool requiresRetTy = false; // whether a disambiguating elem type token is required
+  Intrinsic::ID ID = GetIntrinsicID(redKind, elemTy, hasInitValArg, requiresRetTy);
   if (ID != Intrinsic::not_intrinsic) {
     auto & mod = *builder.GetInsertBlock()->getParent()->getParent();
 
-    std::vector<Type*> reduceTypeVec{&elemTy};
+    std::vector<Type*> reduceTypeVec;
+    if (requiresRetTy) reduceTypeVec.push_back(&elemTy); // return value
     reduceTypeVec.push_back(&vecTy);
 
     auto & redFunc = *Intrinsic::getDeclaration(&mod, ID, reduceTypeVec);
