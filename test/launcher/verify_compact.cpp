@@ -41,7 +41,9 @@ int main(int argc, char ** argv) {
       dumpArray(a, vectorWidth); std::cerr << "\n";
       dumpArray(b, vectorWidth); std::cerr << "\n";
       std::cerr << "-- result --\n";
-      dumpArray(res, vectorWidth);
+      float resArray[8];
+      toArray<float, float8>(res, resArray);
+      dumpArray(resArray, vectorWidth);
       std::cerr << "-- expected --\n";
       dumpArray(exp, vectorWidth);
       return -1;
