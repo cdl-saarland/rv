@@ -11,9 +11,11 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Intrinsics.h"
 
+#include "rv/utils.h"
+
 using namespace llvm;
 
-#define IF_DEBUG_CM if (false)
+#define IF_DEBUG_CM if (true)
 
 namespace rv {
 
@@ -60,16 +62,34 @@ CostModel::pickWidthForMapping(const VectorMapping & mapping) const {
 }
 
 bool
-CostModel::IsVectorizableIntrinsic(Function & callee) const {
+CostModel::IsVectorizableFunction(Function & callee) const {
+// some intrinsics are trivially vectorizable
   switch (callee.getIntrinsicID()) {
     default:
-      return false;
+      break;
 
     case Intrinsic::lifetime_start:
     case Intrinsic::lifetime_end:
       return true;
   }
+
+// in case of Vector Function ABi strings in the functions attributes assume the right version will become available at widening time
+  auto attribSet = callee.getAttributes().getFnAttributes();
+
+  for (auto attrib : attribSet) {
+    if (!attrib.isStringAttribute()) continue;
+    StringRef attribText = attrib.getKindAsString();
+
+    VectorMapping dummy;
+    if (parseVectorMapping(callee, attribText, dummy,  false /* createMissingDecl */)) {
+      return true;
+    }
+  }
+
+// no ad-hoc answer available
+  return false;
 }
+
 
 size_t
 CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) const {
@@ -88,8 +108,9 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
     if (!callee->isDeclaration() && config.enableGreedyIPV) return maxWidth; // everything is possible with IPV..
 
     // skip trivial LLVM intrinsics
-    if (IsVectorizableIntrinsic(*callee)) return maxWidth;
+    if (IsVectorizableFunction(*callee)) return maxWidth;
 
+    // Otw, default to the FunctionResolver API (under pessimistic assumptions)
     VectorShapeVec topArgVec;
     for (int i = 0; i < (int) call->getNumArgOperands(); ++i) {
       // botArgVec.push_back(VectorShape::undef()); // FIXME this causes divergence in the VA
@@ -108,7 +129,9 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
       }
     }
 
-    IF_DEBUG_CM { errs() << "cm: max width for " << calleeName << " is " << sampleWidth << "\n"; }
+    IF_DEBUG_CM {
+      errs() << "cm: max width for " << calleeName << " is " << sampleWidth << "\n";
+    }
     return sampleWidth;
   }
 

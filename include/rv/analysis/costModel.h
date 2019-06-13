@@ -31,7 +31,7 @@ public:
   CostModel(PlatformInfo & _platInfo, Config & _config);
 
   // whether this is an vectorizable LLVM intrinsic
-  bool IsVectorizableIntrinsic(llvm::Function & Callee) const;
+  bool IsVectorizableFunction(llvm::Function & Callee) const;
 
   // pick a width for @inst
   size_t pickWidthForInstruction(const llvm::Instruction & inst, size_t maxWidth) const;

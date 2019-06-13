@@ -9,6 +9,13 @@
 
 using namespace llvm;
 
+#if 0
+#define IF_DEBUG_LRES if (true)
+#else
+#define IF_DEBUG_LRES IF_DEBUG
+#endif
+
+
 namespace rv {
 
 ListResolver::~ListResolver()
@@ -48,7 +55,7 @@ ListResolver::inferMapping(llvm::Function &scalarFnc,
 
     // trailing additional argument case
     if (itScalarArg == scalarFnc.arg_end()) {
-      IF_DEBUG errs() << "Unexpected additional argument (pos " << i
+      IF_DEBUG_LRES errs() << "Unexpected additional argument (pos " << i
                       << ") in simd function " << simdFnc << "\n";
       argShapes.push_back(VectorShape::varying());
       ++itSimdArg;
@@ -158,18 +165,18 @@ public:
 // result shape of function @funcName in target module @module.
 std::unique_ptr<FunctionResolver>
 ListResolver::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule) {
-  IF_DEBUG { errs() << "ListResolverService: " << funcName << " for width " << vectorWidth << "\n"; }
+  IF_DEBUG_LRES { errs() << "ListResolverService: " << funcName << " for width " << vectorWidth << "\n"; }
 
   // scalar function not available
   auto * scaFunc = destModule.getFunction(funcName);
   if (!scaFunc) {
-    IF_DEBUG { errs() << "\tListR: not in module!\n"; }
+    IF_DEBUG_LRES { errs() << "\tListR: not in module!\n"; }
     return nullptr;
   }
 
   // signature mismatch
   if (!typesMatch(scaFunc->getFunctionType(), &scaFuncTy)) {
-    IF_DEBUG { errs() << "\tListR: type mismatch!\n"; }
+    IF_DEBUG_LRES { errs() << "\tListR: type mismatch!\n"; }
     return nullptr;
   }
 
@@ -177,7 +184,7 @@ ListResolver::resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, 
   VectorShape bestResultShape = VectorShape::varying();
   const VectorMapping * bestMapping = nullptr;
   ForAll_MappingsForCall([&](const VectorMapping & mapping) {
-      IF_DEBUG {
+      IF_DEBUG_LRES {
         errs() << "ListR: match ";
         mapping.print(errs());
       }
@@ -218,6 +225,7 @@ ListResolver::forgetMapping(const VectorMapping & mapping) {
   VecMappingShortVec & vecMappings = *itFunc->second;
 
   // scan for that mapping
+  bool removed = false;
   auto it = vecMappings.begin();
   auto itEnd = vecMappings.end();
   for (;it != itEnd; ++it) {
@@ -225,8 +233,10 @@ ListResolver::forgetMapping(const VectorMapping & mapping) {
 
     // found it!
     vecMappings.erase(it);
-    return true;
+    removed = true;
   }
+
+  return removed;
 }
 
 void

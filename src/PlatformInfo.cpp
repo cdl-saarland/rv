@@ -19,6 +19,12 @@
 
 using namespace llvm;
 
+#if 0
+#define IF_DEBUG_PLAT if (true)
+#else
+#define IF_DEBUG_PLAT IF_DEBUG
+#endif
+
 namespace rv {
 
 static bool
@@ -123,6 +129,16 @@ PlatformInfo::getResolver(StringRef funcName,
                           const VectorShapeVec & argShapes,
                           int vectorWidth,
                           bool hasPredicate) const {
+  IF_DEBUG_PLAT {
+    errs() << "Resolver query:\n"
+           << "scaName:  " << funcName << "\n"
+           << "width:    " << vectorWidth << "\n"
+           << "pred:     " << hasPredicate << "\n"
+           << "argShapes:";
+    for (auto argShape : argShapes) errs() << ", " << argShape.str();
+    errs() << "\n";
+  }
+
   for (const auto & resolver : resolverServices) {
     std::unique_ptr<FunctionResolver> funcResolver = resolver->resolve(funcName, scaFuncTy, argShapes, vectorWidth, hasPredicate, mod);
     if (funcResolver) return funcResolver;
