@@ -39,6 +39,11 @@ addWholeFunctionVectorizer(llvm::legacy::PassManagerBase & PM) {
 }
 
 void
+addLowerBuiltinsPass(legacy::PassManagerBase & PM) {
+   PM.add(rv::createLowerRVIntrinsicsPass());
+}
+
+void
 addRVPasses(llvm::legacy::PassManagerBase & PM) {
   // normalize loops
   addPreparatoryPasses(PM);

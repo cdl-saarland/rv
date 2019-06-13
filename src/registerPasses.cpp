@@ -19,28 +19,33 @@ cl::OptionCategory rvCategory("RV Options",
 
 
 static cl::opt<bool>
+    rvLowerBuiltins("rv-lower", cl::desc("Lower RV specific builtins"),
+    cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+
+static cl::opt<bool>
     rvLoopVecEnabled("rv-loopvec", cl::desc("Enable RV's outer-loop vectorizer."),
-                 cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+    cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static cl::opt<bool>
     rvWFVEnabled("rv-wfv", cl::desc("Enable RV's whole-function vectorizer."),
-                 cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+    cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static cl::opt<bool>
     rvOnlyPolish("rv-polish", cl::desc("Only run RV's polish phase."),
-                 cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+    cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static cl::opt<bool>
     rvVectorizeEnabled("rv", cl::desc("Enable Whole-Function and Outer-Loop Vectorization with RV (implies -rv-wfv and -rv-loopvec)."),
-                 cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+    cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static cl::opt<bool>
     rvOnlyCNS("rv-cns", cl::desc("Only run RV's Irreducible Loop Normalizer."),
-                 cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+    cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static bool mayVectorize() { return rvWFVEnabled || rvLoopVecEnabled || rvVectorizeEnabled; }
 static bool shouldRunWFVPass() { return rvWFVEnabled || rvVectorizeEnabled; }
 static bool shouldRunLoopVecPass() { return rvLoopVecEnabled || rvVectorizeEnabled; }
+static bool shouldLowerBuiltins() { return rvLowerBuiltins; }
 
 static void
 registerRVPasses(const llvm::PassManagerBuilder &Builder,
@@ -71,9 +76,22 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
   }
 }
 
+static void
+registerLateRVPasses(const llvm::PassManagerBuilder &Builder,
+                                       llvm::legacy::PassManagerBase &PM) {
+  if (shouldLowerBuiltins()) {
+    rv::addLowerBuiltinsPass(PM);
+  }
+}
 
-static llvm::RegisterStandardPasses RegisterRVOptimizerScalarLate(
+static llvm::RegisterStandardPasses RegisterRV_MidPipeline(
     llvm::PassManagerBuilder::EP_VectorizerStart,
     registerRVPasses);
+
+
+static llvm::RegisterStandardPasses RegisterRV_Late(
+    llvm::PassManagerBuilder::EP_ScalarOptimizerLate,
+    registerLateRVPasses);
+
 
 

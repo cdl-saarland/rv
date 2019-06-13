@@ -282,9 +282,13 @@ static void lowerIntrinsicCall(CallInst* call, Impl impl) {
   call->eraseFromParent();
 }
 
-static void
+static bool
 lowerIntrinsicCall(CallInst* call) {
   switch (GetIntrinsicID(*call)) {
+    case RVIntrinsic::Unknown:
+    default:
+      return false;
+
     case RVIntrinsic::Any:
     case RVIntrinsic::All:
     case RVIntrinsic::Extract:
@@ -335,13 +339,14 @@ lowerIntrinsicCall(CallInst* call) {
         return builder.CreateZExt(call->getOperand(0), call->getType());
       });
     } break;
-
-    default: break;
   }
+
+  return true;
 }
 
-void
+bool
 lowerIntrinsics(Module & mod) {
+  bool changed = false;
   // TODO re-implement using RVIntrinsic enum
   const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_mask", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align", "rv_popcount", "rv_compact"};
   for (int i = 0, n = sizeof(names) / sizeof(names[0]); i < n; i++) {
@@ -356,24 +361,27 @@ lowerIntrinsics(Module & mod) {
       auto *user = itUse->getUser();
 
       if (!isa<CallInst>(user)) {
-        errs() << "Non Call: " << *user << "\n";
+        errs() << "Intrinsic used in non-call context: " << *user << "\n";
       }
 
-      lowerIntrinsicCall(cast<CallInst>(user));
+      changed |= lowerIntrinsicCall(cast<CallInst>(user));
     }
   }
+  return changed;
 }
 
-void
+bool
 lowerIntrinsics(Function & func) {
+  bool changed = false;
   for (auto & block : func) {
     BasicBlock::iterator itStart = block.begin(), itEnd = block.end();
     for (BasicBlock::iterator it = itStart; it != itEnd; ) {
       auto * inst = &*it++;
       auto * call = dyn_cast<CallInst>(inst);
-      if (call) lowerIntrinsicCall(call);
+      if (call) changed |= lowerIntrinsicCall(call);
     }
   }
+  return changed;
 }
 
 

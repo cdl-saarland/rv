@@ -25,6 +25,8 @@ namespace rv {
   // Controlled Node Splitting (Irreducible loop normalization)
   llvm::FunctionPass *createCNSPass();
 
+  // Controlled Node Splitting (Irreducible loop normalization)
+  llvm::FunctionPass *createLowerRVIntrinsicsPass();
 
   // add normalization passes required by RV (BEFORE)
   void addPreparatoryPasses(llvm::legacy::PassManagerBase & PM);
@@ -37,6 +39,9 @@ namespace rv {
 
   // add cleanup passes to run after RV (AFTER)
   void addCleanupPasses(llvm::legacy::PassManagerBase & PM);
+
+  // insert a pass that
+  void addLowerBuiltinsPass(llvm::legacy::PassManagerBase & PM);
 } // namespace rv
 
 
