@@ -243,7 +243,7 @@ public:
     }
 
     // success!
-    assert(vecFunc);
+    recMapping = callMapping;
     assert(recMapping.vectorFn);
     hasValidVectorFunc = true;
   }
