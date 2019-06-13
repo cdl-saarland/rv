@@ -48,7 +48,14 @@ class WFVPass : public llvm::ModulePass {
   bool enableDiagOutput; // WFV_DIAG
 
   std::vector<VectorMapping> wfvJobs;
+
+  /// collect all stray Vector Function ABI strings in the attributes of \p F.
   void collectJobs(llvm::Function & F);
+
+  /// check that \p wfvJob is a sane function mapping.
+  bool isSaneMapping(VectorMapping & wfvJob) const;
+
+  /// generate the Vector Function ABI variant encoded in \p wfvJob.
   void vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob);
 public:
   static char ID;
