@@ -1968,19 +1968,31 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
   // create a vector GEP to widen pointers
   Value * vecValue = nullptr;
   if (scaValue.getType()->isPointerTy()) {
-    auto * scalarPtrTy = scaValue.getType();
+    auto * scalarPtrTy = cast<PointerType>(scaValue.getType());
     auto * intTy = builder.getInt32Ty();
     auto * ptrElemTy = GetPointerElementType(scalarPtrTy);
 
+    auto AddrSpace = scalarPtrTy->getAddressSpace();
+
     // vecValue is a single pointer and has to be broadcasted to a vector of pointers first
     vecValue = builder.CreateVectorSplat(vectorWidth(), &scaValue);
+    auto * actualPtrVecTy = vecValue->getType();
 
     if (!vecShape.isUniform()) { // stride != 0
       assert(ptrElemTy->isSized() && "byte-stride shape on unsized element type");
       int scalarBytes = static_cast<int>(layout.getTypeStoreSize(ptrElemTy));
-      assert(vecShape.getStride() % scalarBytes == 0);
-      Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride() / scalarBytes);
-      vecValue = builder.CreateGEP(vecValue, contVec, "widen_ptr");
+      if (vecShape.getStride() % scalarBytes == 0) {
+        // stride aligned with object size
+        Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride() / scalarBytes);
+        vecValue = builder.CreateGEP(vecValue, contVec, "expand_strided_ptr");
+      } else {
+        // sub element stride
+        auto * charPtrTy = builder.getInt8PtrTy(AddrSpace);
+        auto * charPtrVec = builder.CreatePointerCast(vecValue, VectorType::get(charPtrTy, vectorWidth()), "byte_ptr");
+        Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride());
+        auto * bytePtrVec = builder.CreateGEP(charPtrVec, contVec, "expand_byte_ptr");
+        vecValue = builder.CreatePointerCast(bytePtrVec, actualPtrVecTy);
+      }
     }
 
   } else {
