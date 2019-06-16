@@ -13,7 +13,7 @@ For any questions, please get in touch with Simon Moll (moll@cs.uni-saarland.de)
 
 ## Features
 
-* Support for OpenMP 4.5 `#pragma omp simd` **and** `#pragma omp declare simd` (pass `-fopenmp -Xclang -load -Xclang libRV.so -mllvm -rv` to Clang and you are set).
+* Support for OpenMP 4.5 `#pragma omp simd` **and** `#pragma omp declare simd` (pass `-fopenmp -fplugin=libRV.so -mllvm -rv` to Clang and you are set).
 * Support for inter-procedural/recursive vectorization.
 * Implements [*Partial Control-Flow Linearization*](http://compilers.cs.uni-saarland.de/papers/moll_parlin_pldi18.pdf), S. Moll and S. Hack (PLDI '18).
 * Automatically uses [SLEEF](https://github.com/shibatch/sleef) vector math functions.
@@ -51,7 +51,7 @@ You'll get what you ordered.
 ### Usage
 
 1. Annotate vectorizable loops with `#pragma clang loop vectorize(assume_safety) vectorize_width(W)` where W is the desired vectorization width.
-2. Invoke clang with `-Xclang -load -Xclang libRV.so -mllvm -rv-loopvec`. We recommend to also disable loop unrolling `-fno-unroll-loops`.
+2. Invoke clang with `-fplugin=libRV.so -mllvm -rv-loopvec`. We recommend to also disable loop unrolling `-fno-unroll-loops`.
 
 ## Getting started on the code
 

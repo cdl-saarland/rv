@@ -55,7 +55,7 @@ rvToolLine="rvTool"
 testULPBound = 10
 
 def rvClang(clangArgs):
-   return shellCmd(clangLine + " -Xclang -load -Xclang " + libRV + " -O3 " + clangArgs)
+   return shellCmd(clangLine + " -fplugin=" + libRV + " -O3 " + clangArgs)
 
 
 def primaryName(fileName):
