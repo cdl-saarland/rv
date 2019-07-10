@@ -34,6 +34,8 @@ public:
 
   bool CheckLegality (llvm::BranchInst & branch, bool & onTrueLegal, bool & onFalseLegal);
 
+  llvm::BasicBlock * getExitBlock(llvm::BasicBlock * entry);
+
   int BranchHeuristic (llvm::BranchInst & branch, bool onTrueLegal, bool onFalseLegal, bool isBOSCC);
 
   bool analyze(llvm::BranchInst & branch,

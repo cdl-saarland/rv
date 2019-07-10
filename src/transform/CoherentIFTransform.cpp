@@ -439,6 +439,7 @@ run() {
     // if affine fails, then use high probability
     if (IsAffine(dyn_cast<Instruction>(branchCond))) {
       IF_DEBUG_CIF {errs()<< *branchCond << " is affine condition" << "\n";}
+      ++numCIFBranches;
       transformCoherentCF(*branchInst, 0);
     }
     else {
