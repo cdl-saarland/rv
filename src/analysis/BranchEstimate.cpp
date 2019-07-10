@@ -234,11 +234,48 @@ BranchEstimate::analyze(BranchInst &branch, double &trueRatio, double &falseRati
   return true;
 }
 
+// Return nullptr if there are multiple exit blocks
+BasicBlock *
+BranchEstimate::getExitBlock(BasicBlock * entry)
+{
+  SmallVector<BasicBlock *, 32> DominatedBBs;
+  domTree.getDescendants(entry, DominatedBBs);
+
+  BasicBlock * ExitBlock = nullptr;
+
+  for (BasicBlock* BB : DominatedBBs) {
+    auto *inst = BB->getTerminator();
+    unsigned int numsuc = inst->getNumSuccessors();
+    assert( 1 <= numsuc && numsuc <= 2);
+
+    for (unsigned int i = 0; i < numsuc; i++) {
+      BasicBlock *child = inst->getSuccessor(i);
+      if (std::find(DominatedBBs.begin(), DominatedBBs.end(), child) == DominatedBBs.end()) {
+        if (ExitBlock)
+          return nullptr;
+        else
+          ExitBlock = child;
+      }
+    }
+  }
+  return ExitBlock;
+}
+
 bool
 BranchEstimate::CheckLegality (BranchInst & branch, bool & onTrueLegal, bool & onFalseLegal) {
-  // run legality checks
+  unsigned int numsuc = branch.getNumSuccessors();
+  assert( 1 <= numsuc && numsuc <= 2);
+
   BasicBlock * onTrueBlock = branch.getSuccessor(0);
   BasicBlock * onFalseBlock = branch.getSuccessor(1);
+
+  BasicBlock * exitOnTrueBlock = getExitBlock(onTrueBlock);
+  if (!exitOnTrueBlock) return false;
+
+  if (exitOnTrueBlock != onFalseBlock) { //There is else branch
+    if (!getExitBlock(onFalseBlock))
+      return false;
+  }
 
   if (!vecInfo.inRegion(*onTrueBlock) || !vecInfo.inRegion(*onFalseBlock)) return false;
 
