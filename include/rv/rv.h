@@ -102,8 +102,8 @@ private:
    // implement all rv_* intrinsics
    // this is necessary to make scalar functions with predicate intrinsics executable
    // the SIMS semantics of the function will change if @scalar func used any mask intrinsics
-  void lowerIntrinsics(llvm::Function & scalarFunc);
-  void lowerIntrinsics(llvm::Module & mod);
+  bool lowerIntrinsics(llvm::Function & scalarFunc);
+  bool lowerIntrinsics(llvm::Module & mod);
 }
 
 #endif // RV_RV_H

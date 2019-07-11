@@ -93,15 +93,18 @@ Module *createModuleFromFile(const std::string &fileName,
   return modPtr.release();
 }
 
-void writeModuleToFile(Module *mod, const std::string &fileName) {
-  assert(mod);
-  std::error_code EC;
-  raw_fd_ostream file(fileName, EC);
-  mod->print(file, nullptr);
-  if (EC) {
-    fail("ERROR: printing module to file failed: ", EC.message());
-  }
-  file.close();
+void
+writeModuleToFile(Module* mod, const std::string& fileName)
+{
+    assert (mod);
+    std::error_code EC;
+    raw_fd_ostream file(fileName, EC, sys::fs::OpenFlags::OF_None);
+    mod->print(file, nullptr);
+    if (EC)
+    {
+        fail("ERROR: printing module to file failed: ", EC.message());
+    }
+    file.close();
 }
 
 void normalizeFunction(Function &F) {

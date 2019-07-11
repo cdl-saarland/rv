@@ -9,10 +9,13 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Intrinsics.h"
+
+#include "rv/utils.h"
 
 using namespace llvm;
 
-#define IF_DEBUG_CM if (false)
+#define IF_DEBUG_CM if (true)
 
 namespace rv {
 
@@ -58,6 +61,36 @@ CostModel::pickWidthForMapping(const VectorMapping & mapping) const {
   return vecWidth;
 }
 
+bool
+CostModel::IsVectorizableFunction(Function & callee) const {
+// some intrinsics are trivially vectorizable
+  switch (callee.getIntrinsicID()) {
+    default:
+      break;
+
+    case Intrinsic::lifetime_start:
+    case Intrinsic::lifetime_end:
+      return true;
+  }
+
+// in case of Vector Function ABi strings in the functions attributes assume the right version will become available at widening time
+  auto attribSet = callee.getAttributes().getFnAttributes();
+
+  for (auto attrib : attribSet) {
+    if (!attrib.isStringAttribute()) continue;
+    StringRef attribText = attrib.getKindAsString();
+
+    VectorMapping dummy;
+    if (parseVectorMapping(callee, attribText, dummy,  false /* createMissingDecl */)) {
+      return true;
+    }
+  }
+
+// no ad-hoc answer available
+  return false;
+}
+
+
 size_t
 CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) const {
   if (!needsReplication(inst)) return maxWidth; // remains scalar
@@ -74,6 +107,10 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
     // can we vectorize the callee recursively
     if (!callee->isDeclaration() && config.enableGreedyIPV) return maxWidth; // everything is possible with IPV..
 
+    // skip trivial LLVM intrinsics
+    if (IsVectorizableFunction(*callee)) return maxWidth;
+
+    // Otw, default to the FunctionResolver API (under pessimistic assumptions)
     VectorShapeVec topArgVec;
     for (int i = 0; i < (int) call->getNumArgOperands(); ++i) {
       // botArgVec.push_back(VectorShape::undef()); // FIXME this causes divergence in the VA
@@ -92,7 +129,9 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
       }
     }
 
-    IF_DEBUG_CM { errs() << "cm: max width for " << calleeName << " is " << sampleWidth << "\n"; }
+    IF_DEBUG_CM {
+      errs() << "cm: max width for " << calleeName << " is " << sampleWidth << "\n";
+    }
     return sampleWidth;
   }
 
@@ -110,9 +149,9 @@ size_t
 CostModel::pickWidthForType(const Type & type, size_t maxWidth) const {
 
   // assume that only floating point values are vectorized
-  size_t rawSize = type.getScalarSizeInBits();
+  size_t rawSize = type.getPrimitiveSizeInBits();
   if ((rawSize > 0) &&
-       (type.isIntegerTy() || type.isFloatingPointTy()))
+       (type.isIntOrIntVectorTy() || type.isFPOrFPVectorTy()))
   {
     maxWidth = std::min<size_t>(maxWidth, platInfo.getMaxVectorBits() / rawSize);
   }

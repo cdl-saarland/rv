@@ -1,7 +1,7 @@
 #include "rv/passes.h"
 
-#include "llvm/Transforms/Utils.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils.h"
 #include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "rv/transform/loopExitCanonicalizer.h"
@@ -36,6 +36,11 @@ addOuterLoopVectorizer(legacy::PassManagerBase & PM) {
 void
 addWholeFunctionVectorizer(llvm::legacy::PassManagerBase & PM) {
   PM.add(rv::createWFVPass());
+}
+
+void
+addLowerBuiltinsPass(legacy::PassManagerBase & PM) {
+   PM.add(rv::createLowerRVIntrinsicsPass());
 }
 
 void

@@ -115,6 +115,7 @@ IsSupportedReduction(Loop & L, Reduction & red) {
       if (!userInst) return false; // unsupported
       if (L.contains(userInst->getParent()) &&
         !red.elements.count(userInst))  {
+        errs() << "Unsupported user of reduction: " << *userInst << "\n"; // DEBUG
         return false;
       }
     }
@@ -128,20 +129,29 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 // check the dependence distance of this loop
   LoopMD mdAnnot = GetLoopAnnotation(L);
 
-  if (enableDiagOutput) { Report() << "loopVecPass: "; mdAnnot.print(Report()) << "\n"; }
+  if (enableDiagOutput) { Report() << "loopVecPass: "; mdAnnot.print(ReportContinue()) << "\n"; }
 
-  // only trigger if vectorization hint is set
-  if (!mdAnnot.vectorizeEnable.safeGet(false)) return false;
-
-  iter_t depDist = mdAnnot.minDepDist.safeGet(ParallelDistance);
-
-  if (depDist <= 1) {
-    // too verbose
-    if (enableDiagOutput) Report() << "loopVecPass skip: won't vectorize " << L.getName() << " . Min dependence distance was " << depDist << "\n";
+  // only trigger on annotated loops
+  if (!mdAnnot.vectorizeEnable.safeGet(false)) {
+    if (enableDiagOutput) Report() << "loopVecPass skip " << L.getName() << " . not explicitly triggered.\n";
     return false;
   }
 
-  //
+  // skip if already vectorized
+  if (mdAnnot.alreadyVectorized.safeGet(false)) {
+    // too verbose
+    if (enableDiagOutput) Report() << "loopVecPass skip " << L.getName() << " . already vectorized.\n";
+    return false;
+  }
+
+  iter_t depDist = mdAnnot.minDepDist.safeGet(ParallelDistance);
+
+  // skip if iteration dependence distance precludes vectorization
+  if (depDist <= 1) {
+    if (enableDiagOutput) Report() << "loopVecPass skip " << L.getName() << " . Min dependence distance was " << depDist << "\n";
+    return false;
+  }
+
   int tripAlign = getTripAlignment(L);
 
   // use the explicitVectorWidth (if specified). Otherwise
@@ -199,7 +209,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
   // mark the remainder loop as un-vectorizable
   LoopMD llvmLoopMD;
-  llvmLoopMD.vectorizeEnable = false;
+  llvmLoopMD.alreadyVectorized = true;
   SetLLVMLoopAnnotations(L, std::move(llvmLoopMD));
 
   // clear loop annotations from our copy of the lop

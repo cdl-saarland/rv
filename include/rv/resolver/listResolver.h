@@ -47,7 +47,7 @@ public:
   /// Drop all listed mapping associated with the scalar function \p scaFunc.
   void forgetAllMappingsFor(const llvm::Function & scaFunc);
   /// Forget one specific mapping.
-  void forgetMapping(const VectorMapping & mapping);
+  bool forgetMapping(const VectorMapping & mapping);
 
   void print(llvm::raw_ostream & out) const override;
 

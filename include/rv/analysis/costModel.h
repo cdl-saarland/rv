@@ -8,6 +8,7 @@ namespace llvm {
   class Type;
   class BasicBlock;
   class TargetTransformInfo;
+  class Function;
 }
 
 namespace rv {
@@ -28,6 +29,9 @@ class CostModel {
 
 public:
   CostModel(PlatformInfo & _platInfo, Config & _config);
+
+  // whether this is an vectorizable LLVM intrinsic
+  bool IsVectorizableFunction(llvm::Function & Callee) const;
 
   // pick a width for @inst
   size_t pickWidthForInstruction(const llvm::Instruction & inst, size_t maxWidth) const;

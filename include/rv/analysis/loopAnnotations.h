@@ -38,6 +38,9 @@ namespace rv {
 
   struct
   LoopMD {
+    // whether this loop was already vectorized
+    Optional<bool> alreadyVectorized;
+
     // whether the loop carries and explicit hint to enable/disable loop vectorization
     Optional<bool> vectorizeEnable;
 

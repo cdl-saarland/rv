@@ -64,6 +64,7 @@ add_rv_library(RV
   transform/CNSPass.cpp
   transform/Linearizer.cpp
   transform/LoopVectorizer.cpp
+  transform/WFVPass.cpp
   transform/bosccTransform.cpp
   transform/CoherentIFTransform.cpp
   transform/crtLowering.cpp
@@ -73,21 +74,22 @@ add_rv_library(RV
   transform/cns/SplitTree.cpp
   transform/cns/llvmDomination.cpp
   transform/cns/llvmDuplication.cpp
+  transform/crtLowering.cpp
   transform/divLoopTrans.cpp
   transform/irPolisher.cpp
   transform/loopCloner.cpp
   transform/loopExitCanonicalizer.cpp
   transform/lowerDivergentSwitches.cpp
+  transform/lowerRVIntrinsics.cpp
   transform/maskExpander.cpp
   transform/memCopyElision.cpp
-  transform/redTools.cpp
   transform/redOpt.cpp
+  transform/redTools.cpp
   transform/remTransform.cpp
   transform/singleReturnTrans.cpp
+  transform/splitAllocas.cpp
   transform/srovTransform.cpp
   transform/structOpt.cpp
-  transform/splitAllocas.cpp
-  transform/WFVPass.cpp
   utils.cpp
   utils/rvLinking.cpp
   utils/rvTools.cpp

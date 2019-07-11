@@ -121,6 +121,10 @@ namespace rv {
     void vectorizePopCountCall(llvm::CallInst *rvCall);
     void vectorizeAlignCall(llvm::CallInst *rvCall);
     void vectorizeIndexCall(llvm::CallInst & rvCall);
+    void vectorizeCompactCall(llvm::CallInst * rvCall);
+
+    // create a lookup table for an efficient compaction intrinsic
+    llvm::Constant* createCompactLookupTable(unsigned vecWidth);
 
     void vectorizeAlloca(llvm::AllocaInst *const allocaInst);
 
@@ -145,7 +149,6 @@ namespace rv {
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
     std::map<const llvm::Type *, rv::MemoryAccessGrouper> grouperMap;
-    std::map<const llvm::Value *, LaneValueVector> pseudointerValueMap;
     std::vector<llvm::PHINode *> phiVector;
     std::deque<llvm::Instruction *> lazyInstructions;
 
@@ -183,7 +186,6 @@ namespace rv {
     bool canVectorize(llvm::Instruction *inst);
     bool shouldVectorize(llvm::Instruction *inst);
     bool isInterleaved(llvm::Instruction *inst, llvm::Value *accessedPtr, int byteSize, std::vector<llvm::Value *> &srcs);
-    bool isPseudointerleaved(llvm::Instruction *inst, llvm::Value *addr, int byteSize);
 
     // request and return all the vector arguments for calling \p vecCall with the vector mappings for the arguments in \p scaCall. this should also include the mask (if any).
     void requestVectorCallArgs(llvm::CallInst & scaCall, llvm::Function & vecCall, int maskPos, std::vector<llvm::Value*> & vectorArgs);
@@ -203,7 +205,7 @@ namespace rv {
     llvm::Value *createVaryingMemory(llvm::Type *vecType, unsigned alignment, llvm::Value *addr, llvm::Value *mask,
                                      llvm::Value *values);
     void createInterleavedMemory(llvm::Type *vecType, unsigned alignment, std::vector<llvm::Value *> *addr, std::vector<llvm::Value *> *mask,
-                                     std::vector<llvm::Value *> *values, std::vector<llvm::Value *> *srcs, bool isPseudoInter = false);
+                                     std::vector<llvm::Value *> *values, std::vector<llvm::Value *> *srcs);
 
     llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, unsigned alignment, llvm::Value *mask);
     llvm::Value *createContiguousLoad(llvm::Value *ptr, unsigned alignment, llvm::Value *mask, llvm::Value *passThru);
