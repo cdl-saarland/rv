@@ -118,7 +118,7 @@ GetUniquePredecessor(const BasicBlock & block, int & oSuccIdx) {
   if (!uniqueBranch) return nullptr; // FIXME
 
   // decode successor idx from operand idx
-  if (uniqueBranch->isConditional()) oSuccIdx = opIdx - 1;
+  if (uniqueBranch->isConditional()) oSuccIdx = opIdx + 1;
   else {
     assert(opIdx == 0);
     oSuccIdx = 0;
