@@ -99,17 +99,15 @@ UndeadMaskAnalysis::UndeadMaskAnalysis(const DominatorTree & _domTree, Vectoriza
 {}
 
 const BasicBlock*
-GetUniquePredecessor(const BasicBlock & block, int & oSuccIdx) {
+GetUniquePredecessor(const BasicBlock & block) {
   // find a unique predecessor
   const BasicBlock * uniquePred = nullptr;
   const_pred_iterator itPred, itEnd;
-  int opIdx = 0;
   for (itPred = pred_begin(&block), itEnd = pred_end(&block);
       itPred != itEnd;
       ++itPred) {
     if (uniquePred) return nullptr;
     uniquePred = *itPred;
-    opIdx = itPred.getUse().getOperandNo();
   }
 
   if (!uniquePred) return nullptr;
@@ -117,16 +115,14 @@ GetUniquePredecessor(const BasicBlock & block, int & oSuccIdx) {
   const auto * uniqueBranch = dyn_cast<BranchInst>(uniquePred->getTerminator());
   if (!uniqueBranch) return nullptr; // FIXME
 
-  // decode successor idx from operand idx
-  if (uniqueBranch->isConditional()) oSuccIdx = opIdx + 1;
-  else {
-    assert(opIdx == 0);
-    oSuccIdx = 0;
-  }
-
   return uniquePred;
 }
 
+static bool
+IsTargetOnFalse(const BranchInst & branch, const BasicBlock & Dest) {
+  assert(branch.isConditional());
+  return branch.getSuccessor(1) == &Dest;
+}
 
 bool
 UndeadMaskAnalysis::isUndead(const Value & mask, const BasicBlock & where) {
@@ -151,11 +147,10 @@ UndeadMaskAnalysis::isUndead(const Value & mask, const BasicBlock & where) {
     if (!vecInfo.getRegion().contains(block)) return false; // TODO query the entry predicate
 
   // whether the unique predecessor of this block has an edge predicate that implies that at least one lane is live in the mask predicate
-    int succIdx;
-    const auto * predBlock = GetUniquePredecessor(*block, succIdx);
+    const auto * predBlock = GetUniquePredecessor(*block);
     if (predBlock) {
 
-      IF_DEBUG_UDM { errs() << "UDM:\t has unique pred " << predBlock->getName() << " at idx " << succIdx << "\n"; }
+      IF_DEBUG_UDM { errs() << "UDM:\t has unique pred " << predBlock->getName() << ".\n"; }
       auto * predTerm = predBlock->getTerminator();
       auto * predBranch = dyn_cast<BranchInst>(predTerm);
       if (predBranch && predBranch->isConditional()) {
@@ -170,7 +165,7 @@ UndeadMaskAnalysis::isUndead(const Value & mask, const BasicBlock & where) {
         }
 
         // whether the branch predicate implies that at least one lane in @mask is live
-        if (implies(*predCond, succIdx == 2, mask, false)) {
+        if (implies(*predCond, IsTargetOnFalse(*predBranch, *block), mask, false)) {
           liveDominatorMap[&mask] = block;
           return true;
         }
