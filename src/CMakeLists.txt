@@ -25,22 +25,31 @@ if (RV_DEBUG)
 endif()
 
 add_rv_library(RV
-  annotations.cpp
-  PlatformInfo.cpp
-  VectorizationInfoProxyPass.cpp
+  ./PlatformInfo.cpp
+  ./VectorizationInfoProxyPass.cpp
+  ./annotations.cpp
+  ./config.cpp
+  ./init.cpp
+  ./intrinsics.cpp
+  ./passes.cpp
+  ./registerPasses.cpp
+  ./report.cpp
+  ./rv.cpp
+  ./rvConfig.cpp
+  ./rvDebug.cpp
+  ./utils.cpp
+  ./vectorMapping.cpp
+  ./vectorizationInfo.cpp
   analysis/AllocaSSA.cpp
-  analysis/costModel.cpp
+  analysis/BranchEstimate.cpp
   analysis/DFG.cpp
+  analysis/UndeadMaskAnalysis.cpp
+  analysis/VectorizationAnalysis.cpp
+  analysis/costModel.cpp
   analysis/loopAnnotations.cpp
   analysis/predicateAnalysis.cpp
-  analysis/VectorizationAnalysis.cpp
   analysis/reductionAnalysis.cpp
   analysis/reductions.cpp
-  analysis/UndeadMaskAnalysis.cpp
-  analysis/BranchEstimate.cpp
-  config.cpp
-  init.cpp
-  intrinsics.cpp
   native/MemoryAccessGrouper.cpp
   native/NatBuilder.cpp
   native/ShuffleBuilder.cpp
@@ -48,32 +57,26 @@ add_rv_library(RV
   region/FunctionRegion.cpp
   region/LoopRegion.cpp
   region/Region.cpp
-  registerPasses.cpp
-  report.cpp
-  rv.cpp
-  rvConfig.cpp
-  rvDebug.cpp
-  passes.cpp
+  resolver/TLIResolver.cpp
+  resolver/listResolver.cpp
   resolver/recResolver.cpp
   resolver/resolver.cpp
-  resolver/listResolver.cpp
   resolver/sleefResolver.cpp
-  resolver/TLIResolver.cpp
   shape/vectorShape.cpp
   shape/vectorShapeTransformer.cpp
   transform/CNSPass.cpp
+  transform/CoherentIFTransform.cpp
   transform/Linearizer.cpp
   transform/LoopVectorizer.cpp
   transform/WFVPass.cpp
   transform/bosccTransform.cpp
-  transform/CoherentIFTransform.cpp
-  transform/crtLowering.cpp
   transform/cns/BlockGraph.cpp
   transform/cns/CNS.cpp
   transform/cns/CNSScoring.cpp
   transform/cns/SplitTree.cpp
   transform/cns/llvmDomination.cpp
   transform/cns/llvmDuplication.cpp
+  transform/crtLowering.cpp
   transform/crtLowering.cpp
   transform/divLoopTrans.cpp
   transform/irPolisher.cpp
@@ -90,11 +93,8 @@ add_rv_library(RV
   transform/splitAllocas.cpp
   transform/srovTransform.cpp
   transform/structOpt.cpp
-  utils.cpp
   utils/rvLinking.cpp
   utils/rvTools.cpp
-  vectorMapping.cpp
-  vectorizationInfo.cpp
   ${RV_HEADER_FILES}
 )
 
