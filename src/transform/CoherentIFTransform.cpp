@@ -57,6 +57,7 @@ struct CoherentIF{
   LoopInfo & loopInfo;
   Module & mod;
   BranchProbabilityInfo *pbInfo;
+  BranchEstimate BranchEst;
 
 CoherentIF(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo,  MaskExpander & _maskEx, DominatorTree & _domTree, PostDominatorTree & _postDomTree, LoopInfo & _loopInfo, BranchProbabilityInfo * _pbInfo)
 : vecInfo(_vecInfo)
@@ -67,6 +68,7 @@ CoherentIF(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo,  MaskExpander
 , loopInfo(_loopInfo)
 , mod(*vecInfo.getScalarFunction().getParent())
 , pbInfo(_pbInfo)
+, BranchEst(vecInfo, platInfo, maskEx, domTree, loopInfo, pbInfo)
 {}
 
 void MaintainCloneLoopwithHeader (Loop * clonedParentLoop, Loop & L, ValueToValueMapTy & valueMap) {
@@ -411,6 +413,47 @@ IsAffine (Instruction* instruction)
   return affine;
 }
 
+
+// 0  : do not TransformBranch
+// -1 : TransformBranch onTrue
+// 1 : TransformBranch onFalse
+// currently only cope with BOSCC and CIF
+int
+PickSuccessorForCIF(BranchInst & branch, bool onTrueLegal, bool onFalseLegal) {
+  double trueRatio = 0.0;
+  double falseRatio = 0.0;
+  size_t onTrueScore = 0;
+  size_t onFalseScore = 0;
+
+  BranchEst.analyze(branch, trueRatio, falseRatio, onTrueScore, onFalseScore);
+
+  const char * Ratio_T = "CIF_T";
+  const char * Score_LIMIT = "CIF_LIMIT";
+
+  const double maxminRatio = GetValue<double>(Ratio_T, 0.40);
+  const size_t minScore = GetValue<size_t>(Score_LIMIT, 100);
+
+  IF_DEBUG_CIF { errs() << *Ratio_T << maxminRatio << *Score_LIMIT << minScore << "\n"; }
+
+  bool onTrueBeneficial = onTrueScore >= minScore && trueRatio < maxminRatio;
+  bool onFalseBeneficial = onFalseScore >= minScore && falseRatio < maxminRatio;
+
+  bool couldTransFalse = onFalseBeneficial && onFalseLegal;
+  bool couldTransTrue = onTrueBeneficial && onTrueLegal;
+
+  // otw try to skip the bigger dominated part
+  // TODO could also give precedence by region size
+  if (couldTransTrue && (!couldTransFalse || onTrueScore > onFalseScore)) {
+    return -1;
+  } else if (couldTransFalse) {
+    return 1;
+  }
+
+  // can not distinguish --> don't TransformBranch
+  // this holds e.g. if the branch does not dominate any of its successors
+  return 0;
+}
+
 bool
 run() {
   domTree.recalculate(vecInfo.getScalarFunction());
@@ -430,11 +473,10 @@ run() {
     if (vecInfo.getVectorShape(*branchInst).isUniform()) continue;
 
     auto * branchCond = branchInst->getCondition();
-    BranchEstimate BranchEstim(vecInfo, platInfo, maskEx, domTree, loopInfo, pbInfo);
 
     // run legality checks
     bool onTrueLegal, onFalseLegal;
-    if (!BranchEstim.CheckLegality(*branchInst, onTrueLegal, onFalseLegal)) continue;
+    if (!BranchEst.CheckLegality(*branchInst, onTrueLegal, onFalseLegal)) continue;
 
     // if affine fails, then use high probability
     if (IsAffine(dyn_cast<Instruction>(branchCond))) {
@@ -443,7 +485,7 @@ run() {
       transformCoherentCF(*branchInst, 0);
     }
     else {
-      int score = BranchEstim.BranchHeuristic(*branchInst, onTrueLegal, onFalseLegal, false);
+      int score = PickSuccessorForCIF(*branchInst, onTrueLegal, onFalseLegal);
       if (score == 0) continue;
       int succIdx = score < 0 ? 0 : 1;
 

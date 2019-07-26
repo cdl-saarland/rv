@@ -54,8 +54,11 @@ struct Impl {
   Module & mod;
   BranchProbabilityInfo *pbInfo;
 
+  BranchEstimate BranchEst;
+
   // BOSCC region exit blocks (containing merge phis)
   BlockSet bosccExitBlocks;
+
 
 Impl(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo,  MaskExpander & _maskEx, DominatorTree & _domTree, PostDominatorTree & _postDomTree, LoopInfo & _loopInfo, BranchProbabilityInfo * _pbInfo)
 : vecInfo(_vecInfo)
@@ -66,6 +69,7 @@ Impl(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo,  MaskExpander & _ma
 , loopInfo(_loopInfo)
 , mod(*vecInfo.getScalarFunction().getParent())
 , pbInfo(_pbInfo)
+, BranchEst(vecInfo, platInfo, maskEx, domTree, loopInfo, pbInfo)
 , bosccExitBlocks()
 {}
 
@@ -271,6 +275,51 @@ transformBranch(BranchInst & branch, int succIdx) {
   }
 }
 
+// 0  : do not TransformBranch
+// -1 : TransformBranch onTrue
+// 1 : TransformBranch onFalse
+// currently only cope with BOSCC and CIF
+int
+PickSuccessorForBoscc(BranchInst & branch) {
+  //run legality checks
+  bool onTrueLegal, onFalseLegal;
+  if (!BranchEst.CheckLegality(branch, onTrueLegal, onFalseLegal)) return 0;
+
+  double trueRatio = 0.0;
+  double falseRatio = 0.0;
+  size_t onTrueScore = 0;
+  size_t onFalseScore = 0;
+
+  BranchEst.analyze(branch, trueRatio, falseRatio, onTrueScore, onFalseScore);
+
+  const char * Ratio_T = "BOSCC_T";
+  const char * Score_LIMIT = "BOSCC_LIMIT";
+
+  const double maxminRatio = GetValue<double>(Ratio_T, 0.40);
+  const size_t minScore = GetValue<size_t>(Score_LIMIT, 100);
+
+  IF_DEBUG_BOSCC { errs() << *Ratio_T << maxminRatio << *Score_LIMIT << minScore << "\n"; }
+
+  bool onTrueBeneficial = onTrueScore >= minScore && trueRatio < maxminRatio;
+  bool onFalseBeneficial = onFalseScore >= minScore && falseRatio < maxminRatio;
+
+  bool couldTransFalse = onFalseBeneficial && onFalseLegal;
+  bool couldTransTrue = onTrueBeneficial && onTrueLegal;
+
+  // otw try to skip the bigger dominated part
+  // TODO could also give precedence by region size
+  if (couldTransTrue && (!couldTransFalse || onTrueScore > onFalseScore)) {
+    return -1;
+  } else if (couldTransFalse) {
+    return 1;
+  }
+
+  // can not distinguish --> don't TransformBranch
+  // this holds e.g. if the branch does not dominate any of its successors
+  return 0;
+}
+
+
 bool
 run() {
   domTree.recalculate(vecInfo.getScalarFunction());
@@ -291,13 +340,7 @@ run() {
 
     // do not speculate across BOSCC exits
     if (bosccExitBlocks.count(branchInst->getSuccessor(0)) || bosccExitBlocks.count(branchInst->getSuccessor(1))) return 0;
-
-    BranchEstimate BranchEst(vecInfo, platInfo, maskEx, domTree, loopInfo, pbInfo);
-    //run legality checks
-    bool onTrueLegal, onFalseLegal;
-    if (!BranchEst.CheckLegality(*branchInst, onTrueLegal, onFalseLegal)) continue;
-
-    int score = BranchEst.BranchHeuristic(*branchInst, onTrueLegal, onFalseLegal, true);
+    int score = PickSuccessorForBoscc(*branchInst);
     if (score == 0) continue;
     int succIdx = score < 0 ? 0 : 1;
 

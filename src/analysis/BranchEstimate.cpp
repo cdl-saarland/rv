@@ -220,7 +220,7 @@ BranchEstimate::analyze(BranchInst &branch, double &trueRatio, double &falseRati
 
   // compute approximate branch probability
   std::map<BasicBlock*,double> dispMap;
-  computeDispersion(dispMap);
+  computeDispersion(dispMap); // FIXME don't recompute this everytime
 
   assert(dispMap.count(onTrueBlock));
   trueRatio = dispMap.at(onTrueBlock);
@@ -230,6 +230,9 @@ BranchEstimate::analyze(BranchInst &branch, double &trueRatio, double &falseRati
   //compute branch cost
   onTrueScore = getDomRegionScore(*onTrueBlock);
   onFalseScore = getDomRegionScore(*onFalseBlock);
+
+  IF_DEBUG_BRANCH { errs() << "score " << branch.getSuccessor(0)->getName() << "   " << onTrueScore << "\nscore  " << branch.getSuccessor(1)->getName() << "   " << onFalseScore << "\n"; }
+  IF_DEBUG_BRANCH { errs() << "trueRatio: " << trueRatio << " onTrueScore: " << onTrueScore  << " falseRatio: " << falseRatio  << " onFalseScore: " << onFalseScore << "\n"; }
 
   return true;
 }
@@ -244,17 +247,12 @@ BranchEstimate::getExitBlock(BasicBlock * entry)
   BasicBlock * ExitBlock = nullptr;
 
   for (BasicBlock* BB : DominatedBBs) {
-    auto *inst = BB->getTerminator();
-    unsigned int numsuc = inst->getNumSuccessors();
-    assert( 1 <= numsuc && numsuc <= 2);
-
-    for (unsigned int i = 0; i < numsuc; i++) {
-      BasicBlock *child = inst->getSuccessor(i);
-      if (std::find(DominatedBBs.begin(), DominatedBBs.end(), child) == DominatedBBs.end()) {
-        if (ExitBlock)
+    for (auto * Succ : successors(BB)) {
+      if (std::find(DominatedBBs.begin(), DominatedBBs.end(), Succ) == DominatedBBs.end()) {
+        if (ExitBlock) {
           return nullptr;
-        else
-          ExitBlock = child;
+        }
+        ExitBlock = Succ;
       }
     }
   }
@@ -300,49 +298,6 @@ BranchEstimate::CheckLegality (BranchInst & branch, bool & onTrueLegal, bool & o
   onFalseLegal &= !onFalseLoop || onFalseLoop->getLoopLatch() != onFalseBlock;
 
   return true;
-}
-
-// 0  : do not TransformBranch
-// -1 : TransformBranch onTrue
-// 1 : TransformBranch onFalse
-// currently only cope with BOSCC and CIF
-int
-BranchEstimate::BranchHeuristic (BranchInst & branch, bool onTrueLegal, bool onFalseLegal, bool isBOSCC) {
-  double trueRatio = 0.0;
-  double falseRatio = 0.0;
-  size_t onTrueScore = 0;
-  size_t onFalseScore = 0;
-
-  analyze(branch, trueRatio, falseRatio, onTrueScore, onFalseScore);
-
-  const char * Ratio_T = isBOSCC? "BOSCC_T" : "CIF_T";
-  const char * Score_LIMIT = isBOSCC? "BOSCC_LIMIT" : "CIF_LIMIT";
-
-  const double maxminRatio = GetValue<double>(Ratio_T, 0.40);
-  const size_t minScore = GetValue<size_t>(Score_LIMIT, 100);
-
-  IF_DEBUG_BRANCH { errs() << *Ratio_T << maxminRatio << *Score_LIMIT << minScore << "\n"; }
-
-  IF_DEBUG_BRANCH { errs() << "score (" << onTrueLegal << ") " << branch.getSuccessor(0)->getName() << "   " << onTrueScore << "\nscore  (" << onFalseLegal << ") " << branch.getSuccessor(1)->getName() << "   " << onFalseScore << "\n"; }
-  IF_DEBUG_BRANCH { errs() << "trueRatio: " << trueRatio << " onTrueScore: " << onTrueScore  << " falseRatio: " << falseRatio  << " onFalseScore: " << onFalseScore << " maxminRatio:" << maxminRatio << " minScore:  " << minScore << "\n";}
-
-  bool onTrueBeneficial = onTrueScore >= minScore && (isBOSCC? trueRatio < maxminRatio : trueRatio >= maxminRatio);
-  bool onFalseBeneficial = onFalseScore >= minScore && (isBOSCC? falseRatio < maxminRatio : falseRatio >= maxminRatio);
-
-  bool couldTransFalse = onFalseBeneficial && onFalseLegal;
-  bool couldTransTrue = onTrueBeneficial && onTrueLegal;
-
-  // otw try to skip the bigger dominated part
-  // TODO could also give precedence by region size
-  if (couldTransTrue && (!couldTransFalse || onTrueScore > onFalseScore)) {
-    return -1;
-  } else if (couldTransFalse) {
-    return 1;
-  }
-
-  // can not distinguish --> don't TransformBranch
-  // this holds e.g. if the branch does not dominate any of its successors
-  return 0;
 }
 
 int

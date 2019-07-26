@@ -36,8 +36,6 @@ public:
 
   llvm::BasicBlock * getExitBlock(llvm::BasicBlock * entry);
 
-  int BranchHeuristic (llvm::BranchInst & branch, bool onTrueLegal, bool onFalseLegal, bool isBOSCC);
-
   bool analyze(llvm::BranchInst & branch,
                 double & trueRatio,
                 double & falseRatio,
