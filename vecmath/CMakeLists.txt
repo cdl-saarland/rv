@@ -9,7 +9,6 @@ SET ( RV_LIB_EXTRAS_DIR "${RV_SOURCE_DIR}/vecmath/extras" )
 # compiler-rt
 SET ( CRT_BC "${VECMATH_LIB_DIR}/crt.bc" )
 SET ( CRT_GENBC "${VECMATH_LIB_DIR}/crt.gen.cpp" )
-SET ( CRT_INC "${RV_SOURCE_DIR}/../../projects/compiler-rt/lib/builtins" )
 
 # extra libs
 SET ( SLEEF_BC_ADVSIMD_SP )
@@ -239,7 +238,30 @@ ADD_CUSTOM_COMMAND (
   DEPENDS ${RV_LIB_SLEEF_DIR}/sleefdp.c ${LLVM_TOOL_CLANG}
 )
 
+
+# try to find compiler-rt
+function(get_compiler_rt_path path)
+  set(CRT_SEARCH_PATHS "${CMAKE_SOURCE_DIR}/runtimes/compiler-rt;${CMAKE_SOURCE_DIR}/projects/compiler-rt;${CMAKE_SOURCE_DIR}/../compiler-rt/")
+  foreach(entry ${CRT_SEARCH_PATHS})
+     if (IS_DIRECTORY ${entry})
+      set(${path} ${entry} PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+endfunction()
+
+
 IF (RV_ENABLE_CRT) 
+  # look for compiler-rt source folder
+  get_compiler_rt_path(CRT_SOURCES)
+
+  Message("-- rv: Building compiler-rt BC libs using ${CRT_SOURCES}.")
+
+  SET ( CRT_INC "${CRT_SOURCES}/lib/builtins" )
+  IF (NOT (IS_DIRECTORY ${CRT_INC}))
+    message(FATAL_ERROR "--rv: RV_ENABLE_CRT options requires compiler-rt sources to be available!")
+  ENDIF()
+
   # compiler-rt runtime library
   ADD_CUSTOM_COMMAND (
     OUTPUT ${CRT_GENBC}
@@ -248,9 +270,9 @@ IF (RV_ENABLE_CRT)
     COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${CRT_GENBC} \"crt\" ${CRT_BC}
     DEPENDS ${RV_SOURCE_DIR}/vecmath/crt.c ${LLVM_TOOL_CLANG}
   )
-  Message("-- rv: Building compiler-rt bc libs.")
+
 ELSE()
-  Message("-- rv: Building without compiler-rt bc libs.")
+  Message("-- rv: Building without compiler-rt BC libs.")
 ENDIF()
 # generate static library
 add_rv_library(gensleef STATIC ${RV_GENBC_SOURCES})
