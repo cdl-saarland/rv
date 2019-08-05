@@ -82,7 +82,7 @@ GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oRequiresR
     case RedKind::Add: {
      if (elemTy.isFloatingPointTy()) {
        oHasInitVal = true;
-       oRequiresRetTy = false;
+       oRequiresRetTy = true;
        return Intrinsic::experimental_vector_reduce_v2_fadd;
      } else {
        return Intrinsic::experimental_vector_reduce_add;
@@ -91,7 +91,7 @@ GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oRequiresR
     case RedKind::Mul: {
      if (elemTy.isFloatingPointTy()) {
        oHasInitVal = true;
-       oRequiresRetTy = false;
+       oRequiresRetTy = true;
        return Intrinsic::experimental_vector_reduce_v2_fmul;
      } else {
        return Intrinsic::experimental_vector_reduce_mul;
