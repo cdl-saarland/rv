@@ -12,7 +12,7 @@
 
 using namespace llvm;
 
-#if 1
+#if 0
 #define IF_DEBUG_UDM IF_DEBUG
 #else
 #define IF_DEBUG_UDM if (true)
@@ -30,7 +30,7 @@ IsConstMask(const Value & val, bool allTrue) {
 
 static Value*
 MatchNegation(const Value & val) {
-  Value * Elem;
+  Value * Elem = nullptr;
   if (match(&val, m_Not(m_Value(Elem)))) {
     return Elem;
   }
@@ -68,8 +68,8 @@ UndeadMaskAnalysis::implies(const Value & lhs, bool lhsNegated, const Value & rh
 // see through RHS disjunctions
   if ((!rhsNegated && match(&rhs, m_Or(m_Value(A), m_Value(B)))) ||
       (rhsNegated && match(&rhs, m_And(m_Value(A), m_Value(B))))) {
-    IF_DEBUG_UDM { errs() << "\tlhs disjunction case\n"; }
-    return implies(*A, lhsNegated, rhs, rhsNegated) || implies(*B, lhsNegated, rhs, rhsNegated);
+    IF_DEBUG_UDM { errs() << "\trhs disjunction case\n"; }
+    return implies(lhs, lhsNegated, *A, rhsNegated) || implies(rhs, lhsNegated, *B, rhsNegated);
   }
 
 // mask predicate
