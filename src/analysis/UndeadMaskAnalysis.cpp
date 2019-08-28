@@ -12,7 +12,7 @@
 
 using namespace llvm;
 
-#if 0
+#if 1
 #define IF_DEBUG_UDM IF_DEBUG
 #else
 #define IF_DEBUG_UDM if (true)
