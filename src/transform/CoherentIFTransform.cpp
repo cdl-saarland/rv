@@ -478,6 +478,18 @@ run() {
     bool onTrueLegal, onFalseLegal;
     if (!BranchEst.CheckLegality(*branchInst, onTrueLegal, onFalseLegal)) continue;
 
+    // check for SESE
+    BasicBlock * onTrueBlock = branchInst->getSuccessor(0);
+    BasicBlock * onFalseBlock = branchInst->getSuccessor(1);
+    BasicBlock * exitOnTrueBlock = BranchEst.getExitBlock(onTrueBlock);
+    if (!exitOnTrueBlock) continue; //return false;
+
+    if (exitOnTrueBlock != onFalseBlock) { //There is else branch
+      if (!BranchEst.getExitBlock(onFalseBlock))
+        continue; // return false;
+    }
+
+
     // if affine fails, then use high probability
     if (IsAffine(dyn_cast<Instruction>(branchCond))) {
       IF_DEBUG_CIF {errs()<< *branchCond << " is affine condition" << "\n";}

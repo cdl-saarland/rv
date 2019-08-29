@@ -281,9 +281,18 @@ transformBranch(BranchInst & branch, int succIdx) {
 // currently only cope with BOSCC and CIF
 int
 PickSuccessorForBoscc(BranchInst & branch) {
+  IF_DEBUG_BOSCC {
+     errs () << "BOSCC: inspecting " << branch << "\n";
+  }
+
   //run legality checks
   bool onTrueLegal, onFalseLegal;
   if (!BranchEst.CheckLegality(branch, onTrueLegal, onFalseLegal)) return 0;
+
+  IF_DEBUG_BOSCC {
+    errs () << "BOSCC: onTrueLegal to " << branch.getSuccessor(0)->getName() << " = " << onTrueLegal << "\n";
+    errs () << "BOSCC: onFalseLegal to " << branch.getSuccessor(1)->getName() << " = " << onFalseLegal << "\n";
+  }
 
   double trueRatio = 0.0;
   double falseRatio = 0.0;
@@ -295,13 +304,18 @@ PickSuccessorForBoscc(BranchInst & branch) {
   const char * Ratio_T = "BOSCC_T";
   const char * Score_LIMIT = "BOSCC_LIMIT";
 
-  const double maxminRatio = GetValue<double>(Ratio_T, 0.40);
+  const double maxRatio = GetValue<double>(Ratio_T, 0.40);
   const size_t minScore = GetValue<size_t>(Score_LIMIT, 100);
 
-  IF_DEBUG_BOSCC { errs() << *Ratio_T << maxminRatio << *Score_LIMIT << minScore << "\n"; }
+  IF_DEBUG_BOSCC { errs() << "BOSCC_T=" << maxRatio << ", BOSCC_LIMIT=" << minScore << "\n"; }
 
-  bool onTrueBeneficial = onTrueScore >= minScore && trueRatio < maxminRatio;
-  bool onFalseBeneficial = onFalseScore >= minScore && falseRatio < maxminRatio;
+  IF_DEBUG_BOSCC {
+    errs () << "BOSCC: onTrue Score/Ratio to " << branch.getSuccessor(0)->getName() << " = " << onTrueScore << " / " << trueRatio << "\n";
+    errs () << "BOSCC: onFalse Legal/Ratio to " << branch.getSuccessor(1)->getName() << " = " << onFalseScore << " / " << falseRatio << "\n";
+  }
+
+  bool onTrueBeneficial = onTrueScore >= minScore && trueRatio < maxRatio;
+  bool onFalseBeneficial = onFalseScore >= minScore && falseRatio < maxRatio;
 
   bool couldTransFalse = onFalseBeneficial && onFalseLegal;
   bool couldTransTrue = onTrueBeneficial && onTrueLegal;
@@ -346,6 +360,9 @@ run() {
 
     ++numBosccBranches;
 
+    IF_DEBUG_BOSCC {
+      errs() << "BOSCC: Skip succ " << branchInst->getSuccessor(succIdx)->getName() << " of block " << branchInst->getParent()->getName() << "\n";
+    }
     Report() << "boscc: skip succ " << branchInst->getSuccessor(succIdx)->getName() << " of block " << branchInst->getParent()->getName() << "\n";
 
     // pull out all incoming values in the going-to-be-BOSCCed region into their own phi nodes in a dedicated block (if the boscc branch is taken these blens will be skipped)

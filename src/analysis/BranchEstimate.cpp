@@ -267,14 +267,6 @@ BranchEstimate::CheckLegality (BranchInst & branch, bool & onTrueLegal, bool & o
   BasicBlock * onTrueBlock = branch.getSuccessor(0);
   BasicBlock * onFalseBlock = branch.getSuccessor(1);
 
-  BasicBlock * exitOnTrueBlock = getExitBlock(onTrueBlock);
-  if (!exitOnTrueBlock) return false;
-
-  if (exitOnTrueBlock != onFalseBlock) { //There is else branch
-    if (!getExitBlock(onFalseBlock))
-      return false;
-  }
-
   if (!vecInfo.inRegion(*onTrueBlock) || !vecInfo.inRegion(*onFalseBlock)) return false;
 
   auto * branchLoop = loopInfo.getLoopFor(branch.getParent());
@@ -291,11 +283,9 @@ BranchEstimate::CheckLegality (BranchInst & branch, bool & onTrueLegal, bool & o
   // per sucess legality
   // legality checks for speculating over onTrue
   onTrueLegal = GetNumPredecessors(*onTrueBlock) == 1; //domTree.dominates(branch.getParent(), onTrueBlock);
-  onTrueLegal &= !onTrueLoop || onTrueLoop->getLoopLatch() != onTrueBlock;
 
   // legality checks for speculating over onTrue
   onFalseLegal = GetNumPredecessors(*onFalseBlock) == 1; //domTree.dominates(branch.getParent(), onFalseBlock);
-  onFalseLegal &= !onFalseLoop || onFalseLoop->getLoopLatch() != onFalseBlock;
 
   return true;
 }
