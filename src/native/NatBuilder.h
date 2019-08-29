@@ -72,6 +72,7 @@ namespace rv {
 
     // generate reduction code (after all other instructions have been vectorized)
     void materializeVaryingReduction(rv::Reduction & red, llvm::PHINode & scaPhi);
+    void materializeOrderedReduction(rv::Reduction & red, llvm::PHINode & scaPhi);
 
     // materialize a recurrence pattern (SCC only consists of phis and selects)
     void materializeRecurrence(rv::Reduction & red, llvm::PHINode & scaPhi);

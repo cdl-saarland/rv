@@ -401,7 +401,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   PlatformInfo platInfo(*F.getParent(), &tti, &tli);
 
   // TODO translate fast-math flag to ULP error bound
-  addSleefResolver(config, platInfo);
+  if (!CheckFlag("RV_NO_SLEEF")) { addSleefResolver(config, platInfo); }
 
   // enable inter-procedural vectorization
   if (config.enableGreedyIPV) {

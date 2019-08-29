@@ -2674,6 +2674,8 @@ NatBuilder::materializeStridePattern(rv::StridePattern & sp) {
 
 void
 NatBuilder::materializeRecurrence(Reduction & red, PHINode & scaPhi) {
+  abort(); // this code is broken
+
   const int vectorWidth = vecInfo.getVectorWidth();
   assert(vecInfo.getVectorShape(scaPhi).isVarying());
 
@@ -2718,6 +2720,90 @@ NatBuilder::materializeRecurrence(Reduction & red, PHINode & scaPhi) {
                     }
   );
 }
+
+void
+NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
+  assert((red.kind != RedKind::Top) && (red.kind != RedKind::Bot));
+
+  const auto vectorWidth = vecInfo.getVectorWidth();
+  auto * vecPhi = cast<PHINode>(getVectorValue(&scaPhi));
+  auto redShape = red.getShape(vectorWidth);
+  assert(redShape.isVarying()); (void) redShape;
+
+
+// construct new (vectorized) initial value
+  // TODO generalize to multi phi reductions
+  Value * vecNeutral = ConstantVector::getSplat(vectorWidth, &GetNeutralElement(red.kind, *scaPhi.getType()));
+
+  auto * inAtZero = dyn_cast<Instruction>(scaPhi.getIncomingValue(0));
+  int latchIdx = (inAtZero && vecInfo.inRegion(*inAtZero)) ? 0 : 1;
+  int initIdx = 1 - latchIdx;
+
+  BasicBlock * vecInitInputBlock = scaPhi.getIncomingBlock(initIdx);
+  auto & vecLatchBlock = cast<BasicBlock>(*getVectorValue(scaPhi.getIncomingBlock(latchIdx)));
+
+  // BasicBlock * vecLoopInputBlock = cast<BasicBlock>(getVectorValue(scaPhi.getIncomingBlock(latchIdx)));
+
+// materialize initial input (insert init value into last lane)
+  Value * scaInitValue = scaPhi.getIncomingValue(initIdx);
+  auto * scaLatchInst = cast<Instruction>(scaPhi.getIncomingValue(latchIdx));
+  auto * vecLatchInst = cast<Instruction>(getVectorValue(scaLatchInst));
+
+  // IRBuilder<> phBuilder(vecInitInputBlock, vecInitInputBlock->getTerminator()->getIterator());
+  // auto * intTy = Type::getInt32Ty(scaPhi.getContext());
+  // auto * vecInitVal = phBuilder.CreateInsertElement(vecNeutral, scaInitValue, ConstantInt::get(intTy, vectorWidth - 1, false));
+
+// create a scalar ordered Phi nodes
+  auto * orderPhi = PHINode::Create(scaPhi.getType(), 2, scaPhi.getName() + ".ord", vecPhi);
+  orderPhi->addIncoming(scaInitValue, vecInitInputBlock);
+  mapVectorValue(&scaPhi, orderPhi); // FIXME not technically correcta
+
+  // erase temporary vector phi
+  vecPhi->replaceAllUsesWith(vecNeutral);
+  vecPhi->eraseFromParent();
+
+// (orderly) reduce vectors into scalars
+  IRBuilder<> latchBuilder(&vecLatchBlock, vecLatchBlock.getTerminator()->getIterator());
+  auto & reducedUpdate = CreateVectorReduce(latchBuilder, red.kind, *vecLatchInst, orderPhi);
+  orderPhi->addIncoming(&reducedUpdate, &vecLatchBlock);
+
+// reduce reduction phi for outside users
+  repairOutsideUses(*scaLatchInst,
+                    [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
+                      return reducedUpdate;
+                    }
+  );
+
+
+  // construct a 1...10 mask
+  std::vector<Constant*> selElems;
+  for (size_t i = 1; i < vectorWidth; ++i) {
+    selElems.push_back(ConstantInt::getTrue(orderPhi->getContext()));
+  }
+  selElems.push_back(ConstantInt::getFalse(orderPhi->getContext()));
+  auto * selMask = ConstantVector::get(selElems); // 1...10
+
+  // create reduced outside views for external users
+  for (auto * elem : red.elements) {
+    if (elem == scaLatchInst) continue; // already reduced that one
+    if (!vecInfo.inRegion(*cast<Instruction>(elem))) continue;
+
+    auto& vecElem = *cast<Instruction>(getVectorValue(elem));
+
+    // reduce outside uses on demand
+    repairOutsideUses(*elem,
+                      [&](Value & usedVal, BasicBlock& userBlock) ->Value& {
+                      auto * insertPt = userBlock.getFirstNonPHI();
+                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                      // reduce all end-of-iteration values and request value of last iteration
+                      auto & foldVec = *builder.CreateSelect(selMask, vecLatchInst, &vecElem, ".red");
+                      auto & reducedVector = CreateVectorReduce(builder, red.kind, foldVec, orderPhi);
+                      return reducedVector;
+                    }
+    );
+  }
+}
+
 
 void
 NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
@@ -2823,7 +2909,11 @@ void NatBuilder::addValuesToPHINodes() {
     } else if (isVectorLoopHeader && shape.isVarying() && red && red->kind != RedKind::Bot) {
       // reduction phi handling
       IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
-      materializeVaryingReduction(*red, *scalPhi);
+      if (CheckFlag("RV_RED_ORDER")) {
+        materializeOrderedReduction(*red, *scalPhi);
+      } else {
+        materializeVaryingReduction(*red, *scalPhi);
+      }
 
     } else if (isVectorLoopHeader && red && red->kind == RedKind::Bot && shape.isVarying()) {
       // reduction phi handling
