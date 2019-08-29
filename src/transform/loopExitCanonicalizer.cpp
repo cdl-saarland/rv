@@ -224,9 +224,9 @@ LoopExitCanonicalizer::replaceTarget(BasicBlock* source,
         BasicBlock* succBB = terminator->getSuccessor(i);
         if (succBB != target) continue;
 
-        assert (!replaced && "block must not have multiple edges going to the same target!");
         terminator->setSuccessor(i, newTarget);
         replaced = true;
+        break; // first successor replaced..
     }
 
     assert (replaced);
