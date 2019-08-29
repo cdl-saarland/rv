@@ -2798,19 +2798,9 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
   auto * scaLatchInst = cast<Instruction>(scaPhi.getIncomingValue(latchIdx));
   auto * vecLatchInst = cast<Instruction>(getVectorValue(scaLatchInst));
 
-  // IRBuilder<> phBuilder(vecInitInputBlock, vecInitInputBlock->getTerminator()->getIterator());
-  // auto * intTy = Type::getInt32Ty(scaPhi.getContext());
-  // auto * vecInitVal = phBuilder.CreateInsertElement(vecNeutral, scaInitValue, ConstantInt::get(intTy, vectorWidth - 1, false));
-
 // create a scalar ordered Phi nodes
   auto * orderPhi = PHINode::Create(scaPhi.getType(), 2, scaPhi.getName() + ".ord", vecPhi);
   orderPhi->addIncoming(scaInitValue, vecInitInputBlock);
-  mapVectorValue(&scaPhi, orderPhi); // FIXME not technically correcta
-
-  // erase temporary vector phi
-  vecPhi->replaceAllUsesWith(vecNeutral);
-  vecPhi->eraseFromParent();
-
 // (orderly) reduce vectors into scalars
   IRBuilder<> latchBuilder(&vecLatchBlock, vecLatchBlock.getTerminator()->getIterator());
   auto & reducedUpdate = CreateVectorReduce(latchBuilder, red.kind, *vecLatchInst, orderPhi);
@@ -2851,6 +2841,11 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
                     }
     );
   }
+
+  // remap old vecPhi and erase
+  mapVectorValue(&scaPhi, vecNeutral); // FIXME sound?
+  vecPhi->replaceAllUsesWith(vecNeutral);
+  vecPhi->eraseFromParent();
 }
 
 
