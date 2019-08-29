@@ -1410,6 +1410,36 @@ void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx)
   ++numScalarized;
 }
 
+
+RedKind
+NatBuilder::matchMemoryReduction(Value * scaPtr, Value * scaValue, Value *& oPayload, Instruction *& oScaLoad) {
+   auto *scaInst = dyn_cast<Instruction>(scaValue);
+   if (!scaInst) return RedKind::Top;
+
+   // reducable operator?
+   auto redKind = InferInstRedKind(*scaInst);
+   if (redKind == RedKind::Top) return RedKind::Top;
+
+   // one operand has to be a load
+   auto lhsLoad = dyn_cast<LoadInst>(scaInst->getOperand(0));
+   auto rhsLoad = dyn_cast<LoadInst>(scaInst->getOperand(1));
+   if (!lhsLoad && !rhsLoad) return RedKind::Top;
+
+   auto scaLoad = lhsLoad ? lhsLoad : rhsLoad;
+   oScaLoad = scaLoad;
+   if (lhsLoad) {
+     oPayload = scaInst->getOperand(1);
+   } else {
+     oPayload = scaInst->getOperand(0);
+   }
+
+   // is this a "load ptr -> reduce -> store" ptr chain?
+   auto scaLoadPtr = scaLoad->getPointerOperand();
+   if (scaLoadPtr == scaPtr) return redKind;
+   return RedKind::Top;
+}
+
+
 void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   if (keepScalar.count(inst)) {
     return replicateInstruction(inst);
@@ -1517,6 +1547,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
 
   } else {
+    // store
     if (needsMask && addrShape.isUniform()) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       auto valShape = vecInfo.getVectorShape(*store->getValueOperand());
@@ -1532,8 +1563,26 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
     } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
-      Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
-                                                       : requestVectorValue(storedValue);
+      auto valShape = getVectorShape(*storedValue);
+
+      // memory reduction pattern "*p = varyingValue" // FIXME generalize (eg for uniform inputs, etc)
+      Value * mappedStoredVal = nullptr;
+      if (addrShape.isUniform() && !valShape.isUniform()) {
+        Instruction * scaOldLoad = nullptr;
+        Value * scaPayload = nullptr;
+        RedKind memRed = matchMemoryReduction(accessedPtr, storedValue, scaPayload, scaOldLoad);
+        if (memRed == RedKind::Top) {
+          errs() << "ERROR: Storing a non-uniform value to a uniform pointer but could not identify reduction pattern!\n";
+          abort();
+        }
+
+        auto vecOldLoad = requestScalarValue(scaOldLoad);
+        auto vecPayload = requestVectorValue(scaPayload);
+        mappedStoredVal = &CreateVectorReduce(builder, memRed, *vecPayload, vecOldLoad);
+      } else {
+        mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
+                                                : requestVectorValue(storedValue);
+      }
       vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment, needsMask ? mask : nullptr);
 
       addrShape.isUniform() ? ++numUniStores : needsMask ? ++numContMaskedStores : ++numContStores;

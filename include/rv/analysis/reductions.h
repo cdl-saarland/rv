@@ -45,6 +45,9 @@ bool from_string(llvm::StringRef redKindText, RedKind & oRedKind);
 // get the neutral element for this reduction kind and data type
 llvm::Constant& GetNeutralElement(RedKind redKind, llvm::Type & chainType);
 
+// try to infer the reduction kind of the operator implemented by inst
+RedKind InferInstRedKind(llvm::Instruction & inst);
+
 }
 
 #endif // RV_ANALYSIS_REDUCTIONS_H

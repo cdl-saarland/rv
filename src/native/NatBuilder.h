@@ -19,6 +19,7 @@
 #include "rv/config.h"
 #include "rv/intrinsics.h"
 #include "rv/analysis/UndeadMaskAnalysis.h"
+#include "rv/analysis/reductions.h"
 
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
 #include <llvm/IR/Dominators.h>
@@ -213,7 +214,8 @@ namespace rv {
 
     void visitMemInstructions();
 
-
+    // match an "*uniPtr += varyinValue" kind of pattern
+    RedKind matchMemoryReduction(llvm::Value * scaPtr, llvm::Value * scaValue, llvm::Value *& oPayload, llvm::Instruction *& oScaLoad);
   };
 }
 

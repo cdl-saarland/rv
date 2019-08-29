@@ -132,4 +132,39 @@ GetNeutralElement(RedKind redKind, Type & chainTy) {
   llvm_unreachable("unsupported type for reduction");
 }
 
+RedKind
+InferInstRedKind(Instruction & inst) {
+  switch (inst.getOpcode()) {
+  // actually operations folding a reduction input into the chian
+    case Instruction::FAdd:
+    case Instruction::Add:
+      return RedKind::Add;
+
+    case Instruction::FSub:
+    case Instruction::Sub:
+      return RedKind::Top;
+
+    case Instruction::FMul:
+    case Instruction::Mul:
+      return RedKind::Mul;
+
+    case Instruction::Or:
+      return RedKind::Or;
+
+    case Instruction::And:
+      return RedKind::And;
+
+  // preserving operations
+    case Instruction::Select:
+    case Instruction::PHI:
+      return RedKind::Bot;
+
+  // unkown -> unrecognized operation in reduction chain
+    default:
+      return RedKind::Top;
+  }
+  abort();
 }
+
+
+} // namespace rv
