@@ -1,5 +1,7 @@
 #include "rv/transform/redTools.h"
 
+#include "rv/config.h"
+
 using namespace llvm;
 
 namespace rv {
@@ -108,16 +110,23 @@ GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oRequiresR
 
 // reduce the vector @vectorVal to a scalar value (using redKind)
 Value &
-CreateVectorReduce(IRBuilder<> & builder, RedKind redKind, Value & vecVal, Value * initVal) {
+CreateVectorReduce(Config & config, IRBuilder<> & builder, RedKind redKind, Value & vecVal, Value * initVal) {
   unsigned vecWidth = vecVal.getType()->getVectorNumElements();
   auto & vecTy = *vecVal.getType();
   auto & elemTy = *vecTy.getVectorElementType();
+
+// Workaround backend deficiencies
+  bool useFallback = false;
+  if (config.useADVSIMD && (redKind == RedKind::Add) && vecVal.getType()->isFPOrFPVectorTy()) {
+    // FIXME "fatal error: error in backend: Cannot select: t4: f64 = vecreduce_strict_fadd ConstantFP:f64<0.000000e+00>, t3"
+    useFallback = true;
+  }
 
 // use LLVM's experimental intrinsics where possible
   bool hasInitValArg = false; // whether the intrinsic has an initial value argument
   bool requiresRetTy = false; // whether a disambiguating elem type token is required
   Intrinsic::ID ID = GetIntrinsicID(redKind, elemTy, hasInitValArg, requiresRetTy);
-  if (ID != Intrinsic::not_intrinsic) {
+  if (!useFallback && (ID != Intrinsic::not_intrinsic)) {
     auto & mod = *builder.GetInsertBlock()->getParent()->getParent();
 
     std::vector<Type*> reduceTypeVec;

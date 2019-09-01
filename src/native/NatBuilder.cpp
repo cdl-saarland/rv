@@ -798,7 +798,7 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
   if (shape.isVarying()) {
     Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
     RedKind kind = isRv_all ? RedKind::And : RedKind::Or;
-    reduction = &CreateVectorReduce(builder, kind, *vecPredicate, nullptr);
+    reduction = &CreateVectorReduce(config, builder, kind, *vecPredicate, nullptr);
     // reduction = createPTest(vecPredicate, isRv_all);
   } else {
     reduction = requestScalarValue(predicate);
@@ -1027,13 +1027,13 @@ NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> 
         auto * maskedLaneVec = builder.CreateSelect(vecVal, flagVec, zeroVec);
 
       // reduce_or
-        result = &CreateVectorReduce(builder, RedKind::Or, *maskedLaneVec);
+        result = &CreateVectorReduce(config, builder, RedKind::Or, *maskedLaneVec, nullptr);
       }
     } break;
 
     case RVIntrinsic::PopCount: {
       auto * maskedOnes = builder.CreateZExt(vecVal, intVecTy, "rv_ballot");
-      result = &CreateVectorReduce(builder, RedKind::Add, *maskedOnes);
+      result = &CreateVectorReduce(config, builder, RedKind::Add, *maskedOnes, nullptr);
     } break;
 
     default: abort();
@@ -1578,7 +1578,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
         auto vecOldLoad = requestScalarValue(scaOldLoad);
         auto vecPayload = requestVectorValue(scaPayload);
-        mappedStoredVal = &CreateVectorReduce(builder, memRed, *vecPayload, vecOldLoad);
+        mappedStoredVal = &CreateVectorReduce(config, builder, memRed, *vecPayload, vecOldLoad);
       } else {
         mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                 : requestVectorValue(storedValue);
@@ -1719,7 +1719,7 @@ NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, u
     auto * activeLaneVec = builder.CreateAnd(sxMask, laneIdxConst);
 
     // horizontal MAX reduction
-    indexVal = &CreateVectorReduce(builder, RedKind::UMax, *activeLaneVec);
+    indexVal = &CreateVectorReduce(config, builder, RedKind::UMax, *activeLaneVec, nullptr);
 #else
   // compute MSB from leading zeros
     // determine the MS (using the ctlz intrinsic)
@@ -2558,7 +2558,7 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
 // new generic code path
   if (!config.enableIRPolish) {
     RedKind kind = isRv_all ? RedKind::And : RedKind::Or;
-    return &CreateVectorReduce(builder, kind, *vector, nullptr);
+    return &CreateVectorReduce(config, builder, kind, *vector, nullptr);
   }
 
 // legacy IR-polisher based code path
@@ -2803,7 +2803,7 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
   orderPhi->addIncoming(scaInitValue, vecInitInputBlock);
 // (orderly) reduce vectors into scalars
   IRBuilder<> latchBuilder(&vecLatchBlock, vecLatchBlock.getTerminator()->getIterator());
-  auto & reducedUpdate = CreateVectorReduce(latchBuilder, red.kind, *vecLatchInst, orderPhi);
+  auto & reducedUpdate = CreateVectorReduce(config, latchBuilder, red.kind, *vecLatchInst, orderPhi);
   orderPhi->addIncoming(&reducedUpdate, &vecLatchBlock);
 
 // reduce reduction phi for outside users
@@ -2836,7 +2836,7 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
                       IRBuilder<> builder(&userBlock, insertPt->getIterator());
                       // reduce all end-of-iteration values and request value of last iteration
                       auto & foldVec = *builder.CreateSelect(selMask, vecLatchInst, &vecElem, ".red");
-                      auto & reducedVector = CreateVectorReduce(builder, red.kind, foldVec, orderPhi);
+                      auto & reducedVector = CreateVectorReduce(config, builder, red.kind, foldVec, orderPhi);
                       return reducedVector;
                     }
     );
@@ -2889,7 +2889,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
                       // otw, replace with reduced value
                       auto * insertPt = userBlock.getFirstNonPHI();
                       IRBuilder<> builder(&userBlock, insertPt->getIterator());
-                      auto & reducedVector = CreateVectorReduce(builder, red.kind, *vecLatchInst);
+                      auto & reducedVector = CreateVectorReduce(config, builder, red.kind, *vecLatchInst, nullptr);
                       return reducedVector;
                     }
   );
@@ -2917,7 +2917,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
                       IRBuilder<> builder(&userBlock, insertPt->getIterator());
                       // reduce all end-of-iteration values and request value of last iteration
                       auto & foldVec = *builder.CreateSelect(selMask, vecLatchInst, &vecElem, ".red");
-                      auto & reducedVector = CreateVectorReduce(builder, red.kind, foldVec);
+                      auto & reducedVector = CreateVectorReduce(config, builder, red.kind, foldVec, nullptr);
                       return reducedVector;
                     }
     );
