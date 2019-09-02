@@ -767,6 +767,16 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
     return std::make_unique<SleefLookupResolver>(destModule, /* RNG result */ VectorShape::varying(), *vecFunc, funcDesc.vectorFnName);
   }
 
+  // Skip for fast builtin functions // FIXME should be in its own target-dependent resolver
+  if (StringRef(sleefName).startswith("xsqrt")) {
+    // "every" target has a sqrt instruction of sorts
+    auto vecTy = VectorType::get(scaFuncTy.getReturnType(), vectorWidth);
+    auto vecFunc = Intrinsic::getDeclaration(&destModule, Intrinsic::sqrt, {vecTy});
+
+    // FIXME abusing the SleefLookupResolver to retrieve an existing declaration...
+    return std::make_unique<SleefLookupResolver>(destModule, VectorShape::varying(), *vecFunc, vecFunc->getName().str());
+  }
+
   // Look in SLEEF module
   auto modIndex = sleefModuleIndex(isa, doublePrecision);
   llvm::Module*& mod = sleefModules[modIndex]; // TODO const Module
