@@ -563,7 +563,7 @@ struct SleefVLAResolver : public FunctionResolver {
     if (vecFunc) return *vecFunc;
 
     // FIXME this is a hacky workaround for sqrt
-    if (vectorizer.getConfig().useVE && scaFunc.getName().startswith("xsqrt")) {
+    if (scaFunc.getName().startswith("xsqrt")) {
       auto funcTy = scaFunc.getFunctionType();
       auto vecTy = VectorType::get(funcTy->getReturnType(), vectorWidth);
       vecFunc = Intrinsic::getDeclaration(&targetModule, Intrinsic::sqrt, {vecTy});
