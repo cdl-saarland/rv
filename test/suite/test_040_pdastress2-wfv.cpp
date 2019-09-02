@@ -49,38 +49,38 @@ E:
   goto F;
 F: /// phi
   v = p;
-  Inc(2342345);
+  Inc(2342345.f);
   goto G;
 G:
-  Inc(23452345);
+  Inc(23452345.f);
   goto Z;
 
 H:
-  Inc(98123);
+  Inc(98123.f);
   goto I;
 I:
-  Inc(23425);
+  Inc(23425.f);
   if (cosf(x) <= .75) goto L; else goto K;
 K:
-  Inc(13452345);
+  Inc(134545.f);
   goto M;
 L:
-  Inc(232345);
+  Inc(23234.f);
   R = 3.0;
   if (cosf(x) <= .25 ) goto M; else goto end;
 M:
-  Inc(324234);
+  Inc(324234.f);
   goto N;
 N:
   v = 2.0;
-  Inc(4545);
+  Inc(4545.f);
   goto Z;
 
 Z:
   R = v;  // phi
-  Inc(7.0);
+  Inc(7.f);
 
 end:
-  Inc(8.0);
+  Inc(8.f);
   return R;
 }
