@@ -151,7 +151,7 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   rv::RemainderTransform remTrans(parentFn, domTree, postDomTree, loopInfo,
                                   reductionAnalysis);
   auto *preparedLoop = remTrans.createVectorizableLoop(
-      loop, uniOverrides, vectorWidth, vectorWidth);
+      loop, uniOverrides, vectorWidth, 1);
 
   if (!preparedLoop) {
     fail("remTrans could not transform to a vectorizable loop.");
