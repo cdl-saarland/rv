@@ -42,11 +42,11 @@
 #if 1
 #define IF_DEBUG_LIN IF_DEBUG
 #else
-#define IF_DEBUG_LIN if (false)
+#define IF_DEBUG_LIN if (true)
 #endif
 
 #if 0
-#define IF_DEBUG_DTFIX IF_DEBUG
+#define IF_DEBUG_DTFIX IF_DEBUG_LIN
 #else
 #define IF_DEBUG_DTFIX if (false)
 #endif
@@ -54,7 +54,7 @@
 using namespace llvm;
 
 #if 0
-#define IF_DEBUG_INDEX IF_DEBUG
+#define IF_DEBUG_INDEX IF_DEBUG_LIN
 #else
 #define IF_DEBUG_INDEX if (false)
 #endif
@@ -652,34 +652,69 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
   return blendedVal;
 }
 
+bool isBoolLiteral(bool testVal, const Value & val) {
+  if (!isa<ConstantInt>(val)) return false;
+  return testVal != (cast<ConstantInt>(val).getZExtValue() != 0);
+}
+
 void
 Linearizer::foldPhis(BasicBlock & block) {
-// find first non repair PHI
-  BasicBlock::iterator itPhi = block.begin();
-  for (
-      BasicBlock::iterator it = itPhi;
-      it != block.end() && isa<PHINode>(*it) && isRepairPhi(cast<PHINode>(*it));
-      ++it)
-  {
-    itPhi = it;
+  PHINode * protoPhi = nullptr;
+
+// visit all phi nodes, memorizing the one that needs folding as protoPhi
+  size_t numLocalIncoming = 0;
+  for (auto & somePhi : block.phis()) {
+    // only phi found is a repair phi
+    if (isRepairPhi(somePhi)) continue;
+
+    numLocalIncoming += somePhi.getNumIncomingValues();
+
+    // find the first phi that actually needs folding
+    if (!protoPhi && needsFolding(somePhi)) {
+      protoPhi = &somePhi;
+    }
   }
-
-  // no non-repair PHI found
-  if (itPhi == block.end() || !isa<PHINode>(*itPhi)) {
-    return;
-  }
-
-// no PHis, no folding
-  auto & phi = cast<PHINode>(*itPhi);
-
-  // only phi found is a repair phi
-  if (isRepairPhi(phi)) return;
 
 // check if PHIs need to be folded at all
-  if (!needsFolding(phi)) {
-    numUniformAssignments += phi.getNumIncomingValues();
+  if (!protoPhi) {
+    numUniformAssignments += numLocalIncoming;
     return;
   }
+
+// do the right thing for header phi nodes
+  if (li.isLoopHeader(&block)) {
+    IF_DEBUG_LIN { errs() << "\t- Loop header case " << block.getName() <<  "\n"; }
+    auto * phiLoop = li.getLoopFor(&block);
+    auto * preHead = phiLoop->getLoopPreheader();
+
+    for (auto & headerPhi : block.phis()) {
+      if (isRepairPhi(headerPhi)) continue;
+
+      Value * shadowInput = getShadowInput(headerPhi);
+      if (!shadowInput) continue;
+
+      Value * preHeaderInput = headerPhi.getIncomingValueForBlock(preHead);
+
+      auto inMask = getEdgeMask(*phiLoop->getLoopPreheader(), block);
+      assert(inMask);
+
+      // match an implicit mask query in a shadow phi node
+      Value * foldedInVal = nullptr;
+      if (isBoolLiteral(false, *shadowInput) && isBoolLiteral(true, *preHeaderInput)) {
+        // this is really just an optimization for live-tracker header phis
+        foldedInVal = inMask;
+      } else {
+        IRBuilder<> preBuilder(&*preHead, preHead->getTerminator()->getIterator());
+        foldedInVal = preBuilder.CreateSelect(inMask, preHeaderInput, shadowInput);
+      }
+      headerPhi.setIncomingValueForBlock(phiLoop->getLoopPreheader(), foldedInVal);
+    }
+
+    return;
+  }
+
+
+
 
   // TODO fast path for num preds == 1
 
@@ -708,8 +743,8 @@ Linearizer::foldPhis(BasicBlock & block) {
     // all inputs that are incoming on this edge after folding
     SuperBlockVec superposedInBlocks;
 
-    for (size_t i = 0; i < phi.getNumIncomingValues(); ++i) {
-      auto * inBlock = phi.getIncomingBlock(i);
+    for (size_t i = 0; i < protoPhi->getNumIncomingValues(); ++i) {
+      auto * inBlock = protoPhi->getIncomingBlock(i);
 
       // otw, this value needs blending on any dominated input
       if (predBlock == inBlock || predReachingBlocks.count(inBlock)) {
@@ -724,7 +759,7 @@ Linearizer::foldPhis(BasicBlock & block) {
     selectBlockMap[predBlock] = SuperInput(std::move(superposedInBlocks), *predBlock);
   }
 
-  assert((phi.getNumIncomingValues() == seenInputs.size()) && "block reachability not promoted down to phi");
+  assert((protoPhi->getNumIncomingValues() == seenInputs.size()) && "block reachability not promoted down to phi");
   // TODO can abort here if selectBlockMap.empty()
   assert(!selectBlockMap.empty());
 
