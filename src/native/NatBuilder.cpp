@@ -1251,6 +1251,9 @@ CopyTargetAttributes(Function & destFunc, Function & srcFunc) {
 
 void
 NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
+  auto & scaBlock = *scalCall->getParent();
+  bool hasCallPredicate = !hasUniformPredicate(scaBlock);
+
   Value * callee = scalCall->getCalledValue();
   StringRef calleeName = callee->getName();
   Function * calledFunction = dyn_cast<Function>(callee);
@@ -1262,21 +1265,19 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   }
 
 // this is a workaround to avoid predicated lifetime markers
-  if (calledFunction && config.useVE) {
+  if (calledFunction && hasCallPredicate) {
     switch (calledFunction->getIntrinsicID()) {
       default: break;
       case Intrinsic::lifetime_start:
       case Intrinsic::lifetime_end:
-        Report() << "nat (ve target): dropped lifetime marker!\n";
+        Report() << "nat: dropped divergent lifetime marker!\n";
         return;
     }
   }
 
 // Vectorize this function using a resolver provided vector function.
-  auto & scaBlock = *scalCall->getParent();
   auto & scaMask = *vecInfo.getPredicate(scaBlock);
   std::unique_ptr<FunctionResolver> funcResolver = nullptr;
-  bool hasCallPredicate = !hasUniformPredicate(scaBlock);
   if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth(), hasCallPredicate);
   if (funcResolver && !CheckFlag("RV_SPLIT")) {
     Function &simdFunc = funcResolver->requestVectorized();
