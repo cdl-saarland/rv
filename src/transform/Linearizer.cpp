@@ -374,6 +374,28 @@ Linearizer::verifyCompactDominance(BasicBlock & head) {
 
 void
 Linearizer::verifyBlockIndex() {
+  IF_DEBUG_INDEX {
+    errs() << "-- Parlin input func --\n";
+    func.dump();
+  }
+
+  for (auto & block : func) {
+    if (!hasIndex(block)) continue;
+    int srcIdx = getIndex(block);
+    for (auto * succ : successors(&block)) {
+      if (!hasIndex(*succ)) continue;
+      if (li.isLoopHeader(succ)) continue;
+      int destIdx = getIndex(block);
+      IF_DEBUG_INDEX {
+        if (destIdx < srcIdx) {
+          errs() << "Block index incosistent with control:\n";
+          errs() << "\tfrom: " << block.getName() << " at " << srcIdx << " to " << succ->getName() <<  " at " << destIdx << "\n";
+          abort();
+        }
+      }
+    }
+  }
+
   for (auto & block : func) {
     assert(!inRegion(block) || hasIndex(block));
     verifyCompactDominance(block);
@@ -871,10 +893,12 @@ Linearizer::processLoop(int headId, Loop & loop) {
   int latchNodeId = processRange(loopHeadIndex, latchIndex, &loop);
 
   // now emit the latch (without descending into its successors)
+  IF_DEBUG_LIN { errs() << "emitting latch.. "; }
   emitBlock(latchIndex);
   foldPhis(latch);
 
   // emit loop header again to re-wire the latch to the header
+  IF_DEBUG_LIN { errs() << "re-emitting loop header.. "; }
   emitBlock(loopHeadIndex);
 
   // attach undef inputs for all preheader edges to @loopHead
@@ -915,6 +939,7 @@ Linearizer::emitBlock(int targetId) {
 
 // if there is no relay for this head we are done
   if (!relayBlock) {
+    IF_DEBUG_LIN { errs() << "\tnot a relay : " << target.getName() << "\n"; }
     return nullptr;
   }
 
