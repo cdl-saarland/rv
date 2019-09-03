@@ -405,6 +405,10 @@ Linearizer::needsFolding(PHINode & phi) {
 
   auto & block = *phi.getParent();
 
+  if (getShadowInput(phi)) {
+    return true;
+  }
+
   // this is the case if there are predecessors that are unknown to the PHI
   SmallPtrSet<BasicBlock*, 4> predSet;
 

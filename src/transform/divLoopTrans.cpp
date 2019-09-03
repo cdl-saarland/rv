@@ -1,13 +1,16 @@
-//===- rv/transform/guardedDivLoopTrans.cpp - make divergent loops uniform --*- C++ -*-===//
+//===- divLoopTrans.cpp ----------------*- C++ -*-===//
 //
-// Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//                     The Region Vectorizer
 //
-//===----------------------------------------------------------------------===//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
 //
+// Divergent loop transformation
+//
+// This transformation eliminates divergent loop in the region
 
-#include "rv/transform/guardedDivLoopTrans.h"
+
+#include "rv/transform/divLoopTrans.h"
 
 #include "rv/PlatformInfo.h"
 #include "rv/transform/maskExpander.h"
@@ -25,11 +28,7 @@
 #include <llvm/Transforms/Utils/SSAUpdater.h>
 #include <llvm/IR/Verifier.h>
 
-#if 1
 #define IF_DEBUG_DLT IF_DEBUG
-#else
-#define IF_DEBUG_DLT if (true)
-#endif
 
 using namespace llvm;
 
@@ -71,10 +70,8 @@ AttachMissingInputs(PHINode & phi, Value & inputVal) {
   }
 }
 
-void
-GuardedTransformSession::finalizeLiveOutTracker(GuardedTrackerDesc & desc) {
-  if (!desc.trackerPhi || !desc.updatePhi) return;
-
+Instruction&
+TransformSession::lowerLatchUpdate(TrackerDesc & desc) {
   auto & trackerPhi = *desc.trackerPhi;
   auto & updPhi = *desc.updatePhi;
 
@@ -85,37 +82,25 @@ GuardedTransformSession::finalizeLiveOutTracker(GuardedTrackerDesc & desc) {
 
   // preserve the tracker also on active lanes if the thread stays in the loop.
   AttachMissingInputs(updPhi, trackerPhi);
+
+  // done
+  return updPhi;
 }
 
 void
-GuardedTransformSession::finalizeLiveOutTrackers() {
-  // FIXME repair SSA (non-dominating defs)
-  finalizeLiveOutTracker(liveMaskDesc);
+TransformSession::lowerTrackerUpdates() {
+  lowerLatchUpdate(liveMaskDesc);
 
   for (auto & itUpdate : liveOutDescs) {
-    finalizeLiveOutTracker(itUpdate.second);
+    lowerLatchUpdate(itUpdate.second);
   }
   for (auto & itUpdate : exitDescs) {
-    finalizeLiveOutTracker(itUpdate.second);
+    lowerLatchUpdate(itUpdate.second);
   }
-}
-
-const GuardedTrackerDesc &
-GuardedTransformSession::getGuardedTrackerDesc(const llvm::Value& val) const {
-  auto it = liveOutDescs.find(&val);
-  assert(it != liveOutDescs.end());
-  return it->second;
-}
-
-GuardedTrackerDesc &
-GuardedTransformSession::requestGuardedTrackerDesc(const llvm::Value& val) {
-  auto it = liveOutDescs.find(&val);
-  if (it != liveOutDescs.end()) return it->second;
-  return liveOutDescs.insert(std::make_pair(&val, GuardedTrackerDesc())).first->second;
 }
 
 void
-GuardedTransformSession::transformLoop() {
+TransformSession::transformLoop() {
   IF_DEBUG_DLT { errs() << "TransformLoop " << loop.getName() << "\n"; }
 
   assert(vecInfo.isDivergentLoop(loop) && "trying to convert a non-divergent loop");
@@ -125,93 +110,30 @@ GuardedTransformSession::transformLoop() {
   loop.getExitEdges(loopExitEdges);
 
   auto & loopHeader = *loop.getHeader();
-  auto & anyFunc = platInfo.requestRVIntrinsicFunc(RVIntrinsic::Any);
+  auto loopName = loop.getName().str();
 
-// divExit will be the only exit from the transformed loop,
-   BasicBlock & fusedExit =  *BasicBlock::Create(anyFunc.getContext(), loopName + ".divexit", loopHeader.getParent(), &loopHeader);
-   if (loop.getParentLoop()) {
-     loop.getParentLoop()->addBasicBlockToLoop(&fusedExit, loopInfo);
-   }
-
-  const VectorShape loopControlShape = VectorShape::varying(); // FIXME TensorRV stub
-
-// insert phi_live (active live threads in the loop)
   IRBuilder<> trackerBuilder(&loopHeader, loopHeader.getFirstInsertionPt());
   auto * boolTy = trackerBuilder.getInt1Ty();
+
+  const VectorShape loopControlShape = VectorShape::varying();
 
 // create the loop live mask (predicate of the loop header)
   liveMaskDesc.trackerPhi = trackerBuilder.CreatePHI(boolTy, 2, loopName + ".live");
   vecInfo.setVectorShape(*liveMaskDesc.trackerPhi, loopControlShape);
-  liveMaskDesc.trackerPhi->addIncoming(ConstantInt::getTrue(trackerBuilder.getContext()), loop.getLoopPreheader());
-  setShadowInput(*liveMaskDesc.trackerPhi, *ConstantInt::getFalse(trackerBuilder.getContext()));
 
-
-// create !any(phi_live) loop exit and offset the original loop header (guarded by phi_live)
-   //
-   // loopHeader (br !any(live), divExitBlock, testHead)
-   //     |
-   // testHead (br live, offsetHead, pureLatch)
-   //     |
-   // offsetHead
-   //    ...
-   // pureLatch
-   //
-   {
-     auto ItFirstInst = loopHeader.getFirstNonPHIOrDbgOrLifetime();
-
-     // the original loop header (without the phis)
-     this->offsetHead = loopHeader.splitBasicBlock(ItFirstInst->getIterator());
-     this->offsetHead->setName(loopName + ".offset");
-     loopHeader.getTerminator()->eraseFromParent();
-     loop.addBasicBlockToLoop(offsetHead, loopInfo);
-
-     // an immediate block to encode make loop execution conditional on phi_live
-     this->testHead = BasicBlock::Create(offsetHead->getContext(), loopName + ".test", loopHeader.getParent(), offsetHead);
-     loop.addBasicBlockToLoop(testHead, loopInfo);
-   }
-
-  // create a dedicated latch block for the loop (also live tracking infrastructure)
+// create a dedicated latch block for the loop
   requestPureLatch(); // creates maskUpdatePHi and pureLatch
-
-   {
-     IRBuilder<> testBuilder(testHead);
-     auto & liveBr = *testBuilder.CreateCondBr(liveMaskDesc.trackerPhi, offsetHead, pureLatch);
-     vecInfo.setVectorShape(liveBr, VectorShape::varying());
-   }
-
-   // insert an all-false test on phi_live to exit the loop from the new header
-   {
-     IRBuilder<> headerBuilder(&loopHeader);
-     auto * continueCond =
-       headerBuilder.CreateCall(&anyFunc, ArrayRef<Value*>{liveMaskDesc.trackerPhi}, loopName + ".exec");
-     trackerBuilder.SetInsertPoint(continueCond);
-     auto & anyBr = *headerBuilder.CreateCondBr(continueCond, testHead, &fusedExit);
-     vecInfo.setVectorShape(anyBr, VectorShape::uni());
-     vecInfo.setVectorShape(*continueCond, VectorShape::uni());
-   }
-
-  IF_DEBUG_DLT { errs() << "after header offsetting. "; vecInfo.dump(); }
-
   IRBuilder<> latchBuilder(pureLatch, pureLatch->getFirstInsertionPt());
 
 // create tracking infrastructure for the loop exits
-  assert(liveOutDescs.empty() && "start indexing live out values");
   for (auto & edge : loopExitEdges) {
     const VectorShape exitShape = VectorShape::varying();
-    auto * exitingBlock = const_cast<BasicBlock*>(edge.first);
-    std::string exitingName;
-    if (exitingBlock == &loopHeader) {
-      // header exiting branches have been deferred to the offset header
-      exitingBlock = offsetHead;
-      exitingName = exitingBlock->getName().str();
-    } else {
-      exitingName = exitingBlock->getName().str();
-    }
+    auto & exitingBlock = *const_cast<BasicBlock*>(edge.first);
     auto & exitBlock = *const_cast<BasicBlock*>(edge.second);
     auto exitName = exitBlock.getName().str();
 
   // track live out threads for this exit
-    GuardedTrackerDesc exitDesc;
+    TrackerDesc exitDesc;
     exitDesc.trackerPhi = trackerBuilder.CreatePHI(boolTy, 2, exitName + ".xtrack");
     vecInfo.setVectorShape(*exitDesc.trackerPhi, exitShape);
     exitDesc.updatePhi = latchBuilder.CreatePHI(boolTy, 2, exitName + ".xupd");
@@ -221,11 +143,12 @@ GuardedTransformSession::transformLoop() {
     exitDesc.trackerPhi->addIncoming(exitDesc.updatePhi, pureLatch);
 
     // if exiting from a nested loop we will need to create LCSSA phis in the rebound block
-    Loop * leftLoop = loopInfo.getLoopFor(exitingBlock);
+    Loop * leftLoop = loopInfo.getLoopFor(&exitingBlock);
     bool reboundingNestedExit = leftLoop != &loop;
 
     // collect continue block, control context
-    auto & exitingBr = *cast<BranchInst>(exitingBlock->getTerminator());
+    auto exitingName = exitingBlock.getName().str();
+    auto & exitingBr = *cast<BranchInst>(exitingBlock.getTerminator());
     bool exitOnFalse = exitingBr.getSuccessor(1) == &exitBlock;
 
 // Rebound the exiting edge and create mask updates (loop live mask AND exit mask tracker)
@@ -251,9 +174,9 @@ GuardedTransformSession::transformLoop() {
     // exiting edge
 
     // since we will select on exiting, break the exiting edge if exiting from the old latch
-    BasicBlock * reboundBlock = exitingBlock;
-    if (reboundingNestedExit || (oldLatch == exitingBlock)) {
-      reboundBlock = BasicBlock::Create(exitingBlock->getContext(), exitName + ".rebound", exitingBlock->getParent(), pureLatch);
+    BasicBlock * reboundBlock = &exitingBlock;
+    if (reboundingNestedExit || (oldLatch == &exitingBlock)) {
+      reboundBlock = BasicBlock::Create(exitingBlock.getContext(), exitName + ".rebound", exitingBlock.getParent(), pureLatch);
       if (vecInfo.isDivergentLoopExit(exitBlock)) {
         vecInfo.addDivergentLoopExit(*reboundBlock);
       }
@@ -266,9 +189,9 @@ GuardedTransformSession::transformLoop() {
     }
 
     // mask out this thread in the live mask when the exit is taken
-    liveMaskDesc.updatePhi->addIncoming(ConstantInt::getFalse(exitingBlock->getContext()), reboundBlock);
+    liveMaskDesc.updatePhi->addIncoming(ConstantInt::getFalse(exitingBlock.getContext()), reboundBlock);
     // set the exit flag if the exit is taken
-    exitDesc.updatePhi->addIncoming(ConstantInt::getTrue(exitingBlock->getContext()), reboundBlock);
+    exitDesc.updatePhi->addIncoming(ConstantInt::getTrue(exitingBlock.getContext()), reboundBlock);
 
   // maintain LCSSA phis in reboundBlock
     if (reboundingNestedExit) {
@@ -277,57 +200,67 @@ GuardedTransformSession::transformLoop() {
           auto & liveOut = *lcPhi.getIncomingValue(slot);
           auto & nestedPhi = *rebBuilder.CreatePHI(liveOut.getType(), 1, liveOut.getName() + ".lcssa");
           vecInfo.setVectorShape(nestedPhi, vecInfo.getVectorShape(lcPhi));
-          nestedPhi.addIncoming(&liveOut, exitingBlock);
+          nestedPhi.addIncoming(&liveOut, &exitingBlock);
           lcPhi.setIncomingValue(slot, &nestedPhi);
       });
     }
 
   // create live out trackers
-    IF_DEBUG_DLT { errs() << "Creating live-out trackers for exit (" << exitName <<").\n"; }
-    const bool IsDivExit = vecInfo.isDivergentLoopExit(exitBlock);
-    ForAllLiveouts(exitBlock, [&](PHINode & lcPhi, int slot) {
-      auto & liveOut = *lcPhi.getIncomingValue(slot);
-      auto & trackerDesc = requestGuardedTrackerDesc(liveOut);
+    if (vecInfo.isDivergentLoopExit(exitBlock)) {
+      ForAllLiveouts(exitBlock, [&](PHINode & lcPhi, int slot) {
+        auto & liveOut = *lcPhi.getIncomingValue(slot);
 
-      IF_DEBUG_DLT { errs() << "Live out " << liveOut.getName() << "\n"; }
-
-      if (IsDivExit) {
-        // divergent live-outs need a tracker/update setup
-        if (!trackerDesc.updatePhi) {
-          assert(!trackerDesc.trackerPhi && "tracker/update infrastructure already initialized?");
-          trackerDesc.trackerPhi = trackerBuilder.CreatePHI(liveOut.getType(), 2, liveOut.getName() + ".track");
-          vecInfo.setVectorShape(*trackerDesc.trackerPhi, exitShape);
-          trackerDesc.trackerPhi->addIncoming(UndefValue::get(liveOut.getType()), loop.getLoopPreheader());
-          trackerDesc.updatePhi = latchBuilder.CreatePHI(liveOut.getType(), 2, liveOut.getName() + ".upd");
-          trackerDesc.trackerPhi->addIncoming(trackerDesc.updatePhi, pureLatch);
-          vecInfo.setVectorShape(*trackerDesc.updatePhi, exitShape);
+      // request a tracker for this live out value
+        auto it = liveOutDescs.find(&liveOut);
+        PHINode * updatePhi = nullptr;
+        if (it != liveOutDescs.end()) {
+          updatePhi = it->second.updatePhi;
+        } else {
+          TrackerDesc desc;
+          desc.trackerPhi = trackerBuilder.CreatePHI(liveOut.getType(), 2, liveOut.getName() + ".track");
+          vecInfo.setVectorShape(*desc.trackerPhi, exitShape);
+          desc.trackerPhi->addIncoming(UndefValue::get(liveOut.getType()), loop.getLoopPreheader());
+          updatePhi = latchBuilder.CreatePHI(liveOut.getType(), 2, liveOut.getName() + ".upd");
+          desc.trackerPhi->addIncoming(updatePhi, pureLatch);
+          vecInfo.setVectorShape(*updatePhi, exitShape);
+          desc.updatePhi = updatePhi;
+          liveOutDescs[&liveOut] = desc;
         }
 
       // if the exit was taken write the current value of @liveOut to the tracker
-        trackerDesc.updatePhi->addIncoming(&liveOut, reboundBlock);
+        updatePhi->addIncoming(&liveOut, reboundBlock);
+        IF_DEBUG_DLT { errs() << "UPD PHI: " << *updatePhi <<  "\n"; }
+      });
+    }
 
-      } else {
-        // Kill-exit liveouts only need a dominating def at the loop header (wrapPhi)
-        if (trackerDesc.wrapPhi) { return; }
-
-        trackerDesc.wrapPhi = trackerBuilder.CreatePHI(liveOut.getType(), 2, liveOut.getName() + ".wrap");
-        trackerDesc.wrapPhi->addIncoming(UndefValue::get(liveOut.getType()), loop.getLoopPreheader());
-        trackerDesc.wrapPhi->addIncoming(&liveOut, pureLatch);
-        auto loShape = vecInfo.getVectorShape(liveOut);
-        vecInfo.setVectorShape(*trackerDesc.wrapPhi, loShape);
-      }
-    });
+#if 0
+    // FIXME this should work..
+    if (vecInfo.isDivergentLoopExit(exitBlock) && !reboundingNestedExit) {
+      // no longer a divergent loop-exit
+      vecInfo.removeDivergentLoopExit(exitBlock);
+    }
+#endif
   }
-
-  IF_DEBUG_DLT { errs() << "after live out tracking. "; vecInfo.dump(); }
 
 // create an exit cascade
    assert(pureLatch->getTerminator()->getNumSuccessors() == 1);
+   auto & anyFunc = platInfo.requestRVIntrinsicFunc(RVIntrinsic::Any);
+
+   // new joined latch exit
+   BasicBlock & latchExit =  *BasicBlock::Create(anyFunc.getContext(), loopName + ".divexit", pureLatch->getParent(), pureLatch);
+   if (loop.getParentLoop()) {
+     loop.getParentLoop()->addBasicBlockToLoop(&latchExit, loopInfo);
+   }
+
    // build the new uniform exit branch
    pureLatch->getTerminator()->eraseFromParent();
    {
-     IRBuilder<> latchBuilder(pureLatch);
-     latchBuilder.CreateBr(&loopHeader);
+     IRBuilder<> builder(pureLatch);
+     auto * continueCond =
+       builder.CreateCall(&anyFunc, ArrayRef<Value*>{liveMaskDesc.updatePhi}, loopName + ".stay");
+     auto & anyBr= *builder.CreateCondBr(continueCond, &loopHeader, &latchExit);
+     vecInfo.setVectorShape(anyBr, VectorShape::uni());
+     vecInfo.setVectorShape(*continueCond, VectorShape::uni());
    }
 
 // sort exits for cascading order
@@ -336,22 +269,19 @@ GuardedTransformSession::transformLoop() {
    std::vector<std::pair<BasicBlock&, BasicBlock&>> exitStack;
    DenseSet<const BasicBlock*> seenExits;
    for (auto & edge : loopExitEdges) {
-     auto & exitingBlock = *remapExitingBlock(const_cast<BasicBlock*>(edge.first));
+     auto & exitingBlock = *const_cast<BasicBlock*>(edge.first);
      auto & exitBlock = *const_cast<BasicBlock*>(edge.second);
 
      if (!vecInfo.isKillExit(exitBlock)) exitStack.emplace_back(exitingBlock, exitBlock);
    }
    for (auto & edge : loopExitEdges) {
-     auto & exitingBlock = *remapExitingBlock(const_cast<BasicBlock*>(edge.first));
+     auto & exitingBlock = *const_cast<BasicBlock*>(edge.first);
      auto & exitBlock = *const_cast<BasicBlock*>(edge.second);
-     if (vecInfo.isKillExit(exitBlock)) {
-       ++numKillExits; // stats
-       exitStack.emplace_back(exitingBlock, exitBlock);
-     }
+     if (vecInfo.isKillExit(exitBlock)) exitStack.emplace_back(exitingBlock, exitBlock);
    }
    BasicBlock & lastExit = exitStack[exitStack.size() - 1].second;
 
-   IRBuilder<> exitBuilder(&fusedExit);
+   IRBuilder<> exitBuilder(&latchExit);
 
    // divergence shape
    const VectorShape exitShape = VectorShape::varying();
@@ -359,15 +289,13 @@ GuardedTransformSession::transformLoop() {
 // materialize the exit cascade
    // materialize all exits in the stack after the loop
    struct LiveOutPhis {
-     PHINode * trackedPhi[2]; // one slot for each exit type
+     PHINode * trackedPhi[2];
      enum Type {
        KILL = 0,
        DIVERGENT = 1
      };
      LiveOutPhis() { trackedPhi[0] = trackedPhi[1] = nullptr; }
    };
-
-   IF_DEBUG_DLT vecInfo.dump();
 
    DenseMap<const Value*, LiveOutPhis> liveOutPhis; // LCSSA phis for liveOuts
    for (auto exitEdge : exitStack) {
@@ -392,15 +320,15 @@ GuardedTransformSession::transformLoop() {
    // create a exitmask LCSSA phi and set it as the predicate of the exitBlock
      PHINode * exitMaskPhi = nullptr;
      {
-       IRBuilder<> divExitBuilder(&fusedExit);
-       if (!fusedExit.empty()) divExitBuilder.SetInsertPoint(&*fusedExit.begin());
+       IRBuilder<> divExitBuilder(&latchExit);
+       if (!latchExit.empty()) divExitBuilder.SetInsertPoint(&*latchExit.begin());
        exitMaskPhi = divExitBuilder.CreatePHI(boolTy, 1, exitBlock.getName().str() + ".xlcssa");
        vecInfo.setVectorShape(*exitMaskPhi, exitShape);
-       // maskEx.setBlockMask(exitBlock, *exitMaskPhi);
-       // vecInfo.setPredicate(exitBlock, *exitMaskPhi);
+       maskEx.setBlockMask(exitBlock, *exitMaskPhi);
+       vecInfo.setPredicate(exitBlock, *exitMaskPhi);
      }
 
-     exitMaskPhi->addIncoming(exitDescs[&exitBlock].trackerPhi, &loopHeader);
+     exitMaskPhi->addIncoming(exitDescs[&exitBlock].updatePhi, pureLatch);
 
      // re-connect the exit to the CFG
      BranchInst * exitBr = nullptr;
@@ -425,8 +353,8 @@ GuardedTransformSession::transformLoop() {
      vecInfo.setVectorShape(*exitBr, branchShape);
 
   // fix up live out uses in exits
-     IRBuilder<> divExitBuilder(&fusedExit);
-     if (!fusedExit.empty()) divExitBuilder.SetInsertPoint(&*fusedExit.begin());
+     IRBuilder<> divExitBuilder(&latchExit);
+     if (!latchExit.empty()) divExitBuilder.SetInsertPoint(&*latchExit.begin());
 
      auto it = exitBlock.begin();
      for (; it != exitBlock.end() && isa<PHINode>(it); ) {
@@ -443,7 +371,6 @@ GuardedTransformSession::transformLoop() {
        LiveOutPhis loPhis;
 
        if (itKnown != liveOutPhis.end() && itKnown->second.trackedPhi[exitType]) {
-         // we already have an LCSSA phi for this live-out value and exit type (divergent or kill)
          exitPhi = itKnown->second.trackedPhi[exitType];
        } else {
          LiveOutPhis loPhis = liveOutPhis[&liveOutVal];
@@ -451,9 +378,8 @@ GuardedTransformSession::transformLoop() {
          // create an LCSSA phi
          exitPhi = divExitBuilder.CreatePHI(lcPhi.getType(), 1, liveOutVal.getName() + ".lcssa");
          vecInfo.setVectorShape(*exitPhi, exitShape);
-         auto & trackerDesc = getGuardedTrackerDesc(liveOutVal);
-         auto * liveOutDef = killExit ? trackerDesc.wrapPhi : trackerDesc.trackerPhi;
-         exitPhi->addIncoming(liveOutDef, &loopHeader);
+         auto * transformedLiveOut = vecInfo.isKillExit(exitBlock)  ? &liveOutVal : liveOutDescs[&liveOutVal].updatePhi;
+         exitPhi->addIncoming(transformedLiveOut, pureLatch);
          loPhis.trackedPhi[exitType] = exitPhi;
 
          // cache for reuse
@@ -477,35 +403,35 @@ GuardedTransformSession::transformLoop() {
    }
 
    // finally set the loop header mask to terminate maskEx
-   // vecInfo.setPredicate(*loop.getHeader(), *liveMaskDesc.trackerPhi); // illegal
-   // maskEx.setBlockMask(*loop.getHeader(), *liveMaskDesc.trackerPhi);
+   vecInfo.setPredicate(*loop.getHeader(), *liveMaskDesc.trackerPhi);
+   maskEx.setBlockMask(*loop.getHeader(), *liveMaskDesc.trackerPhi);
 }
 
 // split the latch if it is not pure (only a terminator)
 BasicBlock &
-GuardedTransformSession::requestPureLatch() {
+TransformSession::requestPureLatch() {
   // we cache the pure latch since we make it impure again along the way
   if (pureLatch) return *pureLatch;
 
-  assert(liveMaskDesc.trackerPhi && "need to materialize live tracker first!");
   IF_DEBUG_DLT { errs() << "# reqPureLatch " << loop.getName() << "\n"; }
 
+  std::string loopName = loop.getName().str();
   auto & latchBlock = *loop.getLoopLatch();
   auto & header = *loop.getHeader();
 
   // create a pure latch block
-  pureLatch = BasicBlock::Create(latchBlock.getContext(), loopName + ".pure", latchBlock.getParent(), &latchBlock);
+  pureLatch = BasicBlock::Create(latchBlock.getContext(), latchBlock.getName() + ".pure", latchBlock.getParent(), &latchBlock);
   oldLatch = &latchBlock;
 
   // create a mask update in the latch
   IRBuilder<> builder(pureLatch);
   liveMaskDesc.updatePhi = builder.CreatePHI(builder.getInt1Ty(), 2, loopName + ".live.upd");
-  liveMaskDesc.updatePhi->addIncoming(liveMaskDesc.trackerPhi, oldLatch);
-  liveMaskDesc.updatePhi->addIncoming(liveMaskDesc.trackerPhi, testHead);
+  liveMaskDesc.updatePhi->addIncoming(liveMaskDesc.trackerPhi, &latchBlock);
   vecInfo.setVectorShape(*liveMaskDesc.updatePhi, VectorShape::varying()); // TODO join of all exit shapes
 
   // latchPhi updates the loop mask depending on the predecessors
   // the pure latch is the dedicated predecessor of the loop header so we can safely use the live.upd mask here
+  liveMaskDesc.trackerPhi->addIncoming(UndefValue::get(Type::getInt1Ty(header.getContext())), loop.getLoopPreheader());
   liveMaskDesc.trackerPhi->addIncoming(liveMaskDesc.updatePhi, pureLatch);
 
   // insert on the latche edge
@@ -522,6 +448,7 @@ GuardedTransformSession::requestPureLatch() {
 
   // register with LoopInfo & LoopTracker
   loop.addBasicBlockToLoop(pureLatch, loopInfo);
+  oldLatch = &latchBlock;
 
   // fix header phi incoming blocks (the pure latch breaks this edge)
   for (auto & inst : header) {
@@ -538,8 +465,7 @@ GuardedTransformSession::requestPureLatch() {
 }
 
 void
-GuardedDivLoopTrans::addLoopInitMasks(llvm::Loop & loop) {
-  // FIXME use mask futures instead
+DivLoopTrans::addLoopInitMasks(llvm::Loop & loop) {
   for (auto * childLoop : loop) {
     addLoopInitMasks(*childLoop);
   }
@@ -548,32 +474,31 @@ GuardedDivLoopTrans::addLoopInitMasks(llvm::Loop & loop) {
   if (it == sessions.end()) return; // uniform loop
   auto * loopSession = it->second;
 
-// // request entry edge
-//   // this loop has a live mask -> request its live in value
-//   auto & loopPreHead = *loop.getLoopPreheader();
-//   auto & preHeadTerm = *loopPreHead.getTerminator();
-//   auto & loopHead = *loop.getHeader();
-//   IndexSet headerIndices;
-//   // maskEx.getPredecessorEdges(preHeadTerm, loopHead, headerIndices);
-//   // auto & initMask = maskEx.requestJoinedEdgeMask(preHeadTerm, headerIndices);
-//
-//   // attach the missing preheader input to the live mask
-//   auto & liveMaskPhi = *loopSession->liveMaskDesc.trackerPhi;
-//   // auto & liveMaskPhi = cast<PHINode>(*maskEx.getBlockMask(loopHead));
-//   int initIdx = liveMaskPhi.getBasicBlockIndex(&loopPreHead);
-//   assert(initIdx >= 0 && "loop pre-header has changed!");
-//   liveMaskPhi.setIncomingValue(initIdx, &initMask);
-//
-//   auto * divExit = loop.getExitBlock();
-//   assert(divExit);
-//   // maskEx.setBlockMask(*divExit, initMask);
-//   // vecInfo.setPredicate(*divExit, initMask);
+// request entry edge
+  // this loop has a live mask -> request its live in value
+  auto & loopPreHead = *loop.getLoopPreheader();
+  auto & preHeadTerm = *loopPreHead.getTerminator();
+  auto & loopHead = *loop.getHeader();
+  IndexSet headerIndices;
+  maskEx.getPredecessorEdges(preHeadTerm, loopHead, headerIndices);
+  auto & initMask = maskEx.requestJoinedEdgeMask(preHeadTerm, headerIndices);
 
-// add defaulting definitions on tracker phis
-  loopSession->finalizeLiveOutTrackers();
+  // attach the missing preheader input to the live mask
+  auto & liveMaskPhi = cast<PHINode>(*maskEx.getBlockMask(loopHead));
+  int initIdx = liveMaskPhi.getBasicBlockIndex(&loopPreHead);
+  assert(initIdx >= 0 && "loop pre-header has changed!");
+  liveMaskPhi.setIncomingValue(initIdx, &initMask);
+
+  auto * divExit = loop.getExitBlock();
+  assert(divExit);
+  maskEx.setBlockMask(*divExit, initMask);
+  vecInfo.setPredicate(*divExit, initMask);
+
+// lower latch updates to selects
+  loopSession->lowerTrackerUpdates();
 }
 
-GuardedDivLoopTrans::GuardedDivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo)
+DivLoopTrans::DivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo)
 : platInfo(_platInfo)
 , vecInfo(_vecInfo)
 , maskEx(_maskEx)
@@ -585,10 +510,10 @@ GuardedDivLoopTrans::GuardedDivLoopTrans(PlatformInfo & _platInfo, Vectorization
 {}
 
 
-GuardedDivLoopTrans::~GuardedDivLoopTrans() {}
+DivLoopTrans::~DivLoopTrans() {}
 
 bool
-GuardedDivLoopTrans::transformDivergentLoopControl(Loop & loop) {
+DivLoopTrans::transformDivergentLoopControl(Loop & loop) {
   bool hasDivergentLoops = false;
 
   // make this loop uniform (all remaining divergent loops are properly nested)
@@ -596,9 +521,8 @@ GuardedDivLoopTrans::transformDivergentLoopControl(Loop & loop) {
     ++numDivergentLoops;
     hasDivergentLoops = true;
 
-    auto * loopSession = new GuardedTransformSession(loop, loopInfo, vecInfo, platInfo, maskEx);
+    auto * loopSession = new TransformSession(loop, loopInfo, vecInfo, platInfo, maskEx);
     loopSession->transformLoop();
-    numKillExits += loopSession->numKillExits; // accumulate global stats
     sessions[&loop] = loopSession;
 
     // mark loop as uniform
@@ -615,7 +539,7 @@ GuardedDivLoopTrans::transformDivergentLoopControl(Loop & loop) {
 }
 
 void
-GuardedDivLoopTrans::transformDivergentLoops() {
+DivLoopTrans::transformDivergentLoops() {
   IF_DEBUG_DLT { errs() << "-- divLoopTrans log --\n"; }
 
   // create tracker/update phis and make all loops uniform

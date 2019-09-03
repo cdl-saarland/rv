@@ -18,7 +18,7 @@
 #if 1
 #define IF_DEBUG_ME IF_DEBUG
 #else
-#define IF_DEBUG_ME if (false)
+#define IF_DEBUG_ME if (true)
 #endif
 
 
@@ -127,11 +127,13 @@ MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & b
     auto * condVal = branch.isConditional() ? branch.getCondition() : trueConst;
 
     // look through rv_any calls
+#if 0
     Value * actualCond = MatchMaskIntrinsic(*condVal);
     if (actualCond) {
       errs() << "maskEx: recovered mask condition " << *actualCond <<" from " << *condVal << "\n";
       condVal = actualCond;
     }
+#endif
 
     if (succIdx == 0) {
       return *condVal;
