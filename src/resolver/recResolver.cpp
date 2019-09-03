@@ -134,20 +134,22 @@ public:
     PB.registerFunctionAnalyses(FAM);
 
     // compute DT, PDT, LI
-    auto &DT = FAM.getResult<DominatorTreeAnalysis>(*clonedFunc);
+    // normalize loop exits (TODO make divLoopTrans work without this)
+    {
+      auto & tmpLI = FAM.getResult<LoopAnalysis>(*clonedFunc);
+      LoopExitCanonicalizer canonicalizer(tmpLI);
+      canonicalizer.canonicalize(*clonedFunc);
+      FAM.invalidate<DominatorTreeAnalysis>(*clonedFunc);
+      FAM.invalidate<PostDominatorTreeAnalysis>(*clonedFunc);
+      FAM.invalidate<LoopAnalysis>(*clonedFunc);
+    }
+
+    auto & LI = FAM.getResult<LoopAnalysis>(*clonedFunc);
+    auto & DT = FAM.getResult<DominatorTreeAnalysis>(*clonedFunc);
     auto &PDT = FAM.getResult<PostDominatorTreeAnalysis>(*clonedFunc);
-    auto &LI = FAM.getResult<LoopAnalysis>(*clonedFunc);
     auto &SE = FAM.getResult<ScalarEvolutionAnalysis>(*clonedFunc);
     auto &MDR = FAM.getResult<MemoryDependenceAnalysis>(*clonedFunc);
     auto &BPI = FAM.getResult<BranchProbabilityAnalysis>(*clonedFunc);
-
-    // normalize loop exits (TODO make divLoopTrans work without this)
-    {
-      LoopInfo tmpLoopInfo(DT);
-      LoopExitCanonicalizer canonicalizer(tmpLoopInfo);
-      canonicalizer.canonicalize(*clonedFunc);
-      DT.recalculate(*clonedFunc);
-    }
 
 // run analysis until result shape stabilizes
     // this is an ad-hoc mapping
