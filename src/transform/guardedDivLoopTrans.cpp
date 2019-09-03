@@ -1,4 +1,4 @@
-//===- rv/transform/divLoopTrans.cpp - make divergent loops uniform --*- C++ -*-===//
+//===- rv/transform/guardedDivLoopTrans.cpp - make divergent loops uniform --*- C++ -*-===//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 
-#include "rv/transform/divLoopTrans.h"
+#include "rv/transform/guardedDivLoopTrans.h"
 
 #include "rv/PlatformInfo.h"
 #include "rv/transform/maskExpander.h"
@@ -72,7 +72,7 @@ AttachMissingInputs(PHINode & phi, Value & inputVal) {
 }
 
 void
-TransformSession::finalizeLiveOutTracker(TrackerDesc & desc) {
+GuardedTransformSession::finalizeLiveOutTracker(GuardedTrackerDesc & desc) {
   if (!desc.trackerPhi || !desc.updatePhi) return;
 
   auto & trackerPhi = *desc.trackerPhi;
@@ -88,7 +88,7 @@ TransformSession::finalizeLiveOutTracker(TrackerDesc & desc) {
 }
 
 void
-TransformSession::finalizeLiveOutTrackers() {
+GuardedTransformSession::finalizeLiveOutTrackers() {
   // FIXME repair SSA (non-dominating defs)
   finalizeLiveOutTracker(liveMaskDesc);
 
@@ -100,22 +100,22 @@ TransformSession::finalizeLiveOutTrackers() {
   }
 }
 
-const TrackerDesc &
-TransformSession::getTrackerDesc(const llvm::Value& val) const {
+const GuardedTrackerDesc &
+GuardedTransformSession::getGuardedTrackerDesc(const llvm::Value& val) const {
   auto it = liveOutDescs.find(&val);
   assert(it != liveOutDescs.end());
   return it->second;
 }
 
-TrackerDesc &
-TransformSession::requestTrackerDesc(const llvm::Value& val) {
+GuardedTrackerDesc &
+GuardedTransformSession::requestGuardedTrackerDesc(const llvm::Value& val) {
   auto it = liveOutDescs.find(&val);
   if (it != liveOutDescs.end()) return it->second;
-  return liveOutDescs.insert(std::make_pair(&val, TrackerDesc())).first->second;
+  return liveOutDescs.insert(std::make_pair(&val, GuardedTrackerDesc())).first->second;
 }
 
 void
-TransformSession::transformLoop() {
+GuardedTransformSession::transformLoop() {
   IF_DEBUG_DLT { errs() << "TransformLoop " << loop.getName() << "\n"; }
 
   assert(vecInfo.isDivergentLoop(loop) && "trying to convert a non-divergent loop");
@@ -209,7 +209,7 @@ TransformSession::transformLoop() {
     auto exitName = exitBlock.getName().str();
 
   // track live out threads for this exit
-    TrackerDesc exitDesc;
+    GuardedTrackerDesc exitDesc;
     exitDesc.trackerPhi = trackerBuilder.CreatePHI(boolTy, 2, exitName + ".xtrack");
     vecInfo.setVectorShape(*exitDesc.trackerPhi, exitShape);
     exitDesc.updatePhi = latchBuilder.CreatePHI(boolTy, 2, exitName + ".xupd");
@@ -285,7 +285,7 @@ TransformSession::transformLoop() {
     const bool IsDivExit = vecInfo.isDivergentLoopExit(exitBlock);
     ForAllLiveouts(exitBlock, [&](PHINode & lcPhi, int slot) {
       auto & liveOut = *lcPhi.getIncomingValue(slot);
-      auto & trackerDesc = requestTrackerDesc(liveOut);
+      auto & trackerDesc = requestGuardedTrackerDesc(liveOut);
 
       IF_DEBUG_DLT { errs() << "Live out " << liveOut.getName() << "\n"; }
 
@@ -449,7 +449,7 @@ TransformSession::transformLoop() {
          // create an LCSSA phi
          exitPhi = divExitBuilder.CreatePHI(lcPhi.getType(), 1, liveOutVal.getName() + ".lcssa");
          vecInfo.setVectorShape(*exitPhi, exitShape);
-         auto & trackerDesc = getTrackerDesc(liveOutVal);
+         auto & trackerDesc = getGuardedTrackerDesc(liveOutVal);
          auto * liveOutDef = killExit ? trackerDesc.wrapPhi : trackerDesc.trackerPhi;
          exitPhi->addIncoming(liveOutDef, &loopHeader);
          loPhis.trackedPhi[exitType] = exitPhi;
@@ -481,7 +481,7 @@ TransformSession::transformLoop() {
 
 // split the latch if it is not pure (only a terminator)
 BasicBlock &
-TransformSession::requestPureLatch() {
+GuardedTransformSession::requestPureLatch() {
   // we cache the pure latch since we make it impure again along the way
   if (pureLatch) return *pureLatch;
 
@@ -537,7 +537,7 @@ TransformSession::requestPureLatch() {
 }
 
 void
-DivLoopTrans::addLoopInitMasks(llvm::Loop & loop) {
+GuardedDivLoopTrans::addLoopInitMasks(llvm::Loop & loop) {
   // FIXME use mask futures instead
   for (auto * childLoop : loop) {
     addLoopInitMasks(*childLoop);
@@ -571,7 +571,7 @@ DivLoopTrans::addLoopInitMasks(llvm::Loop & loop) {
   loopSession->finalizeLiveOutTrackers();
 }
 
-DivLoopTrans::DivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo)
+GuardedDivLoopTrans::GuardedDivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo)
 : platInfo(_platInfo)
 , vecInfo(_vecInfo)
 , maskEx(_maskEx)
@@ -583,10 +583,10 @@ DivLoopTrans::DivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInf
 {}
 
 
-DivLoopTrans::~DivLoopTrans() {}
+GuardedDivLoopTrans::~GuardedDivLoopTrans() {}
 
 bool
-DivLoopTrans::transformDivergentLoopControl(Loop & loop) {
+GuardedDivLoopTrans::transformDivergentLoopControl(Loop & loop) {
   bool hasDivergentLoops = false;
 
   // make this loop uniform (all remaining divergent loops are properly nested)
@@ -594,7 +594,7 @@ DivLoopTrans::transformDivergentLoopControl(Loop & loop) {
     ++numDivergentLoops;
     hasDivergentLoops = true;
 
-    auto * loopSession = new TransformSession(loop, loopInfo, vecInfo, platInfo, maskEx);
+    auto * loopSession = new GuardedTransformSession(loop, loopInfo, vecInfo, platInfo, maskEx);
     loopSession->transformLoop();
     numKillExits += loopSession->numKillExits; // accumulate global stats
     sessions[&loop] = loopSession;
@@ -613,7 +613,7 @@ DivLoopTrans::transformDivergentLoopControl(Loop & loop) {
 }
 
 void
-DivLoopTrans::transformDivergentLoops() {
+GuardedDivLoopTrans::transformDivergentLoops() {
   IF_DEBUG_DLT { errs() << "-- divLoopTrans log --\n"; }
 
   // create tracker/update phis and make all loops uniform

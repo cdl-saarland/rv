@@ -1,4 +1,4 @@
-//===- rv/transform/divLoopTrans.h - make divergent loops uniform --*- C++ -*-===//
+//===- rv/transform/guardedDivLoopTrans.h - make divergent loops uniform --*- C++ -*-===//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,8 +8,8 @@
 //
 
 
-#ifndef RV_TRANSFORM_DIVLOOPTRANS_H
-#define RV_TRANSFORM_DIVLOOPTRANS_H
+#ifndef RV_TRANSFORM_GUARDEDDIVLOOPTRANS_H
+#define RV_TRANSFORM_GUARDEDDIVLOOPTRANS_H
 
 
 #include "rv/vectorizationInfo.h"
@@ -38,12 +38,12 @@ class MaskExpander;
 class LiveValueTracker;
 
 
-struct TrackerDesc {
+struct GuardedTrackerDesc {
   llvm::PHINode * wrapPhi;    // kill exit live-out wrapper (@header)
   llvm::PHINode * trackerPhi; // divergent live out tracker (@header)
   llvm::PHINode * updatePhi;  // divergent live out updater (@pureLatch)
 
-  TrackerDesc()
+  GuardedTrackerDesc()
   : wrapPhi(nullptr)
   , trackerPhi(nullptr)
   , updatePhi(nullptr)
@@ -51,7 +51,7 @@ struct TrackerDesc {
 };
 
 // Divergence tracker for a loop
-struct TransformSession {
+struct GuardedTransformSession {
   llvm::Loop & loop;
   std::string loopName;
   llvm::LoopInfo & loopInfo;
@@ -65,13 +65,13 @@ struct TransformSession {
   llvm::BasicBlock * oldLatch; // if pureLatch, then oldLatch is the unique predecessor to pureLatch
 
   // state tracking infrastructure
-  TrackerDesc liveMaskDesc;
+  GuardedTrackerDesc liveMaskDesc;
   // maps each exit block to the exit tracker in this loop
-  llvm::DenseMap<const llvm::BasicBlock*, TrackerDesc> exitDescs;
+  llvm::DenseMap<const llvm::BasicBlock*, GuardedTrackerDesc> exitDescs;
   // maps each live out to a tracker
-  llvm::DenseMap<const llvm::Value*, TrackerDesc> liveOutDescs;
-  TrackerDesc & requestTrackerDesc(const llvm::Value& val); // creates an emty tracker if missing
-  const TrackerDesc & getTrackerDesc(const llvm::Value& val) const; // asserting getter
+  llvm::DenseMap<const llvm::Value*, GuardedTrackerDesc> liveOutDescs;
+  GuardedTrackerDesc & requestGuardedTrackerDesc(const llvm::Value& val); // creates an emty tracker if missing
+  const GuardedTrackerDesc & getGuardedTrackerDesc(const llvm::Value& val) const; // asserting getter
 
   llvm::BasicBlock*
   remapExitingBlock(llvm::BasicBlock * exitingBlock) {
@@ -81,7 +81,7 @@ struct TransformSession {
 
   size_t numKillExits;
 
-  TransformSession(llvm::Loop & _loop, llvm::LoopInfo & _loopInfo, VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx)
+  GuardedTransformSession(llvm::Loop & _loop, llvm::LoopInfo & _loopInfo, VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx)
   : loop(_loop)
   , loopName(loop.getName().str())
   , loopInfo(_loopInfo)
@@ -103,7 +103,7 @@ struct TransformSession {
   //
   void finalizeLiveOutTrackers();
 
-  void finalizeLiveOutTracker(TrackerDesc & desc);
+  void finalizeLiveOutTracker(GuardedTrackerDesc & desc);
 
   llvm::BasicBlock & requestPureLatch();
 };
@@ -111,7 +111,7 @@ struct TransformSession {
 
 
 // actual transformation
-class DivLoopTrans {
+class GuardedDivLoopTrans {
   PlatformInfo & platInfo;
   VectorizationInfo & vecInfo;
   MaskExpander & maskEx;
@@ -120,7 +120,7 @@ class DivLoopTrans {
   llvm::IntegerType * boolTy;
   // collect all divergent exits of this loop and send them through a dedicated latch exit
 
-  llvm::DenseMap<const llvm::Loop*, TransformSession*> sessions;
+  llvm::DenseMap<const llvm::Loop*, GuardedTransformSession*> sessions;
 
 // Control phase
   // return true, if any loops were transformed
@@ -135,8 +135,8 @@ class DivLoopTrans {
 
   // replace this value update phi with a proper blend cascade
 public:
-  DivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo);
-  ~DivLoopTrans();
+  GuardedDivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo);
+  ~GuardedDivLoopTrans();
 
   // makes all divergent loops in the region uniform
   void transformDivergentLoops();
@@ -148,4 +148,4 @@ public:
 
 }
 
-#endif // RV_TRANSFORM_DIVLOOPTRANS_H
+#endif // RV_TRANSFORM_GUARDEDDIVLOOPTRANS_H

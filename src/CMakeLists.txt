@@ -78,7 +78,8 @@ add_rv_library(RV
   transform/cns/llvmDuplication.cpp
   transform/crtLowering.cpp
   transform/crtLowering.cpp
-  transform/divLoopTrans.cpp
+  # transform/divLoopTrans.cpp
+  transform/guardedDivLoopTrans.cpp
   transform/irPolisher.cpp
   transform/loopCloner.cpp
   transform/loopExitCanonicalizer.cpp
