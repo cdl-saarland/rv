@@ -694,6 +694,7 @@ int main(int argc, char **argv) {
       if (!vectorFn) {
         vectorFn = rv::createVectorDeclaration(*scalarFn, resShape, argShapes,
                                                vectorWidth, maskPos);
+        vectorFn->copyAttributesFrom(scalarFn);
 
         if (hasTargetDeclName) vectorFn->setName(targetDeclName);
       }
