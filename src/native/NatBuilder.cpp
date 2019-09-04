@@ -1032,8 +1032,19 @@ NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> 
     } break;
 
     case RVIntrinsic::PopCount: {
-      auto * maskedOnes = builder.CreateZExt(vecVal, intVecTy, "rv_ballot");
-      result = &CreateVectorReduce(config, builder, RedKind::Add, *maskedOnes, nullptr);
+      if (config.useAVX || config.useAVX2) {
+        // ISPC popcount pattern
+        auto maskIntTy = builder.getIntNTy(vectorWidth());
+        auto maskBitCast = builder.CreateBitCast(vecVal, maskIntTy);
+        auto maskZExt = builder.CreateZExt(maskBitCast, &indexTy);
+        auto ctPopFunc = Intrinsic::getDeclaration(mod, Intrinsic::ctpop, builder.getInt64Ty());
+        result = builder.CreateCall(ctPopFunc, {maskZExt}, "rv_popcount");
+
+
+      } else {
+        auto * maskedOnes = builder.CreateZExt(vecVal, intVecTy, "rv_zext");
+        result = &CreateVectorReduce(config, builder, RedKind::Add, *maskedOnes, nullptr);
+      }
     } break;
 
     default: abort();
