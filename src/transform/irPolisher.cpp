@@ -545,7 +545,7 @@ llvm::Value *IRPolisher::getConditionFromMask(IRBuilder<> &builder, llvm::Value*
 }
 
 bool IRPolisher::polish() {
-  if (!(config.useAVX2 || config.useAVX2)) {
+  if (!(config.useAVX || config.useAVX2)) {
     return false; // requires >= AVX
   }
 
