@@ -80,6 +80,7 @@ struct GuardedTransformSession {
   }
 
   size_t numKillExits;
+  size_t numDivExits;
 
   GuardedTransformSession(llvm::Loop & _loop, llvm::LoopInfo & _loopInfo, VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx)
   : loop(_loop)
@@ -94,6 +95,7 @@ struct GuardedTransformSession {
   , oldLatch(nullptr)
   , liveMaskDesc()
   , numKillExits(0)
+  , numDivExits(0)
   {}
 
   // transform to a uniform loop
@@ -142,8 +144,10 @@ public:
   void transformDivergentLoops();
 
   // stats
+  size_t numUniformLoops;
   size_t numDivergentLoops;
   size_t numKillExits;
+  size_t numDivExits;
 };
 
 }

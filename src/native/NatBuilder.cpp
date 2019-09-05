@@ -58,7 +58,7 @@ namespace rv {
 unsigned numMaskedGather, numMaskedScatter, numGather, numScatter,
     numInterMaskedLoads, numInterMaskedStores, numInterLoads, numInterStores,
     numContMaskedLoads, numContMaskedStores, numContLoads, numContStores, numUniMaskedLoads, numUniMaskedStores,
-    numUniLoads, numUniStores, numSlowAllocas;
+    numUniLoads, numUniStores, numUniAllocas, numSlowAllocas;
 
 unsigned numVecGEPs, numScalGEPs, numInterGEPs, numVecBCs, numScalBCs;
 unsigned numVecCalls, numSemiCalls, numFallCalls, numCascadeCalls, numRVIntrinsics;
@@ -80,6 +80,7 @@ NatBuilder::getIndexTy(Value * val) const {
 void NatBuilder::printStatistics() {
   // memory statistics
   Report() << "nat memory:\n"
+           << "\tuni allocas: " << numUniAllocas << "\n"
            << "\tslow allocas: " << numSlowAllocas << "\n"
            << "\tscatter/gather: " << numScatter << "/" << numGather << ", masked " << numMaskedScatter << "/" << numMaskedGather << "\n"
            << "\tinter load/store: " << numInterLoads << "/" << numInterStores << ", masked " << numInterMaskedLoads << "/" << numInterMaskedStores << "\n"
@@ -396,12 +397,14 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       vectorizeAlloca(alloca);
     } else if (gep || bc) {
       continue; // skipped
-    } else if (canVectorize(inst) && shouldVectorize(inst))
+    } else if (canVectorize(inst) && shouldVectorize(inst)) {
       vectorizeInstruction(inst);
-    else if (!canVectorize(inst) && shouldVectorize(inst))
+    } else if (!canVectorize(inst) && shouldVectorize(inst)){
       replicateInstruction(inst);
-    else
+    } else {
+      if (alloca) ++numUniAllocas;
       copyInstruction(inst);
+    }
   }
 }
 
@@ -706,6 +709,8 @@ void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
   auto allocAlign = allocaInst->getAlignment();
   auto * allocTy = allocaInst->getType()->getElementType();
 
+  ++numSlowAllocas;
+
   auto name = allocaInst->getName();
   if (!allocaInst->isArrayAllocation()) {
     auto indexTy = getIndexTy(allocaInst);
@@ -731,7 +736,6 @@ void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
   // TODO implement a batter vectorization scheme
 
   // fallback code path
-  ++numSlowAllocas;
   replicateInstruction(allocaInst);
 }
 

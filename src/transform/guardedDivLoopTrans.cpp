@@ -347,6 +347,8 @@ GuardedTransformSession::transformLoop() {
      if (vecInfo.isKillExit(exitBlock)) {
        ++numKillExits; // stats
        exitStack.emplace_back(exitingBlock, exitBlock);
+     } else {
+       ++numDivExits;
      }
    }
    BasicBlock & lastExit = exitStack[exitStack.size() - 1].second;
@@ -580,8 +582,10 @@ GuardedDivLoopTrans::GuardedDivLoopTrans(PlatformInfo & _platInfo, Vectorization
 , domTree(_domTree)
 , loopInfo(_loopInfo)
 , boolTy(Type::getInt1Ty(vecInfo.getContext()))
+, numUniformLoops(0)
 , numDivergentLoops(0)
 , numKillExits(0)
+, numDivExits(0)
 {}
 
 
@@ -599,10 +603,13 @@ GuardedDivLoopTrans::transformDivergentLoopControl(Loop & loop) {
     auto * loopSession = new GuardedTransformSession(loop, loopInfo, vecInfo, platInfo, maskEx);
     loopSession->transformLoop();
     numKillExits += loopSession->numKillExits; // accumulate global stats
+    numDivExits += loopSession->numDivExits; // accumulate global stats
     sessions[&loop] = loopSession;
 
     // mark loop as uniform
     vecInfo.removeDivergentLoop(loop);
+  } else {
+    ++numUniformLoops;
   }
 
   for (auto * childLoop : loop) {
@@ -652,8 +659,13 @@ GuardedDivLoopTrans::transformDivergentLoops() {
     errs() << "-- EOF divLoopTrans --\n";
   }
 
+  Report() << "divLoopTrans:\n\t" << numUniformLoops << " uniform loops.\n";
+
   if (numDivergentLoops > 0) {
-    Report() << "divLoopTrans: transformed " << numDivergentLoops << " loops with " << numKillExits << " kill exits.\n";
+    ReportContinue()
+        << "\t" << numDivergentLoops << " loops transformed,\n"
+        << "\t" << numDivExits << " divergent exits,\n"
+        << "\t" << numKillExits << " kill exits.\n";
   }
 
 // cleanup

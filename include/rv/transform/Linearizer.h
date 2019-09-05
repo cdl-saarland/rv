@@ -59,6 +59,10 @@ namespace rv {
   void scheduleDomRegion(llvm::BasicBlock * domEntry, llvm::Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
 
   // statistics
+      // preserved control-unifowm phi ndoes
+      size_t numCUniPhis;
+      // folded control-divergent phi nodes
+      size_t numCDivPhis;
       // # kept phi incoming values
       size_t numUniformAssignments;
       // # num of super blocks before partially linearized phi nodes
@@ -73,8 +77,6 @@ namespace rv {
       size_t numFoldedBranches;
       // number of preserved uniform branches
       size_t numPreservedBranches;
-      // number of uniform loops
-      size_t numUniformLoops;
       // number of select instructions
       size_t numBlends;
       // number of simplified blends (including pre-existing blends)

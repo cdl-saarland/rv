@@ -62,14 +62,15 @@ using namespace llvm;
 namespace rv {
 
 Linearizer::Linearizer(VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _dt, llvm::LoopInfo & _li)
-: numUniformAssignments(0)
+: numCUniPhis(0)
+, numCDivPhis(0)
+, numUniformAssignments(0)
 , numPreservedAssignments(0)
 , numFoldedAssignments(0)
 , numDivertedHeads(0)
 , numDelayedReturns(0)
 , numFoldedBranches(0)
 , numPreservedBranches(0)
-, numUniformLoops(0)
 , numBlends(0)
 , numSimplifiedBlends(0)
 , numRedundantIncomingValues(0)
@@ -685,9 +686,11 @@ Linearizer::foldPhis(BasicBlock & block) {
 
 // visit all phi nodes, memorizing the one that needs folding as protoPhi
   size_t numLocalIncoming = 0;
+  size_t numBlockPhis = 0;
   for (auto & somePhi : block.phis()) {
     // only phi found is a repair phi
     if (isRepairPhi(somePhi)) continue;
+    ++numBlockPhis;
 
     numLocalIncoming += somePhi.getNumIncomingValues();
 
@@ -699,6 +702,7 @@ Linearizer::foldPhis(BasicBlock & block) {
 
 // check if PHIs need to be folded at all
   if (!protoPhi) {
+    numCUniPhis += numBlockPhis;
     numUniformAssignments += numLocalIncoming;
     return;
   }
@@ -713,7 +717,10 @@ Linearizer::foldPhis(BasicBlock & block) {
       if (isRepairPhi(headerPhi)) continue;
 
       Value * shadowInput = getShadowInput(headerPhi);
-      if (!shadowInput) continue;
+      if (!shadowInput) {
+        ++numCUniPhis;
+        continue;
+      }
 
       Value * preHeaderInput = headerPhi.getIncomingValueForBlock(preHead);
 
@@ -725,9 +732,12 @@ Linearizer::foldPhis(BasicBlock & block) {
       if (isBoolLiteral(false, *shadowInput) && isBoolLiteral(true, *preHeaderInput)) {
         // this is really just an optimization for live-tracker header phis
         foldedInVal = inMask;
+        ++numCUniPhis;
       } else {
         IRBuilder<> preBuilder(&*preHead, preHead->getTerminator()->getIterator());
         foldedInVal = preBuilder.CreateSelect(inMask, preHeaderInput, shadowInput);
+        numFoldedAssignments += 2;
+        ++numCDivPhis;
       }
       headerPhi.setIncomingValueForBlock(phiLoop->getLoopPreheader(), foldedInVal);
     }
@@ -793,6 +803,7 @@ Linearizer::foldPhis(BasicBlock & block) {
     if (phi->getNumIncomingValues() == 1) continue; // LCSSA
     if (isRepairPhi(*phi)) continue; // only a placeholder for defered SSA repair
 
+    ++numCDivPhis;
     IRBuilder<> builder(&block, block.getFirstInsertionPt());
 
     numPreservedAssignments += selectBlockMap.size() - 1;
@@ -864,7 +875,6 @@ Linearizer::processLoop(int headId, Loop & loop) {
   assert(!vecInfo.isDivergentLoop(loop) && "divLoopTrans should have normalized this loop by now");
 
   {
-    ++numUniformLoops;
     if (headRelay) {
       // forward header reaching blocks to loop exits
       SuperBlockVec exitBlocks;
@@ -1283,31 +1293,27 @@ Linearizer::run() {
   IF_DEBUG_LIN verify();
 
 // report statistics
-  if (numFoldedBranches > 0 || numDivertedHeads > 0) {
-    Report() << "lin:\n";
-  }
-  if (numFoldedBranches > 0) {
-    Report() << "\t"
-             << numFoldedBranches << " folded branches,\n\t"
-             << numPreservedBranches << " preserved branches,\n\t"
-             << numBlends << " folded phis,\n\t"
-             << numSimplifiedBlends << " blends simplified.\n";
-  }
+  Report() << "parlin branches:\n";
+  ReportContinue() << "\t"
+           << numFoldedBranches << " folded branches,\n\t"
+           << numPreservedBranches << " preserved branches";
   if (numDivertedHeads > 0) {
-    Report() << "\t" << numDivertedHeads << " diverted relays.\n";
-  }
-  if (numUniformLoops > 0) {
-    Report() << "\t" << numUniformLoops << " uniform loops.\n";
-  }
-  if (numFoldedAssignments > 0) {
-    Report() << "phi stats:\n"
-      << "\t" << numUniformAssignments << " c-uniform incoming values\n"
-      << "\t" << numFoldedAssignments << " folded incoming values\n"
-      << "\t" << numPreservedAssignments << " preserved incoming values";
-    if (numRedundantIncomingValues > 0) {
-      ReportContinue() << "\n\t" << numRedundantIncomingValues << " redundant incoming folds";
-    }
+    ReportContinue() << ",\n\t" << numDivertedHeads << " diverted relays.\n";
+  } else {
     ReportContinue() << ".\n";
+  }
+  if (numFoldedAssignments > 0 || numCUniPhis > 0) {
+    Report() << "parlin phis:\n\t"
+           << numCUniPhis << " control-uni phis,\n\t"
+           << numCDivPhis << " control-div phis.\n\t"
+           << numUniformAssignments << " c-uniform incoming values\n\t"
+           << numFoldedAssignments << " folded incoming values\n\t"
+           << numPreservedAssignments << " preserved incoming values.\n\t"
+           << numBlends << " selects created,\n\t"
+           << numSimplifiedBlends << " blends simplified.\n";
+    if (numRedundantIncomingValues > 0) {
+      ReportContinue() << "\t" << numRedundantIncomingValues << " redundant incoming folds.\n";
+    }
   }
 }
 
