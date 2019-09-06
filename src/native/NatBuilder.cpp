@@ -64,6 +64,9 @@ unsigned numVecGEPs, numScalGEPs, numInterGEPs, numVecBCs, numScalBCs;
 unsigned numVecCalls, numSemiCalls, numFallCalls, numCascadeCalls, numRVIntrinsics;
 unsigned numScalarized, numVectorized, numFallbacked, numLazy;
 
+unsigned numConstLoadMasks, numUniLoadMasks, numVarLoadMasks;
+unsigned numConstStoreMasks, numUniStoreMasks, numVarStoreMasks;
+
 bool DumpStatistics(std::string &file) {
   char * envVal = getenv("NAT_STAT_DUMP");
   if (!envVal) return false;
@@ -85,7 +88,9 @@ void NatBuilder::printStatistics() {
            << "\tscatter/gather: " << numScatter << "/" << numGather << ", masked " << numMaskedScatter << "/" << numMaskedGather << "\n"
            << "\tinter load/store: " << numInterLoads << "/" << numInterStores << ", masked " << numInterMaskedLoads << "/" << numInterMaskedStores << "\n"
            << "\tcons load/store: " << numContLoads << "/" << numContStores << ", masked " <<  numContMaskedLoads << "/" << numContMaskedStores << "\n"
-           << "\tuni load/store: " << numUniLoads << "/" << numUniStores << ", masked " << numUniMaskedLoads << "/" << numUniMaskedStores << "\n";
+           << "\tuni load/store: " << numUniLoads << "/" << numUniStores << ", masked " << numUniMaskedLoads << "/" << numUniMaskedStores << "\n"
+           << "\tstore masks (c/u/v): " << numConstStoreMasks << "/" << numUniStoreMasks << "/" << numVarStoreMasks << "\n"
+           << "\tload  masks (c/u/v): " << numConstLoadMasks << "/" << numUniLoadMasks << "/" << numVarLoadMasks << "\n";
 
 #if 0
   // lazy statistics
@@ -360,6 +365,32 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(inst);
     BitCastInst *bc = dyn_cast<BitCastInst>(inst);
     AllocaInst *alloca = dyn_cast<AllocaInst>(inst);
+
+    // analyze memory predicate
+    if (load || store) {
+      bool memMaskConst = false;
+      bool memMaskUni = false;
+      bool memMaskDiv = false;
+      auto * scaBlockPred = vecInfo.getPredicate(*bb);
+
+      if (!scaBlockPred || isa<Constant>(*scaBlockPred)) {
+        memMaskConst = true;
+      } else if (scaBlockPred && vecInfo.getVectorShape(*scaBlockPred).isUniform()) {
+        memMaskUni = true;
+      } else {
+        memMaskDiv = true;
+      }
+
+      if (load) {
+        numConstLoadMasks += memMaskConst;
+        numUniLoadMasks += memMaskUni;
+        numVarLoadMasks += memMaskDiv;
+      } else if (store) {
+        numConstStoreMasks += memMaskConst;
+        numUniStoreMasks += memMaskUni;
+        numVarStoreMasks += memMaskDiv;
+      }
+    }
 
     // loads and stores need special treatment (masking, shuffling, etc) (build them lazily)
     if (canVectorize(inst) && (load || store))
