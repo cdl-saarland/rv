@@ -1486,6 +1486,22 @@ NatBuilder::matchMemoryReduction(Value * scaPtr, Value * scaValue, Value *& oPay
    return RedKind::Top;
 }
 
+static Value*
+GetUnderlyingAlloca(Value * ptr) {
+  std::set<Value*> seen;
+  if (!seen.insert(ptr).second) return nullptr;
+
+// allocas
+  auto * alloca = dyn_cast<AllocaInst>(ptr);
+  if (alloca) return alloca;
+
+// geps
+  auto * gep = dyn_cast<GetElementPtrInst>(ptr);
+  if (gep) return GetUnderlyingAlloca(gep->getPointerOperand());
+
+// default
+  return nullptr;
+}
 
 void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   if (keepScalar.count(inst)) {
@@ -1519,6 +1535,11 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   Value *predicate = vecInfo.getPredicate(*inst->getParent());
   assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
   bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
+
+  // uniform loads from allocations do not need a mask!
+  if (needsMask && load && GetUnderlyingAlloca(accessedPtr)) {
+    needsMask = false;
+  }
 
   if (needsMask)
     mask = requestVectorValue(predicate);
