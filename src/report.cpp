@@ -9,6 +9,34 @@
 #include "report.h"
 
 #include <llvm/Support/raw_os_ostream.h>
+#include <llvm/Support/raw_ostream.h>
+
+
+
+// RV_REPORT_FILE stream handle
+static std::unique_ptr<llvm::raw_fd_ostream> outFileStream;
+
+static llvm::raw_ostream &
+reps() {
+  if (outFileStream) return *outFileStream;
+
+  // no reporting
+  const bool hasReport = rv::CheckFlag("RV_REPORT");
+  if (!hasReport) {
+    return llvm::nulls();
+  }
+
+  // std out
+  const char * repFilePath = getenv("RV_REPORT_FILE");
+  if (!repFilePath) {
+    return llvm::outs();
+  }
+
+  // report file stream
+  std::error_code EC;
+  outFileStream = std::make_unique<llvm::raw_fd_ostream>(llvm::StringRef(repFilePath), EC);
+  return *outFileStream;
+}
 
 namespace rv {
 
@@ -22,22 +50,12 @@ CheckFlag(const char * flagName) {
 // report stream (TODO use llvm optimization log stream)
 llvm::raw_ostream &
 Report() {
-  if (CheckFlag("RV_REPORT")) {
-    return (llvm::outs() << "rv: ");
-  }
-
-  // default to null stream
-  return llvm::nulls();
+  return reps() << "rv: ";
 }
 
 llvm::raw_ostream &
 ReportContinue() {
-  if (CheckFlag("RV_REPORT")) {
-    return llvm::outs();
-  }
-
-  // default to null stream
-  return llvm::nulls();
+  return reps();
 }
 
 llvm::raw_ostream &
