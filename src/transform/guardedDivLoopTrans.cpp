@@ -183,12 +183,12 @@ GuardedTransformSession::transformLoop() {
    {
      IRBuilder<> headerBuilder(&loopHeader);
      auto * continueCond =
-       headerBuilder.CreateCall(&anyFunc, ArrayRef<Value*>{liveMaskDesc.trackerPhi}, loopName + ".exec");
-     trackerBuilder.SetInsertPoint(continueCond);
+       headerBuilder.CreateCall(&anyFunc, liveMaskDesc.trackerPhi, loopName + ".exec");
      auto & anyBr = *headerBuilder.CreateCondBr(continueCond, testHead, &fusedExit);
      vecInfo.setVectorShape(anyBr, VectorShape::uni());
      vecInfo.setVectorShape(*continueCond, VectorShape::uni());
    }
+   trackerBuilder.SetInsertPoint(&loopHeader, loopHeader.getFirstInsertionPt()); // reset tracker builder to a sane insertion point
 
   IF_DEBUG_DLT { errs() << "after header offsetting. "; vecInfo.dump(); }
 
