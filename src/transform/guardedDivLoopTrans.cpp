@@ -631,32 +631,35 @@ GuardedDivLoopTrans::transformDivergentLoops() {
   for (auto * loop : loopInfo) {
     hasDivergentLoops |= transformDivergentLoopControl(*loop);
   }
+
+
+
   if (!hasDivergentLoops) {
      IF_DEBUG_DLT { errs() << "-- no divergent loops. EOF divLoopTrans --\n"; }
-     return;
-  }
 
-  // checkpoint:
-  domTree.recalculate(vecInfo.getScalarFunction());
-  IF_DEBUG_DLT {
-    Dump(vecInfo.getScalarFunction());
-    loopInfo.print(errs());
-    loopInfo.verify(domTree); // must not recompute
-  }
+  } else {
+    // checkpoint:
+    domTree.recalculate(vecInfo.getScalarFunction());
+    IF_DEBUG_DLT {
+      Dump(vecInfo.getScalarFunction());
+      loopInfo.print(errs());
+      loopInfo.verify(domTree); // must not recompute
+    }
 
-  // request initial loop live masks
-  IF_DEBUG_DLT { errs() << "# 2. requesting initial loop live masks:\n"; }
-  for (auto * loop : loopInfo) {
-    addLoopInitMasks(*loop);
-  }
+    // request initial loop live masks
+    IF_DEBUG_DLT { errs() << "# 2. requesting initial loop live masks:\n"; }
+    for (auto * loop : loopInfo) {
+      addLoopInitMasks(*loop);
+    }
 
-  IF_DEBUG_DLT {
-    errs() << "-- divLoopTrans finished. VecInfo::\n";
-    vecInfo.dump();
-    errs() << "-- Verifying (non-dom anticipated):\n";
-    verifyFunction(vecInfo.getScalarFunction(), &errs());
-    // assert(!errorFound);
-    errs() << "-- EOF divLoopTrans --\n";
+    IF_DEBUG_DLT {
+      errs() << "-- divLoopTrans finished. VecInfo::\n";
+      vecInfo.dump();
+      errs() << "-- Verifying (non-dom anticipated):\n";
+      verifyFunction(vecInfo.getScalarFunction(), &errs());
+      // assert(!errorFound);
+      errs() << "-- EOF divLoopTrans --\n";
+    }
   }
 
   Report() << "divLoopTrans:\n\t" << numUniformLoops << " uniform loops.\n";
