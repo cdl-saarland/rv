@@ -597,6 +597,7 @@ GuardedDivLoopTrans::transformDivergentLoopControl(Loop & loop) {
 
   // make this loop uniform (all remaining divergent loops are properly nested)
   if (vecInfo.isDivergentLoop(loop)) {
+    assert(vecInfo.inRegion(*loop.getHeader()) && "loop outside the Region marked as divergent");
     ++numDivergentLoops;
     hasDivergentLoops = true;
 
@@ -608,7 +609,7 @@ GuardedDivLoopTrans::transformDivergentLoopControl(Loop & loop) {
 
     // mark loop as uniform
     vecInfo.removeDivergentLoop(loop);
-  } else {
+  } else if (vecInfo.inRegion(*loop.getHeader())) {
     ++numUniformLoops;
   }
 

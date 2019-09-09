@@ -1296,13 +1296,9 @@ Linearizer::run() {
   Report() << "parlin branches:\n";
   ReportContinue() << "\t"
            << numFoldedBranches << " folded branches,\n\t"
-           << numPreservedBranches << " preserved branches";
-  if (numDivertedHeads > 0) {
-    ReportContinue() << ",\n\t" << numDivertedHeads << " diverted relays.\n";
-  } else {
-    ReportContinue() << ".\n";
-  }
-  if (numFoldedAssignments > 0 || numCUniPhis > 0) {
+           << numPreservedBranches << " preserved branches,\n\t"
+           << numDivertedHeads << " diverted relays.\n";
+  if (numFoldedAssignments > 0 || numCUniPhis > 0 || numCDivPhis > 0) {
     Report() << "parlin phis:\n\t"
            << numCUniPhis << " control-uni phis,\n\t"
            << numCDivPhis << " control-div phis.\n\t"
