@@ -19,6 +19,7 @@
 
 #include "rv/vectorizationInfo.h"
 #include "rv/region/Region.h"
+#include "rv/config.h"
 
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/IRBuilder.h>
@@ -29,7 +30,7 @@
 #include <unordered_map>
 
 #include <llvm/IR/CFG.h>
-#include<llvm/ADT/PostOrderIterator.h>
+#include <llvm/ADT/PostOrderIterator.h>
 
 typedef llvm::ReversePostOrderTraversal<llvm::Function*> RPOT;
 
@@ -328,6 +329,7 @@ namespace rv {
   protected:
     friend class LiveValueTracker;
 
+    Config config;
     VectorizationInfo & vecInfo;
     MaskExpander & maskEx;
     llvm::DominatorTree & dt;
@@ -391,7 +393,7 @@ namespace rv {
     size_t simplifyBlends();
 
   public:
-    Linearizer(VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _dt, llvm::LoopInfo & _li);
+    Linearizer(Config _config, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _dt, llvm::LoopInfo & _li);
 
     void run();
   };

@@ -54,6 +54,7 @@ Config::Config()
 , enableIRPolish(CheckFlag("RV_ENABLE_POLISH"))
 , enableHeuristicBOSCC(CheckFlag("RV_EXP_BOSCC"))
 , enableCoherentIF(CheckFlag("RV_EXP_CIF"))
+, enableOptimizedBlends(!CheckFlag("RV_NO_BLENDOPT"))
 
 // enable greedy inter-procedural vectorization
 , enableGreedyIPV(CheckFlag("RV_IPV"))
@@ -194,6 +195,7 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
         << ", enableSROV = " << config.enableSROV
         << ", enableHeuristicBOSCC = " << config.enableHeuristicBOSCC
         << ", enableCoherentIF = " << config.enableCoherentIF
+        << ", enableOptimizedBlends = " << config.enableOptimizedBlends
         << ", enableIRPolish = " << config.enableIRPolish
         << ", greedyIPV = " << config.enableGreedyIPV
         << ", maxULPErrorBound = " << ulp_to_string(config.maxULPErrorBound);

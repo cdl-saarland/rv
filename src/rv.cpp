@@ -224,7 +224,7 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 
     // partially linearize acyclic control in the region
 
-    Linearizer linearizer(vecInfo, maskEx, domTree, loopInfo);
+    Linearizer linearizer(config, vecInfo, maskEx, domTree, loopInfo);
     linearizer.run();
 
     IF_DEBUG {
