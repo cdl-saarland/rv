@@ -12,6 +12,7 @@
 
 #include "llvm/Transforms/Utils/SSAUpdater.h"
 #include "llvm/IR/Verifier.h"
+#include <llvm/IR/PatternMatch.h>
 
 #include <cassert>
 
@@ -27,11 +28,43 @@
 
 using namespace llvm;
 
+Value*
+MatchMaskIntrinsic(Value & condVal) {
+  auto * call = dyn_cast<CallInst>(&condVal);
+  if (!call) return nullptr;
+
+  auto * callee = dyn_cast<Function>(call->getCalledValue());
+  if (!callee) return nullptr;
+
+  if (callee->getName() == "rv_any") {
+    return call->getArgOperand(0);
+  }
+
+  return nullptr;
+}
+
+
 namespace rv {
 
 static
 Value&
 CreateAnd(IRBuilder<> & builder, Value & lhs, Value & rhs, const Twine & name=Twine()) {
+  using namespace llvm::PatternMatch;
+
+// Optimize for a common pattern
+  Value * anyTestedMask = MatchMaskIntrinsic(rhs);
+  if (anyTestedMask) {
+    Value * X, *Y, *Z = nullptr;
+    // lhs = and x (not y)
+    // rhs = any (not y)
+    if (match(&lhs, m_And(m_Value(X), m_Not(m_Value(Y)))) &&
+        match(anyTestedMask, m_Not(m_Value(Z))) &&
+        (Y == Z))
+    {
+      return lhs; // and lhs rhs
+    }
+  }
+
 #ifdef RV_BLEND_MASKS
   auto * falseMask = ConstantInt::getFalse(lhs.getContext());
   return *builder.CreateSelect(&lhs, &rhs, falseMask, name);
@@ -100,21 +133,6 @@ MaskExpander::getPredecessorEdges(const Instruction & termInst, const  BasicBloc
   }
 }
 
-static Value*
-MatchMaskIntrinsic(Value & condVal) {
-  auto * call = dyn_cast<CallInst>(&condVal);
-  if (!call) return nullptr;
-
-  auto * callee = dyn_cast<Function>(call->getCalledValue());
-  if (!callee) return nullptr;
-
-  if (callee->getName() == "rv_any") {
-    return call->getArgOperand(0);
-  }
-
-  return nullptr;
-}
-
 Value &
 MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & builder) {
   auto & sourceBlock = *term.getParent();
@@ -125,15 +143,6 @@ MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & b
   if (isa<BranchInst>(term)) {
     auto & branch = cast<BranchInst>(term);
     auto * condVal = branch.isConditional() ? branch.getCondition() : trueConst;
-
-    // look through rv_any calls
-#if 0
-    Value * actualCond = MatchMaskIntrinsic(*condVal);
-    if (actualCond) {
-      errs() << "maskEx: recovered mask condition " << *actualCond <<" from " << *condVal << "\n";
-      condVal = actualCond;
-    }
-#endif
 
     if (succIdx == 0) {
       return *condVal;
