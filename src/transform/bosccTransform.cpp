@@ -369,9 +369,6 @@ run() {
 
     ++numBosccBranches;
 
-    IF_DEBUG_BOSCC {
-      errs() << "BOSCC: Skip succ " << branchInst->getSuccessor(succIdx)->getName() << " of block " << branchInst->getParent()->getName() << "\n";
-    }
     Report() << "boscc: skip succ " << branchInst->getSuccessor(succIdx)->getName() << " of block " << branchInst->getParent()->getName() << "\n";
 
     // pull out all incoming values in the going-to-be-BOSCCed region into their own phi nodes in a dedicated block (if the boscc branch is taken these blens will be skipped)
