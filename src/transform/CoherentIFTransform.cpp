@@ -1,3 +1,12 @@
+//===- src/transform/CoherentIfTransform.cpp - Insertiong of all-true code paths --*- C++ -*-===//
+//
+// Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+
 #include "rv/transform/CoherentIFTransform.h"
 #include "rv/analysis/BranchEstimate.h"
 

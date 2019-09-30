@@ -1,18 +1,11 @@
-//===- irPolisher.cpp - IR polish pass ----------------===//
+//===- src/transform/irPolisher.cpp - IR-level intrinsic selection --*- C++ -*-===//
 //
-//                     The Region Vectorizer
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
-//===----------------------------------------------------------------------===//
-//
-// The IR polisher performs:
-// - early instruction selection (it replaces IR patterns with intrinsics)
-// - bool vector promotion to i32/i64
-// to work around code quality issues in LLVM 4.0.
+// Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+//
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
