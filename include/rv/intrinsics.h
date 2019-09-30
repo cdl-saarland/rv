@@ -1,3 +1,11 @@
+//===- rv/intrinsics.h - RV intrinsics --*- C++ -*-===//
+//
+// Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 #ifndef RV_INTRINSICS_H
 #define RV_INTRINSICS_H
 

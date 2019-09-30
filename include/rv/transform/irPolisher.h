@@ -1,3 +1,12 @@
+//===- rv/transform/irPolisher.h - IR-level intrinsic selection --*- C++ -*-===//
+//
+// Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+
 #ifndef RV_TRANSFORM_IRPOLISHER_H
 #define RV_TRANSFORM_IRPOLISHER_H
 

@@ -1,6 +1,10 @@
+//===- rv/region/RegionImpl.h - abstract region class --*- C++ -*-===//
 //
-// Created by thorsten on 18.08.16.
+// Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
+//===----------------------------------------------------------------------===//
 
 #ifndef RV_REGIONIMPL_H
 #define RV_REGIONIMPL_H
