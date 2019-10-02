@@ -191,13 +191,15 @@ WFVPass::runOnModule(Module & M) {
 
   // no annotated functions found (pragma omp declare simd)
   if (wfvJobs.empty()) return false;
+ 
+  auto & protoFunc = *wfvJobs[0].scalarFn;
 
   // configure platform info
-  auto & TLI = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
+  auto & TLI = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(protoFunc);
 
   // FIXME this assumes that all functions were compiled for the same target
-  auto & TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(*wfvJobs[0].scalarFn);
-  Config rvConfig = Config::createForFunction(*wfvJobs[0].scalarFn);
+  auto & TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(protoFunc);
+  Config rvConfig = Config::createForFunction(protoFunc);
 
   // configure platInfo
   PlatformInfo platInfo(M, &TTI, &TLI);

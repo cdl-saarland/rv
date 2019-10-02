@@ -459,7 +459,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     auto ptr = loadInst->getOperand(0);
     auto newLoad = builder.CreateLoad(ptr);
 
-    newLoad->setAlignment(loadInst->getAlignment());
+    newLoad->setAlignment(MaybeAlign(loadInst->getAlignment()));
     newLoad->setVolatile(loadInst->isVolatile());
     newLoad->setOrdering(loadInst->getOrdering());
     newLoad->setSyncScopeID(loadInst->getSyncScopeID());

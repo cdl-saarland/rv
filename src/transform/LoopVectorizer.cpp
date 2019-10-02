@@ -397,7 +397,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
 
 // setup PlatformInfo
   TargetTransformInfo & tti = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
-  TargetLibraryInfo & tli = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
+  TargetLibraryInfo & tli = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(F);
   PlatformInfo platInfo(*F.getParent(), &tti, &tli);
 
   // TODO translate fast-math flag to ULP error bound

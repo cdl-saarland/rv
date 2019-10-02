@@ -703,7 +703,7 @@ bool IsVectorizableTy(const Type & ty) {
 }
 
 void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
-  unsigned allocAlign = allocaInst->getAlignment();
+  auto allocAlign = allocaInst->getAlignment();
   auto * allocTy = allocaInst->getType()->getElementType();
 
   auto name = allocaInst->getName();
@@ -717,7 +717,7 @@ void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
     auto * scaleFactor = ConstantInt::get(indexTy, vectorWidth());
 
     auto * baseAlloca = builder.CreateAlloca(allocTy, allocaInst->getType()->getAddressSpace(), scaleFactor, name + ".scaled_alloca");
-    baseAlloca->setAlignment(allocAlign);
+    baseAlloca->setAlignment(MaybeAlign(allocAlign));
 
     // extract basePtrs
     auto * offsetVec = createContiguousVector(vectorWidth(), indexTy, 0, 1);
@@ -1687,7 +1687,7 @@ NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, u
   // extract and materialize store
   auto * lastLaneVal = builder.CreateExtractElement(values, indexVal, "xt.lastlane");
   auto * vecMem = builder.CreateStore(lastLaneVal, addr);
-  cast<StoreInst>(vecMem)->setAlignment(alignment);
+  cast<StoreInst>(vecMem)->setAlignment(MaybeAlign(alignment));
 
   // proceed in continue block (if any)
   if (continueBlock) {
@@ -1710,10 +1710,10 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedTy
     Instruction* vecMem;
     if (values) {
       vecMem = builder.CreateStore(values, addr);
-      cast<StoreInst>(vecMem)->setAlignment(alignment);
+      cast<StoreInst>(vecMem)->setAlignment(MaybeAlign(alignment));
     } else {
       vecMem = builder.CreateLoad(addr, "scal_mask_mem");
-      cast<LoadInst>(vecMem)->setAlignment(alignment);
+      cast<LoadInst>(vecMem)->setAlignment(MaybeAlign(alignment));
     }
     return vecMem;
   });
@@ -1797,7 +1797,7 @@ Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, unsigned alignm
 
   } else {
     StoreInst *store = builder.CreateStore(val, ptr);
-    store->setAlignment(alignment);
+    store->setAlignment(MaybeAlign(alignment));
     return store;
   }
 }
@@ -1808,7 +1808,7 @@ Value *NatBuilder::createContiguousLoad(Value *ptr, unsigned alignment, Value *m
 
   } else {
     LoadInst *load = builder.CreateLoad(ptr, "cont_load");
-    load->setAlignment(alignment);
+    load->setAlignment(MaybeAlign(alignment));
     return load;
   }
 }
@@ -2465,7 +2465,7 @@ Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigne
     } else {
       // ... load from pointer, insert to result vector, branch to next
       Value *loadInst = builder.CreateLoad(pointerLaneVal, "load_lane_" + std::to_string(i));
-      cast<LoadInst>(loadInst)->setAlignment(alignment);
+      cast<LoadInst>(loadInst)->setAlignment(MaybeAlign(alignment));
       insert = builder.CreateInsertElement(resVec, loadInst, ConstantInt::get(i32Ty, i),
                                            "insert_lane_" + std::to_string(i));
     }

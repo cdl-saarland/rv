@@ -159,7 +159,7 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
   if (load)  {
     auto * vecLoad = builder.CreateLoad(castElemTy, load->getName());
     vecInfo.setVectorShape(*vecLoad, vecInfo.getVectorShape(*load));
-    vecLoad->setAlignment(alignment);
+    vecLoad->setAlignment(MaybeAlign(alignment));
 
     if (replaceInst) load->replaceAllUsesWith(vecLoad);
 
@@ -167,7 +167,7 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
     return vecLoad;
   } else {
     auto * vecStore = builder.CreateStore(storeVal, castElemTy, store->isVolatile());
-    vecStore->setAlignment(alignment);
+    vecStore->setAlignment(MaybeAlign(alignment));
     vecInfo.setVectorShape(*vecStore, vecInfo.getVectorShape(*store));
 
     if (replaceInst) vecInfo.dropVectorShape(*store);
@@ -556,7 +556,7 @@ StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
   auto * vecAlloc = new AllocaInst(vecAllocTy, allocaInst.getType()->getAddressSpace(), allocaInst.getName(), &allocaInst);
 
   // align at least to vector size
-  vecAlloc->setAlignment(vecInfo.getVectorWidth() * allocaInst.getAlignment());
+  vecAlloc->setAlignment(MaybeAlign(vecInfo.getVectorWidth() * allocaInst.getAlignment()));
 
   const unsigned alignment = layout.getPrefTypeAlignment(vecAllocTy); // TODO should enfore a stricter alignment at this point
   vecInfo.setVectorShape(*vecAlloc, VectorShape::uni(alignment));

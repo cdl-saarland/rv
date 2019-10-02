@@ -138,7 +138,7 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   TargetIRAnalysis irAnalysis;
   TargetTransformInfo tti = irAnalysis.run(parentFn, fam);
   TargetLibraryAnalysis libAnalysis;
-  TargetLibraryInfo tli = libAnalysis.run(*parentFn.getParent(), mam);
+  TargetLibraryInfo tli = libAnalysis.run(parentFn, fam);
 
   ScalarEvolutionAnalysis seAnalysis;
   ScalarEvolution SE = seAnalysis.run(parentFn, fam);
@@ -317,7 +317,7 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   TargetIRAnalysis irAnalysis;
   TargetTransformInfo tti = irAnalysis.run(*scalarFn, fam);
   TargetLibraryAnalysis libAnalysis;
-  TargetLibraryInfo tli = libAnalysis.run(mod, mam);
+  TargetLibraryInfo tli = libAnalysis.run(*scalarFn, fam);
   rv::PlatformInfo platInfo(mod, &tti, &tli);
 
   // assign a proper vector function name
