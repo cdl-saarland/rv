@@ -2,12 +2,12 @@
 
 #include <cmath>
 
-float Global;
+int Global;
 
-float Inc(float v) __attribute__((noinline));
+int Inc(int v) __attribute__((noinline));
 
-float Inc(float v) {
-  Global += v;
+int Inc(int v) {
+  Global |= 1 << (v-1);
   return v;
 }
 
@@ -23,19 +23,19 @@ float a, b, c, d, e, f, g, v, R, z, p;
 // entry -> {A, E, K}
 
 A:
-  Inc(1.0);
+  Inc(1);
   a = (-t);
   if (y > 0.0) goto B; else goto H;
 
 B:
-  Inc(2.0);
+  Inc(2);
   t = t + 1.0;
   goto C;
 C:
-  Inc(45436456.0f);
+  Inc(3);
   if (cosf(t) <= 0.0) goto D; else goto E; // div
 D:
-  Inc(454366.0f);
+  Inc(4);
   if (cosf(u) <= .25) {
     p = 4.1;
     goto F;
@@ -44,43 +44,43 @@ D:
     goto end;
   }
 E:
-  Inc(4366.0f);
+  Inc(5);
   p = 4.2;
   goto F;
 F: /// phi
   v = p;
-  Inc(2342345);
+  Inc(6);
   goto G;
 G:
-  Inc(23452345);
+  Inc(7);
   goto Z;
 
 H:
-  Inc(98123);
+  Inc(8);
   goto I;
 I:
-  Inc(23425);
+  Inc(9);
   if (cosf(x) <= .75) goto L; else goto K;
 K:
-  Inc(13452345);
+  Inc(10);
   goto M;
 L:
-  Inc(232345);
+  Inc(11);
   R = 3.0;
   if (cosf(x) <= .25 ) goto M; else goto end;
 M:
-  Inc(324234);
+  Inc(12);
   goto N;
 N:
   v = 2.0;
-  Inc(4545);
+  Inc(13);
   goto Z;
 
 Z:
   R = v;  // phi
-  Inc(7.0);
+  Inc(14);
 
 end:
-  Inc(8.0);
+  Inc(15);
   return R;
 }
