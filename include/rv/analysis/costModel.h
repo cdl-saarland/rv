@@ -21,7 +21,7 @@ namespace llvm {
 
 namespace rv {
 
-class Config;
+struct Config;
 class PlatformInfo;
 class VectorizationInfo;
 class Region;

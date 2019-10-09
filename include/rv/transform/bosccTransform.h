@@ -21,7 +21,7 @@ namespace llvm {
   class DataLayout;
   class LoopInfo;
   class DominatorTree;
-  struct PostDominatorTree;
+  class PostDominatorTree;
   class BranchProbabilityInfo;
 }
 

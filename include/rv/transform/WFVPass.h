@@ -28,7 +28,7 @@ namespace llvm {
   class LoopInfo;
   class DominatorTree;
   class ScalarEvolution;
-  struct PostDominatorTree;
+  class PostDominatorTree;
   class MemoryDependenceResults;
   class BranchProbabilityInfo;
 }
