@@ -830,14 +830,19 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
   assert((shape.isVarying() || shape.isUniform()) && "predicate can't be contigious or strided");
 
   Value *reduction;
-  if (shape.isVarying()) {
-    Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
-    RedKind kind = isRv_all ? RedKind::And : RedKind::Or;
-    reduction = &CreateVectorReduce(config, builder, kind, *vecPredicate, nullptr);
-    // reduction = createPTest(vecPredicate, isRv_all);
+#if 1
+  Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
+  reduction = createPTest(vecPredicate, isRv_all);
+#else
+  // Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
+  auto * ballotVal = createVectorMaskSummary(requestVectorValue(predicate), builder, RVIntrinsic::Ballot); // FIXME block predicate
+  if (isRv_all) {
+    uint64_t mask = ((1 << vectorWidth()) - 1);
+    reduction = builder.CreateICmpEQ(ballotVal, ConstantInt::get(ballotVal->getType(), mask, false)); // mask == FullMask
   } else {
-    reduction = requestScalarValue(predicate);
+    reduction = builder.CreateICmpNE(ballotVal, ConstantInt::get(ballotVal->getType(), 0, false)); // mask != 0
   }
+#endif
 
   mapScalarValue(rvCall, reduction);
 
@@ -1097,16 +1102,6 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
   assert(rvCall->getNumArgOperands() == 1 && "expected 1 argument for rv_ballot(cond)");
 
   Value *condArg = rvCall->getArgOperand(0);
-
-// uniform arg
-  if (getVectorShape(*condArg).isUniform()) {
-    auto intTy = rvCall->getType();
-    auto * uniVal = requestScalarValue(condArg);
-    uniVal = builder.CreateSExt(uniVal, intTy, "rv_ballot");
-    uniVal = builder.CreateAnd(uniVal, ConstantInt::get(intTy, (((uint64_t) 1) << vecWidth) - 1), "rv_ballot");
-    mapScalarValue(rvCall, uniVal);
-    return;
-  }
 
 // non-uniform arg
   auto * vecVal = maskInactiveLanes(requestVectorValue(condArg), rvCall->getParent(), false);
