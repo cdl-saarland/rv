@@ -47,11 +47,19 @@ using namespace llvm;
 // vector-length agnostic
 extern "C" {
 
+#ifdef RV_ENABLE_SLEEF
 extern const unsigned char * vla_sp_Buffer;
 extern const size_t vla_sp_BufferLen;
 
 extern const unsigned char * vla_dp_Buffer;
 extern const size_t vla_dp_BufferLen;
+#else
+const unsigned char * vla_sp_Buffer = nullptr;
+const size_t vla_sp_BufferLen = 0;
+
+const unsigned char * vla_dp_Buffer = nullptr;
+const size_t vla_dp_BufferLen = 0;
+#endif
 
 #ifdef RV_ENABLE_ADVSIMD
 extern const unsigned char * advsimd_sp_Buffer;
@@ -825,8 +833,12 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
 
 void
 addSleefResolver(const Config & config, PlatformInfo & platInfo) {
+#ifdef RV_ENABLE_SLEEF
   auto sleefRes = std::make_unique<SleefResolverService>(platInfo, config);
   platInfo.addResolverService(std::move(sleefRes), false); // give precedence to VectorABI
+#else
+  Report() << " build w/o SLEEF (tried to add SleefResolver)!\n";
+#endif
 }
 
 } // namespace rv

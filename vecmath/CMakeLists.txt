@@ -17,71 +17,71 @@ SET ( SLEEF_GENBC_ADVSIMD_SP )
 # SLEEF bc build paths
 
 
-IF (RV_ENABLE_X86)
-Message("-- rv: SLEEF with x86 support.")
-SET ( SLEEF_BC_AVX512_SP "${VECMATH_LIB_DIR}/avx512_sleef_sp.bc" )
-SET ( SLEEF_GENBC_AVX512_SP "${VECMATH_LIB_DIR}/avx512_sleef_sp.gen.cpp" )
-
-SET ( SLEEF_BC_AVX512_DP "${VECMATH_LIB_DIR}/avx512_sleef_dp.bc" )
-SET ( SLEEF_GENBC_AVX512_DP "${VECMATH_LIB_DIR}/avx512_sleef_dp.gen.cpp" )
-
-SET ( EXTRAS_AVX512_BC "${VECMATH_LIB_DIR}/avx512_extras.bc" )
-SET ( EXTRAS_AVX512_GENBC "${VECMATH_LIB_DIR}/avx512_extras.gen.cpp" )
-
-SET ( SLEEF_BC_AVX2_SP "${VECMATH_LIB_DIR}/avx2_sleef_sp.bc" )
-SET ( SLEEF_GENBC_AVX2_SP "${VECMATH_LIB_DIR}/avx2_sleef_sp.gen.cpp" )
-
-SET ( EXTRAS_AVX2_BC "${VECMATH_LIB_DIR}/avx2_extras.bc" )
-SET ( EXTRAS_AVX2_GENBC "${VECMATH_LIB_DIR}/avx2_extras.gen.cpp" )
-
-SET ( SLEEF_BC_AVX_SP "${VECMATH_LIB_DIR}/avx_sleef_sp.bc" )
-SET ( SLEEF_GENBC_AVX_SP "${VECMATH_LIB_DIR}/avx_sleef_sp.gen.cpp" )
-
-SET ( SLEEF_BC_SSE_SP "${VECMATH_LIB_DIR}/sse_sleef_sp.bc" )
-SET ( SLEEF_GENBC_SSE_SP "${VECMATH_LIB_DIR}/sse_sleef_sp.gen.cpp" )
-
-SET ( SLEEF_BC_AVX2_DP "${VECMATH_LIB_DIR}/avx2_sleef_dp.bc" )
-SET ( SLEEF_GENBC_AVX2_DP "${VECMATH_LIB_DIR}/avx2_sleef_dp.gen.cpp" )
-
-SET ( SLEEF_BC_AVX_DP "${VECMATH_LIB_DIR}/avx_sleef_dp.bc" )
-SET ( SLEEF_GENBC_AVX_DP "${VECMATH_LIB_DIR}/avx_sleef_dp.gen.cpp" )
-
-SET ( SLEEF_BC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.bc" )
-SET ( SLEEF_GENBC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.gen.cpp" )
-
-SET ( SLEEF_BC_LIBS ${SLEEF_BC_LIBS} ${SLEEF_BC_AVX2_SP} ${SLEEF_BC_AVX_SP} ${SLEEF_BC_SSE_SP} ${SLEEF_BC_AVX2_DP} ${SLEEF_BC_AVX_DP} ${SLEEF_BC_SSE_DP} ${EXTRAS_AVX2_BC} ${EXTRAS_AVX512_BC} )
-SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP}  ${SLEEF_GENBC_AVX512_SP} ${SLEEF_GENBC_AVX512_DP} ${EXTRAS_AVX2_GENBC} ${EXTRAS_AVX512_GENBC} )
+IF (RV_ENABLE_SLEEF)
+  IF (RV_ENABLE_X86)
+  Message("-- rv: SLEEF with x86 support.")
+  SET ( SLEEF_BC_AVX512_SP "${VECMATH_LIB_DIR}/avx512_sleef_sp.bc" )
+  SET ( SLEEF_GENBC_AVX512_SP "${VECMATH_LIB_DIR}/avx512_sleef_sp.gen.cpp" )
+  
+  SET ( SLEEF_BC_AVX512_DP "${VECMATH_LIB_DIR}/avx512_sleef_dp.bc" )
+  SET ( SLEEF_GENBC_AVX512_DP "${VECMATH_LIB_DIR}/avx512_sleef_dp.gen.cpp" )
+  
+  SET ( EXTRAS_AVX512_BC "${VECMATH_LIB_DIR}/avx512_extras.bc" )
+  SET ( EXTRAS_AVX512_GENBC "${VECMATH_LIB_DIR}/avx512_extras.gen.cpp" )
+  
+  SET ( SLEEF_BC_AVX2_SP "${VECMATH_LIB_DIR}/avx2_sleef_sp.bc" )
+  SET ( SLEEF_GENBC_AVX2_SP "${VECMATH_LIB_DIR}/avx2_sleef_sp.gen.cpp" )
+  
+  SET ( EXTRAS_AVX2_BC "${VECMATH_LIB_DIR}/avx2_extras.bc" )
+  SET ( EXTRAS_AVX2_GENBC "${VECMATH_LIB_DIR}/avx2_extras.gen.cpp" )
+  
+  SET ( SLEEF_BC_AVX_SP "${VECMATH_LIB_DIR}/avx_sleef_sp.bc" )
+  SET ( SLEEF_GENBC_AVX_SP "${VECMATH_LIB_DIR}/avx_sleef_sp.gen.cpp" )
+  
+  SET ( SLEEF_BC_SSE_SP "${VECMATH_LIB_DIR}/sse_sleef_sp.bc" )
+  SET ( SLEEF_GENBC_SSE_SP "${VECMATH_LIB_DIR}/sse_sleef_sp.gen.cpp" )
+  
+  SET ( SLEEF_BC_AVX2_DP "${VECMATH_LIB_DIR}/avx2_sleef_dp.bc" )
+  SET ( SLEEF_GENBC_AVX2_DP "${VECMATH_LIB_DIR}/avx2_sleef_dp.gen.cpp" )
+  
+  SET ( SLEEF_BC_AVX_DP "${VECMATH_LIB_DIR}/avx_sleef_dp.bc" )
+  SET ( SLEEF_GENBC_AVX_DP "${VECMATH_LIB_DIR}/avx_sleef_dp.gen.cpp" )
+  
+  SET ( SLEEF_BC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.bc" )
+  SET ( SLEEF_GENBC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.gen.cpp" )
+  
+  SET ( SLEEF_BC_LIBS ${SLEEF_BC_LIBS} ${SLEEF_BC_AVX2_SP} ${SLEEF_BC_AVX_SP} ${SLEEF_BC_SSE_SP} ${SLEEF_BC_AVX2_DP} ${SLEEF_BC_AVX_DP} ${SLEEF_BC_SSE_DP} ${EXTRAS_AVX2_BC} ${EXTRAS_AVX512_BC} )
+  SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP}  ${SLEEF_GENBC_AVX512_SP} ${SLEEF_GENBC_AVX512_DP} ${EXTRAS_AVX2_GENBC} ${EXTRAS_AVX512_GENBC} )
+  ENDIF()
+  
+  
+  IF (RV_ENABLE_ADVSIMD)
+    Message("-- rv: SLEEF with Advanced SIMD support.")
+  
+  SET ( SLEEF_BC_ADVSIMD_DP "${VECMATH_LIB_DIR}/advsimd_sleef_dp.bc" )
+  SET ( SLEEF_GENBC_ADVSIMD_DP "${VECMATH_LIB_DIR}/advsimd_sleef_dp.gen.cpp" )
+  
+  SET ( SLEEF_BC_ADVSIMD_SP "${VECMATH_LIB_DIR}/advsimd_sleef_sp.bc" )
+  SET ( SLEEF_GENBC_ADVSIMD_SP "${VECMATH_LIB_DIR}/advsimd_sleef_sp.gen.cpp" )
+  
+  SET ( EXTRAS_ADVSIMD_BC "${VECMATH_LIB_DIR}/advsimd_extras.bc" )
+  SET ( EXTRAS_ADVSIMD_GENBC "${VECMATH_LIB_DIR}/advsimd_extras.gen.cpp" )
+  
+  SET ( SLEEF_BC_LIBS ${SLEEF_BC_LIBS} ${SLEEF_BC_ADVSIMD_SP} ${SLEEF_BC_ADVSIMD_DP} ${EXTRAS_ADVSIMD_BC} )
+  SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${SLEEF_GENBC_ADVSIMD_SP} ${SLEEF_GENBC_ADVSIMD_DP} ${EXTRAS_ADVSIMD_GENBC} )
+  ENDIF()
+  
+  
+  
+  SET ( SLEEF_BC_VLA_SP "${VECMATH_LIB_DIR}/vla_sleef_sp.bc" )
+  SET ( SLEEF_GENBC_VLA_SP "${VECMATH_LIB_DIR}/vla_sleef_sp.gen.cpp" )
+  
+  SET ( SLEEF_BC_VLA_DP "${VECMATH_LIB_DIR}/vla_sleef_dp.bc" )
+  SET ( SLEEF_GENBC_VLA_DP "${VECMATH_LIB_DIR}/vla_sleef_dp.gen.cpp" )
+  
+  SET ( SLEEF_BC_LIBS ${SLEEF_BC_LIBS} ${SLEEF_BC_VLA_DP} ${SLEEF_BC_VLA_SP} )
+  SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${SLEEF_GENBC_VLA_SP} ${SLEEF_GENBC_VLA_DP} )
 ENDIF()
-
-
-IF (RV_ENABLE_ADVSIMD)
-  Message("-- rv: SLEEF with Advanced SIMD support.")
-
-SET ( SLEEF_BC_ADVSIMD_DP "${VECMATH_LIB_DIR}/advsimd_sleef_dp.bc" )
-SET ( SLEEF_GENBC_ADVSIMD_DP "${VECMATH_LIB_DIR}/advsimd_sleef_dp.gen.cpp" )
-
-SET ( SLEEF_BC_ADVSIMD_SP "${VECMATH_LIB_DIR}/advsimd_sleef_sp.bc" )
-SET ( SLEEF_GENBC_ADVSIMD_SP "${VECMATH_LIB_DIR}/advsimd_sleef_sp.gen.cpp" )
-
-SET ( EXTRAS_ADVSIMD_BC "${VECMATH_LIB_DIR}/advsimd_extras.bc" )
-SET ( EXTRAS_ADVSIMD_GENBC "${VECMATH_LIB_DIR}/advsimd_extras.gen.cpp" )
-
-SET ( SLEEF_BC_LIBS ${SLEEF_BC_LIBS} ${SLEEF_BC_ADVSIMD_SP} ${SLEEF_BC_ADVSIMD_DP} ${EXTRAS_ADVSIMD_BC} )
-SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${SLEEF_GENBC_ADVSIMD_SP} ${SLEEF_GENBC_ADVSIMD_DP} ${EXTRAS_ADVSIMD_GENBC} )
-ENDIF()
-
-
-
-# SET ( HELPERVLA_H "${RV_SOURCE_DIR}/vecmath/helpervla.h" )
-
-SET ( SLEEF_BC_VLA_SP "${VECMATH_LIB_DIR}/vla_sleef_sp.bc" )
-SET ( SLEEF_GENBC_VLA_SP "${VECMATH_LIB_DIR}/vla_sleef_sp.gen.cpp" )
-
-SET ( SLEEF_BC_VLA_DP "${VECMATH_LIB_DIR}/vla_sleef_dp.bc" )
-SET ( SLEEF_GENBC_VLA_DP "${VECMATH_LIB_DIR}/vla_sleef_dp.gen.cpp" )
-
-SET ( SLEEF_BC_LIBS ${SLEEF_BC_LIBS} ${SLEEF_BC_VLA_DP} ${SLEEF_BC_VLA_SP} )
-SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${SLEEF_GENBC_VLA_SP} ${SLEEF_GENBC_VLA_DP} )
 
 
 
