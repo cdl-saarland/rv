@@ -42,7 +42,13 @@ public:
   llvm::Value &requestAVLAsValue(llvm::LLVMContext &Ctx) const;
 
   // Properties (best effort)
+  // Predicate vector component is all-true.
+  bool knownAllTruePred() const;
+  // AVL is non-masking
+  bool knownAllTrueAVL() const;
+  // Whether the mask as a whole is all-true (non masking).
   bool knownAllTrue() const;
+  // Whether the mask as a whole is all-false.
   bool knownAllFalse() const;
 
   // Printing

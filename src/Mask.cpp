@@ -9,7 +9,7 @@ namespace rv {
 
 // struct Mask
 void Mask::print(llvm::raw_ostream &out) const {
-  out << "Mask {";
+  out << "{";
   bool hasText = false;
   if (Predicate) {
     out << "P: ";
@@ -19,7 +19,7 @@ void Mask::print(llvm::raw_ostream &out) const {
   if (ActiveVectorLength) {
     if (hasText)
       out << ", ";
-    ActiveVectorLength->printAsOperand(out);
+    out << "V: "; ActiveVectorLength->printAsOperand(out);
   }
   out << "}";
 }
@@ -64,7 +64,23 @@ llvm::Value &Mask::requestAVLAsValue(llvm::LLVMContext &Ctx) const {
   return *ConstantInt::get(Type::getInt32Ty(Ctx), -1, true);
 }
 
-bool Mask::knownAllTrue() const { return (!getPred() && !getAVL()); }
+bool Mask::knownAllTruePred() const {
+  if (!getPred()) return true;
+  auto ConstPred = dyn_cast<Constant>(getPred());
+  return ConstPred && ConstPred->isAllOnesValue();
+}
+
+bool Mask::knownAllTrueAVL() const {
+  if (!getAVL())
+    return true;
+  auto ConstAVL = dyn_cast<ConstantInt>(getAVL());
+  // TODO use same logic as VPIntrinsic::canIgnoreVectorLength() here
+  return ConstAVL && (ConstAVL->getSExtValue() < 0);
+}
+
+bool Mask::knownAllTrue() const {
+  return knownAllTruePred() && knownAllTrueAVL();
+}
 
 bool Mask::knownAllFalse() const {
   // AVL == 0
