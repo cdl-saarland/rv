@@ -594,7 +594,8 @@ bool VectorizationAnalysis::pushMissingOperands(const Instruction &I) {
 }
 
 VectorShape VectorizationAnalysis::getShape(const Value &V) const {
-  return vecInfo.hasKnownShape(V) ? vecInfo.getVectorShape(V) : VectorShape::undef();
+  return vecInfo.hasKnownShape(V) ? vecInfo.getVectorShape(V)
+                                  : VectorShape::undef();
 }
 
 } // namespace rv

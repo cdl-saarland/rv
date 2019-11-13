@@ -67,7 +67,10 @@ MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & b
   auto & sourceBlock = *term.getParent();
   IF_DEBUG_ME { errs() << "# requestBranchMask( " << sourceBlock.getName() << ", " << succIdx << ")\n"; }
   auto * cached = getBranchMask(term, succIdx);
-  if (cached) return *cached;
+  if (cached) {
+    IF_DEBUG_ME { errs() << "\tCached: " << *cached << "\n"; }
+    return *cached;
+  }
 
   if (isa<BranchInst>(term)) {
     auto & branch = cast<BranchInst>(term);
@@ -160,9 +163,9 @@ MaskExpander::requestEdgePred(const llvm::BasicBlock & SrcBlock, int SuccIdx) {
 
 MaskExpander::EdgePred*
 MaskExpander::getEdgePred(const llvm::BasicBlock & srcBlock, int succIdx) {
-  auto key = std::make_pair(&srcBlock, succIdx);
-  auto it = edgeMasks.find(key);
-  if (it != edgeMasks.end()) return &it->second;
+  auto Key = std::make_pair(&srcBlock, succIdx);
+  auto It = edgeMasks.find(Key);
+  if (It != edgeMasks.end()) return &It->second;
   return nullptr;
 }
 
@@ -183,7 +186,7 @@ MaskExpander::requestEdgeMask(Instruction & term, int succIdx) {
   // branch mask
   IRBuilder<> builder(BB.getTerminator());
   MaskBuilder MBuilder(vecInfo);
-  auto & branchPred = requestBranchMask(term, succIdx, builder); // edge predicate relative to block
+  Mask branchPred = requestBranchMask(term, succIdx, builder); // edge predicate relative to block
 
   Mask edgeMask = Mask::getAllTrue();
   if (blockMask.knownAllTrue()) {
@@ -196,7 +199,7 @@ MaskExpander::requestEdgeMask(Instruction & term, int succIdx) {
   }
 
   Mask& InsertedMask = setEdgeMask(BB, succIdx, edgeMask);
-  IF_DEBUG_ME errs() << "\t" << edgeMask << "\n";
+  IF_DEBUG_ME errs() << "\t" << InsertedMask << "\n";
   return InsertedMask;
 }
 
@@ -400,14 +403,14 @@ Mask&
 MaskExpander::setEdgeMask(BasicBlock & BB, int succIdx, Mask BrMask) {
   EdgePred & EP = requestEdgePred(BB, succIdx);
   EP.edgeMask = BrMask;
-  return EP.edgeMask;
+  return EP.edgeMask.getValue();
 }
 
 Mask&
 MaskExpander::setBranchMask(BasicBlock & BB, int succIdx, Mask BrMask) {
   EdgePred & EP = requestEdgePred(BB, succIdx);
   EP.branchMask = BrMask;
-  return EP.branchMask;
+  return EP.branchMask.getValue();
 }
 
 void

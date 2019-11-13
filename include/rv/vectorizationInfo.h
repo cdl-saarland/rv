@@ -49,7 +49,7 @@ class VectorizationInfo {
 
   // basic block properties // TODO fuse into struct
   // materialized basic block predicates
-  std::unordered_map<const llvm::BasicBlock *, Mask> masks;
+  std::unordered_map<const llvm::BasicBlock*, Mask> masks;
   // whether the block is the exit of a divergent loop exit
   std::set<const llvm::BasicBlock *> DivergentLoopExits;
   // whether the block is a join point of disjoint paths from a varying branch
@@ -59,6 +59,9 @@ class VectorizationInfo {
 
   // fixed shapes (will be preserved through VA)
   std::set<const llvm::Value *> pinned;
+
+  // internal helper
+  Mask& requestMask(const llvm::BasicBlock & block);
 
 public:
   VectorizationInfo(Region &region, VectorMapping _mapping);
@@ -140,7 +143,6 @@ public:
 
   // mask == i1 predicate X avl
   bool hasMask(const llvm::BasicBlock & block) const;
-  Mask& requestMask(const llvm::BasicBlock & block);
   const Mask& getMask(const llvm::BasicBlock & block) const;
   void dropMask(const llvm::BasicBlock &block);
 

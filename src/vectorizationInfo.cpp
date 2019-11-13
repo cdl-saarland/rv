@@ -77,18 +77,28 @@ void VectorizationInfo::printBlockInfo(const BasicBlock &block,
   // block annotations
   out << " [";
   {
+    bool needsComma = false;
     bool hasVaryingPredicate = false;
     if (getVaryingPredicateFlag(block, hasVaryingPredicate)) {
-      if (hasVaryingPredicate) out << ", var-pred";
-      else out << ", uni-pred";
+      if (hasVaryingPredicate) out << "var-pred";
+      else out << "uni-pred";
+      needsComma = true;
     }
 
     if (hasMask(block)) {
+      if (needsComma) {
+        out << ", ";
+      }
       getMask(block).print(out);
+      needsComma = true;
     }
 
     if (isDivergentLoopExit(block)) {
-      out << ", divLoopExit";
+      if (needsComma) {
+        out << ", ";
+      }
+      out << "divLoopExit";
+      needsComma = true;
     }
   }
   out << "]";
@@ -328,7 +338,7 @@ void VectorizationInfo::setMask(const llvm::BasicBlock &block, Mask NewMask) {
   requestMask(block) = NewMask;
 }
 
-llvm::Value *
+llvm::Value*
 VectorizationInfo::getPredicate(const llvm::BasicBlock &block) const {
   if (hasMask(block)) {
     return getMask(block).getPred();

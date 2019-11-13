@@ -39,9 +39,9 @@ class MaskExpander {
   llvm::ConstantInt *falseConst;
 
   struct EdgePred {
-    Mask edgeMask;   // global edge predicate
-    Mask branchMask; // branch condition (w/o block predicate)
-    EdgePred() : edgeMask(), branchMask() {}
+    llvm::Optional<Mask> edgeMask;   // global edge predicate
+    llvm::Optional<Mask> branchMask; // branch condition (w/o block predicate)
+    EdgePred() : edgeMask(llvm::None), branchMask(llvm::None) {}
   };
 
   std::map<const llvm::BasicBlock *, Mask> blockMasks;
@@ -73,6 +73,7 @@ public:
 
   // direct mask manipulation
   Mask &setBlockMask(llvm::BasicBlock &BB, Mask mask) {
+    llvm::errs() << "SET MASK" << BB.getName() << "\n";
     blockMasks[&BB] = mask;
     return blockMasks[&BB];
   }
@@ -82,9 +83,9 @@ public:
   Mask *getEdgeMask(const llvm::BasicBlock &begin, const llvm::BasicBlock &end);
 
   Mask *getBlockMask(const llvm::BasicBlock &BB) {
-    auto it = blockMasks.find(&BB);
-    if (it != blockMasks.end()) {
-      return &it->second;
+    auto It = blockMasks.find(&BB);
+    if (It != blockMasks.end()) {
+      return &It->second;
     } else {
       return nullptr;
     }
@@ -92,16 +93,16 @@ public:
 
   Mask *getEdgeMask(const llvm::Instruction &branch, int succIdx) {
     auto *edgePred = getEdgePred(*branch.getParent(), succIdx);
-    if (!edgePred)
+    if (!edgePred || !edgePred->edgeMask.hasValue())
       return nullptr;
-    return &edgePred->edgeMask;
+    return &edgePred->edgeMask.getValue();
   }
 
   Mask *getBranchMask(const llvm::Instruction &branch, int succIdx) {
     auto *edgePred = getEdgePred(*branch.getParent(), succIdx);
-    if (!edgePred)
+    if (!edgePred || !edgePred->branchMask.hasValue())
       return nullptr;
-    return &edgePred->branchMask;
+    return &edgePred->branchMask.getValue();
   }
 
   // expand all masks in the region

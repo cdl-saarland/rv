@@ -346,6 +346,8 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
 
 void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
   assert(vecBlock && "no block to insert vector code");
+  assert((!vecInfo.hasMask(*bb) || vecInfo.getMask(*bb).knownAllTrueAVL()) &&
+         "TODO implement VP backend");
   builder.SetInsertPoint(vecBlock);
   for (BasicBlock::iterator it = bb->begin(), ie = bb->end(); it != ie; ++it) {
     Instruction *inst = &*it;
@@ -1528,7 +1530,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
   Value *mask = nullptr;
   Value *predicate = vecInfo.getPredicate(*inst->getParent());
-  assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
   bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
 
   // uniform loads from allocations do not need a mask!
@@ -2648,6 +2649,10 @@ NatBuilder::hasUniformPredicate(const BasicBlock & BB) const {
 
 Value*
 NatBuilder::requestVectorPredicate(const BasicBlock& scaBlock) {
+  if (!vecInfo.hasMask(scaBlock) || vecInfo.getMask(scaBlock).knownAllTrue()) {
+    return getConstantVector(vectorWidth(), i1Ty, 1);
+  }
+  assert(vecInfo.getMask(scaBlock).knownAllTrueAVL() && "TODO implement AVL support");
   return requestVectorValue(vecInfo.getPredicate(scaBlock));
 }
 

@@ -92,7 +92,7 @@ bool Mask::knownAllFalse() const {
 
   // Pred == 0
   if (getPred()) {
-    auto ConstPred = dyn_cast<Constant>(getAVL());
+    auto ConstPred = dyn_cast<Constant>(getPred());
     if (ConstPred && ConstPred->isNullValue())
       return true;
   }
