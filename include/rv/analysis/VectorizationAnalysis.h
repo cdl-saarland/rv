@@ -11,7 +11,6 @@
 #define RV_VECTORIZATIONANALYSIS_H_
 
 #include "rv/PlatformInfo.h"
-#include "rv/VectorizationInfoProxyPass.h"
 #include "rv/analysis/AllocaSSA.h"
 #include "rv/analysis/predicateAnalysis.h"
 #include "rv/config.h"
