@@ -9,6 +9,7 @@
 
 #include "rv/transform/maskExpander.h"
 #include "rvConfig.h"
+#include "rv/MaskBuilder.h"
 
 #include "llvm/Transforms/Utils/SSAUpdater.h"
 #include "llvm/IR/Verifier.h"
@@ -22,79 +23,19 @@
 #define IF_DEBUG_ME if (true)
 #endif
 
-
-// use selects for mask arithmetic
-// #define RV_BLEND_MASKS
-
 using namespace llvm;
-
-Value*
-MatchMaskIntrinsic(Value & condVal) {
-  auto * call = dyn_cast<CallInst>(&condVal);
-  if (!call) return nullptr;
-
-  auto * callee = dyn_cast<Function>(call->getCalledValue());
-  if (!callee) return nullptr;
-
-  if (callee->getName() == "rv_any") {
-    return call->getArgOperand(0);
-  }
-
-  return nullptr;
-}
-
 
 namespace rv {
 
 static
 Value&
-CreateAnd(IRBuilder<> & builder, Value & lhs, Value & rhs, const Twine & name=Twine()) {
-  using namespace llvm::PatternMatch;
-
-// Optimize for a common pattern
-  Value * anyTestedMask = MatchMaskIntrinsic(rhs);
-  if (anyTestedMask) {
-    Value * X, *Y, *Z = nullptr;
-    // lhs = and x (not y)
-    // rhs = any (not y)
-    if (match(&lhs, m_And(m_Value(X), m_Not(m_Value(Y)))) &&
-        match(anyTestedMask, m_Not(m_Value(Z))) &&
-        (Y == Z))
-    {
-      return lhs; // and lhs rhs
-    }
-  }
-
-#ifdef RV_BLEND_MASKS
-  auto * falseMask = ConstantInt::getFalse(lhs.getContext());
-  return *builder.CreateSelect(&lhs, &rhs, falseMask, name);
-#else
-  return *builder.CreateAnd(&lhs, &rhs, name);
-#endif
-}
-
-static
-Value&
 CreateOr(IRBuilder<> & builder, Value & lhs, Value & rhs, const Twine & name=Twine()) {
-#ifdef RV_BLEND_MASKS
-  auto * trueMask = ConstantInt::getTrue(lhs.getContext());
-  return *builder.CreateSelect(&lhs, trueMask, &rhs, name);
-#else
   return *builder.CreateOr(&lhs, &rhs, name);
-#endif
 }
 
 static
 Value&
 CreateNot(IRBuilder<> & builder, Value & val, const Twine & name=Twine()) {
-#ifdef RV_BLEND_MASKS
-  auto * sel = dyn_cast<SelectInst>(&val);
-  if (sel) {
-    return *builder.CreateSelect(sel->getCondition(), sel->getFalseValue(), sel->getTrueValue(), name);
-  }
-  // otw use default codepath
-#endif
-
 return *builder.CreateNot(&val, name);
 }
 
@@ -113,8 +54,8 @@ MaskExpander::~MaskExpander()
 
 
 
-Value*
-MaskExpander::getEdgeMask(const BasicBlock & begin, const BasicBlock & end) const {
+Mask*
+MaskExpander::getEdgeMask(const BasicBlock & begin, const BasicBlock & end) {
   IndexSet edgeIndices;
   auto & term = *begin.getTerminator();
   getPredecessorEdges(term, end, edgeIndices);
@@ -131,8 +72,10 @@ MaskExpander::getPredecessorEdges(const Instruction & termInst, const  BasicBloc
   }
 }
 
-Value &
+Mask &
 MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & builder) {
+  MaskBuilder MBuilder(vecInfo);
+
   auto & sourceBlock = *term.getParent();
   IF_DEBUG_ME { errs() << "# requestBranchMask( " << sourceBlock.getName() << ", " << succIdx << ")\n"; }
   auto * cached = getBranchMask(term, succIdx);
@@ -143,15 +86,15 @@ MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & b
     auto * condVal = branch.isConditional() ? branch.getCondition() : trueConst;
 
     if (succIdx == 0) {
-      return *condVal;
+      Mask BrMask = Mask::inferFromPredicate(*condVal);
+      return setBranchMask(sourceBlock, succIdx, BrMask);
     }
 
     assert(succIdx == 1);
 
     auto & negCond = CreateNot(builder, *condVal, "neg." + condVal->getName());
     if (!isa<Constant>(negCond)) vecInfo.setVectorShape(negCond, vecInfo.getVectorShape(*condVal));
-    setBranchMask(sourceBlock, succIdx, negCond);
-    return negCond;
+    return setBranchMask(sourceBlock, succIdx, Mask::inferFromPredicate(negCond));
 
   } else if (isa<SwitchInst>(term)) {
     auto & switchTerm = cast<SwitchInst>(term);
@@ -165,41 +108,38 @@ MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & b
     // default case mask = !(case1 || case2 || .. )
     if (&caseBlock == &defaultDest) {
       assert(succIdx == 0);
-      Value * joinedMask = nullptr;
+      Mask joinedMask = Mask::getAllTrue();
       for (size_t i = 1; i < switchTerm.getNumSuccessors(); ++i) {
         auto & caseCmp = requestBranchMask(switchTerm, i, builder);
-        if (!joinedMask) joinedMask = &caseCmp;
+        if (joinedMask.knownAllTrue()) joinedMask = caseCmp;
         else {
-          joinedMask = &CreateOr(builder, *joinedMask, caseCmp, "orcase_" + std::to_string(i));
-          vecInfo.setVectorShape(*joinedMask, valShape);
+          joinedMask = MBuilder.CreateOr(builder, joinedMask, caseCmp, "orcase_" + std::to_string(i));
+          vecInfo.setVectorShape(joinedMask, valShape);
         }
       }
 
-      auto & defaultMask = CreateNot(builder, *joinedMask);
+      auto defaultMask = MBuilder.CreateNot(builder, joinedMask);
       vecInfo.setVectorShape(defaultMask, valShape);
-      setBranchMask(sourceBlock, succIdx, defaultMask);
-      return defaultMask;
+      return setBranchMask(sourceBlock, succIdx, defaultMask);
 
     // case test, mask = (switchVal == caseVal)
     } else {
       auto & caseVal = *itCase->getCaseValue();
       auto & caseCmp = *builder.CreateICmp(ICmpInst::ICMP_EQ, &caseVal, &switchVal, "caseeq_" + std::to_string(caseVal.getSExtValue()));
       vecInfo.setVectorShape(caseCmp, valShape);
-      setBranchMask(sourceBlock, succIdx, caseCmp);
-      return caseCmp;
+      return setBranchMask(sourceBlock, succIdx, Mask::inferFromPredicate(caseCmp));
     }
 
   } else if (isa<InvokeInst>(term)) {
     // eagerly lower all successors
     auto & invokeMask = requestBlockMask(sourceBlock);
     setBranchMask(sourceBlock, 0, invokeMask);
-    auto & trueConst = *ConstantInt::getTrue(builder.getContext());
-    setBranchMask(sourceBlock, 1, trueConst);
+    setBranchMask(sourceBlock, 1, Mask::getAllTrue());
 
     if (succIdx == 0) {
       return invokeMask;
     } else {
-      return trueConst;
+      return setBranchMask(sourceBlock, succIdx, Mask::getAllTrue());
     }
   }
 
@@ -207,14 +147,14 @@ MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & b
   abort();
 }
 
-Value &
+Mask &
 MaskExpander::requestJoinedEdgeMask(Instruction & term, IndexSet succIdx) {
   assert(succIdx.size() == 1 && "TODO implement for multiple edges (switch)");
   return requestEdgeMask(term, succIdx[0]);
 }
 
 
-Value &
+Mask &
 MaskExpander::requestEdgeMask(llvm::BasicBlock & source, BasicBlock & dest) {
   auto & srcTerm = *source.getTerminator();
   IndexSet edgeIndices;
@@ -223,22 +163,22 @@ MaskExpander::requestEdgeMask(llvm::BasicBlock & source, BasicBlock & dest) {
 }
 
 MaskExpander::EdgePred &
-MaskExpander::requestEdgePred(const llvm::BasicBlock & srcBlock, int succIdx) {
-  auto key = std::make_pair(&srcBlock, succIdx);
-  auto it = edgeMasks.find(key);
-  if (it != edgeMasks.end()) return it->second;
-  return edgeMasks.insert(std::make_pair(key, EdgePred())).first->second;
+MaskExpander::requestEdgePred(const llvm::BasicBlock & SrcBlock, int SuccIdx) {
+  auto Key = std::make_pair(&SrcBlock, SuccIdx);
+  auto ItMask = edgeMasks.find(Key);
+  if (ItMask != edgeMasks.end()) return ItMask->second;
+  return edgeMasks.insert(std::make_pair(Key, EdgePred())).first->second;
 }
 
-const MaskExpander::EdgePred*
-MaskExpander::getEdgePred(const llvm::BasicBlock & srcBlock, int succIdx) const {
+MaskExpander::EdgePred*
+MaskExpander::getEdgePred(const llvm::BasicBlock & srcBlock, int succIdx) {
   auto key = std::make_pair(&srcBlock, succIdx);
   auto it = edgeMasks.find(key);
   if (it != edgeMasks.end()) return &it->second;
   return nullptr;
 }
 
-Value&
+Mask&
 MaskExpander::requestEdgeMask(Instruction & term, int succIdx) {
   auto *cachedMask = getEdgeMask(term, succIdx);
   if (cachedMask) return *cachedMask;
@@ -254,24 +194,25 @@ MaskExpander::requestEdgeMask(Instruction & term, int succIdx) {
 
   // branch mask
   IRBuilder<> builder(BB.getTerminator());
+  MaskBuilder MBuilder(vecInfo);
   auto & branchPred = requestBranchMask(term, succIdx, builder); // edge predicate relative to block
 
-  Value * edgeMask = nullptr;
+  Mask edgeMask = Mask::getAllTrue();
   if (isa<Constant>(blockMask)) {
-    edgeMask = &branchPred;
+    edgeMask = branchPred;
   } else {
-    edgeMask = &CreateAnd(builder, blockMask, branchPred, "edge_" + BB.getName().str() + "." + std::to_string(succIdx));
+    edgeMask = MBuilder.CreateAnd(builder, blockMask, branchPred, "edge_" + BB.getName().str() + "." + std::to_string(succIdx));
     auto maskShape = vecInfo.getVectorShape(blockMask);
     auto branchShape = vecInfo.getVectorShape(branchPred);
-    vecInfo.setVectorShape(*edgeMask, VectorShape::join(maskShape, branchShape));
+    vecInfo.setVectorShape(edgeMask, VectorShape::join(maskShape, branchShape));
   }
 
-  setEdgeMask(BB, succIdx, *edgeMask);
-  IF_DEBUG_ME errs() << "\t" << *edgeMask << "\n";
-  return *edgeMask;
+  Mask& InsertedMask = setEdgeMask(BB, succIdx, edgeMask);
+  IF_DEBUG_ME errs() << "\t" << edgeMask << "\n";
+  return InsertedMask;
 }
 
-Value&
+Mask&
 MaskExpander::requestBlockMask(BasicBlock & BB) {
   assert(vecInfo.inRegion(BB));
 
@@ -283,13 +224,12 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   auto & entryBlock = vecInfo.getEntry();
   if (&BB == &entryBlock) {
     IF_DEBUG_ME {errs() << "region entryMask: true\n"; }
-    setBlockMask(BB, *trueConst);
-    return *trueConst;
+    return setBlockMask(BB, Mask::getAllTrue());
   }
 
   // return the cached result
-  auto * mask = getBlockMask(BB);
-  if (mask) return *mask;
+  auto *CachedMask = getBlockMask(BB);
+  if (CachedMask) return *CachedMask;
 
   // Otw, start buildling a mask
   IF_DEBUG_ME { errs() << "Construct mask:\n"; }
@@ -306,8 +246,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
     IndexSet initIndices;
     getPredecessorEdges(*loopPreHead->getTerminator(), BB, initIndices);
     auto & loopEdgeMask = requestJoinedEdgeMask(*loopPreHead->getTerminator(), initIndices);
-    setBlockMask(BB, loopEdgeMask);
-    return loopEdgeMask;
+    return setBlockMask(BB, loopEdgeMask);
   }
 
   auto itBegin = pred_begin(&BB);
@@ -335,29 +274,29 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
         requestJoinedEdgeMask(predTerm, predIndices);
       }
 
-      setBlockMask(BB, idomMask);
-      // edgePhi->eraseFroParent(); // FIXME
-      return idomMask;
+      return setBlockMask(BB, idomMask);
     }
   }
 
   // single join phi for uniform masks
   int numPreds = std::distance(itBegin, itEnd);
-  auto * uniPhi = PHINode::Create(boolTy, numPreds, "inmasks_" + BB.getName(), &*BB.begin());
+  auto * uniPredPhi = PHINode::Create(boolTy, numPreds, "inpreds_" + BB.getName(), &*BB.begin());
+  auto * uniAVLPhi = PHINode::Create(avlTy, numPreds, "inavls_" + BB.getName(), &*BB.begin());
 
-  std::vector<Value*> orVec; // incoming divergent edge masks
+  std::vector<Mask> orVec; // incoming divergent edge masks
 
   // factor in all edges
-  Value * lastUniIn = nullptr;
+  Mask lastUniIn = Mask::getAllTrue();
+
   bool redundantUniPhi = true;
-  VectorShape phiShape = VectorShape::uni();
+  VectorShape predPhiShape = VectorShape::uni();
 
   for (auto itPred = itBegin; itPred != itEnd; ++itPred) {
     auto * predBlock = *itPred;
 
     IF_DEBUG_ME { errs() << "\t" << predBlock->getName() << ": "; }
 
-    auto & predMask = requestBlockMask(*predBlock);
+    auto predMask = requestBlockMask(*predBlock);
 
     // check if the dependence to cdBlock is uniform
     auto controlShape = VectorShape::join(vecInfo.getVectorShape(predMask), vecInfo.getVectorShape(*predBlock->getTerminator()));
@@ -366,11 +305,14 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   // uniform predecessor branch
 #if 1
     if (uniBranch) {
-      IF_DEBUG_ME { errs() << " uni " << *uniPhi << "\n"; }
-      redundantUniPhi &= (lastUniIn == nullptr) || (lastUniIn == &predMask);
-      lastUniIn = &predMask;
-      uniPhi->addIncoming(&predMask, predBlock);
-      phiShape = VectorShape::join(vecInfo.getVectorShape(predMask), phiShape);
+      IF_DEBUG_ME { errs() << " uni " << uniPredPhi << "\n"; }
+      redundantUniPhi &= (lastUniIn.knownAllTrue()) || (lastUniIn == predMask);
+      lastUniIn = predMask;
+
+      uniPredPhi->addIncoming(predMask.getPred(), predBlock);
+      uniAVLPhi->addIncoming(predMask.getAVL(), predBlock);
+
+      predPhiShape = VectorShape::join(vecInfo.getVectorShape(predMask), predPhiShape);
     }
 #endif
 
@@ -378,34 +320,35 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
     IndexSet predIndices;
     auto & predTerm = *predBlock->getTerminator();
     getPredecessorEdges(predTerm, BB, predIndices);
-    auto * edgeMask = &requestJoinedEdgeMask(predTerm, predIndices);
+    auto &edgeMask = requestJoinedEdgeMask(predTerm, predIndices);
 
     // mask is already accounted for by phi
     if (uniBranch) continue;
 
   // branch divergence is caused by immediate predecessor -> compute predicate
-    IF_DEBUG_ME { errs() << " -> div from " << predBlock->getName() << " mask " << *edgeMask << "\n"; }
+    IF_DEBUG_ME { errs() << " -> div from " << predBlock->getName() << " mask " << edgeMask << "\n"; }
 
-    auto * edgeMaskInst = dyn_cast<Instruction>(edgeMask);
+    auto * edgePredInst = dyn_cast<Instruction>(edgeMask.getPred());
+    // TODO what about the AVL?
 
     // generate a dominating definition (if necessary)
-    if (edgeMaskInst) {
+    if (edgePredInst) {
 
       if (!DT.dominates(edgeMaskInst->getParent(), &BB)) {
         std::string defBlockName = edgeMaskInst->getParent()->getName().str();
         auto edgeMaskShape = vecInfo.getVectorShape(*edgeMask);
         auto itInsert = &*BB.begin();
-        auto * edgePhi = PHINode::Create(boolTy, numPreds, "edgemask_domphi_" + defBlockName, itInsert);
-        vecInfo.setVectorShape(*edgePhi, edgeMaskShape);
+        auto * edgePredPhi = PHINode::Create(boolTy, numPreds, "edgepred_domphi_" + defBlockName, itInsert);
+        vecInfo.setVectorShape(*edgePredPhi, edgePredShape);
         for (auto it = itBegin; it != itEnd; ++it) {
           Value * inVal = falseConst;
           if (*it == *itPred) {
-            inVal = edgeMaskInst;
+            inVal = edgePredInst;
           }
-          edgePhi->addIncoming(inVal ,*it);
+          edgePredPhi->addIncoming(inVal ,*it);
         }
         // phi is reaching def
-        edgeMask = edgePhi;
+        edgeMask.setPred(edgePredPhi);
       }
     }
 
@@ -413,59 +356,67 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   }
 
 // start constructing the block mask
-  Value * blockMask = nullptr;
+  Mask blockMask = Mask::getAllTrue();
 
   IF_DEBUG_ME { errs() << "\t mask(" << BB.getName() << ") = \n"; }
-  IF_DEBUG_ME { errs() << "\t\t uniPhi: " << *uniPhi << " redundant " << redundantUniPhi << "\n"; }
+  IF_DEBUG_ME { errs() << "\t\t uniPredPhi: " << *uniPredPhi << " redundant " << redundantUniPhi << "\n"; }
   size_t startIdx = 0;
-  if (uniPhi->getNumIncomingValues() == 0) {
-    assert(!lastUniIn && "uniform inputs but no incoming values in uni phi");
+  if (uniPredPhi->getNumIncomingValues() == 0) {
+    assert(lastUniIn.knownAllTrue() && "uniform inputs but no incoming values in uni phi");
     // no uniform inputs
-    uniPhi->eraseFromParent();
-    uniPhi = nullptr;
+    uniPredPhi->eraseFromParent();
+    uniPredPhi = nullptr;
+    uniAVLPhi->eraseFromParent();
+    uniAVLPhi = nullptr;
     blockMask = orVec[startIdx++];
   } else if (redundantUniPhi) {
     // all uniform inputs are identical -> erase the phi
     blockMask = lastUniIn;
-    uniPhi->eraseFromParent();
-    uniPhi = nullptr;
+    uniPredPhi->eraseFromParent();
+    uniPredPhi = nullptr;
+    uniAVLPhi->eraseFromParent();
+    uniAVLPhi = nullptr;
   } else {
     // multiple uniform inputs
-    blockMask = uniPhi;
+    blockMask = Mask(uniPredPhi, uniAVLPhi);
   }
 
   // if we keep the phi set its shape
-  if (uniPhi) {
-    vecInfo.setVectorShape(*uniPhi, phiShape);
+  if (uniPredPhi) {
+    vecInfo.setVectorShape(*uniPredPhi, predPhiShape);
   }
 
   // join all incoming varying masks
   IRBuilder<> builder(&BB, BB.getFirstInsertionPt());
-  VectorShape maskShape = vecInfo.getVectorShape(*blockMask);
+  MaskBuilder MBuilder(vecInfo);
+  VectorShape maskShape = vecInfo.getVectorShape(blockMask);
   for (size_t i = startIdx; i < orVec.size(); ++i) {
-    auto divShape = vecInfo.getVectorShape(*orVec[i]);
+    auto divShape = vecInfo.getVectorShape(orVec[i]);
     maskShape = VectorShape::join(maskShape, divShape);
 
-    blockMask = &CreateOr(builder, *blockMask, *orVec[i]);
-    vecInfo.setVectorShape(*blockMask, maskShape);
+    blockMask = MBuilder.CreateOr(builder, blockMask, orVec[i]);
+    vecInfo.setVectorShape(blockMask, maskShape);
   }
 
-  IF_DEBUG_ME { errs() << "> " << *blockMask << "\n"; }
+  IF_DEBUG_ME { errs() << "> " << blockMask << "\n"; }
 
   // cache the mask
-  setBlockMask(BB, *blockMask);
-  return *blockMask;
+  return setBlockMask(BB, blockMask);
 }
 
 
-void
-MaskExpander::setEdgeMask(BasicBlock & BB, int succIdx, Value & mask) {
-  requestEdgePred(BB, succIdx).edgeMask = &mask;
+Mask&
+MaskExpander::setEdgeMask(BasicBlock & BB, int succIdx, Mask BrMask) {
+  EdgePred & EP = requestEdgePred(BB, succIdx);
+  EP.edgeMask = BrMask;
+  return EP.edgeMask;
 }
 
-void
-MaskExpander::setBranchMask(BasicBlock & BB, int succIdx, Value & mask) {
-  requestEdgePred(BB, succIdx).branchMask = &mask;
+Mask&
+MaskExpander::setBranchMask(BasicBlock & BB, int succIdx, Mask BrMask) {
+  EdgePred & EP = requestEdgePred(BB, succIdx);
+  EP.branchMask = BrMask;
+  return EP.branchMask;
 }
 
 void
@@ -482,7 +433,7 @@ MaskExpander::expandRegionMasks() {
     if (!vecInfo.inRegion(BB)) continue;
 
     auto & blockMask = requestBlockMask(BB);
-    vecInfo.setPredicate(BB, blockMask);
+    vecInfo.setMask(BB, blockMask);
   }
 
   // finalize loop live masks by adding masks on loop entry
@@ -497,5 +448,4 @@ MaskExpander::expandRegionMasks() {
   }
 }
 
-
-}
+} // namespace rv

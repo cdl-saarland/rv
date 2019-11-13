@@ -188,6 +188,13 @@ VectorShape VectorizationInfo::getObservedShape(const LoopInfo &LI,
   return valShape;
 }
 
+VectorShape
+VectorizationInfo::getVectorShape(const Mask &M) const {
+  if (!M.getPred()) return VectorShape::uni();
+  return getVectorShape(*M.getPred());
+}
+
+
 VectorShape VectorizationInfo::getVectorShape(const llvm::Value &val) const {
   // Undef short-cut
   if (isa<UndefValue>(val))
@@ -241,6 +248,23 @@ void VectorizationInfo::dropVectorShape(const Value &val) {
   if (it == shapes.end())
     return;
   shapes.erase(it);
+}
+
+void VectorizationInfo::setVectorShape(const Mask &M,
+                                       VectorShape S) {
+  // Check that M does have a predicate if S is a non-uniform shape
+  if (!S.isUniform() && S.isDefined()) {
+    assert(M.getPred());
+  }
+
+  // set the AVL to uniform (if it has not happened yet)
+  if (M.getAVL() && !getVectorShape(*M.getAVL()).isDefined()) {
+    setVectorShape(*M.getAVL(), VectorShape::uni());
+  }
+
+  // Otw, set the shape on the mask predicate
+  if (!M.getPred()) return;
+  setVectorShape(*M.getPred(), S);
 }
 
 void VectorizationInfo::setVectorShape(const llvm::Value &val,
@@ -300,23 +324,27 @@ void VectorizationInfo::dropMask(const BasicBlock &block) {
   masks.erase(it);
 }
 
+void VectorizationInfo::setMask(const llvm::BasicBlock &block, Mask NewMask) {
+  requestMask(block) = NewMask;
+}
+
 llvm::Value *
 VectorizationInfo::getPredicate(const llvm::BasicBlock &block) const {
   if (hasMask(block)) {
-    return getMask(block).predicate;
+    return getMask(block).getPred();
   }
   return nullptr;
 }
 
 void VectorizationInfo::setPredicate(const llvm::BasicBlock &block,
-                                     llvm::Value &predicate) {
-  requestMask(block).predicate = &predicate;
+                                     llvm::Value &NewPred) {
+  requestMask(block).setPred(&NewPred);
 }
 
-void VectorizationInfo::remapPredicate(Value &dest, Value &old) {
+void VectorizationInfo::remapPredicate(Value &Dest, Value &Old) {
   for (auto it : masks) {
-    if (it.second.predicate == &old) {
-      it.second.predicate = &dest;
+    if (it.second.getPred() == &Old) {
+      it.second.setPred(&Dest);
     }
   }
 }
@@ -400,27 +428,5 @@ bool VectorizationInfo::isTemporalDivergent(const LoopInfo &LI,
 
   return false;
 }
-
-
-
-// struct Mask
-void
-Mask::print(llvm::raw_ostream & out) const {
-  out << "Mask {";
-    bool hasText = false;
-    if (predicate) {
-      out << "P: ";
-      predicate->printAsOperand(out);
-      hasText = true;
-    }
-    if (activeVectorLength) {
-      if (hasText) out << ", ";
-      activeVectorLength->printAsOperand(out);
-    }
-  out << "}";
-}
-
-void
-Mask::dump() const { print(errs()); }
 
 } // namespace rv

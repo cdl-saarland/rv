@@ -18,12 +18,11 @@ namespace llvm {
 } // namespace llvm
 
 #include "region/Region.h"
+#include "rv/Mask.h"
 #include "rv/shape/vectorShape.h"
 #include "rv/vectorMapping.h"
-
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/IR/ValueHandle.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <set>
@@ -32,19 +31,6 @@ namespace llvm {
 namespace rv {
 
 class Region;
-
-struct Mask {
-  llvm::WeakTrackingVH predicate;
-  llvm::WeakTrackingVH activeVectorLength;
-
-  void print(llvm::raw_ostream & out) const;
-  void dump() const;
-
-  Mask()
-  : predicate(nullptr)
-  , activeVectorLength(nullptr)
-  {}
-};
 
 // provides vectorization information (vector shapes, block predicates) for a
 // function
@@ -130,9 +116,11 @@ public:
   // get the shape of @val observerd in the defining block of @val (if it is an
   // instruction).
   VectorShape getVectorShape(const llvm::Value &val) const;
+  VectorShape getVectorShape(const Mask &M) const;
   bool hasKnownShape(const llvm::Value &val) const;
 
   void setVectorShape(const llvm::Value &val, VectorShape shape);
+  void setVectorShape(const Mask &M, VectorShape S);
   void dropVectorShape(const llvm::Value &val);
 
   // drop all inferred information (everything except block predicated and pinned shapes)
@@ -157,6 +145,7 @@ public:
   void dropMask(const llvm::BasicBlock &block);
 
   // actual basic block predicates
+  void setMask(const llvm::BasicBlock &block, Mask NewMask);
   llvm::Value *getPredicate(const llvm::BasicBlock &block) const;
   void setPredicate(const llvm::BasicBlock &block, llvm::Value &predicate);
   void remapPredicate(llvm::Value &dest, llvm::Value &old);
