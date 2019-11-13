@@ -114,4 +114,20 @@ Mask MaskBuilder::CreateNot(llvm::IRBuilder<> &Builder, Mask M, Twine Name) {
   return M;
 }
 
+llvm::Value *MaskBuilder::CreateSelect(llvm::IRBuilder<> &Builder,
+                                       Mask CondMask, llvm::Value *OnTrueVal,
+                                       llvm::Value *OnFalseVal,
+                                       llvm::Twine Name) {
+
+  if (CondMask.knownAllTrue()) {
+    return OnTrueVal;
+  }
+  if (CondMask.knownAllFalse()) {
+    return OnFalseVal;
+  }
+
+  assert(!CondMask.getAVL() && "TODO implement composition with AVL");
+  return Builder.CreateSelect(CondMask.getPred(), OnTrueVal, OnFalseVal, Name);
+}
+
 } // namespace rv

@@ -27,18 +27,6 @@ using namespace llvm;
 
 namespace rv {
 
-static
-Value&
-CreateOr(IRBuilder<> & builder, Value & lhs, Value & rhs, const Twine & name=Twine()) {
-  return *builder.CreateOr(&lhs, &rhs, name);
-}
-
-static
-Value&
-CreateNot(IRBuilder<> & builder, Value & val, const Twine & name=Twine()) {
-return *builder.CreateNot(&val, name);
-}
-
 MaskExpander::MaskExpander(VectorizationInfo & _vecInfo, FunctionAnalysisManager & FAM)
 : vecInfo(_vecInfo)
 , FAM(FAM)
@@ -92,7 +80,7 @@ MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & b
 
     assert(succIdx == 1);
 
-    auto & negCond = CreateNot(builder, *condVal, "neg." + condVal->getName());
+    auto & negCond = *builder.CreateNot(condVal, "neg." + condVal->getName());
     if (!isa<Constant>(negCond)) vecInfo.setVectorShape(negCond, vecInfo.getVectorShape(*condVal));
     return setBranchMask(sourceBlock, succIdx, Mask::inferFromPredicate(negCond));
 
@@ -198,7 +186,7 @@ MaskExpander::requestEdgeMask(Instruction & term, int succIdx) {
   auto & branchPred = requestBranchMask(term, succIdx, builder); // edge predicate relative to block
 
   Mask edgeMask = Mask::getAllTrue();
-  if (isa<Constant>(blockMask)) {
+  if (blockMask.knownAllTrue()) {
     edgeMask = branchPred;
   } else {
     edgeMask = MBuilder.CreateAnd(builder, blockMask, branchPred, "edge_" + BB.getName().str() + "." + std::to_string(succIdx));

@@ -23,6 +23,7 @@
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/IRBuilder.h>
+#include "rv/MaskBuilder.h"
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/BasicBlock.h>
@@ -581,8 +582,6 @@ GetCommonLoop(LoopInfo & li, SuperBlockVec & blocks) {
 /// \brief create a super input value for this phi node
 Value *
 Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
-  Constant * falseMask = ConstantInt::getFalse(phi.getContext());
-
   auto & blocks = superInput.inBlocks;
 
 // fetch the shadow input as default value (if any)
@@ -621,6 +620,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
 // Start buildling cascasding selects for all remaining incoming values
   IRBuilder<> builder(superInput.blendBlock);
+  MaskBuilder MBuilder(vecInfo);
 
   auto & phiBlock = *phi.getParent();
 
@@ -639,11 +639,12 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
       continue;
     }
 
-    auto * edgeMask = getEdgeMask(*inBlock, phiBlock);
+    Mask *edgeMask = getEdgeMask(*inBlock, phiBlock);
     assert(edgeMask && "edgeMask not available!");
 
   // make sure the mask predicate is available at this point
-  // TODO use caching
+#if 0
+    // TODO parlin preserves dominance
     if (isa<Instruction>(edgeMask)) {
       auto & maskFuture = createRepairPhi(*edgeMask, *superInput.blendBlock);
       maskFuture.addIncoming(edgeMask, inBlock);
@@ -658,6 +659,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
       inValFuture.addIncoming(shadowValue ? shadowValue : UndefValue::get(inVal->getType()), superInput.blendBlock);
       inVal = &inValFuture;
     }
+#endif
 
   // don't blend undefs
     if (isa<UndefValue>(inVal)) continue; // no need to blend in undef
@@ -666,7 +668,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     ++numBlends; // statistics
 
     std::string name = inVal->getName().str() + ".b";
-    blendedVal = builder.CreateSelect(edgeMask, inVal, blendedVal, name);
+    blendedVal = MBuilder.CreateSelect(builder, *edgeMask, inVal, blendedVal, name);
     vecInfo.setVectorShape(*blendedVal, phiShape);
   }
 
@@ -733,11 +735,11 @@ Linearizer::foldPhis(BasicBlock & block) {
       Value * foldedInVal = nullptr;
       if (isBoolLiteral(false, *shadowInput) && isBoolLiteral(true, *preHeaderInput)) {
         // this is really just an optimization for live-tracker header phis
-        foldedInVal = inMask;
+        foldedInVal = inMask->getPred();
         ++numCUniPhis;
       } else {
         IRBuilder<> preBuilder(&*preHead, preHead->getTerminator()->getIterator());
-        foldedInVal = preBuilder.CreateSelect(inMask, preHeaderInput, shadowInput);
+        foldedInVal = preBuilder.CreateSelect(inMask->getPred(), preHeaderInput, shadowInput);
         numFoldedAssignments += 2;
         ++numCDivPhis;
       }
@@ -836,6 +838,7 @@ Linearizer::foldPhis(BasicBlock & block) {
 
     ++numCDivPhis;
     IRBuilder<> builder(&block, block.getFirstInsertionPt());
+    MaskBuilder MBuilder(vecInfo);
 
     numPreservedAssignments += selectBlockMap.size() - 1;
 
@@ -1437,7 +1440,7 @@ Linearizer::cacheMasks(){
    auto & term = *block.getTerminator();
    for (size_t i = 0; i < term.getNumSuccessors(); ++i) {
      auto * succBlock = term.getSuccessor(i);
-     auto * edgeMask = maskEx.getEdgeMask(term, i); // .getExitMask(block, *succBlock); // OOB access for DLT if the original loop did not have a conditional exit in the header (edgeVec)
+     auto *edgeMask = maskEx.getEdgeMask(term, i); // .getExitMask(block, *succBlock); // OOB access for DLT if the original loop did not have a conditional exit in the header (edgeVec)
      if (edgeMask) setEdgeMask(block, *succBlock, edgeMask);
    }
   }

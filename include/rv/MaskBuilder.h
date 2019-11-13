@@ -34,6 +34,12 @@ public:
   Mask CreateOr(llvm::IRBuilder<> &Builder, Mask A, Mask B, llvm::Twine Name="");
   Mask CreateAnd(llvm::IRBuilder<> &Builder, Mask A, Mask B, llvm::Twine Name="");
   Mask CreateNot(llvm::IRBuilder<> &Builder, Mask M, llvm::Twine Name="");
+
+  // Create a masked select
+  llvm::Value *CreateSelect(llvm::IRBuilder<> &builder, Mask CondMask,
+                            llvm::Value *OnTrueVal,
+                            llvm::Value *OnFalseValblendedVal,
+                            llvm::Twine Name = "");
 };
 
 } // namespace rv

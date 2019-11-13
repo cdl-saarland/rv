@@ -45,7 +45,7 @@ namespace llvm {
 namespace rv {
   typedef std::unordered_map<const llvm::BasicBlock*, int> BlockIndex;
   typedef std::pair<llvm::BasicBlock*, llvm::BasicBlock*> Edge;
-  typedef llvm::DenseMap<Edge, llvm::WeakVH> EdgeMaskCache;
+  typedef llvm::DenseMap<Edge, Mask> EdgeMaskCache;
   class MaskExpander;
 
   // internal helper class that tunnels values leaving on divergent loop exits through tracker PHI nodes
@@ -293,21 +293,21 @@ namespace rv {
   // edge masks
     // these are cached before the transformation so we can query them eventhough the CFG changes
     EdgeMaskCache edgeMasks; // if true for an edge A->B control proceeds from block A to block B both being executed
-    llvm::Value * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) {
+    Mask * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) {
       Edge edge(&start, &dest);
       auto it = edgeMasks.find(edge);
       if (it == edgeMasks.end())
         return nullptr;
-      else return it->second;
+      else return &it->second;
     }
 
-    void setEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest, llvm::Value * val) {
-      if (!val) {
+    void setEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest, Mask * M) {
+      if (!M) {
         edgeMasks.erase(Edge(&start, &dest));
         return;
       }
-      assert(val->getType() == llvm::Type::getInt1Ty(val->getContext()) && "expected i1 mask type");
-      edgeMasks[Edge(&start, &dest)] = val;
+      // assert(val->getType() == llvm::Type::getInt1Ty(val->getContext()) && "expected i1 mask type");
+      edgeMasks[Edge(&start, &dest)] = *M;
     }
 
   // SSA repair
