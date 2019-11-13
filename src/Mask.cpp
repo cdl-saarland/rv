@@ -52,28 +52,44 @@ Mask Mask::getAllFalse(LLVMContext &Ctx) {
   return Mask::fromVectorLength(*VLZero);
 }
 
+llvm::Value &Mask::requestPredAsValue(llvm::LLVMContext &Ctx) const {
+  if (getPred())
+    return *getPred();
+  return *ConstantInt::getTrue(Ctx);
+}
+
+llvm::Value &Mask::requestAVLAsValue(llvm::LLVMContext &Ctx) const {
+  if (getAVL())
+    return *getAVL();
+  return *ConstantInt::get(Type::getInt32Ty(Ctx), -1, true);
+}
+
 bool Mask::knownAllTrue() const { return (!getPred() && !getAVL()); }
 
 bool Mask::knownAllFalse() const {
   // AVL == 0
   if (getAVL()) {
     auto ConstAVL = dyn_cast<ConstantInt>(getAVL());
-    if (ConstAVL && ConstAVL->isNullValue()) return true;
+    if (ConstAVL && ConstAVL->isNullValue())
+      return true;
   }
 
   // Pred == 0
   if (getPred()) {
     auto ConstPred = dyn_cast<Constant>(getAVL());
-    if (ConstPred && ConstPred->isNullValue()) return true;
+    if (ConstPred && ConstPred->isNullValue())
+      return true;
   }
 
   // Don't know
   return false;
 }
 
+} // namespace rv
+
+namespace llvm {
 raw_ostream &operator<<(raw_ostream &Out, const rv::Mask &M) {
   M.print(Out);
   return Out;
 }
-
-} // namespace rv
+} // namespace llvm

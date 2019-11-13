@@ -739,7 +739,8 @@ Linearizer::foldPhis(BasicBlock & block) {
         ++numCUniPhis;
       } else {
         IRBuilder<> preBuilder(&*preHead, preHead->getTerminator()->getIterator());
-        foldedInVal = preBuilder.CreateSelect(inMask->getPred(), preHeaderInput, shadowInput);
+        MaskBuilder MBuilder(vecInfo);
+        foldedInVal = MBuilder.CreateSelect(preBuilder, *inMask, preHeaderInput, shadowInput);
         numFoldedAssignments += 2;
         ++numCDivPhis;
       }

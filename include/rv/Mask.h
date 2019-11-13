@@ -36,6 +36,11 @@ public:
   llvm::Value *getAVL() const { return ActiveVectorLength; }
   void setAVL(llvm::Value *NewAVL) { ActiveVectorLength = NewAVL; }
 
+  // Materialize the AVL/Pred as proper LLVM constants (if they are null and
+  // implicitly non-masking)
+  llvm::Value &requestPredAsValue(llvm::LLVMContext &Ctx) const;
+  llvm::Value &requestAVLAsValue(llvm::LLVMContext &Ctx) const;
+
   // Properties (best effort)
   bool knownAllTrue() const;
   bool knownAllFalse() const;
