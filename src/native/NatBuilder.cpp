@@ -518,10 +518,6 @@ NatBuilder::createAnyGuard(bool instNeedsGuard, BasicBlock & origBlock, Instruct
 
 ValVec
 NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool packResult, std::function<Value*(IRBuilder<>&,size_t)> genFunc) {
-   // check if we need cascade first
-   Value *predicate = vecInfo.getPredicate(srcBlock);
-   assert(predicate && "expected predicate!");
-
    // packResult -> a single vector value
    // !packResult -> results of all replicated elements
    ValVec resultVec;
@@ -554,8 +550,8 @@ NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool pa
      assert(builder.GetInsertBlock() == condBlock);
 
      // guard if
-     Value *mask = requestScalarValue(predicate, lane, true); // do not map this value if it's fresh to avoid dominance violations
-     builder.CreateCondBr(mask, maskedBlock, nextBlock);
+     Value *LaneMask = requestLanePredicate(srcBlock, lane); // do not map this value if it's fresh to avoid dominance violations
+     builder.CreateCondBr(LaneMask, maskedBlock, nextBlock);
 
    // materialize the scalarized block
      builder.SetInsertPoint(maskedBlock);
@@ -1406,10 +1402,9 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
 
 // fallback to replication
     // check if we need cascade first
-    Value *predicate = vecInfo.getPredicate(*scalCall->getParent());
-    assert(predicate && "expected predicate!");
-    assert(predicate->getType()->isIntegerTy(1) && "predicate must be i1 type!");
-    bool needCascade = !isa<Constant>(predicate) && scalCall->mayHaveSideEffects();
+    auto &ScaBlock = *scalCall->getParent();
+    bool needsPredicate = vecInfo.hasMask(ScaBlock) && !vecInfo.getMask(ScaBlock).knownAllTrue();
+    bool needCascade = needsPredicate && scalCall->mayHaveSideEffects();
 
     // scalar replication function
     auto replFunc = [this,scalCall](IRBuilder<> & builder, size_t lane) -> Value* {
@@ -2645,6 +2640,15 @@ bool
 NatBuilder::hasUniformPredicate(const BasicBlock & BB) const {
   if (!vecInfo.getRegion().contains(&BB) || !vecInfo.getPredicate(BB)) return true;
   else return vecInfo.getVectorShape(*vecInfo.getPredicate(BB)).isUniform();
+}
+
+Value*
+NatBuilder::requestLanePredicate(const BasicBlock &ScaBlock, int Lane) {
+  if (!vecInfo.hasMask(ScaBlock) || vecInfo.getMask(ScaBlock).knownAllTrue()) {
+    return ConstantInt::getTrue(builder.getContext());
+  }
+  assert(vecInfo.getMask(ScaBlock).knownAllTrueAVL() && "TODO implement AVL support");
+  return requestScalarValue(vecInfo.getPredicate(ScaBlock), Lane);
 }
 
 Value*

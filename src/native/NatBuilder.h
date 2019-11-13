@@ -175,7 +175,10 @@ namespace rv {
 
     void addLazyInstruction(llvm::Instruction *const instr);
     void requestLazyInstructions(llvm::Instruction *const upToInstruction);
-    llvm::Value* requestVectorPredicate(const llvm::BasicBlock& scaBlock);
+    // request the mask bit for lane \p Lane in block \p ScaBlock.
+    llvm::Value* requestLanePredicate(const llvm::BasicBlock &ScaBlock, int Lane);
+    // request a vector bit mask for block \p ScaBlock.
+    llvm::Value* requestVectorPredicate(const llvm::BasicBlock& ScaBlock);
     llvm::Value *requestVectorValue(llvm::Value *const value);
     void SetInsertPointAfterMappedInst(llvm::IRBuilder<> & builder, llvm::Instruction * mappedInst);
     llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
