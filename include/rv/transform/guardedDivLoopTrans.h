@@ -35,7 +35,6 @@ using PHISet = llvm::SmallPtrSet<llvm::PHINode*, 16>;
 using BlockSet = llvm::SmallPtrSet<llvm::BasicBlock*, 4>;
 
 class PlatformInfo;
-class MaskExpander;
 class LiveValueTracker;
 
 
@@ -58,7 +57,6 @@ struct GuardedTransformSession {
   llvm::LoopInfo & loopInfo;
   VectorizationInfo & vecInfo;
   PlatformInfo & platInfo;
-  MaskExpander & maskEx;
 
   llvm::BasicBlock * testHead;
   llvm::BasicBlock * offsetHead;
@@ -83,13 +81,12 @@ struct GuardedTransformSession {
   size_t numKillExits;
   size_t numDivExits;
 
-  GuardedTransformSession(llvm::Loop & _loop, llvm::LoopInfo & _loopInfo, VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx)
+  GuardedTransformSession(llvm::Loop & _loop, llvm::LoopInfo & _loopInfo, VectorizationInfo & _vecInfo, PlatformInfo & _platInfo)
   : loop(_loop)
   , loopName(loop.getName().str())
   , loopInfo(_loopInfo)
   , vecInfo(_vecInfo)
   , platInfo(_platInfo)
-  , maskEx(_maskEx)
   , testHead(nullptr)
   , offsetHead(nullptr)
   , pureLatch(nullptr)
@@ -117,7 +114,6 @@ struct GuardedTransformSession {
 class GuardedDivLoopTrans {
   PlatformInfo & platInfo;
   VectorizationInfo & vecInfo;
-  MaskExpander & maskEx;
   llvm::FunctionAnalysisManager & FAM;
   llvm::IntegerType * boolTy;
   // collect all divergent exits of this loop and send them through a dedicated latch exit
@@ -137,7 +133,7 @@ class GuardedDivLoopTrans {
 
   // replace this value update phi with a proper blend cascade
 public:
-  GuardedDivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::FunctionAnalysisManager &FAM);
+  GuardedDivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, llvm::FunctionAnalysisManager &FAM);
   ~GuardedDivLoopTrans();
 
   // makes all divergent loops in the region uniform
