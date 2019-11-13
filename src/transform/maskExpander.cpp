@@ -99,10 +99,10 @@ MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & b
     // default case mask = !(case1 || case2 || .. )
     if (&caseBlock == &defaultDest) {
       assert(succIdx == 0);
-      Mask joinedMask = Mask::getAllTrue();
+      Mask joinedMask = Mask::getAllFalse(caseBlock.getContext());
       for (size_t i = 1; i < switchTerm.getNumSuccessors(); ++i) {
         auto & caseCmp = requestBranchMask(switchTerm, i, builder);
-        if (joinedMask.knownAllTrue()) joinedMask = caseCmp;
+        if (joinedMask.knownAllFalse()) joinedMask = caseCmp;
         else {
           joinedMask = MBuilder.CreateOr(builder, joinedMask, caseCmp, "orcase_" + std::to_string(i));
           vecInfo.setVectorShape(joinedMask, valShape);
@@ -188,7 +188,7 @@ MaskExpander::requestEdgeMask(Instruction & term, int succIdx) {
   MaskBuilder MBuilder(vecInfo);
   Mask branchPred = requestBranchMask(term, succIdx, builder); // edge predicate relative to block
 
-  Mask edgeMask = Mask::getAllTrue();
+  Mask edgeMask;
   if (blockMask.knownAllTrue()) {
     edgeMask = branchPred;
   } else {
@@ -269,18 +269,9 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
     }
   }
 
-  // single join phi for uniform masks
+  // OR all incoming divergent control-flow masks
   int numPreds = std::distance(itBegin, itEnd);
-  auto * uniPredPhi = PHINode::Create(boolTy, numPreds, "inpreds_" + BB.getName(), &*BB.begin());
-  auto * uniAVLPhi = PHINode::Create(avlTy, numPreds, "inavls_" + BB.getName(), &*BB.begin());
-
   std::vector<Mask> orVec; // incoming divergent edge masks
-
-  // factor in all edges
-  Mask lastUniIn = Mask::getAllTrue();
-
-  bool redundantUniPhi = true;
-  VectorShape predPhiShape = VectorShape::uni();
 
   for (auto itPred = itBegin; itPred != itEnd; ++itPred) {
     auto * predBlock = *itPred;
@@ -293,33 +284,18 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
     auto controlShape = VectorShape::join(vecInfo.getVectorShape(predMask), vecInfo.getVectorShape(*predBlock->getTerminator()));
     bool uniBranch = controlShape.isUniform();
 
-  // uniform predecessor branch
-#if 1
-    if (uniBranch) {
-      IF_DEBUG_ME { errs() << " uni " << uniPredPhi << "\n"; }
-      redundantUniPhi &= (lastUniIn.knownAllTrue()) || (lastUniIn == predMask);
-      lastUniIn = predMask;
-
-      uniPredPhi->addIncoming(
-          &predMask.requestPredAsValue(uniPredPhi->getContext()), predBlock);
-      uniAVLPhi->addIncoming(
-          &predMask.requestAVLAsValue(uniAVLPhi->getContext()), predBlock);
-
-      predPhiShape =
-          VectorShape::join(vecInfo.getVectorShape(predMask), predPhiShape);
-    }
-#endif
-
     // select all edges of predBlock that lead to BB
     IndexSet predIndices;
     auto & predTerm = *predBlock->getTerminator();
     getPredecessorEdges(predTerm, BB, predIndices);
     auto &edgeMask = requestJoinedEdgeMask(predTerm, predIndices);
 
-    // mask is already accounted for by phi
-    if (uniBranch) continue;
+    // Can ignore uniform control since partial linearization guarantees that
+    // this block will not be executed then.
+    if (uniBranch)
+      continue;
 
-  // branch divergence is caused by immediate predecessor -> compute predicate
+    // branch divergence is caused by immediate predecessor -> compute predicate
     IF_DEBUG_ME { errs() << " -> div from " << predBlock->getName() << " mask " << edgeMask << "\n"; }
 
     // TODO what about the AVL?
@@ -349,42 +325,18 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
     orVec.push_back(edgeMask);
   }
 
-// start constructing the block mask
-  Mask blockMask = Mask::getAllTrue();
-
-  IF_DEBUG_ME { errs() << "\t mask(" << BB.getName() << ") = \n"; }
-  IF_DEBUG_ME { errs() << "\t\t uniPredPhi: " << *uniPredPhi << " redundant " << redundantUniPhi << "\n"; }
-  size_t startIdx = 0;
-  if (uniPredPhi->getNumIncomingValues() == 0) {
-    assert(lastUniIn.knownAllTrue() && "uniform inputs but no incoming values in uni phi");
-    // no uniform inputs
-    uniPredPhi->eraseFromParent();
-    uniPredPhi = nullptr;
-    uniAVLPhi->eraseFromParent();
-    uniAVLPhi = nullptr;
-    blockMask = orVec[startIdx++];
-  } else if (redundantUniPhi) {
-    // all uniform inputs are identical -> erase the phi
-    blockMask = lastUniIn;
-    uniPredPhi->eraseFromParent();
-    uniPredPhi = nullptr;
-    uniAVLPhi->eraseFromParent();
-    uniAVLPhi = nullptr;
-  } else {
-    // multiple uniform inputs
-    blockMask = Mask(uniPredPhi, uniAVLPhi);
+  // trivial all true mask
+  if (orVec.empty()) {
+    return setBlockMask(BB, Mask::getAllTrue());
   }
 
-  // if we keep the phi set its shape
-  if (uniPredPhi) {
-    vecInfo.setVectorShape(*uniPredPhi, predPhiShape);
-  }
+  Mask blockMask = orVec[0];
 
   // join all incoming varying masks
   IRBuilder<> builder(&BB, BB.getFirstInsertionPt());
   MaskBuilder MBuilder(vecInfo);
   VectorShape maskShape = vecInfo.getVectorShape(blockMask);
-  for (size_t i = startIdx; i < orVec.size(); ++i) {
+  for (size_t i = 1; i < orVec.size(); ++i) {
     auto divShape = vecInfo.getVectorShape(orVec[i]);
     maskShape = VectorShape::join(maskShape, divShape);
 

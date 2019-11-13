@@ -73,7 +73,6 @@ public:
 
   // direct mask manipulation
   Mask &setBlockMask(llvm::BasicBlock &BB, Mask mask) {
-    llvm::errs() << "SET MASK" << BB.getName() << "\n";
     blockMasks[&BB] = mask;
     return blockMasks[&BB];
   }

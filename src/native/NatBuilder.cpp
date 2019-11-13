@@ -29,7 +29,11 @@
 #include "rvConfig.h"
 #include "ShuffleBuilder.h"
 
-#define IF_DEBUG_NAT  IF_DEBUG
+#if 1
+#define IF_DEBUG_NAT IF_DEBUG
+#else
+#define IF_DEBUG_NAT IF_DEBUG
+#endif
 
 using namespace llvm;
 
@@ -346,11 +350,15 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
 
 void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
   assert(vecBlock && "no block to insert vector code");
+  IF_DEBUG_NAT { errs() << ":: Vectorizing block: " << bb->getName().str() << "\n"; }
+
   assert((!vecInfo.hasMask(*bb) || vecInfo.getMask(*bb).knownAllTrueAVL()) &&
          "TODO implement VP backend");
   builder.SetInsertPoint(vecBlock);
   for (BasicBlock::iterator it = bb->begin(), ie = bb->end(); it != ie; ++it) {
     Instruction *inst = &*it;
+
+    IF_DEBUG_NAT { errs() << "Vectorizing:\n\t"; errs() << *inst << "\n"; }
 
     // generate all lazy instructions first if it is the terminator
     if (inst == bb->getTerminator()) {
