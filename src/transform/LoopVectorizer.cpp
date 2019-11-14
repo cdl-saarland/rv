@@ -27,6 +27,7 @@
 #include "rvConfig.h"
 #include "rv/rvDebug.h"
 
+#include "llvm/InitializePasses.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IRBuilder.h"

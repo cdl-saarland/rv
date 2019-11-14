@@ -30,6 +30,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/Passes/PassBuilder.h"
 
 #include "llvm/Analysis/LoopInfo.h"
