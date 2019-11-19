@@ -1429,7 +1429,10 @@ Linearizer::verify() {
   dt.verify();
 
   // generic verification passes
-  llvm::verifyFunction(func, &errs());
+  if (llvm::verifyFunction(func, &errs())) {
+    fail("Parlin broke the function\n");
+    abort(); // verification did not pass
+  }
 }
 
 void
@@ -1493,6 +1496,7 @@ Linearizer::getLeastIndex(const BasicBlock & block) const {
 
 void
 Linearizer::fixSSA() {
+#if 0
   for (auto & block : func) {
     if (!inRegion(block)) continue;
 
@@ -1593,6 +1597,7 @@ Linearizer::fixSSA() {
 
     vecInfo.setPredicate(block, promotedDef);
   }
+#endif
 }
 
 // select simplifcation logic

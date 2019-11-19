@@ -10,10 +10,13 @@
 #include "rv/transform/maskExpander.h"
 #include "rvConfig.h"
 #include "rv/MaskBuilder.h"
+#include "utils/rvTools.h"
+#include "rv/vectorizationInfo.h"
 
 #include "llvm/Transforms/Utils/SSAUpdater.h"
 #include "llvm/IR/Verifier.h"
-#include <llvm/IR/PatternMatch.h>
+#include "llvm/IR/PatternMatch.h"
+#include "llvm/IR/CFG.h"
 
 #include <cassert>
 
@@ -172,7 +175,7 @@ MaskExpander::getEdgePred(const llvm::BasicBlock & srcBlock, int succIdx) {
 Mask&
 MaskExpander::requestEdgeMask(Instruction & term, int succIdx) {
   auto *cachedMask = getEdgeMask(term, succIdx);
-  if (cachedMask) return *cachedMask;
+ if (cachedMask) return *cachedMask;
 
   // allocate an edge handle
   requestEdgePred(*term.getParent(), succIdx);
@@ -222,6 +225,14 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   auto *CachedMask = getBlockMask(BB);
   if (CachedMask) return *CachedMask;
 
+  // all-uniform control context
+  bool BlockHasVaryingControlMask = true;
+  if (vecInfo.getVaryingPredicateFlag(BB, BlockHasVaryingControlMask)) {
+    if (!BlockHasVaryingControlMask) {
+      return setBlockMask(BB, Mask::inferFromPredicate(*trueConst));
+    }
+  }
+
   // Otw, start buildling a mask
   IF_DEBUG_ME { errs() << "Construct mask:\n"; }
 
@@ -252,102 +263,65 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
 // try to re-use the SESE entry mask
   if (vecInfo.inRegion(idomBlock) && PDT.dominates(&BB, &idomBlock)) {
     auto & idomMask = requestBlockMask(idomBlock);
+    IF_DEBUG_ME { errs() << " -> SESE entry mask re-use profitable.\n"; }
 
-    {
-      IF_DEBUG_ME { errs() << " -> SESE entry mask re-use profitable.\n"; }
-
-      // request all incoming edges
-      for (auto itPred = itBegin; itPred != itEnd; ++itPred) {
-        auto * predBlock = *itPred;
-        IndexSet predIndices;
-        auto & predTerm = *predBlock->getTerminator();
-        getPredecessorEdges(predTerm, BB, predIndices);
-        requestJoinedEdgeMask(predTerm, predIndices);
-      }
-
-      return setBlockMask(BB, idomMask);
-    }
+    return setBlockMask(BB, idomMask);
   }
 
-  // OR all incoming divergent control-flow masks
+  // Defer lowering by phi selection
   int numPreds = std::distance(itBegin, itEnd);
-  std::vector<Mask> orVec; // incoming divergent edge masks
+  IRBuilder<> Builder(&*BB.getFirstInsertionPt());
+  PHINode *PredPhi = Builder.CreatePHI(boolTy, numPreds, BB.getName() + ".cm");
+  // PHINode *AVLPhi = Builder.CreatePHI(avlTy, numPreds, BB.getName() + ".cm"); // TODO implement AVL support
 
   for (auto itPred = itBegin; itPred != itEnd; ++itPred) {
     auto * predBlock = *itPred;
 
     IF_DEBUG_ME { errs() << "\t" << predBlock->getName() << ": "; }
+    if (!vecInfo.inRegion(*predBlock)) continue;
 
-    auto predMask = requestBlockMask(*predBlock);
-
-    // check if the dependence to cdBlock is uniform
-    auto controlShape = VectorShape::join(vecInfo.getVectorShape(predMask), vecInfo.getVectorShape(*predBlock->getTerminator()));
-    bool uniBranch = controlShape.isUniform();
-
-    // select all edges of predBlock that lead to BB
+    // check the incoming edge
     IndexSet predIndices;
     auto & predTerm = *predBlock->getTerminator();
     getPredecessorEdges(predTerm, BB, predIndices);
-    auto &edgeMask = requestJoinedEdgeMask(predTerm, predIndices);
-
-    // Can ignore uniform control since partial linearization guarantees that
-    // this block will not be executed then.
-    if (uniBranch)
-      continue;
-
-    // branch divergence is caused by immediate predecessor -> compute predicate
-    IF_DEBUG_ME { errs() << " -> div from " << predBlock->getName() << " mask " << edgeMask << "\n"; }
-
-    // TODO what about the AVL?
 
     // generate a dominating definition (if necessary)
-    if (edgeMask.getPred() && isa<Instruction>(edgeMask.getPred())) {
-       auto * edgePredInst = cast<Instruction>(edgeMask.getPred());
+    Mask InCMask = requestJoinedEdgeMask(predTerm, predIndices);
 
-      if (!DT.dominates(edgeMaskInst->getParent(), &BB)) {
-        std::string defBlockName = edgeMaskInst->getParent()->getName().str();
-        auto edgeMaskShape = vecInfo.getVectorShape(*edgeMask);
-        auto itInsert = &*BB.begin();
-        auto * edgePredPhi = PHINode::Create(boolTy, numPreds, "edgepred_domphi_" + defBlockName, itInsert);
-        vecInfo.setVectorShape(*edgePredPhi, edgePredShape);
-        for (auto it = itBegin; it != itEnd; ++it) {
-          Value * inVal = falseConst;
-          if (*it == *itPred) {
-            inVal = edgePredInst;
-          }
-          edgePredPhi->addIncoming(inVal ,*it);
-        }
-        // phi is reaching def
-        edgeMask.setPred(edgePredPhi);
-      }
+    if (vecInfo.getVectorShape(InCMask).isUniform()) {
+      // exploit partial linearization knowing that control will only reach
+      // through uniform control-flow edge iff it is supposed to reach here.
+      PredPhi->addIncoming(Builder.getTrue(), predBlock);
+    } else {
+      auto *InCPred = &InCMask.requestPredAsValue(Builder.getContext());
+      PredPhi->addIncoming(InCPred, predBlock);
     }
 
-    orVec.push_back(edgeMask);
+    // TODO handle the AVL
+    // AVLPhi->addIncoming(Builder.getTrue(), predBlock);
   }
 
-  // trivial all true mask
-  if (orVec.empty()) {
-    return setBlockMask(BB, Mask::getAllTrue());
+  // Simplify if there is only a single incoming edge 
+  // this is necessary to not fool Linearizer into believing this was a LCSSA phi
+  Mask BlockMask;
+  if (PredPhi->getNumIncomingValues() == 1) {
+    // discard the phi, keeping the only incoming predicate
+    Value * InPred = PredPhi->getIncomingValue(0);
+    BlockMask = Mask::inferFromPredicate(*InPred);
+    PredPhi->eraseFromParent();
+
+  } else {
+    // keep the phi node
+    vecInfo.setVectorShape(*PredPhi, VectorShape::varying());
+    setShadowInput(*PredPhi, *falseConst);
+
+    BlockMask = Mask::inferFromPredicate(*PredPhi);
   }
 
-  Mask blockMask = orVec[0];
-
-  // join all incoming varying masks
-  IRBuilder<> builder(&BB, BB.getFirstInsertionPt());
-  MaskBuilder MBuilder(vecInfo);
-  VectorShape maskShape = vecInfo.getVectorShape(blockMask);
-  for (size_t i = 1; i < orVec.size(); ++i) {
-    auto divShape = vecInfo.getVectorShape(orVec[i]);
-    maskShape = VectorShape::join(maskShape, divShape);
-
-    blockMask = MBuilder.CreateOr(builder, blockMask, orVec[i]);
-    vecInfo.setVectorShape(blockMask, maskShape);
-  }
-
-  IF_DEBUG_ME { errs() << "> " << blockMask << "\n"; }
+  IF_DEBUG_ME { errs() << "> " << BlockMask << "\n"; }
 
   // cache the mask
-  return setBlockMask(BB, blockMask);
+  return setBlockMask(BB, BlockMask);
 }
 
 
@@ -370,15 +344,29 @@ MaskExpander::expandRegionMasks() {
   IF_DEBUG_ME {
     errs() << "-- Region before MaskExpander --\n";
     vecInfo.dump();
-    errs() << "-- MaskExpander log --\n";
+    errs() << ":: MaskExpander log ::\n";
   }
 
   // eagerly all remaining masks
-  IF_DEBUG_ME { errs() << "- expanding acyclic masks\n"; }
+  IF_DEBUG_ME { errs() << "- expanding block and edge masks\n"; }
   for (auto & BB : vecInfo.getScalarFunction()) {
     if (!vecInfo.inRegion(BB)) continue;
 
+    // request the block control mask
     auto & blockMask = requestBlockMask(BB);
+
+    // request all incoming edges
+    // auto itBegin = pred_begin(&BB);
+    // auto itEnd = pred_end(&BB);
+    for (auto *predBlock : predecessors(&BB)) {
+      if (!vecInfo.inRegion(*predBlock)) continue;
+      IndexSet predIndices;
+      auto & predTerm = *predBlock->getTerminator();
+      getPredecessorEdges(predTerm, BB, predIndices);
+      requestJoinedEdgeMask(predTerm, predIndices);
+    }
+
+    // TODO AND-in in block predicate (also rename to requestCMask).
     vecInfo.setMask(BB, blockMask);
   }
 

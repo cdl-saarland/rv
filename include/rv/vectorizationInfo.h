@@ -136,10 +136,10 @@ public:
 
   // tentative block predicate shapes (whether the basic block predicate will be
   // varying or uniform)
-  // state can be unknown <returns false>, varying (returns true, oIsVarying is true or uniform (returns true, oIsVarying is false)
-  bool getVaryingPredicateFlag(const llvm::BasicBlock &BB, bool & oIsVarying) const;
-  void setVaryingPredicateFlag(const llvm::BasicBlock &, bool toVarying);
-  void removeVaryingPredicateFlag(const llvm::BasicBlock &);
+  // state can be unknown <returns false, flag& unaltered>, varying (returns true, oIsVarying is true or uniform (returns true, oIsVarying is false)
+  bool getVaryingPredicateFlag(const llvm::BasicBlock &BB, bool & oIsVarying) const; // TODO rename to setCMaskShape()
+  void setVaryingPredicateFlag(const llvm::BasicBlock &, bool toVarying); // TODO rename to getCMaskShape()
+  void removeVaryingPredicateFlag(const llvm::BasicBlock &); // TODO rename to dropCMaskShape() == unknown control mask
 
   // mask == i1 predicate X avl
   bool hasMask(const llvm::BasicBlock & block) const;
