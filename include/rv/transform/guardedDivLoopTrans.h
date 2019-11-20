@@ -63,6 +63,15 @@ struct GuardedTransformSession {
   llvm::BasicBlock * pureLatch; // nullptr if the latch is not pure (yet)
   llvm::BasicBlock * oldLatch; // if pureLatch, then oldLatch is the unique predecessor to pureLatch
 
+  // phi nodes in the pureLatch to obtain a dominating definition of loop
+  // carried values for the header phi nodes.
+  llvm::SmallVector<llvm::PHINode*, 4> PureDomPhis;
+
+  // register
+  // \p SrcBlock as a new input to \p PureLatch in the way of adding 'undef'
+  // inputs to all header carry phi nodes (PureDomPhis)
+  void addInputForHeaderCarryPhis(llvm::BasicBlock& srcBlock);
+
   // state tracking infrastructure
   GuardedTrackerDesc liveMaskDesc;
   // maps each exit block to the exit tracker in this loop
