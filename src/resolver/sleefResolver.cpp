@@ -18,6 +18,7 @@
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
 #include <llvm/Analysis/BranchProbabilityInfo.h>
 #include <llvm/Passes/PassBuilder.h>
+#include "llvm/Transforms/Utils/LCSSA.h"
 
 #include "rv/PlatformInfo.h"
 #include "utils/rvTools.h"
@@ -611,6 +612,19 @@ struct SleefVLAResolver : public FunctionResolver {
     PassBuilder PB;
     FunctionAnalysisManager FAM;
     PB.registerFunctionAnalyses(FAM);
+
+    // compute DT, PDT, LI
+    auto & DT = FAM.getResult<DominatorTreeAnalysis>(*clonedFunc);
+    auto & PDT = FAM.getResult<PostDominatorTreeAnalysis>(*clonedFunc);
+    auto & LI = FAM.getResult<LoopAnalysis>(*clonedFunc);
+    auto & SE = FAM.getResult<ScalarEvolutionAnalysis>(*clonedFunc);
+    auto & MDR = FAM.getResult<MemoryDependenceAnalysis>(*clonedFunc);
+    auto & BPI = FAM.getResult<BranchProbabilityAnalysis>(*clonedFunc);
+
+    // re-establish LCSSA
+    FunctionPassManager FPM;
+    FPM.addPass<LCSSAPass>(LCSSAPass());
+    FPM.run(*clonedFunc, FAM);
 
     // normalize loop exits (TODO make divLoopTrans work without this)
     {

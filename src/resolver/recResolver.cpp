@@ -133,6 +133,11 @@ public:
     FunctionAnalysisManager FAM;
     PB.registerFunctionAnalyses(FAM);
 
+    // re-establish LCSSA
+    FunctionPassManager FPM;
+    FPM.addPass<LCSSAPass>(LCSSAPass());
+    FPM.run(*clonedFunc, FAM);
+
     // compute DT, PDT, LI
     // normalize loop exits (TODO make divLoopTrans work without this)
     {
