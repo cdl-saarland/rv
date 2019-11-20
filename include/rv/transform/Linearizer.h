@@ -387,9 +387,6 @@ namespace rv {
     // we run SSA repair with these definitions and replace all uses of the repairPhi with the new value
     void resolveRepairPhis();
 
-  // re-establish SSA form by inserting phis + undef
-    void fixSSA();
-
   // simplify blend code
     size_t simplifyBlends();
 

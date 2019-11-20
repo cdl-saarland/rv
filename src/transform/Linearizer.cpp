@@ -639,27 +639,26 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
       continue;
     }
 
-    Mask *edgeMask = getEdgeMask(*inBlock, phiBlock);
-    assert(edgeMask && "edgeMask not available!");
+    Mask edgeMask = *getEdgeMask(*inBlock, phiBlock);
 
   // make sure the mask predicate is available at this point
-#if 0
-    // TODO parlin preserves dominance
-    if (isa<Instruction>(edgeMask)) {
-      auto & maskFuture = createRepairPhi(*edgeMask, *superInput.blendBlock);
-      maskFuture.addIncoming(edgeMask, inBlock);
-      maskFuture.addIncoming(falseMask, superInput.blendBlock);
-      edgeMask = &maskFuture;
+    if (isa<Instruction>(edgeMask.getPred())) {
+      // TODO create only one repair phi for this mask
+      // TODO support AVL
+      auto & maskFuture = createRepairPhi(*edgeMask.getPred(), *superInput.blendBlock);
+      maskFuture.addIncoming(edgeMask.getPred(), inBlock);
+      maskFuture.addIncoming(ConstantInt::getFalse(maskFuture.getContext()), superInput.blendBlock);
+      edgeMask.setPred(&maskFuture);
     }
 
   // promote the incoming value
     if (isa<Instruction>(inVal)) {
+      // TODO actually have to use the defaultValue here
       auto & inValFuture = createRepairPhi(*inVal, *superInput.blendBlock);
       inValFuture.addIncoming(inVal, inBlock);
       inValFuture.addIncoming(shadowValue ? shadowValue : UndefValue::get(inVal->getType()), superInput.blendBlock);
       inVal = &inValFuture;
     }
-#endif
 
   // don't blend undefs
     if (isa<UndefValue>(inVal)) continue; // no need to blend in undef
@@ -668,7 +667,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     ++numBlends; // statistics
 
     std::string name = inVal->getName().str() + ".b";
-    blendedVal = MBuilder.CreateSelect(builder, *edgeMask, inVal, blendedVal, name);
+    blendedVal = MBuilder.CreateSelect(builder, edgeMask, inVal, blendedVal, name);
     vecInfo.setVectorShape(*blendedVal, phiShape);
   }
 
@@ -1318,9 +1317,6 @@ Linearizer::run() {
 // repair SSA form on the linearized CFG
   resolveRepairPhis();
 
-// repair SSA (def/use chains that were broken by chain merging)
-  fixSSA();
-
 // simplify trivial blends
   numSimplifiedBlends += simplifyBlends();
 
@@ -1357,7 +1353,9 @@ Linearizer::linearizeControl() {
 
   assert(lastId  == getNumBlocks());
 
-  IF_DEBUG_LIN {  errs() << "\n-- LIN: linearization finished --\n"; }
+  IF_DEBUG_LIN {  errs() << "\n-- LIN: linearization finished --\n";
+    func.dump();
+  }
 }
 
 PHINode &
@@ -1492,112 +1490,6 @@ Linearizer::getLeastIndex(const BasicBlock & block) const {
   assert (leastIndex > -1 && "has no indexed predecessors!");
 
   return leastIndex;
-}
-
-void
-Linearizer::fixSSA() {
-#if 0
-  for (auto & block : func) {
-    if (!inRegion(block)) continue;
-
-    DenseMap<Instruction*, Value*> promotionCache;
-
-    for (auto & inst : block) {
-
-      auto * phi = dyn_cast<PHINode>(&inst);
-
-      // phi def/use repair
-      if (phi) {
-        for (size_t inIdx = 0; inIdx < phi->getNumIncomingValues(); ++inIdx) {
-          auto * inBlock = phi->getIncomingBlock(inIdx);
-          auto * inVal = phi->getIncomingValue(inIdx);
-
-          auto * inInst = dyn_cast<Instruction>(inVal);
-          if (!inInst) continue;
-
-          auto inShape = vecInfo.getVectorShape(*inInst);
-
-          auto & defBlock = *inInst->getParent();
-          if (dt.dominates(&defBlock, inBlock)) continue;
-
-          // ssa repair
-          SmallVector<PHINode*, 8> phiVec;
-          SSAUpdater ssaUpdater(&phiVec);
-          ssaUpdater.Initialize(inInst->getType(), "_prom");
-          ssaUpdater.AddAvailableValue(&defBlock, inInst);
-
-          // kill recurring definitions in the loop header by forcing Undef
-          auto * defLoop = li.getLoopFor(&defBlock);
-          if (defLoop && defLoop->getHeader() != &defBlock) {
-            ssaUpdater.AddAvailableValue(defLoop->getHeader(), UndefValue::get(inInst->getType()));
-          }
-          auto & fixedDef = *ssaUpdater.GetValueAtEndOfBlock(inBlock);
-          for (auto * phi : phiVec) vecInfo.setVectorShape(*phi, inShape);
-
-          phi->setIncomingValue(inIdx, &fixedDef);
-
-        }
-        continue;
-      }
-
-      // non-phi def/use repair
-      for (size_t opIdx = 0; opIdx < inst.getNumOperands(); ++opIdx) {
-        auto * opInst = dyn_cast<Instruction>(inst.getOperand(opIdx));
-        if (!opInst) continue;
-
-        auto & defParent = *opInst->getParent();
-
-      // check if this chain was broken
-        if (dt.dominates(&defParent, &block)) continue;
-
-      // do we have a cached definition available?
-        Value * fixedDef = nullptr;
-        auto itCachedDef = promotionCache.find(opInst);
-        if (itCachedDef != promotionCache.end()) {
-          fixedDef = itCachedDef->second;
-        } else {
-          auto opShape = vecInfo.getVectorShape(*opInst);
-
-          // ssa repair
-          SmallVector<PHINode*, 8> phiVec;
-          SSAUpdater ssaUpdater(&phiVec);
-          ssaUpdater.Initialize(opInst->getType(), "_prom");
-          ssaUpdater.AddAvailableValue(opInst->getParent(), opInst);
-
-          // kill recurring definitions in the loop header by forcing Undef
-          auto * defLoop = li.getLoopFor(opInst->getParent());
-          if (defLoop && defLoop->getHeader() != opInst->getParent()) {
-            ssaUpdater.AddAvailableValue(defLoop->getHeader(), UndefValue::get(opInst->getType()));
-          }
-          auto & promotedDef = *ssaUpdater.GetValueAtEndOfBlock(&block);
-          for (auto * phi : phiVec) vecInfo.setVectorShape(*phi, opShape);
-
-          // if not, promote the definition down to this use
-          promotionCache[opInst] = &promotedDef;
-          fixedDef = &promotedDef;
-        }
-
-        inst.setOperand(opIdx, fixedDef);
-      }
-    }
-
-    // promote predicates
-    auto * blockPred = vecInfo.getPredicate(block);
-    if (!blockPred) continue;
-    auto * predInst = dyn_cast<Instruction>(blockPred);
-    if (!predInst) continue;
-
-    auto & predDefBlock = *predInst->getParent();
-    if (dt.dominates(&predDefBlock, &block)) continue;
-
-    int defBlockIdx = getLeastIndex(predDefBlock);
-
-    auto * boolTy = Type::getInt1Ty(predInst->getContext());
-    auto & promotedDef = promoteDefinition(*predInst, *Constant::getNullValue(boolTy), defBlockIdx, block);
-
-    vecInfo.setPredicate(block, promotedDef);
-  }
-#endif
 }
 
 // select simplifcation logic
