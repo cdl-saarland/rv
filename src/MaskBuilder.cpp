@@ -45,7 +45,7 @@ static Value &CreatePredicateAnd(IRBuilder<> &builder, Value &lhs, Value &rhs,
 namespace rv {
 
 Mask MaskBuilder::FoldAVL(llvm::IRBuilder<> &Builder, Mask M, Twine Name) {
-  abort(); // TODO implement (reuse logic from ExpandVectorPredicateion.cpp)
+  abort(); // TODO implement (reuse logic from ExpandVectorPredication.cpp)
 }
 
 Mask MaskBuilder::CreateOr(llvm::IRBuilder<> &Builder, Mask A, Mask B,
@@ -111,7 +111,9 @@ Mask MaskBuilder::CreateNot(llvm::IRBuilder<> &Builder, Mask M, Twine Name) {
     return Mask::getAllFalse(Builder.getContext());
   }
 
-  return M;
+  // Invert the predicate
+  auto NotM = Builder.CreateNot(M.getPred(), "not." + M.getPred()->getName());
+  return Mask::inferFromPredicate(*NotM);
 }
 
 llvm::Value *MaskBuilder::CreateSelect(llvm::IRBuilder<> &Builder,
