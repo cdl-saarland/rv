@@ -68,32 +68,39 @@ Config::Config()
 , useAVX512(false)
 , useNEON(false)
 , useADVSIMD(false)
+
+// codegen flags
+, useAVL(false)
 {}
 
 Config
 Config::createDefaultConfig() {
   rv::Config config;
 
+  // override the RV target configuration
   char * rawArch = getenv("RV_ARCH");
-  if (!rawArch) return config;
-
-  std::string arch = rawArch;
-  if (arch == "avx2") {
-    Report() << "RV_ARCH: configured for avx2!\n";
-    config.useAVX2 = true;
-    config.useSSE = true;
-  } else if (arch == "avx512") {
-    Report() << "RV_ARCH: configured for avx512!\n";
-    config.useAVX512 = true;
-    config.useAVX2 = true;
-    config.useSSE = true;
-  } else if (arch == "advsimd") {
-    Report() << "RV_ARCH: configured for arm advsimd!\n";
-    config.useADVSIMD = true;
-  } else if (arch == "ve") {
-    Report() << "RV_ARCH: configured for NEC SX-Aurora!\n";
-    config.useVE = true;
+  if (rawArch) {
+    std::string arch = rawArch;
+    if (arch == "avx2") {
+      Report() << "RV_ARCH: configured for avx2!\n";
+      config.useAVX2 = true;
+      config.useSSE = true;
+    } else if (arch == "avx512") {
+      Report() << "RV_ARCH: configured for avx512!\n";
+      config.useAVX512 = true;
+      config.useAVX2 = true;
+      config.useSSE = true;
+    } else if (arch == "advsimd") {
+      Report() << "RV_ARCH: configured for arm advsimd!\n";
+      config.useADVSIMD = true;
+    } else if (arch == "ve") {
+      Report() << "RV_ARCH: configured for NEC SX-Aurora!\n";
+      config.useVE = true;
+    }
   }
+
+  // use AVL predication where possible
+  config.useAVL = CheckFlag("RV_AVL");
 
   return config;
 }
@@ -118,15 +125,13 @@ for_elems(StringRef listText, std::function<bool(StringRef elem)> UserFunc) {
 
 Config
 Config::createForFunction(Function & F) {
-  Config config;
-
+  Config config = createDefaultConfig();
 
   std::string triple = F.getParent()->getTargetTriple();
   if (StringRef(triple).startswith("ve-")) {
     config.useVE = true;
     return config;
   }
-
 
   // maps a target-feature entry to a handler
   const std::map<std::string, std::function<void()>> handlerMap = {
@@ -198,7 +203,8 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
         << ", enableOptimizedBlends = " << config.enableOptimizedBlends
         << ", enableIRPolish = " << config.enableIRPolish
         << ", greedyIPV = " << config.enableGreedyIPV
-        << ", maxULPErrorBound = " << ulp_to_string(config.maxULPErrorBound);
+        << ", maxULPErrorBound = " << ulp_to_string(config.maxULPErrorBound)
+        << ", useAVL = " << config.useAVL << "\n";
 }
 
 static void

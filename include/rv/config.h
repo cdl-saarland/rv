@@ -69,6 +69,8 @@ struct Config {
   bool useNEON;
   bool useADVSIMD;
 
+// code gen options
+  bool useAVL; // generate AVL loops
 
   void print(llvm::raw_ostream&) const;
 

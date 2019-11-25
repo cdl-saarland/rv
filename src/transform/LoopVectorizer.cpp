@@ -97,6 +97,10 @@ LoopVectorizer::getTripCount(Loop &L) {
 
 Loop*
 LoopVectorizer::transformToVectorizableLoop(Loop &L, int VectorWidth, int tripAlign, ValueSet & uniformOverrides) {
+  if (config.useAVL) {
+    abort(); // TODO implement tail predicated loops
+  }
+
   IF_DEBUG { errs() << "\tCreating scalar remainder Loop for " << L.getName() << "\n"; }
 
   // try to applu the remainder transformation
