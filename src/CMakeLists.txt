@@ -15,6 +15,11 @@ if (RV_ENABLE_SLEEF)
   endif()
 endif()
 
+IF (RV_ENABLE_VP)
+  Message("-- rv: Using the LLVM-VP extension (experimental)")
+  add_definitions( "-DLLVM_HAVE_VP" )
+ENDIF()
+
 if (RV_ENABLE_CRT)
   add_definitions( "-DRV_ENABLE_CRT" )
 endif()

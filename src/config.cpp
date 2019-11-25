@@ -58,6 +58,11 @@ Config::Config()
 
 // enable greedy inter-procedural vectorization
 , enableGreedyIPV(CheckFlag("RV_IPV"))
+#ifdef LLVM_HAVE_VP
+, enableVP(!CheckFlag("RV_DISABLE_VP"))
+#else
+, enableVP(false)
+#endif
 , maxULPErrorBound(10)
 
 // feature flags
@@ -221,6 +226,8 @@ Config::print(llvm::raw_ostream & out) const {
   printOptFlags(*this, out);
   out << "\n\t";
   printNativeFlags(*this, out);
+  out << "\n\t";
+  if (this->enableVP) out << "using LLVM-VP.\n";
   out << "\n\t";
   printFeatureFlags(*this, out);
   out << "\n}\n";
