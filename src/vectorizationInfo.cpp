@@ -162,8 +162,8 @@ VectorizationInfo::VectorizationInfo(llvm::Function &parentFn,
 
 // VectorizationInfo
 VectorizationInfo::VectorizationInfo(Region &_region, VectorMapping _mapping)
-    : DL(_region.getFunction().getParent()->getDataLayout()), region(_region),
-      mapping(_mapping) {
+    : DL(_region.getFunction().getParent()->getDataLayout()),
+      EntryAVL(nullptr), region(_region), mapping(_mapping) {
   assert(mapping.argShapes.size() == mapping.scalarFn->arg_size());
   auto it = mapping.scalarFn->arg_begin();
   for (auto argShape : mapping.argShapes) {
