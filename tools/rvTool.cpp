@@ -131,6 +131,11 @@ void vectorizeLoop(Function &parentFn, Loop &TheLoop, unsigned vectorWidth,
   TargetLibraryAnalysis libAnalysis;
   TargetLibraryInfo tli = libAnalysis.run(parentFn, FAM);
 
+  // configure RV
+  auto config = rv::Config::createForFunction(parentFn);
+  config.maxULPErrorBound = ulpErrorBound;
+  IF_VERBOSE { config.print(outs()); }
+
   // set-up for loop vectorization
   rv::ReductionAnalysis reductionAnalysis(parentFn, FAM);
   reductionAnalysis.analyze(TheLoop);
@@ -142,22 +147,19 @@ void vectorizeLoop(Function &parentFn, Loop &TheLoop, unsigned vectorWidth,
 
   rv::RemainderTransform remTrans(parentFn, DT, PDT, LI,
                                   reductionAnalysis);
-  auto *preparedLoop = remTrans.createVectorizableLoop(
-      TheLoop, uniOverrides, vectorWidth, 1);
+  auto LoopPrep = remTrans.createVectorizableLoop(
+      loop, uniOverrides, config.useAVL, vectorWidth, 1);
+  auto *preparedLoop = LoopPrep.TheLoop;
 
   if (!preparedLoop) {
     fail("remTrans could not transform to a vectorizable loop.");
   }
 
-  // configure RV
-  auto config = rv::Config::createForFunction(parentFn);
-  config.maxULPErrorBound = ulpErrorBound;
-  IF_VERBOSE { config.print(outs()); }
-
   // setup region
   rv::LoopRegion loopRegionImpl(*preparedLoop);
   rv::Region loopRegion(loopRegionImpl);
   rv::VectorizationInfo vecInfo(parentFn, vectorWidth, loopRegion);
+  vecInfo.setEntryAVL(LoopPrep.EntryAVL);
 
   rv::PlatformInfo platInfo(mod, &tti, &tli);
 

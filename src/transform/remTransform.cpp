@@ -274,6 +274,58 @@ public:
 
     return *clonedCmp;
   }
+
+  /// synthesize an EVL that models this condition 
+  // call embedFunc for all loop carred instructions
+  // the test will be true if it applies for all iterations from [phi to phi + iterOffset]
+  Value&
+  synthesizeEVL(int iterOffset, std::string suffix, IRBuilder<> & builder, std::set<Value*> * valueSet, std::function<IterValue (Instruction&)> embedFunc) {
+    auto * origReduct = cast<Instruction>(cmp.getOperand(cmpReductIdx));
+
+    // used to keep track
+    bool tmpExitOnTrue = loopExitOnTrue;
+
+    // the returned value evaluates to the mapped requested value at iteration offset @embReduct.timeOffset
+    IterValue embReduct = embedFunc(*origReduct);
+
+    // remaining offset amount
+    int effectiveOffset = iterOffset + embReduct.timeOffset;
+
+#if 0
+    // short cut for same iteration tests
+    if (effectiveOffset == 0) {
+      clonedCmp->setOperand(cmpReductIdx, &embReduct.val);
+      builder.Insert(clonedCmp, cmp.getName().str() + suffix);
+      return *clonedCmp;
+    }
+#endif
+
+  // determine the phi offset to test
+    assert(tmpExitOnTrue == loopExitOnTrue);
+    int offset = redShape.getStride() * effectiveOffset;
+
+    // dont test "phi", but "phi-1" if the cmp predicate is exit on equal
+    int offByOne = redShape.getStride() < 0 ? -1 : 1;
+
+    offset = offset + offByOne * (int) (exitWhenEqual);
+
+  // emit the test
+    auto & val = embReduct.val;
+
+    // increment the iteration variable as necessary
+    Value * adjusted = nullptr;
+    if (offset != 0) {
+      const bool nswFlag = sp.reductor->hasNoSignedWrap();
+      const bool nuwFlag = sp.reductor->hasNoUnsignedWrap();
+      adjusted = builder.CreateAdd(&val, ConstantInt::get(val.getType(), offset), "", nswFlag, nuwFlag);
+    } else {
+      adjusted = &val;
+    }
+
+   // subtract the bound to obtain a lane offset.
+    auto LaneID = builder.CreateSub(cmp.getOperand(1 - cmpReductIdx) , adjusted, "laneid");
+    return *LaneID;
+  }
 };
 
 
@@ -291,6 +343,10 @@ struct LoopTransformer {
 
   Loop & ScalarL;
   Loop & ClonedL;
+
+  // use tail predication (instead of branching to the scalar loop)
+  bool useTailPredication;
+  Value * AVL; // computed AVL (only set if useTailPredication is set)
 
   // exit condition builder for the vectorized loop
   BranchCondition & exitConditionBuilder;
@@ -354,13 +410,15 @@ struct LoopTransformer {
     return nullptr;
   }
 
-  LoopTransformer(Function & _F, DominatorTree & _DT, PostDominatorTree & _PDT, LoopInfo & _LI, ReductionAnalysis & _reda, std::set<Value*> & _uniOverrides, BranchCondition & _exitBuilder, Loop & _ScalarL, Loop & _ClonedL, ValueToValueMapTy & _vecValMap, int _vectorWidth, int _tripAlign)
+  LoopTransformer(Function & _F, DominatorTree & _DT, PostDominatorTree & _PDT, LoopInfo & _LI, ReductionAnalysis & _reda, std::set<Value*> & _uniOverrides, BranchCondition & _exitBuilder, Loop & _ScalarL, Loop & _ClonedL, ValueToValueMapTy & _vecValMap, bool _useTailPredication, int _vectorWidth, int _tripAlign)
   : F(_F)
   , DT(_DT)
   , PDT(_PDT)
   , LI(_LI)
   , ScalarL(_ScalarL)
   , ClonedL(_ClonedL)
+  , useTailPredication(_useTailPredication)
+  , AVL(nullptr)
   , exitConditionBuilder(_exitBuilder)
   , vecValMap(_vecValMap)
   , reda(_reda)
@@ -413,8 +471,9 @@ struct LoopTransformer {
 
   // dispatch to vector loop header or the scalar guard
     Value * constTrue = ConstantInt::getTrue(context);
-    // TODO cost model / pre-conditions
-    auto * vecLoopCond = constTrue;
+    Value * constFalse = ConstantInt::getFalse(context);
+    // TODO skip the vector loop if iteration count to low
+    auto * vecLoopCond = constTrue; 
 
     if (exitConditionBuilder.exitsOnTrue()) {
       BranchInst::Create(scalarGuardBlock, &vecHead, vecLoopCond, vecGuardBlock);
@@ -436,7 +495,7 @@ struct LoopTransformer {
 
   // branch from vecToScalarExit to the scalarGuard
     // TODO add an early exit branch (whenever no iterations remain)
-    auto * remainderCond = constTrue;
+    auto * remainderCond = useTailPredication ? constFalse : constTrue;
     BranchInst::Create(scalarGuardBlock, loopExit, remainderCond, vecToScalarExit);
 
   // make scalarGuard the new preheader of the scalar loop
@@ -589,8 +648,11 @@ struct LoopTransformer {
     // replicate the vector loop exit condition
     IRBuilder<> builder(&vecHead, vecHead.getTerminator()->getIterator());
 
+    // for tail predication, stay inside the loop while there is at least one iteration remaining
+    unsigned exitTriggerIteration = useTailPredication ? vectorWidth : 2 * vectorWidth;
+
     auto & exitVal =
-      exitConditionBuilder.synthesize(2 * vectorWidth, ".vecExit", builder, &uniOverrides,
+      exitConditionBuilder.synthesize(exitTriggerIteration, ".vecExit", builder, &uniOverrides,
          [&](Instruction & inst) -> IterValue {
            assert (!isa<CallInst>(inst));
 
@@ -811,14 +873,82 @@ struct LoopTransformer {
   }
 
   void
+  insertAVLComputation() {
+    for (auto *BB : ClonedL.blocks()) BB->dump();
+
+    auto &LoopHead = *ClonedL.getHeader();
+
+    // map vector phis to their shapes
+    std::map<Value*, PHINode*> headerPhis;
+    std::map<Value*, PHINode*> reductors;
+    for (auto & Inst : *ScalarL.getHeader()) {
+      auto * phi = dyn_cast<PHINode>(&Inst);
+      if (!phi) break;
+      auto & vecPhi = LookUp(vecValMap, *phi);
+      headerPhis[phi] = &vecPhi;
+
+      auto * sp = reda.getStrideInfo(*phi);
+      if (sp) {
+        reductors[sp->reductor] = &vecPhi;
+      }
+    }
+
+    // compute the lane index
+    IRBuilder<> Builder(LoopHead.getFirstNonPHI());
+    auto & RawAVL =
+      exitConditionBuilder.synthesizeEVL(0, ".avl", Builder, &uniOverrides,
+         [&](Instruction & inst) -> IterValue {
+           assert (!isa<CallInst>(inst));
+
+           // loop invariant value
+           if (!ScalarL.contains(inst.getParent())) return IterValue(inst, 0);
+
+           // did we hit the header phi
+           auto itHeaderPhi = headerPhis.find(&inst);
+
+           // determine the shape of the tested iteration variable
+           Value * headerPhi = nullptr;
+           int offset = 0;
+           if (itHeaderPhi != headerPhis.end()) {
+             // we are checking the header phi directly
+             headerPhi = itHeaderPhi->second;
+             offset = 0;
+           } else {
+             // we checking the reductor result on the header phi (next iteration value)
+             assert(reductors.find(&inst) != reductors.end() && "not testing a reductor");
+             auto * matchingHeaderPhi = reductors[&inst];
+             headerPhi = matchingHeaderPhi;
+             offset = -1; // phi is at iteration -1 relative to reductor
+           }
+
+           return IterValue(*headerPhi, offset);
+       }
+    );
+
+    // Normalize AVL to vectorization width
+    auto *VWConst = ConstantInt::get(RawAVL.getType(), vectorWidth);
+    auto &LessThanVW = *Builder.CreateICmpULT(&RawAVL, VWConst, RawAVL.getName() + ".lt.mvl");
+    uniOverrides.insert(&LessThanVW);
+    this->AVL = Builder.CreateSelect(&LessThanVW, &RawAVL, VWConst, "select.avl");
+    uniOverrides.insert(AVL);
+
+    // after splitting
+    IF_DEBUG_REM{
+      errs() << ":: after tail predication::\n";
+      for (auto *BB : ClonedL.blocks()) BB->dump();
+      errs() << "AVL: " << *AVL << "\n";
+    }
+  }
+
+  void
   repairValueFlow() {
     ValueToValueMapTy vecLoopPhis, vecLiveOuts;
 
     // start edge now coming from vecGuardBlock (instead of old preheader entrBlock)
     fixVecLoopHeaderPhis();
 
-    // reduce loop live outs and ALL vector loop phis (that existed in the scalar loop)
-    // reduceVectorLiveOuts(vecLoopPhis, vecLiveOuts);
+    // when vectorizing with tail predication, insert the iteration guard now.
+    if (useTailPredication) insertAVLComputation();
 
     // let the scalar loop start from the remainder vector loop remainder (if the VL was executed)
     updateScalarLoopStartValues(vecLoopPhis);
@@ -893,11 +1023,11 @@ RemainderTransform::canTransformLoop(llvm::Loop & L) {
   return true;
 }
 
-Loop*
-RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, int vectorWidth, int tripAlign) {
+PreparedLoop
+RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, bool useTailPredication, int vectorWidth, int tripAlign) {
 // run capability checks
   // CFG caps
-  if (!canTransformLoop(L)) return nullptr;
+  if (!canTransformLoop(L)) return PreparedLoop();
 
   // branch condition caps
   auto * branchCond = analyzeExitCondition(L, vectorWidth);
@@ -911,7 +1041,7 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
       }
     }
 
-    return nullptr;
+    return PreparedLoop();
   }
 
 // otw, clone the scalar loop
@@ -927,7 +1057,7 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
   // reda.updateForClones(LI, cloneMap);
 
 // embed the cloned loop
-  LoopTransformer loopTrans(F, DT, PDT, LI, reda, uniOverrides, *branchCond, L, clonedLoop, cloneMap, vectorWidth, tripAlign);
+  LoopTransformer loopTrans(F, DT, PDT, LI, reda, uniOverrides, *branchCond, L, clonedLoop, cloneMap, useTailPredication, vectorWidth, tripAlign);
 
   // rebuild reduction information for cloned loop
   reda.analyze(clonedLoop);
@@ -939,7 +1069,7 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, in
 
   delete branchCond;
 
-  return &clonedLoop;
+  return PreparedLoop(&clonedLoop, loopTrans.AVL);
 }
 
 } // namespace rv

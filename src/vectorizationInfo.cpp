@@ -135,6 +135,10 @@ void VectorizationInfo::print(llvm::raw_ostream &out) const {
 
   printArguments(out);
 
+  if (EntryAVL) {
+    out << "Entry AVL: " << *EntryAVL << "\n";
+  }
+
   for (const BasicBlock &block : *mapping.scalarFn) {
     if (!inRegion(block))
       continue;
@@ -146,9 +150,9 @@ void VectorizationInfo::print(llvm::raw_ostream &out) const {
 
 VectorizationInfo::VectorizationInfo(llvm::Function &parentFn,
                                      unsigned vectorWidth, Region &_region)
-    : DL(parentFn.getParent()->getDataLayout()), region(_region),
-      mapping(&parentFn, &parentFn, vectorWidth,
-              CallPredicateMode::SafeWithoutPredicate) {
+    : DL(parentFn.getParent()->getDataLayout()), EntryAVL(nullptr),
+      region(_region), mapping(&parentFn, &parentFn, vectorWidth,
+                               CallPredicateMode::SafeWithoutPredicate) {
   mapping.resultShape = VectorShape::uni();
   for (auto &arg : parentFn.args()) {
     RV_UNUSED(arg);

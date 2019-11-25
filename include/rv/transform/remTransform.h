@@ -33,6 +33,14 @@ class BranchCondition;
 class ReductionAnalysis;
 class VectorizationInfo;
 
+struct PreparedLoop {
+  llvm::Loop* TheLoop;
+  llvm::Value * EntryAVL;
+  PreparedLoop() : TheLoop(nullptr), EntryAVL(nullptr) {}
+  PreparedLoop(llvm::Loop *_TheLoop, llvm::Value *_EntryAVL)
+      : TheLoop(_TheLoop), EntryAVL(_EntryAVL) {}
+};
+
 class RemainderTransform {
   llvm::Function & F;
   llvm::DominatorTree & DT;
@@ -60,8 +68,8 @@ public:
   {}
 
   // create a vectorizable loop or return nullptr if remTrans can not currently do it
-  llvm::Loop*
-  createVectorizableLoop(llvm::Loop & L, ValueSet & uniOverrides, int vectorWidth, int tripAlign);
+  PreparedLoop
+  createVectorizableLoop(llvm::Loop & L, ValueSet & uniOverrides, bool useTailPredication, int vectorWidth, int tripAlign);
 };
 
 }

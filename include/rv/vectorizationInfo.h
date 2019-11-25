@@ -37,6 +37,9 @@ class Region;
 class VectorizationInfo {
   const llvm::DataLayout &DL;
 
+  // TODO infer AVL from guard branch in the future.
+  llvm::Value * EntryAVL;
+
   // analysis context
   Region &region;
   VectorMapping mapping;
@@ -77,6 +80,8 @@ public:
   bool inRegion(const llvm::Instruction &inst) const;
   bool inRegion(const llvm::BasicBlock &block) const;
   llvm::BasicBlock &getEntry() const;
+
+  void setEntryAVL(llvm::Value * NewAVL) { EntryAVL = NewAVL; }
 
   // disjoin path divergence
   bool isJoinDivergent(const llvm::BasicBlock &JoinBlock) const {

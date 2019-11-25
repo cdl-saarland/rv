@@ -97,17 +97,14 @@ LoopVectorizer::getTripCount(Loop &L) {
 
 Loop*
 LoopVectorizer::transformToVectorizableLoop(Loop &L, int VectorWidth, int tripAlign, ValueSet & uniformOverrides) {
-  if (config.useAVL) {
-    abort(); // TODO implement tail predicated loops
-  }
-
-  IF_DEBUG { errs() << "\tCreating scalar remainder Loop for " << L.getName() << "\n"; }
+  IF_DEBUG { errs() << "\tPreparing loop structure of " << L.getName() << "\n"; }
 
   // try to applu the remainder transformation
   RemainderTransform remTrans(*F, *DT, *PDT, *LI, *reda, PB);
-  auto * preparedLoop = remTrans.createVectorizableLoop(L, uniformOverrides, VectorWidth, tripAlign);
+  PreparedLoop LoopPrep = remTrans.createVectorizableLoop(L, uniformOverrides, config.useAVL, VectorWidth, tripAlign);
+  assert(!LoopPrep.EntryAVL && "TODO implement!");
 
-  return preparedLoop;
+  return LoopPrep.TheLoop;
 }
 
 static
