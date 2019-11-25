@@ -211,6 +211,28 @@ returnsVoidPtr(const Instruction& inst)
 ///// defaulting phi semantics /////
 namespace {
    const char * ShadowInputMDName = "rv.shadow.in";
+   const char * TotalOperationMDName = "rv.total";
+}
+
+void
+setTotalOperationTag(Instruction & inst) {
+  auto * mdTuple = MDTuple::get(inst.getContext(), {});
+  inst.setMetadata(TotalOperationMDName, mdTuple);
+}
+
+void
+dropTotalOperationTag(Instruction & inst) {
+  inst.setMetadata(TotalOperationMDName, nullptr);
+}
+
+bool
+hasTotalOperationTag(Instruction & inst) {
+  // short cut
+  if (!inst.hasMetadataOtherThanDebugLoc()) return false;
+
+  // otw, parse default shadow input argument
+  auto * totalOpMD = inst.getMetadata(TotalOperationMDName);
+  return (bool) totalOpMD;
 }
 
 void

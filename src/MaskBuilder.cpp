@@ -1,9 +1,19 @@
 #include "rv/MaskBuilder.h"
 
 #include "llvm/IR/PatternMatch.h"
+#include "utils/rvTools.h"
 #include <cassert>
 
 using namespace llvm;
+
+static Value&
+MakeTotalOperation(Value* Val) {
+  auto * inst = dyn_cast<Instruction>(Val);
+  if (inst) {
+    rv::setTotalOperationTag(*inst);
+  }
+  return *Val;
+}
 
 // TODO integrate with PatternMatch.h
 static bool rv_m_Any(Value &condVal, Value *&oMask) {
@@ -39,10 +49,11 @@ static Value &CreatePredicateAnd(IRBuilder<> &builder, Value &lhs, Value &rhs,
     }
   }
 
-  return *builder.CreateAnd(&lhs, &rhs, name);
+  return MakeTotalOperation(builder.CreateAnd(&lhs, &rhs, name));
 }
 
 namespace rv {
+
 
 Mask MaskBuilder::FoldAVL(llvm::IRBuilder<> &Builder, Mask M, Twine Name) {
   abort(); // TODO implement (reuse logic from ExpandVectorPredication.cpp)
@@ -58,7 +69,7 @@ Mask MaskBuilder::CreateOr(llvm::IRBuilder<> &Builder, Mask A, Mask B,
   if (A.getAVL() == B.getAVL()) {
     NewAVL = A.getAVL();
   } else if (A.getAVL() && B.getAVL()) {
-    NewAVL = Builder.CreateMaximum(A.getAVL(), B.getAVL(), Name + ".vl");
+    NewAVL = &MakeTotalOperation(Builder.CreateMaximum(A.getAVL(), B.getAVL(), Name + ".vl"));
   }
 
   // OR bitmask component
@@ -66,7 +77,7 @@ Mask MaskBuilder::CreateOr(llvm::IRBuilder<> &Builder, Mask A, Mask B,
   if (A.getPred() == B.getPred()) {
     NewPred = A.getPred();
   } else if (A.getPred() && B.getPred()) {
-    NewPred = Builder.CreateOr(A.getPred(), B.getPred(), Name + ".m");
+    NewPred = &MakeTotalOperation(Builder.CreateOr(A.getPred(), B.getPred(), Name + ".m"));
   }
 
   return Mask(NewPred, NewAVL);
@@ -80,7 +91,7 @@ Mask MaskBuilder::CreateAnd(llvm::IRBuilder<> &Builder, Mask A, Mask B,
   // take min vlen component
   Value *NewAVL = A.getAVL() ? A.getAVL() : B.getAVL();
   if (A.getAVL() && B.getAVL()) {
-    NewAVL = Builder.CreateMinimum(A.getAVL(), B.getAVL(), Name + ".vl");
+    NewAVL = &MakeTotalOperation(Builder.CreateMinimum(A.getAVL(), B.getAVL(), Name + ".vl"));
   }
 
   // AND bitmask component
@@ -129,7 +140,7 @@ llvm::Value *MaskBuilder::CreateSelect(llvm::IRBuilder<> &Builder,
   }
 
   assert(!CondMask.getAVL() && "TODO implement composition with AVL");
-  return Builder.CreateSelect(CondMask.getPred(), OnTrueVal, OnFalseVal, Name);
+  return &MakeTotalOperation(Builder.CreateSelect(CondMask.getPred(), OnTrueVal, OnFalseVal, Name));
 }
 
 } // namespace rv
