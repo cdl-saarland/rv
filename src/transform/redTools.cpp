@@ -73,6 +73,7 @@ GetScalarType(Value & val) {
   else return *valTy;
 }
 
+// TODO deprecate
 static
 Intrinsic::ID
 GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oRequiresRetTy) {
@@ -106,6 +107,80 @@ GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oRequiresR
     case RedKind::SMin: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmin : Intrinsic::experimental_vector_reduce_smin;
     case RedKind::UMin: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmin : Intrinsic::experimental_vector_reduce_umin;
   }
+}
+
+
+static
+Intrinsic::ID
+GetMaskedIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oRequiresRetTy) {
+  oHasInitVal = false;
+  oRequiresRetTy = false;
+  switch (kind) {
+    default:
+      return Intrinsic::not_intrinsic;
+    case RedKind::Add: {
+     if (elemTy.isFloatingPointTy()) {
+       oHasInitVal = true;
+       oRequiresRetTy = true;
+       return Intrinsic::vp_reduce_fadd;
+     } else {
+       return Intrinsic::vp_reduce_add;
+     }
+    }
+    case RedKind::Mul: {
+     if (elemTy.isFloatingPointTy()) {
+       oHasInitVal = true;
+       oRequiresRetTy = true;
+       return Intrinsic::vp_reduce_fadd;
+     } else {
+       return Intrinsic::vp_reduce_add;
+     }
+    }
+    case RedKind::And: return Intrinsic::vp_reduce_and;
+    case RedKind::Or: return Intrinsic::vp_reduce_or;
+    case RedKind::SMax: return elemTy.isFloatingPointTy() ? Intrinsic::vp_reduce_fmax : Intrinsic::vp_reduce_smax;
+    case RedKind::UMax: return elemTy.isFloatingPointTy() ? Intrinsic::vp_reduce_fmax : Intrinsic::vp_reduce_umax;
+    case RedKind::SMin: return elemTy.isFloatingPointTy() ? Intrinsic::vp_reduce_fmin : Intrinsic::vp_reduce_smin;
+    case RedKind::UMin: return elemTy.isFloatingPointTy() ? Intrinsic::vp_reduce_fmin : Intrinsic::vp_reduce_umin;
+  }
+}
+
+Value &
+CreateMaskedVectorReduce(Config & config, IRBuilder<> & builder, Mask vecMask, RedKind redKind, Value & vecVal, Value * initVal) {
+  unsigned vecWidth = vecVal.getType()->getVectorNumElements();
+  auto & vecTy = *vecVal.getType();
+  auto & elemTy = *vecTy.getVectorElementType();
+
+// use LLVM's experimental intrinsics where possible
+  bool hasInitValArg = false; // whether the intrinsic has an initial value argument
+  bool requiresRetTy = false; // whether a disambiguating elem type token is required
+  Intrinsic::ID VPID = GetMaskedIntrinsicID(redKind, elemTy, hasInitValArg, requiresRetTy);
+  assert (VPID != Intrinsic::not_intrinsic);
+  auto & mod = *builder.GetInsertBlock()->getParent()->getParent();
+  
+  std::vector<Type*> reduceTypeVec;
+  if (requiresRetTy) reduceTypeVec.push_back(&elemTy); // return value
+  reduceTypeVec.push_back(&vecTy);
+  
+  auto & redFunc = *Intrinsic::getDeclaration(&mod, VPID, reduceTypeVec);
+  
+  Value * redVal = nullptr;
+  auto &vecPred = vecMask.requestPredAsValue(builder.getContext(), vecWidth);
+  auto &vecAVL = vecMask.requestAVLAsValue(builder.getContext());
+
+  if (hasInitValArg) {
+    Value * initArg = initVal ? initVal : &GetNeutralElement(redKind, elemTy);
+    return *builder.CreateCall(&redFunc, {initArg, &vecVal, &vecPred, &vecAVL}, "red" + to_string(redKind));
+  }
+  
+  assert(!hasInitValArg);
+  redVal = builder.CreateCall(&redFunc, {&vecVal, &vecPred, &vecAVL}, "red" + to_string(redKind));
+  // add init val (if applicable)
+  if (initVal && initVal != &GetNeutralElement(redKind, elemTy)) {
+    return CreateReductInst(builder, redKind, *redVal, *initVal);
+  }
+  
+  return *redVal;
 }
 
 // reduce the vector @vectorVal to a scalar value (using redKind)
