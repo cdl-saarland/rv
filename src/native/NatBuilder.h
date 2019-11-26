@@ -151,7 +151,7 @@ namespace rv {
     void vectorizeAlloca(llvm::AllocaInst *const allocaInst);
 
     // implement the mask summary function @mode (ballot/popcount) of @vecVal with @builder
-    llvm::Value* createVectorMaskSummary(llvm::Type & indexTy, llvm::Value * vecVal, llvm::IRBuilder<> & builder, rv::RVIntrinsic mode);
+    llvm::Value* createVectorMaskSummary(llvm::Type & indexTy, Mask vecMask, llvm::IRBuilder<> & builder, rv::RVIntrinsic mode);
 
     void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
     void copyCallInstruction(llvm::CallInst *const scalCall, unsigned laneIdx = 0);
@@ -224,8 +224,11 @@ namespace rv {
     llvm::Value &createAnyGuard(bool instNeedsGuard, llvm::BasicBlock & srcBlock, llvm::Instruction & inst, bool producesValue, std::function<llvm::Value*(llvm::IRBuilder<>&)> genFunc);
 
     // a uniform value is stored to a uniform ptr (with a predicate)
-    llvm::Value *createUniformMaskedMemory(llvm::Instruction *inst, llvm::Type *accessedType, unsigned alignment,
-                                           llvm::Value *addr, Mask scalarMask, Mask vecMask, llvm::Value *values);
+    llvm::Value *createUniformMaskedMemory(llvm::Instruction *scaInst,
+                                           llvm::Type *accessedType,
+                                           llvm::MaybeAlign AlignOpt,
+                                           llvm::Value *vecBasePtr,
+                                           llvm::Value *vecValues);
 
     llvm::Value *createVaryingMemory(llvm::Type *vecType, llvm::Align alignment, llvm::Value *addr, Mask vecMask,
                                      llvm::Value *values);
