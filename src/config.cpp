@@ -74,7 +74,7 @@ Config::Config()
 , useADVSIMD(false)
 
 // codegen flags
-, useAVL(false)
+, useAVL(CheckFlag("RV_AVL"))
 {}
 
 Config
