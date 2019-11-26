@@ -925,11 +925,16 @@ struct LoopTransformer {
        }
     );
 
+    // Convert to native avl type
+    Type *AVLTy = Builder.getInt32Ty();
+    auto *AVLArg = Builder.CreateSExtOrTrunc(&RawAVL, AVLTy);
+    uniOverrides.insert(AVLArg);
+    
     // Normalize AVL to vectorization width
-    auto *VWConst = ConstantInt::get(RawAVL.getType(), vectorWidth);
-    auto &LessThanVW = *Builder.CreateICmpULT(&RawAVL, VWConst, RawAVL.getName() + ".lt.mvl");
+    auto *VWConst = ConstantInt::get(AVLTy, vectorWidth);
+    auto &LessThanVW = *Builder.CreateICmpULT(AVLArg, VWConst, RawAVL.getName() + ".lt.mvl");
     uniOverrides.insert(&LessThanVW);
-    this->AVL = Builder.CreateSelect(&LessThanVW, &RawAVL, VWConst, "select.avl");
+    this->AVL = Builder.CreateSelect(&LessThanVW, AVLArg, VWConst, "select.avl");
     uniOverrides.insert(AVL);
 
     // after splitting

@@ -108,12 +108,10 @@ MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & b
         if (joinedMask.knownAllFalse()) joinedMask = caseCmp;
         else {
           joinedMask = MBuilder.CreateOr(builder, joinedMask, caseCmp, "orcase_" + std::to_string(i));
-          vecInfo.setVectorShape(joinedMask, valShape);
         }
       }
 
       auto defaultMask = MBuilder.CreateNot(builder, joinedMask);
-      vecInfo.setVectorShape(defaultMask, valShape);
       return setBranchMask(sourceBlock, succIdx, defaultMask);
 
     // case test, mask = (switchVal == caseVal)
@@ -196,9 +194,6 @@ MaskExpander::requestEdgeMask(Instruction & term, int succIdx) {
     edgeMask = branchPred;
   } else {
     edgeMask = MBuilder.CreateAnd(builder, blockMask, branchPred, "edge_" + BB.getName().str() + "." + std::to_string(succIdx));
-    auto maskShape = vecInfo.getVectorShape(blockMask);
-    auto branchShape = vecInfo.getVectorShape(branchPred);
-    vecInfo.setVectorShape(edgeMask, VectorShape::join(maskShape, branchShape));
   }
 
   Mask& InsertedMask = setEdgeMask(BB, succIdx, edgeMask);

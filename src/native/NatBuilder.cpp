@@ -360,8 +360,6 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
   assert(vecBlock && "no block to insert vector code");
   IF_DEBUG_NAT { errs() << ":: Vectorizing block: " << bb->getName().str() << "\n"; }
 
-  assert((!vecInfo.hasMask(*bb) || vecInfo.getMask(*bb).knownAllTrueAVL()) &&
-         "TODO implement VP backend");
   builder.SetInsertPoint(vecBlock);
   for (BasicBlock::iterator it = bb->begin(), ie = bb->end(); it != ie; ++it) {
     Instruction *inst = &*it;
@@ -1575,8 +1573,8 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   VectorShape addrShape = getVectorShape(*accessedPtr);
   Type *vecType = getVectorType(accessedType, vectorWidth());
 
-  Mask mask = vecInfo.getMask(*inst->getParent());
-  bool needsMask = !mask.knownAllTrue() && !vecInfo.getVectorShape(mask).isUniform();
+  Mask scaMask = vecInfo.getMask(*inst->getParent());
+  bool needsMask = !scaMask.knownAllTrue() && !vecInfo.getVectorShape(scaMask).isUniform();
 
   // uniform loads from allocations do not need a mask!
   if (needsMask && load && GetUnderlyingAlloca(accessedPtr)) {
@@ -1584,10 +1582,11 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   }
 
   Mask vecMask;
-  if (needsMask)
+  if (needsMask) {
     vecMask = requestVectorMask(*inst->getParent());
-  else
+  } else {
     vecMask = Mask::getAllTrue();
+  }
 
   // generate the address for the memory instruction now
   // uniform: uniform GEP
@@ -1666,7 +1665,8 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
                                                 : requestVectorValue(storedValue);
       }
       Value *vecBasePtr = requestScalarValue(accessedPtr);
-      vecMem = createContiguousStore(mappedStoredVal, vecBasePtr, Align(alignment), mask);
+      errs() << "STORE MASK: " << vecMask << "\n";
+      vecMem = createContiguousStore(mappedStoredVal, vecBasePtr, Align(alignment), vecMask);
 
       addrShape.isUniform() ? ++numUniStores : needsMask ? ++numContMaskedStores : ++numContStores;
 
@@ -1674,7 +1674,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       Value *vecPtr = requestVectorValue(accessedPtr);
       Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                      : requestVectorValue(storedValue);
-      vecMem = createVaryingMemory(vecType, Align(alignment), vecPtr, mask, mappedStoredVal);
+      vecMem = createVaryingMemory(vecType, Align(alignment), vecPtr, vecMask, mappedStoredVal);
     }
   }
 

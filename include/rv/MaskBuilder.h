@@ -7,7 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Utility class for manipulating \p Mask objects.
+// Utility class for manipulating \p Mask objects and setting thei vshapes on
+// the fly.
 //
 //===----------------------------------------------------------------------===//
 
@@ -24,6 +25,13 @@ namespace rv {
 class MaskBuilder {
   VectorizationInfo &VecInfo;
 
+  llvm::Value &CreatePredicateAnd(llvm::IRBuilder<> &Builder, llvm::Value &lhs,
+                                  llvm::Value &rhs,
+                                  const llvm::Twine &name = "");
+
+  // assign a shape for \p I from its operands in VecInfo
+  llvm::Value &ComputeInstShape(llvm::Value &I);
+
 public:
   MaskBuilder(VectorizationInfo &VecInfo) : VecInfo(VecInfo) {}
 
@@ -36,9 +44,11 @@ public:
   Mask CreateNot(llvm::IRBuilder<> &Builder, Mask M, llvm::Twine Name="");
 
   // Create a masked select
+  //   \p ContextAVL  The EVL up to which lanes are defined.
   llvm::Value *CreateSelect(llvm::IRBuilder<> &builder, Mask CondMask,
                             llvm::Value *OnTrueVal,
                             llvm::Value *OnFalseValblendedVal,
+                            llvm::Value *ContextEVL = nullptr,
                             llvm::Twine Name = "");
 };
 

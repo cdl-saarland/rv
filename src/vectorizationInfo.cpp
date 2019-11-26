@@ -204,8 +204,9 @@ VectorShape VectorizationInfo::getObservedShape(const LoopInfo &LI,
 
 VectorShape
 VectorizationInfo::getVectorShape(const Mask &M) const {
-  if (!M.getPred()) return VectorShape::uni();
-  return getVectorShape(*M.getPred());
+  VectorShape avlMaskingShape = M.knownAllTrueAVL() ? VectorShape::uni() : VectorShape::varying();
+  VectorShape predMaskingShape = M.getPred() ? getVectorShape(*M.getPred()) : VectorShape::uni();
+  return VectorShape::join(predMaskingShape, avlMaskingShape);
 }
 
 
@@ -264,6 +265,9 @@ void VectorizationInfo::dropVectorShape(const Value &val) {
   shapes.erase(it);
 }
 
+// does not make sense since the mask shape is a join of two value shapes..
+// which value to ascribe the shape to?
+#if 0
 void VectorizationInfo::setVectorShape(const Mask &M,
                                        VectorShape S) {
   // Check that M does have a predicate if S is a non-uniform shape
@@ -280,6 +284,7 @@ void VectorizationInfo::setVectorShape(const Mask &M,
   if (!M.getPred()) return;
   setVectorShape(*M.getPred(), S);
 }
+#endif
 
 void VectorizationInfo::setVectorShape(const llvm::Value &val,
                                        VectorShape shape) {

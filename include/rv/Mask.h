@@ -44,12 +44,17 @@ public:
   // Properties (best effort)
   // Predicate vector component is all-true.
   bool knownAllTruePred() const;
+  bool knownAllFalsePred() const;
   // AVL is non-masking
   bool knownAllTrueAVL() const;
+  bool knownAllFalseAVL() const;
   // Whether the mask as a whole is all-true (non masking).
   bool knownAllTrue() const;
   // Whether the mask as a whole is all-false.
   bool knownAllFalse() const;
+
+  // whether this mask is known to imply \p M.
+  bool knownImplies(const Mask &M) const;
 
   // Printing
   void print(llvm::raw_ostream &Out) const;

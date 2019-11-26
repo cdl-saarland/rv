@@ -129,7 +129,7 @@ public:
   bool hasKnownShape(const llvm::Value &val) const;
 
   void setVectorShape(const llvm::Value &val, VectorShape shape);
-  void setVectorShape(const Mask &M, VectorShape S);
+  // void setVectorShape(const Mask &M, VectorShape S); // does not make sense, cannot ascribe shape
   void dropVectorShape(const llvm::Value &val);
 
   // drop all inferred information (everything except block predicated and pinned shapes)

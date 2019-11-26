@@ -64,10 +64,26 @@ llvm::Value &Mask::requestAVLAsValue(llvm::LLVMContext &Ctx) const {
   return *ConstantInt::get(Type::getInt32Ty(Ctx), -1, true);
 }
 
+bool
+Mask::knownImplies(const Mask &M) const {
+  if (M.knownAllTrue()) return true;
+  if (M.getPred() == M.getPred()) {
+    return (getAVL() == M.getAVL()) || (getAVL() && !M.getAVL());
+  }
+
+  return false;
+}
+
 bool Mask::knownAllTruePred() const {
   if (!getPred()) return true;
   auto ConstPred = dyn_cast<Constant>(getPred());
   return ConstPred && ConstPred->isAllOnesValue();
+}
+
+bool Mask::knownAllFalsePred() const {
+  if (!getPred()) return true;
+  auto ConstPred = dyn_cast<Constant>(getPred());
+  return ConstPred && ConstPred->isZeroValue();
 }
 
 bool Mask::knownAllTrueAVL() const {
@@ -76,6 +92,15 @@ bool Mask::knownAllTrueAVL() const {
   auto ConstAVL = dyn_cast<ConstantInt>(getAVL());
   // TODO use same logic as VPIntrinsic::canIgnoreVectorLength() here
   return ConstAVL && (ConstAVL->getSExtValue() < 0);
+}
+
+
+bool Mask::knownAllFalseAVL() const {
+  if (!getAVL())
+    return false;
+  auto ConstAVL = dyn_cast<ConstantInt>(getAVL());
+  // TODO use same logic as VPIntrinsic::canIgnoreVectorLength() here
+  return ConstAVL && (ConstAVL->getSExtValue() == 0);
 }
 
 bool Mask::knownAllTrue() const {

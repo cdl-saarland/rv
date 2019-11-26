@@ -628,6 +628,8 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
   int phiRedundantIncomingValues = 0;
 
+  Mask JoinMsk = vecInfo.getMask(*phi.getParent()); // phi **has** to live in original parent
+
   auto phiShape = vecInfo.getVectorShape(phi);
   for (size_t i = 0; i < blocks.size(); ++i) {
     auto * inBlock = blocks[i];
@@ -667,7 +669,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     ++numBlends; // statistics
 
     std::string name = inVal->getName().str() + ".b";
-    blendedVal = MBuilder.CreateSelect(builder, edgeMask, inVal, blendedVal, name);
+    blendedVal = MBuilder.CreateSelect(builder, edgeMask, inVal, blendedVal, JoinMsk.getAVL(), name);
     vecInfo.setVectorShape(*blendedVal, phiShape);
   }
 
@@ -716,6 +718,8 @@ Linearizer::foldPhis(BasicBlock & block) {
     auto * phiLoop = li.getLoopFor(&block);
     auto * preHead = phiLoop->getLoopPreheader();
 
+    Mask HeaderMsk = vecInfo.getMask(block);
+
     for (auto & headerPhi : block.phis()) {
       if (isRepairPhi(headerPhi)) continue;
 
@@ -739,7 +743,7 @@ Linearizer::foldPhis(BasicBlock & block) {
       } else {
         IRBuilder<> preBuilder(&*preHead, preHead->getTerminator()->getIterator());
         MaskBuilder MBuilder(vecInfo);
-        foldedInVal = MBuilder.CreateSelect(preBuilder, *inMask, preHeaderInput, shadowInput);
+        foldedInVal = MBuilder.CreateSelect(preBuilder, *inMask, preHeaderInput, shadowInput, HeaderMsk.getAVL());
         numFoldedAssignments += 2;
         ++numCDivPhis;
       }

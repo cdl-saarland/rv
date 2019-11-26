@@ -7,12 +7,12 @@
 using namespace llvm;
 
 static Value&
-MakeTotalOperation(Value* Val) {
-  auto * inst = dyn_cast<Instruction>(Val);
+MakeTotalOperation(Value& Val) {
+  auto * inst = dyn_cast<Instruction>(&Val);
   if (inst) {
     rv::setTotalOperationTag(*inst);
   }
-  return *Val;
+  return Val;
 }
 
 // TODO integrate with PatternMatch.h
@@ -33,8 +33,27 @@ static bool rv_m_Any(Value &condVal, Value *&oMask) {
   return false;
 }
 
-static Value &CreatePredicateAnd(IRBuilder<> &builder, Value &lhs, Value &rhs,
-                                 const Twine &name = Twine()) {
+namespace rv {
+
+llvm::Value &
+MaskBuilder::ComputeInstShape(llvm::Value &V) {
+  auto *I = dyn_cast<Instruction>(&V);
+  if (!I) return V;
+
+  VectorShape Accu = VectorShape::undef();
+  assert(!isa<PHINode>(I) && "cannot compute phi shapes locally");
+  for (Use & OpUse : I->operands()) {
+    auto *OpI = dyn_cast<Instruction>(OpUse.get());
+    if (!OpI) continue;
+    Accu = VectorShape::join(Accu, VecInfo.getVectorShape(*OpI));
+  }
+  VecInfo.setVectorShape(*I, Accu);
+  return V;
+}
+
+Value &
+MaskBuilder::CreatePredicateAnd(IRBuilder<> &builder, Value &lhs, Value &rhs,
+                                 const Twine &name) {
   using namespace llvm::PatternMatch;
 
   // Optimize for a common pattern
@@ -48,12 +67,9 @@ static Value &CreatePredicateAnd(IRBuilder<> &builder, Value &lhs, Value &rhs,
       return lhs; // and lhs rhs
     }
   }
-
-  return MakeTotalOperation(builder.CreateAnd(&lhs, &rhs, name));
+  Value *Anded = builder.CreateAnd(&lhs, &rhs, name);
+  return MakeTotalOperation(ComputeInstShape(*Anded));
 }
-
-namespace rv {
-
 
 Mask MaskBuilder::FoldAVL(llvm::IRBuilder<> &Builder, Mask M, Twine Name) {
   abort(); // TODO implement (reuse logic from ExpandVectorPredication.cpp)
@@ -69,7 +85,9 @@ Mask MaskBuilder::CreateOr(llvm::IRBuilder<> &Builder, Mask A, Mask B,
   if (A.getAVL() == B.getAVL()) {
     NewAVL = A.getAVL();
   } else if (A.getAVL() && B.getAVL()) {
-    NewAVL = &MakeTotalOperation(Builder.CreateMaximum(A.getAVL(), B.getAVL(), Name + ".vl"));
+    // max
+    Value &IsLT = MakeTotalOperation(ComputeInstShape(*Builder.CreateICmpULT(A.getAVL(), B.getAVL(), Name + ".lt.avl")));
+    NewAVL = &MakeTotalOperation(ComputeInstShape(*Builder.CreateSelect(&IsLT, B.getAVL(), A.getAVL(), Name + ".max.avl")));
   }
 
   // OR bitmask component
@@ -77,7 +95,7 @@ Mask MaskBuilder::CreateOr(llvm::IRBuilder<> &Builder, Mask A, Mask B,
   if (A.getPred() == B.getPred()) {
     NewPred = A.getPred();
   } else if (A.getPred() && B.getPred()) {
-    NewPred = &MakeTotalOperation(Builder.CreateOr(A.getPred(), B.getPred(), Name + ".m"));
+    NewPred = &MakeTotalOperation(ComputeInstShape(*Builder.CreateOr(A.getPred(), B.getPred(), Name + ".m")));
   }
 
   return Mask(NewPred, NewAVL);
@@ -91,7 +109,9 @@ Mask MaskBuilder::CreateAnd(llvm::IRBuilder<> &Builder, Mask A, Mask B,
   // take min vlen component
   Value *NewAVL = A.getAVL() ? A.getAVL() : B.getAVL();
   if (A.getAVL() && B.getAVL()) {
-    NewAVL = &MakeTotalOperation(Builder.CreateMinimum(A.getAVL(), B.getAVL(), Name + ".vl"));
+    // min
+    Value &IsLT = MakeTotalOperation(ComputeInstShape(*Builder.CreateICmpULT(A.getAVL(), B.getAVL(), Name + ".lt.avl")));
+    NewAVL = &MakeTotalOperation(ComputeInstShape(*Builder.CreateSelect(&IsLT, A.getAVL(), B.getAVL(), Name + ".min.avl")));
   }
 
   // AND bitmask component
@@ -123,24 +143,30 @@ Mask MaskBuilder::CreateNot(llvm::IRBuilder<> &Builder, Mask M, Twine Name) {
   }
 
   // Invert the predicate
-  auto NotM = Builder.CreateNot(M.getPred(), "not." + M.getPred()->getName());
+  auto NotM = &MakeTotalOperation(ComputeInstShape(*Builder.CreateNot(M.getPred(), "not." + M.getPred()->getName())));
   return Mask::inferFromPredicate(*NotM);
 }
 
 llvm::Value *MaskBuilder::CreateSelect(llvm::IRBuilder<> &Builder,
                                        Mask CondMask, llvm::Value *OnTrueVal,
                                        llvm::Value *OnFalseVal,
+                                       llvm::Value *ContextEVL,
                                        llvm::Twine Name) {
 
-  if (CondMask.knownAllTrue()) {
-    return OnTrueVal;
-  }
-  if (CondMask.knownAllFalse()) {
-    return OnFalseVal;
+  Mask ParentMsk =
+      ContextEVL ? Mask::getAllTrue() : Mask::fromVectorLength(*ContextEVL);
+
+  if (CondMask.knownImplies(ParentMsk)) {
+    return OnTrueVal; // TODO emit llvm.vp.compose with \p ContextEVL mask
   }
 
-  assert(!CondMask.getAVL() && "TODO implement composition with AVL");
-  return &MakeTotalOperation(Builder.CreateSelect(CondMask.getPred(), OnTrueVal, OnFalseVal, Name));
+  if (CondMask.knownAllFalsePred()) {
+    // TODO account for AVL as well
+    return OnFalseVal;// TODO emit llvm.vp.compose with \p ContextEVL mask
+  }
+
+  assert((ContextEVL == CondMask.getAVL()) && "TODO implement composition with AVL");
+  return &MakeTotalOperation(ComputeInstShape(*Builder.CreateSelect(CondMask.getPred(), OnTrueVal, OnFalseVal, Name)));
 }
 
 } // namespace rv
