@@ -82,6 +82,7 @@ public:
   llvm::BasicBlock &getEntry() const;
 
   void setEntryAVL(llvm::Value * NewAVL) { EntryAVL = NewAVL; }
+  llvm::Value* getEntryAVL() const { return EntryAVL; }
 
   // disjoin path divergence
   bool isJoinDivergent(const llvm::BasicBlock &JoinBlock) const {

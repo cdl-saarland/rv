@@ -217,8 +217,12 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   // - region mode: true
   auto & entryBlock = vecInfo.getEntry();
   if (&BB == &entryBlock) {
-    IF_DEBUG_ME {errs() << "region entryMask: true\n"; }
-    return setBlockMask(BB, Mask::getAllTrue());
+    if (!vecInfo.getEntryAVL()) {
+      IF_DEBUG_ME {errs() << "region entryMask: true\n"; }
+      return setBlockMask(BB, Mask::getAllTrue());
+    }
+      IF_DEBUG_ME {errs() << "region entryMask: with evl: " << *vecInfo.getEntryAVL() << "\n"; }
+    return setBlockMask(BB, Mask::fromVectorLength(*vecInfo.getEntryAVL()));
   }
 
   // return the cached result
