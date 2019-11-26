@@ -173,6 +173,9 @@ namespace rv {
     std::map<const llvm::Type *, rv::MemoryAccessGrouper> grouperMap;
     std::vector<llvm::PHINode *> phiVector;
 
+    // request the vector version of a given mask
+    Mask requestVectorized(Mask ScaMask);
+
     // request the mask bit for lane \p Lane in block \p ScaBlock.
     llvm::Value* requestLanePredicate(const llvm::BasicBlock &ScaBlock, int Lane);
     // request a vector bit mask for block \p ScaBlock.

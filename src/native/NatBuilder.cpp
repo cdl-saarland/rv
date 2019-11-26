@@ -874,7 +874,12 @@ void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
   Value *vecPredicate = maskedMask.getPred();
   assert(!maskedMask.getAVL() && "TODO implement");
 
+#ifdef RV_ENABLE_VP
+  abort(); // TODO implement VPBuilder reductions
+#else
   reduction = createPTest(vecPredicate, isRv_all);
+#endif
+
 #else
   // Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
   auto * ballotVal = createVectorMaskSummary(requestVectorValue(predicate), builder, RVIntrinsic::Ballot); // FIXME block predicate
@@ -1146,7 +1151,7 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
   Value *condArg = rvCall->getArgOperand(0);
 
 // non-uniform arg
-  Mask vecMask = maskInactiveLanes(requestVectorValue(condArg), rvCall->getParent(), false);
+  Mask vecMask = maskInactiveLanes(condArg, rvCall->getParent(), false);
   auto *vecVal = vecMask.getPred();
   assert(vecMask.getAVL() && "TODO avl support");
   auto * mask = createVectorMaskSummary(*rvCall->getType(), vecVal, builder, RVIntrinsic::Ballot);
@@ -1177,7 +1182,7 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
       return;
     }
 
-    Mask vecMask = maskInactiveLanes(requestVectorValue(condArg), rvCall.getParent(), false);
+    Mask vecMask = maskInactiveLanes(condArg, rvCall.getParent(), false);
     auto *maskVec = vecMask.getPred();
     assert(!vecMask.getAVL() && "TODO implement for AVL");
     auto * contVec = createContiguousVector(vecWidth, intLaneTy, 0, 1);
@@ -1230,7 +1235,7 @@ NatBuilder::vectorizePopCountCall(CallInst *rvCall) {
   }
 
   // FIXME mask out inactive threads also for uniform mask
-  Mask vecMask = maskInactiveLanes(requestVectorValue(condArg), rvCall->getParent(), false);
+  Mask vecMask = maskInactiveLanes(condArg, rvCall->getParent(), false);
   auto * vecVal = vecMask.getPred(); assert(vecMask.getAVL() && "TODO AVL support");
 
   auto * mask = createVectorMaskSummary(*rvCall->getType(), vecVal, builder, RVIntrinsic::PopCount);
@@ -2573,27 +2578,38 @@ NatBuilder::requestLanePredicate(const BasicBlock &ScaBlock, int Lane) {
 }
 
 Mask
-NatBuilder::requestVectorMask(const BasicBlock& scaBlock) {
-  if (!vecInfo.hasMask(scaBlock) || vecInfo.getMask(scaBlock).knownAllTrue()) {
-    return Mask::getAllTrue();
-  }
-  Mask scaMask = vecInfo.getMask(scaBlock);
-  auto VecPred = scaMask.getPred() ? requestVectorValue(scaMask.getPred()) : nullptr;
-  auto VecAVL = scaMask.getAVL() ? requestScalarValue(scaMask.getAVL()) : nullptr;
+NatBuilder::requestVectorized(Mask ScaMask) {
+  auto VecPred = ScaMask.getPred() ? requestVectorValue(ScaMask.getPred()) : nullptr;
+  auto VecAVL = ScaMask.getAVL() ? requestScalarValue(ScaMask.getAVL()) : nullptr;
   return Mask(VecPred, VecAVL);
 }
 
 Mask
-NatBuilder::maskInactiveLanes(Value *const value, const BasicBlock* const block, bool invert) {
-  auto vecMask = requestVectorMask(*block);
-  MaskBuilder MBuilder(vecInfo);
-  Mask ArgMask = Mask::inferFromPredicate(*value);
-
-  if (invert) {
-    return MBuilder.CreateOr(builder, ArgMask, MBuilder.CreateNot(builder, vecMask));
-  } else {
-    return MBuilder.CreateAnd(builder, ArgMask, vecMask);
+NatBuilder::requestVectorMask(const BasicBlock& ScaBlock) {
+  if (!vecInfo.hasMask(ScaBlock) || vecInfo.getMask(ScaBlock).knownAllTrue()) {
+    return Mask::getAllTrue();
   }
+  Mask ScaMask = vecInfo.getMask(ScaBlock);
+  return requestVectorized(ScaMask);
+}
+
+Mask
+NatBuilder::maskInactiveLanes(Value *const scaValue, const BasicBlock* const block, bool invert) {
+  auto vecBlockMask = requestVectorMask(*block);
+  auto vecArgMask = requestVectorized(Mask::inferFromPredicate(*scaValue));
+
+  // FIXME implement a proper AND
+  assert((vecBlockMask.getAVL() == vecArgMask.getAVL()) || !vecArgMask.getAVL());
+
+  Mask ResMask;
+  if (invert) {
+    // set all masked lanes to true
+    auto NotBlockPred = builder.CreateNot(vecBlockMask.getPred());
+    ResMask = Mask(builder.CreateOr(vecArgMask.getPred(), NotBlockPred), vecBlockMask.getAVL());
+  } else {
+    ResMask = Mask(builder.CreateAnd(vecArgMask.getPred(), vecBlockMask.getPred()), vecBlockMask.getAVL());
+  }
+  return ResMask;
 }
 
 void
