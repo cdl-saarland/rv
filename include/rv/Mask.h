@@ -37,8 +37,9 @@ public:
   void setAVL(llvm::Value *NewAVL) { ActiveVectorLength = NewAVL; }
 
   // Materialize the AVL/Pred as proper LLVM constants (if they are null and
-  // implicitly non-masking)
-  llvm::Value &requestPredAsValue(llvm::LLVMContext &Ctx) const;
+  // implicitly non-masking). Will produce a vector type if \p vectorWidth > 0,
+  // if any constants are generated.
+  llvm::Value &requestPredAsValue(llvm::LLVMContext &Ctx, unsigned vectorWidth=0) const;
   llvm::Value &requestAVLAsValue(llvm::LLVMContext &Ctx) const;
 
   // Properties (best effort)

@@ -52,9 +52,13 @@ Mask Mask::getAllFalse(LLVMContext &Ctx) {
   return Mask::fromVectorLength(*VLZero);
 }
 
-llvm::Value &Mask::requestPredAsValue(llvm::LLVMContext &Ctx) const {
+llvm::Value &Mask::requestPredAsValue(llvm::LLVMContext &Ctx, unsigned VectorWidth) const {
   if (getPred())
     return *getPred();
+
+  if (VectorWidth > 0) {
+    return *ConstantVector::getSplat(VectorWidth, ConstantInt::getTrue(Ctx));
+  }
   return *ConstantInt::getTrue(Ctx);
 }
 
