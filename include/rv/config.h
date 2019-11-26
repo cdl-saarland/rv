@@ -41,7 +41,6 @@ struct Config {
   bool scalarizeIndexComputation;
   bool useScatterGatherIntrinsics;
   bool enableMaskedMove;
-  bool enableInterleaved;
   bool useSafeDivisors; // blend-in safe divisors to eliminate spurious arithmetic exceptions
 
 // optimization flags

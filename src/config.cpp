@@ -44,7 +44,6 @@ Config::Config()
 , scalarizeIndexComputation(true)
 , useScatterGatherIntrinsics(true)
 , enableMaskedMove(true)
-, enableInterleaved(false)
 , useSafeDivisors(true)
 
 // optimization defaults
@@ -194,7 +193,6 @@ printVAFlags(const Config & config, llvm::raw_ostream & out) {
 static void
 printNativeFlags(const Config & config, llvm::raw_ostream & out) {
    out << "nat:  useScatterGather = " << config.useScatterGatherIntrinsics
-       << ", enableInterleaved = " << config.enableInterleaved
        << ", useSafeDiv = " << config.useSafeDivisors;
 }
 
