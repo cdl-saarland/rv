@@ -28,6 +28,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Transforms/Utils/ValueMapper.h>
 #include <llvm/ADT/SmallVector.h>
+#include "llvm/Support/Alignment.h"
 
 
 namespace rv {
@@ -171,10 +172,7 @@ namespace rv {
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
     std::map<const llvm::Type *, rv::MemoryAccessGrouper> grouperMap;
     std::vector<llvm::PHINode *> phiVector;
-    std::deque<llvm::Instruction *> lazyInstructions;
 
-    void addLazyInstruction(llvm::Instruction *const instr);
-    void requestLazyInstructions(llvm::Instruction *const upToInstruction);
     // request the mask bit for lane \p Lane in block \p ScaBlock.
     llvm::Value* requestLanePredicate(const llvm::BasicBlock &ScaBlock, int Lane);
     // request a vector bit mask for block \p ScaBlock.
@@ -226,11 +224,11 @@ namespace rv {
     llvm::Value *createUniformMaskedMemory(llvm::Instruction *inst, llvm::Type *accessedType, unsigned alignment,
                                            llvm::Value *addr, Mask scalarMask, Mask vecMask, llvm::Value *values);
 
-    llvm::Value *createVaryingMemory(llvm::Type *vecType, unsigned alignment, llvm::Value *addr, Mask vecMask,
+    llvm::Value *createVaryingMemory(llvm::Type *vecType, llvm::Align alignment, llvm::Value *addr, Mask vecMask,
                                      llvm::Value *values);
 
-    llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, unsigned alignment, Mask vecMask);
-    llvm::Value *createContiguousLoad(llvm::Value *ptr, unsigned alignment, Mask vecMask, llvm::Value *passThru);
+    llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, llvm::Align alignment, Mask vecMask);
+    llvm::Value *createContiguousLoad(llvm::Value *ptr, llvm::Align alignment, Mask vecMask, llvm::Value *passThru);
 
     void visitMemInstructions();
 
