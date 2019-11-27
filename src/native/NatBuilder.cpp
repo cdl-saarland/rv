@@ -878,7 +878,7 @@ void NatBuilder::vectorizeMaskReductionCall(CallInst *rvCall, RVIntrinsic MaskIn
 
   // Factor the black into the argument mask
   Mask maskedMask = maskInactiveLanes(*predicate, *rvCall->getParent(), false); //isRv_all);
-  Value *reduction = createVectorMaskSummary(maskedMask, MaskIntrin); // indexTy mask builder mode
+  Value *reduction = createVectorMaskSummary(maskedMask, MaskIntrin, rvCall->getType());
   mapScalarValue(rvCall, reduction);
 
   ++numRVIntrinsics;
@@ -1042,104 +1042,30 @@ NatBuilder::createVectorMaskSummary(Mask vecMask, RVIntrinsic mode, Type * index
   Value * result = nullptr;
   switch (mode) {
     case RVIntrinsic::Ballot: {
-      // FIXME factor out target specific code paths
 #if 0
-      // If SSE is available, but AVX and above are not, and the vector width is greater than 4, split the vector
-      bool shouldSplitForISA = vecWidth > 4 && config.useSSE && !config.useAVX && !config.useAVX2 && !config.useAVX512;
-      if (vecWidth > 8 || shouldSplitForISA) {
-        // split up vector
-        std::vector<Constant*> lowerLanes;
-        std::vector<Constant*> higherLanes;
-        uint32_t halfWidth = vecWidth / 2;
-        for (uint32_t i = 0; i < halfWidth; ++i) {
-          lowerLanes.push_back(ConstantInt::get(i32Ty, i, false));
-          higherLanes.push_back(ConstantInt::get(i32Ty, halfWidth + i, false));
-        }
-
-        auto * lowerHalf = builder.CreateShuffleVector(vecVal, UndefValue::get(vecVal->getType()), ConstantVector::get(lowerLanes), "lowerLanes");
-        auto * lowerBallot = createVectorMaskSummary(indexTy, lowerHalf, builder, mode);
-
-        auto * upperHalf = builder.CreateShuffleVector(vecVal, UndefValue::get(vecVal->getType()), ConstantVector::get(higherLanes), "higherLanes");
-        auto * upperBallot = createVectorMaskSummary(indexTy, upperHalf, builder, mode);
-
-        // ballot(vecVal) =  upperHalf << (halfWidth) | lowerHalf
-        auto * up = builder.CreateShl(upperBallot, ConstantInt::get(&indexTy, halfWidth, false));
-        return builder.CreateOr(up, lowerBallot);
-      }
-
-      // AVX-specific code path
-      if (config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) {
-      // non-uniform arg
-        uint32_t bits = indexTy.getScalarSizeInBits();
-        Intrinsic::ID id;
-        switch (vecWidth) {
-        case 2: id = Intrinsic::x86_sse2_movmsk_pd; bits = 64; break;
-        case 4: id = Intrinsic::x86_sse_movmsk_ps; break;
-        case 8: id = Intrinsic::x86_avx_movmsk_ps_256; break;
-        default: abort();
-          fail("Unsupported vector width in ballot !");
-        }
-
-        auto * extVal = builder.CreateSExt(vecVal, VectorType::get(builder.getIntNTy(bits), vecWidth), "rv_ballot");
-        auto * simdVal = builder.CreateBitCast(extVal, VectorType::get(bits == 32 ? builder.getFloatTy() : builder.getDoubleTy(), vecWidth), "rv_ballot");
-
-        auto movMaskDecl = Intrinsic::getDeclaration(mod, id);
-        result = builder.CreateCall(movMaskDecl, simdVal, "rv_ballot");
-
-      } else
+      // TODO return (1 << %lavl) - 1 if mask is all true
+      if (vecMask.knownAllTruePred()) {
+        // avl == number of lanes
+        return &vecMask.requestAVLAsValue(builder.getContext());
+      } 
 #endif
-      abort(); // TODO implement for VP
-#if 0
-      {
-        // generic emulating code path
-        //
-      // a[lane] == 1 << lane
-        std::vector<Constant*> constants(vecWidth, nullptr);
-        for (unsigned i = 0; i < vecWidth; ++i) {
-          unsigned int val = 1 << i;
-          Constant *constant = ConstantInt::get(&indexTy, val);
-          constants[i] = constant;
-        }
-        auto * flagVec = ConstantVector::get(constants);
-        auto * zeroVec = ConstantVector::getNullValue(intVecTy);
 
-      // select (vecVal[l] ? a[l] : 0)
-        auto * maskedLaneVec = builder.CreateSelect(vecVal, flagVec, zeroVec);
-
-      // reduce_or
-        // TODO use
-        result = &CreateVectorReduce(config, builder, RedKind::Or, *maskedLaneVec, nullptr);
+      SmallVector<Constant*, 64> LaneIndices;
+      for (int i = 0; i < vectorWidth(); ++i) {
+        LaneIndices.push_back(ConstantInt::get(indexTy, 1 << i));
       }
-#endif
+      auto IndexVec = ConstantVector::get(LaneIndices);
+      result = &CreateMaskedVectorReduce(config, builder, vecMask, RedKind::Add, *IndexVec, nullptr);
     } break;
 
     case RVIntrinsic::PopCount: {
-#if 0
-      // TODO factor out target-specific code paths
-      if (config.useAVX || config.useAVX2) {
-        // ISPC popcount pattern
-        auto maskIntTy = builder.getIntNTy(vectorWidth());
-        auto maskBitCast = builder.CreateBitCast(vecVal, maskIntTy);
-        auto maskZExt = builder.CreateZExt(maskBitCast, &indexTy);
-        auto ctPopFunc = Intrinsic::getDeclaration(mod, Intrinsic::ctpop, &indexTy); // FIXME use a larger type (what should happen for <4096 x i8>)??
-        result = builder.CreateCall(ctPopFunc, {maskZExt}, "rv_popcount");
+      if (vecMask.knownAllTruePred()) {
+        // avl == number of lanes
+        return &vecMask.requestAVLAsValue(builder.getContext());
+      } 
 
-
-      } else
-#endif
-      {
-        if (vecMask.knownAllTruePred()) {
-          // avl == number of lanes
-          return &vecMask.requestAVLAsValue(builder.getContext());
-        } 
-        abort(); // TODO fix implementation
-
-        // Otw, need to do a proper tally
-        assert(vecMask.getPred());
-
-        auto AllOnes = ConstantVector::getSplat(vectorWidth(), ConstantInt::get(indexTy, 1, false));
-        result = &CreateMaskedVectorReduce(config, builder, vecMask, RedKind::Add, *AllOnes, nullptr);
-      }
+      auto AllOnes = ConstantVector::getSplat(vectorWidth(), ConstantInt::get(indexTy, 1, false));
+      result = &CreateMaskedVectorReduce(config, builder, vecMask, RedKind::Add, *AllOnes, nullptr);
     } break;
 
     case RVIntrinsic::Any:
