@@ -174,7 +174,7 @@ llvm::Value *MaskBuilder::CreateSelect(llvm::IRBuilder<> &Builder,
     return OnFalseVal; // TODO emit llvm.vp.compose with \p ContextEVL mask
   }
 
-  assert((ContextEVL == CondMask.getAVL()) &&
+  assert(((ContextEVL == CondMask.getAVL()) || (!CondMask.getAVL())) &&
          "TODO implement composition with AVL");
   return &AddMaskOp<>(
       *Builder.CreateSelect(CondMask.getPred(), OnTrueVal, OnFalseVal, Name));
