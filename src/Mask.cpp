@@ -70,6 +70,7 @@ llvm::Value &Mask::requestAVLAsValue(llvm::LLVMContext &Ctx) const {
 
 bool
 Mask::knownImplies(const Mask &M) const {
+  if (knownAllFalse()) return true;
   if (M.knownAllTrue()) return true;
   if (getPred() == M.getPred()) {
     return (getAVL() == M.getAVL()) || (getAVL() && !M.getAVL());
