@@ -17,39 +17,68 @@
 
 #include "rv/Mask.h"
 #include "rv/vectorizationInfo.h"
-#include "llvm/IR/IRBuilder.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/IR/IRBuilder.h"
 
 namespace rv {
 
 class MaskBuilder {
-  VectorizationInfo &VecInfo;
-
   llvm::Value &CreatePredicateAnd(llvm::IRBuilder<> &Builder, llvm::Value &lhs,
                                   llvm::Value &rhs,
                                   const llvm::Twine &name = "");
 
-  // assign a shape for \p I from its operands in VecInfo
-  llvm::Value &ComputeInstShape(llvm::Value &I);
+  // implementation aide
+  template <typename T> T &AddMaskOp(T &I) {
+    return llvm::cast<T>(AddMaskVal(llvm::cast<llvm::Value>(I)));
+  }
+
+protected:
+  virtual llvm::Value &AddMaskVal(llvm::Value &Op) = 0;
 
 public:
-  MaskBuilder(VectorizationInfo &VecInfo) : VecInfo(VecInfo) {}
+  // initialize for P-LLVM context.
+  MaskBuilder() {}
 
   // Fold the ActiveVectorLength of M into its predicate.
-  Mask FoldAVL(llvm::IRBuilder<> &Builder, Mask M, llvm::Twine Name="");
+  Mask FoldAVL(llvm::IRBuilder<> &Builder, Mask M, llvm::Twine Name = "");
 
   // Perform logic operation on the input masks.
-  Mask CreateOr(llvm::IRBuilder<> &Builder, Mask A, Mask B, llvm::Twine Name="");
-  Mask CreateAnd(llvm::IRBuilder<> &Builder, Mask A, Mask B, llvm::Twine Name="");
-  Mask CreateNot(llvm::IRBuilder<> &Builder, Mask M, llvm::Twine Name="");
+  Mask CreateOr(llvm::IRBuilder<> &Builder, Mask A, Mask B,
+                llvm::Twine Name = "");
+  Mask CreateAnd(llvm::IRBuilder<> &Builder, Mask A, Mask B,
+                 llvm::Twine Name = "");
+  Mask CreateNot(llvm::IRBuilder<> &Builder, Mask M, llvm::Twine Name = "");
 
   // Create a masked select
   //   \p ContextAVL  The EVL up to which lanes are defined.
   llvm::Value *CreateSelect(llvm::IRBuilder<> &builder, Mask CondMask,
                             llvm::Value *OnTrueVal,
-                            llvm::Value *OnFalseValblendedVal,
+                            llvm::Value *OnFalseVal,
                             llvm::Value *ContextEVL = nullptr,
                             llvm::Twine Name = "");
+};
+
+// MaskBuilder for the P-LLVM context
+//   This instance updates mask info and marks mark operations as total.
+class ScalarMaskBuilder final : public MaskBuilder {
+  VectorizationInfo &VecInfo;
+  // assign a shape for \p I from its operands in VecInfo
+  llvm::Value &ComputeInstShape(llvm::Value &I);
+
+protected:
+  llvm::Value &AddMaskVal(llvm::Value &Op) override;
+
+public:
+  ScalarMaskBuilder(VectorizationInfo &VecInfo)
+      : MaskBuilder(), VecInfo(VecInfo) {}
+};
+
+class VectorMaskBuilder final : public MaskBuilder {
+protected:
+  llvm::Value &AddMaskVal(llvm::Value &Op) override { return Op; }
+
+public:
+  VectorMaskBuilder() : MaskBuilder() {}
 };
 
 } // namespace rv

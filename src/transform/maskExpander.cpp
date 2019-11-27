@@ -65,7 +65,7 @@ MaskExpander::getPredecessorEdges(const Instruction & termInst, const  BasicBloc
 
 Mask &
 MaskExpander::requestBranchMask(Instruction & term, int succIdx, IRBuilder<> & builder) {
-  MaskBuilder MBuilder(vecInfo);
+  ScalarMaskBuilder MBuilder(vecInfo);
 
   auto & sourceBlock = *term.getParent();
   IF_DEBUG_ME { errs() << "# requestBranchMask( " << sourceBlock.getName() << ", " << succIdx << ")\n"; }
@@ -186,7 +186,7 @@ MaskExpander::requestEdgeMask(Instruction & term, int succIdx) {
 
   // branch mask
   IRBuilder<> builder(BB.getTerminator());
-  MaskBuilder MBuilder(vecInfo);
+  ScalarMaskBuilder MBuilder(vecInfo);
   Mask branchPred = requestBranchMask(term, succIdx, builder); // edge predicate relative to block
 
   Mask edgeMask;

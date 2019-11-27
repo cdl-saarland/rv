@@ -620,7 +620,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
 // Start buildling cascasding selects for all remaining incoming values
   IRBuilder<> builder(superInput.blendBlock);
-  MaskBuilder MBuilder(vecInfo);
+  ScalarMaskBuilder MBuilder(vecInfo);
 
   auto & phiBlock = *phi.getParent();
 
@@ -742,7 +742,7 @@ Linearizer::foldPhis(BasicBlock & block) {
         ++numCUniPhis;
       } else {
         IRBuilder<> preBuilder(&*preHead, preHead->getTerminator()->getIterator());
-        MaskBuilder MBuilder(vecInfo);
+        ScalarMaskBuilder MBuilder(vecInfo);
         foldedInVal = MBuilder.CreateSelect(preBuilder, *inMask, preHeaderInput, shadowInput, HeaderMsk.getAVL());
         numFoldedAssignments += 2;
         ++numCDivPhis;
@@ -841,9 +841,6 @@ Linearizer::foldPhis(BasicBlock & block) {
     if (isRepairPhi(*phi)) continue; // only a placeholder for defered SSA repair
 
     ++numCDivPhis;
-    IRBuilder<> builder(&block, block.getFirstInsertionPt());
-    MaskBuilder MBuilder(vecInfo);
-
     numPreservedAssignments += selectBlockMap.size() - 1;
 
   // materialize blended inputs
