@@ -163,7 +163,7 @@ llvm::Value *MaskBuilder::CreateSelect(llvm::IRBuilder<> &Builder,
                                        llvm::Twine Name) {
 
   Mask ParentMsk =
-      ContextEVL ? Mask::getAllTrue() : Mask::fromVectorLength(*ContextEVL);
+      !ContextEVL ? Mask::getAllTrue() : Mask::fromVectorLength(*ContextEVL);
 
   if (ParentMsk.knownImplies(CondMask)) {
     return OnTrueVal; // TODO emit llvm.vp.compose with \p ContextEVL mask
