@@ -71,7 +71,7 @@ llvm::Value &Mask::requestAVLAsValue(llvm::LLVMContext &Ctx) const {
 bool
 Mask::knownImplies(const Mask &M) const {
   if (M.knownAllTrue()) return true;
-  if (M.getPred() == M.getPred()) {
+  if (getPred() == M.getPred()) {
     return (getAVL() == M.getAVL()) || (getAVL() && !M.getAVL());
   }
 
@@ -85,7 +85,7 @@ bool Mask::knownAllTruePred() const {
 }
 
 bool Mask::knownAllFalsePred() const {
-  if (!getPred()) return true;
+  if (!getPred()) return false;
   auto ConstPred = dyn_cast<Constant>(getPred());
   return ConstPred && ConstPred->isZeroValue();
 }
