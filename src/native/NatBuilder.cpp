@@ -1664,12 +1664,11 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       auto valShape = vecInfo.getVectorShape(*store->getValueOperand());
       Value *vecBasePtr = requestScalarValue(accessedPtr);
       if (!valShape.isUniform()) {
-        Value *mappedStoredVal = requestVectorValue(storedValue);
-        vecMem = createVaryingToUniformStore(store, accessedType, alignment, vecBasePtr, vecMask, mappedStoredVal);
+        Value *vecValue = requestVectorValue(storedValue);
+        vecMem = createVaryingToUniformStore(store, accessedType, alignment, vecBasePtr, vecMask, vecValue);
       } else {
         assert((vecInfo.getVectorShape(*storedValue).isUniform()) && "trying to store a varying value to a uniform ptr!");
-        Value *vecBasePtr = requestScalarValue(accessedPtr);
-        Value *vecValue = requestVectorValue(storedValue);
+        Value *vecValue = requestScalarValue(storedValue);
         vecMem = createUniformMaskedMemory(store, accessedType, Align(alignment), vecBasePtr, vecValue);
       }
 
