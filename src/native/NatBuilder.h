@@ -133,7 +133,7 @@ namespace rv {
     void vectorizePHIInstruction(llvm::PHINode *const scalPhi);
     void vectorizeMemoryInstruction(llvm::Instruction *const inst);
     void vectorizeCallInstruction(llvm::CallInst *const scalCall);
-    void vectorizeReductionCall(llvm::CallInst *rvCall, bool isRv_all);
+    void vectorizeMaskReductionCall(llvm::CallInst *rvCall, RVIntrinsic MaskIntrin);
     void vectorizeExtractCall(llvm::CallInst *rvCall);
     void vectorizeInsertCall(llvm::CallInst *rvCall);
     void vectorizeLoadCall(llvm::CallInst *rvCall);
@@ -151,7 +151,7 @@ namespace rv {
     void vectorizeAlloca(llvm::AllocaInst *const allocaInst);
 
     // implement the mask summary function @mode (ballot/popcount) of @vecVal with @builder
-    llvm::Value* createVectorMaskSummary(llvm::Type & indexTy, Mask vecMask, llvm::IRBuilder<> & builder, rv::RVIntrinsic mode);
+    llvm::Value* createVectorMaskSummary(Mask vecMask, rv::RVIntrinsic mode, llvm::Type * indexTy = nullptr);
 
     void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
     void copyCallInstruction(llvm::CallInst *const scalCall, unsigned laneIdx = 0);
@@ -204,7 +204,7 @@ namespace rv {
     llvm::Value& widenScalar(llvm::Value & scaValue, VectorShape vecShape);
     bool hasUniformPredicate(const llvm::BasicBlock & BB) const;
     llvm::Value *createPTest(llvm::Value *vector, bool isRv_all);
-    Mask maskInactiveLanes(llvm::Value *const value, const llvm::BasicBlock* const block, bool invert);
+    Mask maskInactiveLanes(llvm::Value &ScaPredValue, const llvm::BasicBlock  &Block, bool InvertArg);
 
     int vectorWidth() const;
 

@@ -407,8 +407,14 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       // calls need special treatment
       switch (GetIntrinsicID(*call)) {
         case RVIntrinsic::EntryMask: mapVectorValue(call, vecMaskArg); break;
-        case RVIntrinsic::Any: vectorizeReductionCall(call, false); break;
-        case RVIntrinsic::All: vectorizeReductionCall(call, true); break;
+
+        case RVIntrinsic::Any:
+        case RVIntrinsic::All:
+        case RVIntrinsic::Ballot:
+        case RVIntrinsic::PopCount:
+          vectorizeMaskReductionCall(call, GetIntrinsicID(*call));
+          break;
+
         case RVIntrinsic::Extract: vectorizeExtractCall(call); break;
         case RVIntrinsic::Insert: vectorizeInsertCall(call); break;
         case RVIntrinsic::Compact: vectorizeCompactCall(call); break;
@@ -416,8 +422,6 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         case RVIntrinsic::VecLoad: vectorizeLoadCall(call); break;
         case RVIntrinsic::VecStore: vectorizeStoreCall(call); break;
         case RVIntrinsic::Shuffle: vectorizeShuffleCall(call); break;
-        case RVIntrinsic::Ballot: vectorizeBallotCall(call); break;
-        case RVIntrinsic::PopCount: vectorizePopCountCall(call); break;
         case RVIntrinsic::Index: vectorizeIndexCall(*call); break;
         case RVIntrinsic::Align: vectorizeAlignCall(call); break;
         default: {
@@ -477,8 +481,8 @@ NatBuilder::createAnyGuard(bool instNeedsGuard, BasicBlock & origBlock, Instruct
  // auto * scalarMask = vecInfo.getPredicate(origBlock);
   // assert(!vecMask.getAVL() && "TODO implement for AVL");
   // only emit a guard if rv_any(p) may be false AND the emitted instructions will need it.
-#if 0
-  bool needsGuard = instNeedsGuard && !undeadMasks.isUndead(*scalarMask, origBlock);
+#if 1
+  bool needsGuard = instNeedsGuard; // TODO && !undeadMasks.isUndead(*scalarMask, origBlock);
 #else
   if (instNeedsGuard) Report() << "Not guarding side effect in " << inst << "!\n";
   bool needsGuard = false; // FIXME
@@ -489,7 +493,7 @@ NatBuilder::createAnyGuard(bool instNeedsGuard, BasicBlock & origBlock, Instruct
   // prologue (guard branch)
   if (needsGuard) {
     // create a mask ptest
-    Value * anyMask = createPTest(vecMask.getPred(), false);
+    Value *anyMask = createVectorMaskSummary(vecMask, RVIntrinsic::Any, nullptr);
 
     // create two new basic blocks
     memBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "mem_block",
@@ -865,35 +869,16 @@ void NatBuilder::vectorizeInstruction(Instruction *const inst) {
   ++numVectorized;
 }
 
-void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
+void NatBuilder::vectorizeMaskReductionCall(CallInst *rvCall, RVIntrinsic MaskIntrin) {
   assert(rvCall->getNumArgOperands() == 1 && "expected only 1 argument for rv_any");
 
   Value *predicate = rvCall->getArgOperand(0);
   const VectorShape &shape = getVectorShape(*predicate);
   assert((shape.isVarying() || shape.isUniform()) && "predicate can't be contigious or strided");
 
-  Value *reduction;
-
-#ifdef LLVM_HAVE_VP
   // Factor the black into the argument mask
-  Mask maskedMask = maskInactiveLanes(predicate, rvCall->getParent(), isRv_all);
-  RedKind redKind = isRv_all ? RedKind::And : RedKind::Or;
-  Mask RedMask = Mask::fromVectorLength(maskedMask.requestAVLAsValue(builder.getContext()));
-  reduction = &CreateMaskedVectorReduce(config, builder, RedMask, redKind, maskedMask.requestPredAsValue(builder.getContext()), nullptr);
-#else
-  assert(!maskedMask.getAVL() && "needs AVL for predicated reductions");
-  reduction = createPTest(vecPredicate, isRv_all);
-
-  // Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
-  auto * ballotVal = createVectorMaskSummary(requestVectorValue(predicate), builder, RVIntrinsic::Ballot); // FIXME block predicate
-  if (isRv_all) {
-    uint64_t mask = ((1 << vectorWidth()) - 1);
-    reduction = builder.CreateICmpEQ(ballotVal, ConstantInt::get(ballotVal->getType(), mask, false)); // mask == FullMask
-  } else {
-    reduction = builder.CreateICmpNE(ballotVal, ConstantInt::get(ballotVal->getType(), 0, false)); // mask != 0
-  }
-#endif
-
+  Mask maskedMask = maskInactiveLanes(*predicate, *rvCall->getParent(), false); //isRv_all);
+  Value *reduction = createVectorMaskSummary(maskedMask, MaskIntrin); // indexTy mask builder mode
   mapScalarValue(rvCall, reduction);
 
   ++numRVIntrinsics;
@@ -1049,11 +1034,10 @@ NatBuilder::vectorizeShuffleCall(CallInst *rvCall) {
 }
 
 Value*
-NatBuilder::createVectorMaskSummary(Type & indexTy, Mask vecMask, IRBuilder<> & builder, RVIntrinsic mode) {
-  Module *mod = vecInfo.getMapping().vectorFn->getParent();
+NatBuilder::createVectorMaskSummary(Mask vecMask, RVIntrinsic mode, Type * indexTy) {
+//  Module *mod = vecInfo.getMapping().vectorFn->getParent();
 
-  auto vecWidth = vectorWidth();
-  auto * intVecTy = VectorType::get(&indexTy, vecWidth);
+  // TODO finalize
 
   Value * result = nullptr;
   switch (mode) {
@@ -1148,13 +1132,26 @@ NatBuilder::createVectorMaskSummary(Type & indexTy, Mask vecMask, IRBuilder<> & 
           // avl == number of lanes
           return &vecMask.requestAVLAsValue(builder.getContext());
         } 
+        abort(); // TODO fix implementation
 
         // Otw, need to do a proper tally
         assert(vecMask.getPred());
 
-        auto AllOnes = ConstantVector::getSplat(vectorWidth(), ConstantInt::get(&indexTy, 1, false));
+        auto AllOnes = ConstantVector::getSplat(vectorWidth(), ConstantInt::get(indexTy, 1, false));
         result = &CreateMaskedVectorReduce(config, builder, vecMask, RedKind::Add, *AllOnes, nullptr);
       }
+    } break;
+
+    case RVIntrinsic::Any:
+    case RVIntrinsic::All: {
+      if (vecMask.knownAllTrue()) {
+        // TODO use UndeadMaskAnalysis
+        return builder.getTrue();
+      }
+
+      RedKind redKind = (mode == RVIntrinsic::Any) ? RedKind::Or : RedKind::And;
+      Mask RedMask = vecMask.getAVL() ? Mask::fromVectorLength(*vecMask.getAVL()) : Mask::getAllTrue();
+      result = &CreateMaskedVectorReduce(config, builder, RedMask, redKind, vecMask.requestPredAsValue(builder.getContext()), nullptr);
     } break;
 
     default: abort();
@@ -1174,8 +1171,8 @@ NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
   Value *condArg = rvCall->getArgOperand(0);
 
 // non-uniform arg
-  Mask vecMask = maskInactiveLanes(condArg, rvCall->getParent(), false);
-  auto * mask = createVectorMaskSummary(*rvCall->getType(), vecMask, builder, RVIntrinsic::Ballot);
+  Mask vecMask = maskInactiveLanes(*condArg, *rvCall->getParent(), false);
+  auto * mask = createVectorMaskSummary(vecMask, RVIntrinsic::Ballot, rvCall->getType());
   mapScalarValue(rvCall, mask);
 }
 
@@ -1203,7 +1200,7 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
       return;
     }
 
-    Mask vecMask = maskInactiveLanes(condArg, rvCall.getParent(), false);
+    Mask vecMask = maskInactiveLanes(*condArg, *rvCall.getParent(), false);
     auto *maskVec = vecMask.getPred();
     assert(!vecMask.getAVL() && "TODO implement for AVL");
     auto * contVec = createContiguousVector(vecWidth, intLaneTy, 0, 1);
@@ -1256,8 +1253,8 @@ NatBuilder::vectorizePopCountCall(CallInst *rvCall) {
   }
 
   // FIXME mask out inactive threads also for uniform mask
-  Mask vecMask = maskInactiveLanes(condArg, rvCall->getParent(), false);
-  auto * mask = createVectorMaskSummary(*rvCall->getType(), vecMask, builder, RVIntrinsic::PopCount);
+  Mask vecMask = maskInactiveLanes(*condArg, *rvCall->getParent(), false);
+  auto * mask = createVectorMaskSummary(vecMask, RVIntrinsic::PopCount, rvCall->getType());
   mapScalarValue(rvCall, mask);
 }
 
@@ -1621,7 +1618,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   // interleaved: multiple contiguous GEPs
   // varying: varying vector GEP
 
-  std::vector<Value *> srcs;
   unsigned alignment;
   int byteSize = static_cast<int>(layout.getTypeStoreSize(accessedType));
 
@@ -2620,31 +2616,16 @@ NatBuilder::requestVectorMask(const BasicBlock& ScaBlock) {
 }
 
 Mask
-NatBuilder::maskInactiveLanes(Value *const scaValue, const BasicBlock* const block, bool invert) {
-  auto vecBlockMask = requestVectorMask(*block);
-  auto vecArgMask = requestVectorized(Mask::inferFromPredicate(*scaValue));
+NatBuilder::maskInactiveLanes(Value &ScaValue, const BasicBlock &Block, bool NegateArg) {
+  Mask VecBlockMask = requestVectorMask(Block);
+  auto VecArgMask = requestVectorized(Mask::inferFromPredicate(ScaValue));
 
-  // FIXME implement a proper AND
-  assert((vecBlockMask.getAVL() == vecArgMask.getAVL()) || !vecArgMask.getAVL());
-
-  Mask ResMask;
-  if (invert) {
-    // set all masked lanes to true
-    auto NotBlockPred = builder.CreateNot(vecBlockMask.getPred());
-    ResMask = Mask(builder.CreateOr(vecArgMask.getPred(), NotBlockPred), vecBlockMask.getAVL());
+  VectorMaskBuilder MBuilder;
+  if (NegateArg) {
+    return MBuilder.CreateAnd(builder, MBuilder.CreateNot(builder, VecArgMask), VecBlockMask);
   } else {
-    // TODO repurpose MaskBuilder for this (have a vector mask mode or something)
-    Value * AndPred = nullptr;
-    if (vecArgMask.knownAllTruePred()) {
-      AndPred = vecBlockMask.getPred();
-    } else if (vecBlockMask.knownAllTruePred()) {
-      AndPred = vecArgMask.getPred();
-    } else {
-      AndPred = builder.CreateAnd(vecArgMask.getPred(), vecBlockMask.getPred());
-    }
-    ResMask = Mask(AndPred, vecBlockMask.getAVL());
+    return MBuilder.CreateAnd(builder, VecArgMask, VecBlockMask);
   }
-  return ResMask;
 }
 
 void
