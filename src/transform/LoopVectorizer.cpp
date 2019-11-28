@@ -95,16 +95,15 @@ LoopVectorizer::getTripCount(Loop &L) {
   return BTCVal + 1;
 }
 
-Loop*
+PreparedLoop
 LoopVectorizer::transformToVectorizableLoop(Loop &L, int VectorWidth, int tripAlign, ValueSet & uniformOverrides) {
   IF_DEBUG { errs() << "\tPreparing loop structure of " << L.getName() << "\n"; }
 
   // try to applu the remainder transformation
   RemainderTransform remTrans(*F, *DT, *PDT, *LI, *reda, PB);
   PreparedLoop LoopPrep = remTrans.createVectorizableLoop(L, uniformOverrides, config.useAVL, VectorWidth, tripAlign);
-  assert(!LoopPrep.EntryAVL && "TODO implement!");
 
-  return LoopPrep.TheLoop;
+  return LoopPrep;
 }
 
 static
@@ -201,8 +200,8 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
 // match vector loop structure
   ValueSet uniOverrides;
-  auto * PreparedLoop = transformToVectorizableLoop(L, VectorWidth, tripAlign, uniOverrides);
-  if (!PreparedLoop) {
+  auto LoopPrep = transformToVectorizableLoop(L, VectorWidth, tripAlign, uniOverrides);
+  if (!LoopPrep.TheLoop) {
     Report() << "loopVecPass: Can not prepare vectorization of the loop\n";
     return false;
   }
@@ -213,7 +212,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   SetLLVMLoopAnnotations(L, std::move(llvmLoopMD));
 
   // clear loop annotations from our copy of the lop
-  ClearLoopVectorizeAnnotations(*PreparedLoop);
+  ClearLoopVectorizeAnnotations(*LoopPrep.TheLoop);
 
   // print configuration banner once
   if (!introduced) {
@@ -226,14 +225,15 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   IF_DEBUG { errs() << "rv: Vectorizing loop " << L.getName() << "\n"; }
 
   VectorMapping targetMapping(F, F, VectorWidth, CallPredicateMode::SafeWithoutPredicate);
-  LoopRegion LoopRegionImpl(*PreparedLoop);
+  LoopRegion LoopRegionImpl(*LoopPrep.TheLoop);
   Region LoopRegion(LoopRegionImpl);
 
   VectorizationInfo vecInfo(*F, VectorWidth, LoopRegion);
+  vecInfo.setEntryAVL(LoopPrep.EntryAVL);
 
 // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable
-  for (auto & inst : *PreparedLoop->getHeader()) {
+  for (auto & inst : *LoopPrep.TheLoop->getHeader()) {
     auto * phi = dyn_cast<PHINode>(&inst);
     if (!phi) continue;
 
@@ -252,7 +252,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
         return false;
       }
 
-      if (!IsSupportedReduction(*PreparedLoop, *redInfo)) {
+      if (!IsSupportedReduction(*LoopPrep.TheLoop, *redInfo)) {
         Report() << " unsupported reduction: "; redInfo->print(ReportContinue()); ReportContinue() << "\n";
         return false;
       }
@@ -334,7 +334,7 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
 
   if (enableDiagOutput) {
     errs() << "-- Vectorized --\n";
-    for (const BasicBlock * BB : PreparedLoop->blocks()) {
+    for (const BasicBlock * BB : LoopPrep.TheLoop->blocks()) {
       const BasicBlock * vecB = cast<const BasicBlock>(vecMap[BB]);
       Dump(*vecB);
     }
