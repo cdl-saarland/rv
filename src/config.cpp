@@ -74,7 +74,7 @@ Config::Config()
 , useADVSIMD(false)
 
 // codegen flags
-, useAVL(CheckFlag("RV_AVL"))
+, useAVL(CheckFlag("RV_FORCE_AVL")) 
 {}
 
 Config
@@ -83,6 +83,7 @@ Config::createDefaultConfig() {
 
   // override the RV target configuration
   char * rawArch = getenv("RV_ARCH");
+
   if (rawArch) {
     std::string arch = rawArch;
     if (arch == "avx2") {
@@ -100,11 +101,9 @@ Config::createDefaultConfig() {
     } else if (arch == "ve") {
       Report() << "RV_ARCH: configured for NEC SX-Aurora!\n";
       config.useVE = true;
+      config.useAVL = !CheckFlag("RV_DISABLE_AVL");
     }
   }
-
-  // use AVL predication where possible
-  config.useAVL = CheckFlag("RV_AVL");
 
   return config;
 }
