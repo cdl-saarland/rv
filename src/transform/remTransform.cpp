@@ -874,7 +874,7 @@ struct LoopTransformer {
 
   void
   insertAVLComputation() {
-    for (auto *BB : ClonedL.blocks()) BB->dump();
+    IF_DEBUG_REM{ for (auto *BB : ClonedL.blocks()) Dump(*BB); }
 
     auto &LoopHead = *ClonedL.getHeader();
 
@@ -938,9 +938,9 @@ struct LoopTransformer {
     uniOverrides.insert(AVL);
 
     // after splitting
-    IF_DEBUG_REM{
+    IF_DEBUG_REM {
       errs() << ":: after tail predication::\n";
-      for (auto *BB : ClonedL.blocks()) BB->dump();
+      for (auto *BB : ClonedL.blocks()) Dump(*BB);
       errs() << "AVL: " << *AVL << "\n";
     }
   }
