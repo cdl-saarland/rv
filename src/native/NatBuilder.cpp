@@ -1617,7 +1617,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
                                                 : requestVectorValue(storedValue);
       }
       Value *vecBasePtr = requestScalarValue(accessedPtr);
-      errs() << "STORE MASK: " << vecMask << "\n";
       vecMem = createContiguousStore(mappedStoredVal, vecBasePtr, Align(alignment), vecMask);
 
       addrShape.isUniform() ? ++numUniStores : needsMask ? ++numContMaskedStores : ++numContStores;
