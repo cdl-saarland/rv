@@ -119,9 +119,7 @@ if (BUILD_SHARED_LIBS)
     ${LLVM_LIBRARY_DIR}
   )
 elseif (LLVM_LINK_LLVM_DYLIB)
-  target_link_libraries(RV
-    LLVM
-  )
+  target_link_libraries(RV PUBLIC LLVM)
   link_directories(
     ${LLVM_LIBRARY_DIR}
   )
