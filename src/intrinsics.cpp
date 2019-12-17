@@ -14,26 +14,46 @@
 
 using namespace llvm;
 
+std::string
+MangleType(const Type & Ty) {
+  if (Ty.isIntegerTy()) {
+    return "i" + std::to_string(Ty.getScalarSizeInBits());
+  } else if (Ty.isDoubleTy()) {
+    return "d";
+  } else if (Ty.isFloatTy()) {
+    return "f";
+  } else if (Ty.isVectorTy()) {
+    return (Ty.getVectorIsScalable() ? "nxv" : "v") + std::to_string(Ty.getVectorElementCount().Min) + MangleType(Ty);
+  }
+  abort(); // TODO we really should use LLVM's facilities here...
+}
+
 namespace rv {
 RVIntrinsic GetIntrinsicID(const llvm::Function& func) {
   auto funcName = func.getName();
 #define RV_MAP_INTRINSIC(FUNC, VALUE) \
-  if ( StringRef(#FUNC).startswith(funcName) ) return RVIntrinsic:: VALUE;
+  if ( funcName.startswith(StringRef(#FUNC)) ) return RVIntrinsic:: VALUE;
 #include "rv/intrinsics.def"
 #undef RV_MAP_INTRINSIC
 
   return RVIntrinsic::Unknown;
 }
 
-StringRef GetIntrinsicName(RVIntrinsic id) {
+std::string GetIntrinsicName(RVIntrinsic id, Type * DataTy) {
+  StringRef BaseName = "";
   switch (id) {
 #define RV_MAP_INTRINSIC(FUNC, VALUE) \
-  case RVIntrinsic:: VALUE : return #FUNC;
+  case RVIntrinsic:: VALUE : BaseName= #FUNC; break;
 #include "rv/intrinsics.def"
 #undef RV_MAP_INTRINSIC
-  case RVIntrinsic::Unknown: return "";
+  case RVIntrinsic::Unknown: break;
   default: abort();
   }
+  if (DataTy) {
+    std::string typeSuffix = MangleType(*DataTy);
+    return (BaseName + "_" + typeSuffix).str();
+  }
+  return BaseName;
 }
 
 static
@@ -58,7 +78,7 @@ bool
 IsIntrinsic(const llvm::Value& val, RVIntrinsic id) {
   const auto * func = GetCallee(val);
   if (!func) return false;
-  return GetIntrinsicName(id) == func->getName();
+  return func->getName().startswith(GetIntrinsicName(id));
 }
 
 
@@ -227,13 +247,14 @@ GetIntrinsicMapping(Function & func, RVIntrinsic rvIntrin) {
 }
 
 llvm::Function &
-DeclareIntrinsic(RVIntrinsic id, llvm::Module & mod) {
+DeclareIntrinsic(RVIntrinsic id, llvm::Module & mod, Type *DataTy) {
   auto &context = mod.getContext();
   auto *boolTy = Type::getInt1Ty(context);
   auto *intTy = Type::getIntNTy(context, 32);
 
+  std::string mangledName = GetIntrinsicName(id, DataTy);
+
   Function * rvFunc = nullptr;
-  std::string mangledName = GetIntrinsicName(id);
   switch (id) {
   default:
     // TODO some decls are missing

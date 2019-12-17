@@ -72,6 +72,9 @@ public:
   // return the mangled vector function name for this target platform
   std::string createMangledVectorName(llvm::StringRef scaName, const VectorShapeVec & argShapes, int vectorWidth, int maskPos);
 
+  // request an RV intrinsic for this module
+  llvm::Function& requestIntrinsic(RVIntrinsic id, llvm::Type * DataTy = nullptr);
+
 private:
   // Direct access to builtin list resolver.
   llvm::Module &mod;

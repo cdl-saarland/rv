@@ -16,6 +16,7 @@ namespace llvm {
   class Function;
   class Module;
   class Value;
+  class Type;
 }
 
 namespace rv {
@@ -44,12 +45,12 @@ namespace rv {
 
   VectorMapping GetIntrinsicMapping(llvm::Function&, RVIntrinsic rvIntrin);
 
-  llvm::StringRef GetIntrinsicName(RVIntrinsic id);
+  std::string GetIntrinsicName(RVIntrinsic id, llvm::Type * DataTy = nullptr);
   bool IsIntrinsic(const llvm::Value& val, RVIntrinsic id);
   RVIntrinsic GetIntrinsicID(const llvm::Function&);
   RVIntrinsic GetIntrinsicID(const llvm::Value&);
 
-  llvm::Function &DeclareIntrinsic(RVIntrinsic id, llvm::Module &);
+  llvm::Function &DeclareIntrinsic(RVIntrinsic id, llvm::Module &, llvm::Type* DataTy = nullptr);
 }
 
 

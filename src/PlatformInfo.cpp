@@ -244,4 +244,18 @@ PlatformInfo::createMangledVectorName(StringRef scalarName, const VectorShapeVec
 }
 
 
+llvm::Function &
+PlatformInfo::requestIntrinsic(RVIntrinsic id, llvm::Type * DataTy) {
+  std::string MangledName = GetIntrinsicName(id, DataTy);
+  Function *F = mod.getFunction(MangledName);
+  if (F) return *F;
+
+  // declare and register with platInfo for this module
+  F = &DeclareIntrinsic(id, mod, DataTy);
+  auto vecMapping = GetIntrinsicMapping(*F, id);
+  addMapping(std::move(vecMapping));
+  return *F;
+  
+}
+
 }
