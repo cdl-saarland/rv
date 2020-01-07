@@ -13,6 +13,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Metadata.h>
+#include "llvm/IR/IntrinsicsX86.h"
 #include <report.h>
 #include <fstream>
 
