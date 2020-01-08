@@ -254,7 +254,24 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, FunctionAnalysisManag
     Report() << "Split allocas opt disabled (RV_DISABLE_SPLITALLOCAS != 0)\n";
   }
 
+  // Scalar-Replication-Of-Varying-(Aggregates): split up structs of vectorizable elements to promote use of vector registers
+  if (config.enableSROV) {
+    SROVTransform srovTransform(vecInfo, platInfo);
+    bool Changed = srovTransform.run();
+    while (Changed) {
+      // re-run DA
+      vecInfo.forgetInferredProperties();
+      analyze(vecInfo, FAM);
+
+      // re-run SROV
+      Changed = srovTransform.run();
+    }
+  } else {
+    Report() << "SROV opt disabled (RV_DISABLE_SROV != 0)\n";
+  }
+  
   // transform allocas from Array-of-struct into Struct-of-vector where possibe
+  // FIXME Cannot happen before DA re-run because StructOpt modifies ptr shapes to created contiguous stack accesses!
   if (config.enableStructOpt) {
     StructOpt sopt(vecInfo, platInfo.getDataLayout());
     sopt.run();
@@ -262,13 +279,6 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, FunctionAnalysisManag
     Report() << "Struct opt disabled (RV_DISABLE_STRUCTOPT != 0)\n";
   }
 
-  // Scalar-Replication-Of-Varying-(Aggregates): split up structs of vectorizable elements to promote use of vector registers
-  if (config.enableSROV) {
-    SROVTransform srovTransform(vecInfo, platInfo);
-    srovTransform.run();
-  } else {
-    Report() << "SROV opt disabled (RV_DISABLE_SROV != 0)\n";
-  }
 
   auto &LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
   auto * hostLoop = LI.getLoopFor(&vecInfo.getEntry());
