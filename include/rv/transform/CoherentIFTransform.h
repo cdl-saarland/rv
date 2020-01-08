@@ -12,6 +12,7 @@
 
 #include <llvm/IR/Value.h>
 #include <llvm/Transforms/Utils/ValueMapper.h>
+#include "llvm/IR/PassManager.h"
 
 #include "rv/PlatformInfo.h"
 #include "rv/shape/vectorShape.h"
@@ -21,7 +22,7 @@ namespace llvm {
   class DataLayout;
   class LoopInfo;
   class DominatorTree;
-  struct PostDominatorTree;
+  class PostDominatorTree;
   class BranchProbabilityInfo;
 }
 
@@ -40,7 +41,7 @@ class CoherentIFTransform {
   llvm::BranchProbabilityInfo * pbInfo;
 
 public:
-  CoherentIFTransform(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::PostDominatorTree & _postDomTree, llvm::LoopInfo & _loopInfo, llvm::BranchProbabilityInfo * _pbInfo);
+  CoherentIFTransform(VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, llvm::FunctionAnalysisManager &FAM);
 
   bool run();
 };

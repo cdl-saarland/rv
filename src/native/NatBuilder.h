@@ -20,6 +20,7 @@
 #include "rv/intrinsics.h"
 #include "rv/analysis/UndeadMaskAnalysis.h"
 #include "rv/analysis/reductions.h"
+#include "llvm/IR/PassManager.h"
 
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
 #include <llvm/IR/Dominators.h>
@@ -93,8 +94,7 @@ namespace rv {
 
   public:
     NatBuilder(rv::Config config, rv::PlatformInfo &_platformInfo, rv::VectorizationInfo &_vecInfo,
-               const llvm::DominatorTree &_dominatorTree, llvm::MemoryDependenceResults &memDepRes,
-               llvm::ScalarEvolution &_SE, rv::ReductionAnalysis & _reda);
+               rv::ReductionAnalysis & _reda, llvm::FunctionAnalysisManager &FAM);
 
     // if embedRegion is set, replace the scalar source blocks/instructions with the vectorized version
     // if vecInstMap is set, store the mapping from scalar source insts/blocks to vector versions

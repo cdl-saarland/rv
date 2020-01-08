@@ -14,6 +14,7 @@
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/Constant.h>
 #include <llvm/Transforms/Utils/ValueMapper.h>
+#include "llvm/IR/PassManager.h"
 
 #include "rv/analysis/reductions.h"
 #include "rv/shape/vectorShape.h"
@@ -127,7 +128,7 @@ class ReductionAnalysis {
   // reset internal state
   void clear();
 public:
-  ReductionAnalysis(llvm::Function & _func, const llvm::LoopInfo & _loopInfo);
+  ReductionAnalysis(llvm::Function & _func, llvm::FunctionAnalysisManager &FAM);
   ~ReductionAnalysis();
 
   // analyze all recurrence patterns inside @hostLoop

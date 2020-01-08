@@ -49,20 +49,6 @@ class LoopInfo;
 namespace rv {
 using InstVec = const std::vector<const llvm::Instruction *>;
 
-class VAWrapperPass : public llvm::FunctionPass {
-  static char ID;
-  Config config;
-
-public:
-  VAWrapperPass() : FunctionPass(ID), config() {}
-  VAWrapperPass(Config _config) : FunctionPass(ID), config(_config) {}
-  VAWrapperPass(const VAWrapperPass &) = delete;
-  VAWrapperPass &operator=(VAWrapperPass) = delete;
-
-  void getAnalysisUsage(llvm::AnalysisUsage &Info) const override;
-  bool runOnFunction(llvm::Function &F) override;
-};
-
 class VectorizationAnalysis {
   Config config;
   PlatformInfo &platInfo;
@@ -99,9 +85,7 @@ class VectorizationAnalysis {
 public:
   VectorizationAnalysis(Config config, PlatformInfo &platInfo,
                         VectorizationInfo &VecInfo,
-                        const llvm::DominatorTree &domTree,
-                        const llvm::PostDominatorTree &postDomTree,
-                        const llvm::LoopInfo &LoopInfo);
+                        llvm::FunctionAnalysisManager &FAM);
 
   VectorizationAnalysis(const VectorizationAnalysis &) = delete;
   VectorizationAnalysis &operator=(VectorizationAnalysis) = delete;
@@ -173,8 +157,6 @@ private:
   // Cast undefined instruction shapes to uniform shapes
   void promoteUndefShapesToUniform(const llvm::Function &F);
 };
-
-llvm::FunctionPass *createVectorizationAnalysisPass(Config config = Config());
 
 } // namespace rv
 

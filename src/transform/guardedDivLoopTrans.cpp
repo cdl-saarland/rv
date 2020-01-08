@@ -575,12 +575,11 @@ GuardedDivLoopTrans::addLoopInitMasks(llvm::Loop & loop) {
   loopSession->finalizeLiveOutTrackers();
 }
 
-GuardedDivLoopTrans::GuardedDivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo)
+GuardedDivLoopTrans::GuardedDivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::FunctionAnalysisManager &FAM)
 : platInfo(_platInfo)
 , vecInfo(_vecInfo)
 , maskEx(_maskEx)
-, domTree(_domTree)
-, loopInfo(_loopInfo)
+, FAM(FAM)
 , boolTy(Type::getInt1Ty(vecInfo.getContext()))
 , numUniformLoops(0)
 , numDivergentLoops(0)
@@ -592,7 +591,7 @@ GuardedDivLoopTrans::GuardedDivLoopTrans(PlatformInfo & _platInfo, Vectorization
 GuardedDivLoopTrans::~GuardedDivLoopTrans() {}
 
 bool
-GuardedDivLoopTrans::transformDivergentLoopControl(Loop & loop) {
+GuardedDivLoopTrans::transformDivergentLoopControl(LoopInfo & LI, Loop & loop) {
   bool hasDivergentLoops = false;
 
   // make this loop uniform (all remaining divergent loops are properly nested)
@@ -601,7 +600,7 @@ GuardedDivLoopTrans::transformDivergentLoopControl(Loop & loop) {
     ++numDivergentLoops;
     hasDivergentLoops = true;
 
-    auto * loopSession = new GuardedTransformSession(loop, loopInfo, vecInfo, platInfo, maskEx);
+    auto * loopSession = new GuardedTransformSession(loop, LI, vecInfo, platInfo, maskEx);
     loopSession->transformLoop();
     numKillExits += loopSession->numKillExits; // accumulate global stats
     numDivExits += loopSession->numDivExits; // accumulate global stats
@@ -614,7 +613,7 @@ GuardedDivLoopTrans::transformDivergentLoopControl(Loop & loop) {
   }
 
   for (auto * childLoop : loop) {
-    hasDivergentLoops |= transformDivergentLoopControl(*childLoop);
+    hasDivergentLoops |= transformDivergentLoopControl(LI, *childLoop);
   }
 
   IF_DEBUG_DLT { errs() << "# vecInfo after liveout repair:\n"; vecInfo.dump(); }
@@ -625,31 +624,31 @@ GuardedDivLoopTrans::transformDivergentLoopControl(Loop & loop) {
 void
 GuardedDivLoopTrans::transformDivergentLoops() {
   IF_DEBUG_DLT { errs() << "-- divLoopTrans log --\n"; }
+  auto &LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
 
   // create tracker/update phis and make all loops uniform
   bool hasDivergentLoops = false;
   IF_DEBUG_DLT { errs() << "# 1. transforming control in divergent loops:\n"; }
-  for (auto * loop : loopInfo) {
-    hasDivergentLoops |= transformDivergentLoopControl(*loop);
+  for (auto * loop : LI) {
+    hasDivergentLoops |= transformDivergentLoopControl(LI, *loop);
   }
-
-
 
   if (!hasDivergentLoops) {
      IF_DEBUG_DLT { errs() << "-- no divergent loops. EOF divLoopTrans --\n"; }
 
   } else {
     // checkpoint:
-    domTree.recalculate(vecInfo.getScalarFunction());
+    FAM.invalidate<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
+    FAM.invalidate<PostDominatorTreeAnalysis>(vecInfo.getScalarFunction());
     IF_DEBUG_DLT {
       Dump(vecInfo.getScalarFunction());
-      loopInfo.print(errs());
-      loopInfo.verify(domTree); // must not recompute
+      LI.print(errs());
+      LI.verify(FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction())); // must not recompute
     }
 
     // request initial loop live masks
     IF_DEBUG_DLT { errs() << "# 2. requesting initial loop live masks:\n"; }
-    for (auto * loop : loopInfo) {
+    for (auto * loop : LI) {
       addLoopInitMasks(*loop);
     }
 

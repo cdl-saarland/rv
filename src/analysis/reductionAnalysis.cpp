@@ -104,8 +104,8 @@ Reduction::print(raw_ostream & out) const {
 // ReductionAnalysis
 
 
-ReductionAnalysis::ReductionAnalysis(Function & _func, const LoopInfo & _loopInfo)
-: loopInfo(_loopInfo)
+ReductionAnalysis::ReductionAnalysis(Function & F, FunctionAnalysisManager &FAM)
+: loopInfo(*FAM.getCachedResult<LoopAnalysis>(F))
 {}
 
 ReductionAnalysis::~ReductionAnalysis() {

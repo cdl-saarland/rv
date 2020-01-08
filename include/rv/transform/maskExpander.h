@@ -19,6 +19,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/IR/PassManager.h"
 
 #include <vector>
 #include <map>
@@ -33,9 +34,8 @@ using EdgeVec = llvm::SmallVector<llvm::Loop::Edge, 4>;
 
 class MaskExpander {
   VectorizationInfo & vecInfo;
-  const llvm::DominatorTree & domTree;
-  const llvm::PostDominatorTree & postDomTree;
-  const llvm::LoopInfo & loopInfo;
+  llvm::FunctionAnalysisManager & FAM;
+  const llvm::LoopInfo & loopInfo; // invariant
 
   llvm::Type * boolTy;
   llvm::ConstantInt * trueConst;
@@ -106,9 +106,7 @@ public:
   void expandRegionMasks();
 
   MaskExpander(VectorizationInfo & _vecInfo,
-               const llvm::DominatorTree & _domTree,
-               const llvm::PostDominatorTree & _postDomTree,
-               const llvm::LoopInfo & _loopInfo);
+               llvm::FunctionAnalysisManager &FAM);
   ~MaskExpander();
 };
 

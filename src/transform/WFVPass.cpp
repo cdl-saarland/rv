@@ -80,10 +80,9 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
   SingleReturnTrans::run(funcRegionWrapper);
 
   // prepare analyses
-  DominatorTree DT(*scalarCopy);
-  PostDominatorTree PDT;
-  PDT.recalculate(*scalarCopy);
-  LoopInfo LI(DT);
+  PassBuilder PB;
+  FunctionAnalysisManager FAM;
+  PB.registerFunctionAnalyses(FAM);
 
 // early math func lowering
   // vectorizer.lowerRuntimeCalls(vecInfo, LI);
@@ -96,7 +95,7 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
 
 // Vectorize
   // vectorizationAnalysis
-  vectorizer.analyze(vecInfo, DT, PDT, LI); // TODO can be shared across jobs
+  vectorizer.analyze(vecInfo, FAM); // TODO can be shared across jobs
 
   if (enableDiagOutput) {
     errs() << "-- VA result --\n";
@@ -107,30 +106,20 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
   IF_DEBUG Dump(*scalarCopy);
 
   // control conversion
-  vectorizer.linearize(vecInfo, DT, PDT, LI, nullptr);
-
-  DominatorTree domTreeNew(
-      *vecInfo.getMapping().scalarFn); // Control conversion does not preserve
-                                       // the domTree so we have to rebuild it
-                                       // for now
+  vectorizer.linearize(vecInfo, FAM);
 
   // vectorize the prepared loop embedding it in its context
   ValueToValueMapTy vecMap;
 
   // FIXME SE is invalid at this point..
-  PassBuilder pb;
-  FunctionAnalysisManager fam;
-  pb.registerFunctionAnalyses(fam);
   ScalarEvolutionAnalysis adhocAnalysis;
-  adhocAnalysis.run(*scalarCopy, fam);
+  adhocAnalysis.run(*scalarCopy, FAM);
 
   MemoryDependenceAnalysis mdAnalysis;
-  MemoryDependenceResults MDR = mdAnalysis.run(*scalarCopy, fam);
-
-  auto & localSE = fam.getResult<ScalarEvolutionAnalysis>(*scalarCopy);
+  mdAnalysis.run(*scalarCopy, FAM);
 
   // FIXME share state until this point (modified src function)
-  bool vectorizeOk = vectorizer.vectorize(vecInfo, domTreeNew, LI, localSE, MDR, &vecMap);
+  bool vectorizeOk = vectorizer.vectorize(vecInfo, FAM, &vecMap);
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
 

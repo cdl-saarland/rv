@@ -496,12 +496,12 @@ DivLoopTrans::addLoopInitMasks(llvm::Loop & loop) {
   loopSession->lowerTrackerUpdates();
 }
 
-DivLoopTrans::DivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo)
+DivLoopTrans::DivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, FunctionAnalysisManager &FAM)
 : platInfo(_platInfo)
 , vecInfo(_vecInfo)
 , maskEx(_maskEx)
-, domTree(_domTree)
-, loopInfo(_loopInfo)
+, FAM(FAM)
+, loopInfo(*FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction()))
 , boolTy(Type::getInt1Ty(vecInfo.getContext()))
 , numDivergentLoops(0)
 , numKillExits(0)
@@ -552,11 +552,13 @@ DivLoopTrans::transformDivergentLoops() {
   }
 
   // checkpoint:
-  domTree.recalculate(vecInfo.getScalarFunction());
+  FAM.invalidate<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
+  FAM.invalidate<PostDominatorTreeAnalysis>(vecInfo.getScalarFunction());
   IF_DEBUG_DLT {
     Dump(vecInfo.getScalarFunction());
-    loopInfo.print(errs());
-    loopInfo.verify(domTree); // must not recompute
+    auto &LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
+    LI.print(errs());
+    LI.verify(FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction())); // must not recompute
   }
 
   // request initial loop live masks

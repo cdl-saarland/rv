@@ -120,38 +120,30 @@ void normalizeFunction(Function &F) {
   rv::SingleReturnTrans::run(regWrapper);
 }
 
-void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
-                   LoopInfo &loopInfo, DominatorTree &domTree,
-                   PostDominatorTree &postDomTree, int ulpErrorBound) {
+void vectorizeLoop(Function &parentFn, Loop &TheLoop, unsigned vectorWidth,
+                   int ulpErrorBound, FunctionAnalysisManager &FAM) {
   // assert: function is already normalized
   Module &mod = *parentFn.getParent();
 
-  // set up analysis infrastructure
-  FunctionAnalysisManager fam;
-  ModuleAnalysisManager mam;
-
-  PassBuilder PB;
-  PB.registerFunctionAnalyses(fam);
-  PB.registerModuleAnalyses(mam);
-
   // query LLVM passes
   TargetIRAnalysis irAnalysis;
-  TargetTransformInfo tti = irAnalysis.run(parentFn, fam);
+  TargetTransformInfo tti = irAnalysis.run(parentFn, FAM);
   TargetLibraryAnalysis libAnalysis;
-  TargetLibraryInfo tli = libAnalysis.run(parentFn, fam);
-
-  ScalarEvolutionAnalysis seAnalysis;
-  ScalarEvolution SE = seAnalysis.run(parentFn, fam);
+  TargetLibraryInfo tli = libAnalysis.run(parentFn, FAM);
 
   // set-up for loop vectorization
-  rv::ReductionAnalysis reductionAnalysis(parentFn, loopInfo);
-  reductionAnalysis.analyze(loop);
+  rv::ReductionAnalysis reductionAnalysis(parentFn, FAM);
+  reductionAnalysis.analyze(TheLoop);
 
   ValueSet uniOverrides;
-  rv::RemainderTransform remTrans(parentFn, domTree, postDomTree, loopInfo,
+  auto & DT = FAM.getResult<DominatorTreeAnalysis>(parentFn);
+  auto & PDT = FAM.getResult<PostDominatorTreeAnalysis>(parentFn);
+  auto & LI = *FAM.getCachedResult<LoopAnalysis>(parentFn);
+
+  rv::RemainderTransform remTrans(parentFn, DT, PDT, LI,
                                   reductionAnalysis);
   auto *preparedLoop = remTrans.createVectorizableLoop(
-      loop, uniOverrides, vectorWidth, 1);
+      TheLoop, uniOverrides, vectorWidth, 1);
 
   if (!preparedLoop) {
     fail("remTrans could not transform to a vectorizable loop.");
@@ -170,7 +162,7 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   rv::PlatformInfo platInfo(mod, &tti, &tli);
 
   MemoryDependenceAnalysis mdAnalysis;
-  MemoryDependenceResults MDR = mdAnalysis.run(parentFn, fam);
+  MemoryDependenceResults MDR = mdAnalysis.run(parentFn, FAM);
 
   // link in SIMD library
   addSleefResolver(config, platInfo);
@@ -225,15 +217,17 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   rv::VectorizerInterface vectorizer(platInfo, config);
 
   // early math func lowering
-  vectorizer.lowerRuntimeCalls(vecInfo, loopInfo);
-  domTree.recalculate(parentFn);
-  postDomTree.recalculate(parentFn);
+  vectorizer.lowerRuntimeCalls(vecInfo, FAM);
 
-  IF_VERBOSE { loopInfo.print(errs()); }
-  loopInfo.verify(domTree);
+  IF_VERBOSE {
+    auto & LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
+    auto & DT = FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
+    LI.print(errs()); 
+    LI.verify(DT);
+  }
 
   // vectorizationAnalysis
-  vectorizer.analyze(vecInfo, domTree, postDomTree, loopInfo);
+  vectorizer.analyze(vecInfo, FAM);
 
   if (OnlyAnalyze) {
     vecInfo.print(outs());
@@ -241,7 +235,7 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
   }
 
   // control conversion
-  vectorizer.linearize(vecInfo, domTree, postDomTree, loopInfo);
+  vectorizer.linearize(vecInfo, FAM);
   // if (!maskEx) fail("mask generation failed.");
 
   DominatorTree domTreeNew(
@@ -249,7 +243,7 @@ void vectorizeLoop(Function &parentFn, Loop &loop, unsigned vectorWidth,
            .scalarFn); // Control conversion does not preserve the domTree so we
                        // have to rebuild it for now
   bool vectorizeOk =
-      vectorizer.vectorize(vecInfo, domTreeNew, loopInfo, SE, MDR, nullptr);
+      vectorizer.vectorize(vecInfo, FAM, nullptr);
   if (!vectorizeOk)
     fail("vector code generation failed");
 
@@ -262,37 +256,45 @@ void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth, int ulpErrorBo
   // normalize
   normalizeFunction(parentFn);
 
-  // build Analysis
-  DominatorTree domTree(parentFn);
-
   // normalize loop exits
   {
+    DominatorTree domTree(parentFn);
     LoopInfo loopInfo(domTree);
     LoopExitCanonicalizer canonicalizer(loopInfo);
     canonicalizer.canonicalize(parentFn);
-    domTree.recalculate(parentFn);
   }
+
+  // set up analysis infrastructure
+  PassBuilder PB;
+  FunctionAnalysisManager FAM;
+  PB.registerFunctionAnalyses(FAM);
+
+  // run other analysis up front that may invalidate LoopInfo
+  // ScalarEvolutionAnalysis seAnalysis;
+  // ScalarEvolution SE = seAnalysis.run(parentFn, FAM);
 
   // compute actual analysis structures
-  LoopInfo loopInfo(domTree);
+  auto & LI = FAM.getResult<LoopAnalysis>(parentFn);
 
-  if (loopInfo.begin() == loopInfo.end()) {
+  if (LI.begin() == LI.end()) {
     return;
   }
-
-  // post dom
-  PostDominatorTree postDomTree;
-  postDomTree.recalculate(parentFn);
 
   // dump normalized function
   IF_VERBOSE {
     errs() << "-- normalized functions --\n";
     parentFn.print(errs());
+    errs() << "-- normalized loop info --\n";
+    LI.print(errs());
   }
 
-  auto *firstLoop = *loopInfo.begin();
-  vectorizeLoop(parentFn, *firstLoop, vectorWidth, loopInfo, domTree,
-                postDomTree, ulpErrorBound);
+  // the loop to vectorize
+  auto *firstLoop = *LI.begin();
+
+  // HAVE TO maintain FAM.getCachedResult<LoopAnalysis> from this point on! (or
+  // the loop region gets invalidated)
+
+  vectorizeLoop(parentFn, *firstLoop, vectorWidth, ulpErrorBound, FAM);
 
   // mark region
   // run RV
@@ -305,19 +307,17 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   Function *scalarFn = vectorizerJob.scalarFn;
   Module &mod = *scalarFn->getParent();
 
-  FunctionAnalysisManager fam;
-  ModuleAnalysisManager mam;
+  FunctionAnalysisManager FAM;
 
   // setup LLVM analysis infrastructure
   PassBuilder PB;
-  PB.registerFunctionAnalyses(fam);
-  PB.registerModuleAnalyses(mam);
+  PB.registerFunctionAnalyses(FAM);
 
   // platform API
   TargetIRAnalysis irAnalysis;
-  TargetTransformInfo tti = irAnalysis.run(*scalarFn, fam);
+  TargetTransformInfo tti = irAnalysis.run(*scalarFn, FAM);
   TargetLibraryAnalysis libAnalysis;
-  TargetLibraryInfo tli = libAnalysis.run(*scalarFn, fam);
+  TargetLibraryInfo tli = libAnalysis.run(*scalarFn, FAM);
   rv::PlatformInfo platInfo(mod, &tti, &tli);
 
   // assign a proper vector function name
@@ -330,6 +330,15 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   // clone source function for transformations
   ValueToValueMapTy valueMap;
   Function *scalarCopy = CloneFunction(scalarFn, valueMap, nullptr);
+  // normalize
+  normalizeFunction(*scalarCopy);
+  {
+    DominatorTree domTree(*scalarCopy);
+    LoopInfo loopInfo(domTree);
+    LoopExitCanonicalizer canonicalizer(loopInfo);
+    canonicalizer.canonicalize(*scalarCopy);
+  }
+
 
   // emit a rv_entry_mask call to get a hold off the "future" function entry
   // mask (which will ultimately be available as a function argument in the
@@ -341,12 +350,12 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   assert(scalarCopy);
   scalarCopy->setCallingConv(scalarFn->getCallingConv());
   scalarCopy->setAttributes(scalarFn->getAttributes());
-  scalarCopy->setAlignment(scalarFn->getAlignment());
+  scalarCopy->setAlignment(MaybeAlign(scalarFn->getAlignment()));
   scalarCopy->setLinkage(GlobalValue::InternalLinkage);
   scalarCopy->setName(scalarFn->getName() + ".vectorizer.tmp");
 
-  // normalize
-  normalizeFunction(*scalarCopy);
+  // request LI
+  FAM.getResult<LoopAnalysis>(*scalarCopy);
 
   // configure RV
   auto config = rv::Config::createForFunction(*scalarFn);
@@ -389,30 +398,6 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
     }
   }
 
-  // build Analysis
-  DominatorTree domTree(*scalarCopy);
-  // normalize loop exits
-  {
-    LoopInfo loopInfo(domTree);
-    LoopExitCanonicalizer canonicalizer(loopInfo);
-    canonicalizer.canonicalize(*scalarCopy);
-    domTree.recalculate(*scalarCopy);
-  }
-
-  LoopInfo loopInfo(domTree);
-
-  ScalarEvolutionAnalysis seAnalysis;
-  ScalarEvolution SE = seAnalysis.run(*scalarCopy, fam);
-
-  MemoryDependenceAnalysis mdAnalysis;
-  MemoryDependenceResults MDR = mdAnalysis.run(*scalarCopy, fam);
-
-  // post dom
-  PostDominatorTree postDomTree;
-  postDomTree.recalculate(*scalarCopy);
-
-  // Control Dependence Graph
-
   // dump normalized function
   IF_VERBOSE {
     errs() << "-- normalized functions --\n";
@@ -420,29 +405,24 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   }
 
   // early math func lowering
-  vectorizer.lowerRuntimeCalls(vecInfo, loopInfo);
-  domTree.recalculate(*scalarCopy);
-  postDomTree.recalculate(*scalarCopy);
-
-  IF_VERBOSE { loopInfo.print(errs()); }
-  loopInfo.verify(domTree);
+  vectorizer.lowerRuntimeCalls(vecInfo, FAM);
 
   // vectorizationAnalysis
-  vectorizer.analyze(vecInfo, domTree, postDomTree, loopInfo);
+  vectorizer.analyze(vecInfo, FAM);
   if (OnlyAnalyze) {
     vecInfo.print(outs());
     return;
   }
 
   // mask generator
-  vectorizer.linearize(vecInfo, domTree, postDomTree, loopInfo);
+  vectorizer.linearize(vecInfo, FAM);
   // if (!maskEx) fail("mask generation failed.");
 
   // Control conversion does not preserve the domTree so we have to rebuild it
   // for now
   DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn);
   bool vectorizeOk =
-      vectorizer.vectorize(vecInfo, domTreeNew, loopInfo, SE, MDR, nullptr);
+      vectorizer.vectorize(vecInfo, FAM, nullptr);
   if (!vectorizeOk)
     fail("vector code generation failed.");
 

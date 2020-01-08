@@ -15,6 +15,7 @@
 #include "rv/config.h"
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
+#include "llvm/IR/PassManager.h"
 
 namespace llvm {
   class LoopInfo;
@@ -47,7 +48,7 @@ public:
     VectorizerInterface(PlatformInfo & _platform, Config config = Config());
 
     // try to inline common math functions (compiler-rt) before the analysis
-    void lowerRuntimeCalls(VectorizationInfo & vecInfo, llvm::LoopInfo & loopInfo);
+    void lowerRuntimeCalls(VectorizationInfo & vecInfo, llvm::FunctionAnalysisManager & FAM);
 
     //
     // Analyze properties of the scalar function that are needed later in transformations
@@ -57,9 +58,8 @@ public:
     // (see VectorizationInfo).
     //
     void analyze(VectorizationInfo& vecInfo,
-                 const llvm::DominatorTree & domTree,
-                 const llvm::PostDominatorTree & postDomTree,
-                 const llvm::LoopInfo& loopInfo);
+                 llvm::FunctionAnalysisManager &FAM);
+
 
     //
     // Linearize divergent regions of the scalar function to preserve semantics for the
@@ -67,20 +67,14 @@ public:
     //
     bool
     linearize(VectorizationInfo& vecInfo,
-              llvm::DominatorTree& domTree,
-              llvm::PostDominatorTree& postDomTree,
-              llvm::LoopInfo& loopInfo,
-              llvm::BranchProbabilityInfo * pbInfo = nullptr);
+              llvm::FunctionAnalysisManager& FAM);
 
     //
     // Produce vectorized instructions
     //
     bool
     vectorize(VectorizationInfo &vecInfo,
-              llvm::DominatorTree &domTree,
-              llvm::LoopInfo & loopInfo,
-              llvm::ScalarEvolution & SE,
-              llvm::MemoryDependenceResults & MDR,
+              llvm::FunctionAnalysisManager& FAM,
               llvm::ValueToValueMapTy * vecInstMap);
 
     //

@@ -16,7 +16,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/ADT/SmallSet.h"
-
+#include "llvm/IR/PassManager.h"
 
 
 namespace llvm {
@@ -25,6 +25,7 @@ namespace llvm {
   class LoopInfo;
   class DominatorTree;
   class PHINode;
+  class LoopInfo;
 }
 
 namespace rv {
@@ -117,8 +118,7 @@ class GuardedDivLoopTrans {
   PlatformInfo & platInfo;
   VectorizationInfo & vecInfo;
   MaskExpander & maskEx;
-  llvm::DominatorTree & domTree;
-  llvm::LoopInfo & loopInfo;
+  llvm::FunctionAnalysisManager & FAM;
   llvm::IntegerType * boolTy;
   // collect all divergent exits of this loop and send them through a dedicated latch exit
 
@@ -126,7 +126,7 @@ class GuardedDivLoopTrans {
 
 // Control phase
   // return true, if any loops were transformed
-  bool transformDivergentLoopControl(llvm::Loop & loop);
+  bool transformDivergentLoopControl(llvm::LoopInfo & LI, llvm::Loop & loop);
 
   // this finalizes the control conversion on @loop
   // void convertToLatchExitLoop(llvm::Loop & loop, LiveValueTracker & liveOutTracker);
@@ -137,7 +137,7 @@ class GuardedDivLoopTrans {
 
   // replace this value update phi with a proper blend cascade
 public:
-  GuardedDivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo);
+  GuardedDivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::FunctionAnalysisManager &FAM);
   ~GuardedDivLoopTrans();
 
   // makes all divergent loops in the region uniform

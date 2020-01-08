@@ -542,12 +542,12 @@ CoherentIFTransform::run() {
   return coherentif.run();
 }
 
-CoherentIFTransform::CoherentIFTransform (VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::PostDominatorTree & _postDomTree, llvm::LoopInfo & _loopInfo, BranchProbabilityInfo * _pbInfo)
+CoherentIFTransform::CoherentIFTransform (VectorizationInfo & _vecInfo, PlatformInfo & _platInfo, MaskExpander & _maskEx, llvm::FunctionAnalysisManager &FAM)
 : vecInfo(_vecInfo)
 , platInfo(_platInfo)
 , maskEx(_maskEx)
-, domTree(_domTree)
-, postDomTree(_postDomTree)
-, loopInfo(_loopInfo)
-, pbInfo(_pbInfo)
+, domTree(FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction()))
+, postDomTree(FAM.getResult<PostDominatorTreeAnalysis>(vecInfo.getScalarFunction()))
+, loopInfo(*FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction()))
+, pbInfo(&FAM.getResult<BranchProbabilityAnalysis>(vecInfo.getScalarFunction()))
 {}

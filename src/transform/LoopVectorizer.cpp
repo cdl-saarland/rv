@@ -194,16 +194,14 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
            << " , Dependence Distance: " << DepDistToString(depDist)
            << " and TripAlignment: " << tripAlign << "\n";
 
-
 // analyze the recurrsnce patterns of this loop
-  reda.reset(new ReductionAnalysis(*F, *LI));
+  reda.reset(new ReductionAnalysis(*F, FAM));
   reda->analyze(L);
 
 // match vector loop structure
   ValueSet uniOverrides;
   auto * PreparedLoop = transformToVectorizableLoop(L, VectorWidth, tripAlign, uniOverrides);
   if (!PreparedLoop) {
-
     Report() << "loopVecPass: Can not prepare vectorization of the loop\n";
     return false;
   }
@@ -299,13 +297,13 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   }
 
 // early math func lowering
-  vectorizer->lowerRuntimeCalls(vecInfo, *LI);
+  vectorizer->lowerRuntimeCalls(vecInfo, FAM);
   DT->recalculate(*F);
   PDT->recalculate(*F);
 
 // Vectorize
   // vectorizationAnalysis
-  vectorizer->analyze(vecInfo, *DT, *PDT, *LI);
+  vectorizer->analyze(vecInfo, FAM);
 
   if (enableDiagOutput) {
     errs() << "-- VA result --\n";
@@ -317,26 +315,15 @@ LoopVectorizer::vectorizeLoop(Loop &L) {
   assert(L.getLoopPreheader());
 
   // control conversion
-  vectorizer->linearize(vecInfo, *DT, *PDT, *LI);
-
-
-  DominatorTree domTreeNew(
-      *vecInfo.getMapping().scalarFn); // Control conversion does not preserve
-                                       // the domTree so we have to rebuild it
-                                       // for now
+  vectorizer->linearize(vecInfo, FAM);
 
   // vectorize the prepared loop embedding it in its context
   ValueToValueMapTy vecMap;
 
-  // FIXME SE is invalid at this point..
-  PassBuilder pb;
-  FunctionAnalysisManager fam;
-  pb.registerFunctionAnalyses(fam);
   ScalarEvolutionAnalysis adhocAnalysis;
-  adhocAnalysis.run(*F, fam);
+  adhocAnalysis.run(*F, FAM);
 
-  auto & localSE = fam.getResult<ScalarEvolutionAnalysis>(*F);
-  bool vectorizeOk = vectorizer->vectorize(vecInfo, domTreeNew, *LI, localSE, *MDR, &vecMap);
+  bool vectorizeOk = vectorizer->vectorize(vecInfo, FAM, &vecMap);
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
 
@@ -386,19 +373,24 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   if (enableDiagOutput) Report() << "loopVecPass: run on " << F.getName() << "\n";
   bool Changed = false;
 
+// create private analysis infrastructure
+  PassBuilder PB;
+  PB.registerFunctionAnalyses(FAM);
+
 // stash function analyses
   this->F = &F;
-  this->DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  this->PDT = &getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
-  this->LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-  this->SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
-  this->MDR = &getAnalysis<MemoryDependenceWrapperPass>().getMemDep();
-  this->PB = &getAnalysis<BranchProbabilityInfoWrapperPass>().getBPI();
+  this->DT = &FAM.getResult<DominatorTreeAnalysis>(F);
+  this->PDT = &FAM.getResult<PostDominatorTreeAnalysis>(F);
+  this->LI = &FAM.getResult<LoopAnalysis>(F);
+  this->SE = &FAM.getResult<ScalarEvolutionAnalysis>(F);
+  this->MDR = &FAM.getResult<MemoryDependenceAnalysis>(F);
+  this->PB = &FAM.getResult<BranchProbabilityAnalysis>(F);
+  TargetTransformInfo & tti = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F); // FIXME use FAM
+  TargetLibraryInfo & tli = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(F); // FIXME use FAM
+
   this->config = Config::createForFunction(F);
 
 // setup PlatformInfo
-  TargetTransformInfo & tti = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
-  TargetLibraryInfo & tli = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(F);
   PlatformInfo platInfo(*F.getParent(), &tti, &tli);
 
   // TODO translate fast-math flag to ULP error bound

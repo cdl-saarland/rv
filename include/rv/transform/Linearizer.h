@@ -25,6 +25,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/ADT/DenseSet.h>
 #include <llvm/IR/Function.h>
+#include "llvm/IR/PassManager.h"
 
 #include <vector>
 #include <unordered_map>
@@ -393,7 +394,7 @@ namespace rv {
     size_t simplifyBlends();
 
   public:
-    Linearizer(Config _config, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _dt, llvm::LoopInfo & _li);
+    Linearizer(Config _config, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::FunctionAnalysisManager &FAM);
 
     void run();
   };

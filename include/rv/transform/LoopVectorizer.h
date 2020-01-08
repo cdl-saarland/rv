@@ -16,6 +16,7 @@
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/analysis/loopAnnotations.h"
 #include "rv/config.h"
+#include "llvm/IR/PassManager.h"
 
 namespace llvm {
   class Loop;
@@ -63,6 +64,7 @@ private:
   bool introduced;
 
   llvm::Function * F;
+  llvm::FunctionAnalysisManager FAM; // private pass infrastructure
   llvm::DominatorTree * DT;
   llvm::PostDominatorTree * PDT;
   llvm::LoopInfo * LI;

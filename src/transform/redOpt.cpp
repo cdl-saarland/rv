@@ -27,10 +27,10 @@ using namespace rv;
 #define IF_DEBUG_REPORT if (true)
 #endif
 
-ReductionOptimization::ReductionOptimization(VectorizationInfo & _vecInfo, ReductionAnalysis & _reda, DominatorTree & _dt)
+ReductionOptimization::ReductionOptimization(VectorizationInfo & _vecInfo, ReductionAnalysis & _reda, FunctionAnalysisManager &FAM)
 : vecInfo(_vecInfo)
 , reda(_reda)
-, dt(_dt)
+, dt(FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction()))
 {}
 
 bool

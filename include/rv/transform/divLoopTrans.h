@@ -94,7 +94,7 @@ class DivLoopTrans {
   PlatformInfo & platInfo;
   VectorizationInfo & vecInfo;
   MaskExpander & maskEx;
-  llvm::DominatorTree & domTree;
+  llvm::FunctionAnalysisManager & FAM;
   llvm::LoopInfo & loopInfo;
   llvm::IntegerType * boolTy;
   // collect all divergent exits of this loop and send them through a dedicated latch exit
@@ -114,7 +114,7 @@ class DivLoopTrans {
 
   // replace this value update phi with a proper blend cascade
 public:
-  DivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _domTree, llvm::LoopInfo & _loopInfo);
+  DivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::FunctionAnalysisManager &FAM);
   ~DivLoopTrans();
 
   // makes all divergent loops in the region uniform

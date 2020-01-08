@@ -11,6 +11,7 @@
 #define RV_TRANSFORM_LOWERDIVERGENTSWITCHES_H
 
 #include <llvm/IR/Instruction.h>
+#include "llvm/IR/PassManager.h"
 
 namespace llvm {
   class SwitchInst;
@@ -24,13 +25,14 @@ class VectorizationInfo;
 
 class LowerDivergentSwitches {
   VectorizationInfo & vecInfo;
+  llvm::FunctionAnalysisManager & FAM;
   llvm::LoopInfo & LI;
 
   void lowerSwitch(llvm::SwitchInst & swInst);
   void replaceIncoming(llvm::BasicBlock & phiBlock, llvm::BasicBlock & oldIncoming, llvm::BasicBlock & newIncoming);
 
 public:
-  LowerDivergentSwitches(VectorizationInfo & _vecInfo, llvm::LoopInfo & _LI);
+  LowerDivergentSwitches(VectorizationInfo & _vecInfo, llvm::FunctionAnalysisManager & FAM);
   bool run();
 };
 

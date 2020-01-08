@@ -10,12 +10,14 @@
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/IR/LegacyPassManager.h>
 
-#include <llvm/Analysis/LoopInfo.h>
-#include <llvm/IR/Dominators.h>
-#include <llvm/Analysis/PostDominators.h>
-#include <llvm/IR/Verifier.h>
-#include <llvm/Analysis/MemoryDependenceAnalysis.h>
+#include "llvm/IR/PassManager.h"
 #include <llvm/Analysis/BranchProbabilityInfo.h>
+#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/Analysis/MemoryDependenceAnalysis.h>
+#include <llvm/Analysis/PostDominators.h>
+#include <llvm/IR/Dominators.h>
+#include <llvm/IR/Verifier.h>
+#include "llvm/Analysis/LoopInfo.h"
 
 #include "rv/rv.h"
 #include "rv/analysis/VectorizationAnalysis.h"
@@ -78,7 +80,7 @@ EmbedInlinedCode(BasicBlock & entry, Loop & hostLoop, LoopInfo & loopInfo, std::
 #define IF_DEBUG_CRT IF_DEBUG
 
 void
-VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, LoopInfo & loopInfo)
+VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, FunctionAnalysisManager & FAM)
 {
   auto & scalarFn = vecInfo.getScalarFunction();
   auto & mod = *scalarFn.getParent();
@@ -125,23 +127,27 @@ VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, LoopInfo & l
 
   // TODO repair loopInfo
 
-  // FIXME this invalidates loop info and thus the region
+  // must not invalidate LI
+  auto & LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
+  bool Changed = !callSites.empty();
   for (auto * call : callSites) {
     auto & entryBB = *call->getParent();
-    auto * hostLoop = loopInfo.getLoopFor(&entryBB);
+    auto * hostLoop = LI.getLoopFor(&entryBB);
     InlineFunctionInfo IFI;
     InlineFunction(call, IFI);
 
-    if (hostLoop) EmbedInlinedCode(entryBB, *hostLoop, loopInfo, funcBlocks);
+    if (hostLoop) EmbedInlinedCode(entryBB, *hostLoop, LI, funcBlocks);
+  }
+  if (Changed) {
+    FAM.invalidate<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
+    FAM.invalidate<PostDominatorTreeAnalysis>(vecInfo.getScalarFunction());
   }
 }
 
 
 void
 VectorizerInterface::analyze(VectorizationInfo& vecInfo,
-                             const DominatorTree & domTree,
-                             const PostDominatorTree& postDomTree,
-                             const LoopInfo& loopInfo)
+                             FunctionAnalysisManager& FAM)
 {
     IF_DEBUG {
       errs() << "Initial PlatformInfo:\n";
@@ -152,61 +158,58 @@ VectorizerInterface::analyze(VectorizationInfo& vecInfo,
     }
 
     // determines value and control shapes
-    VectorizationAnalysis vea(config, platInfo, vecInfo, domTree, postDomTree, loopInfo);
+    VectorizationAnalysis vea(config, platInfo, vecInfo, FAM);
     vea.analyze();
 }
 
 bool
 VectorizerInterface::linearize(VectorizationInfo& vecInfo,
-                 DominatorTree& domTree,
-                 PostDominatorTree& postDomTree,
-                 LoopInfo& loopInfo,
-                 BranchProbabilityInfo * pbInfo)
-{
+                 FunctionAnalysisManager & FAM) {
+    
     // use a fresh domtree here
     // DominatorTree fixedDomTree(vecInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
-    domTree.recalculate(vecInfo.getScalarFunction());
+    // domTree.recalculate(vecInfo.getScalarFunction());
 
     // early lowering of divergent switch statements
-    LowerDivergentSwitches divSwitchTrans(vecInfo, loopInfo);
-    if (divSwitchTrans.run()) {
-      postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-      domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-    }
+    LowerDivergentSwitches divSwitchTrans(vecInfo, FAM);
+    divSwitchTrans.run();
+    //   postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    //   domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    // }
 
     // FIXME materialize masks only very late in the process (risk of mask invalidation through transformations)
-    MaskExpander maskEx(vecInfo, domTree, postDomTree, loopInfo);
+    MaskExpander maskEx(vecInfo, FAM);
 
     // convert divergent loops inside the region to uniform loops
     if (CheckFlag("RV_OLD_DLT")) {
       Report() << "Using old DLT\n";
-      DivLoopTrans DLT(platInfo, vecInfo, maskEx, domTree, loopInfo);
+      DivLoopTrans DLT(platInfo, vecInfo, maskEx, FAM);
       DLT.transformDivergentLoops();
     } else {
       Report() << "Using new (guarded) DLT\n";
-      GuardedDivLoopTrans guardedDLT(platInfo, vecInfo, maskEx, domTree, loopInfo);
+      GuardedDivLoopTrans guardedDLT(platInfo, vecInfo, maskEx, FAM);
       guardedDLT.transformDivergentLoops();
     }
 
-    postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-    domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    // postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    // domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
 
     // insert CIF branches if desired
     if (config.enableCoherentIF) {
-      CoherentIFTransform CoherentIFTrans(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo, pbInfo);
+      CoherentIFTransform CoherentIFTrans(vecInfo, platInfo, maskEx, FAM);
       CoherentIFTrans.run();
     }
 
     // insert BOSCC branches if desired
     if (config.enableHeuristicBOSCC) {
-      BOSCCTransform bosccTrans(vecInfo, platInfo, maskEx, domTree, postDomTree, loopInfo, pbInfo);
+      BOSCCTransform bosccTrans(vecInfo, platInfo, maskEx, FAM);
       bosccTrans.run();
     }
     // expand masks after BOSCC
     maskEx.expandRegionMasks();
 
-    postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-    domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    // postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
+    // domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
 
     IF_DEBUG {
       errs() << "--- VecInfo before Linearizer ---\n";
@@ -214,17 +217,18 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     }
 
     // FIXME use external reduction analysis result (if available)
-    ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
-    auto * hostLoop = loopInfo.getLoopFor(&vecInfo.getEntry());
+    ReductionAnalysis reda(vecInfo.getScalarFunction(), FAM);
+    auto & LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
+    auto * hostLoop = LI.getLoopFor(&vecInfo.getEntry());
     if (hostLoop) reda.analyze(*hostLoop);
 
     // optimize reduction data flow
-    ReductionOptimization redOpt(vecInfo, reda, domTree);
+    ReductionOptimization redOpt(vecInfo, reda, FAM);
     redOpt.run();
 
     // partially linearize acyclic control in the region
 
-    Linearizer linearizer(config, vecInfo, maskEx, domTree, loopInfo);
+    Linearizer linearizer(config, vecInfo, maskEx, FAM);
     linearizer.run();
 
     IF_DEBUG {
@@ -237,7 +241,7 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
 
 // flag is set if the env var holds a string that starts on a non-'0' char
 bool
-VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTree, LoopInfo & loopInfo, ScalarEvolution & SE, MemoryDependenceResults & MDR, ValueToValueMapTy * vecInstMap) {
+VectorizerInterface::vectorize(VectorizationInfo &vecInfo, FunctionAnalysisManager &FAM, ValueToValueMapTy * vecInstMap) {
   // divergent memcpy lowering
   MemCopyElision mce(platInfo, vecInfo);
   mce.run();
@@ -266,12 +270,13 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, DominatorTree &domTre
     Report() << "SROV opt disabled (RV_DISABLE_SROV != 0)\n";
   }
 
-  auto * hostLoop = loopInfo.getLoopFor(&vecInfo.getEntry());
-  ReductionAnalysis reda(vecInfo.getScalarFunction(), loopInfo);
+  auto &LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
+  auto * hostLoop = LI.getLoopFor(&vecInfo.getEntry());
+  ReductionAnalysis reda(vecInfo.getScalarFunction(), FAM);
   if (hostLoop) reda.analyze(*hostLoop);
 
 // vectorize with native
-  NatBuilder natBuilder(config, platInfo, vecInfo, domTree, MDR, SE, reda);
+  NatBuilder natBuilder(config, platInfo, vecInfo, reda, FAM);
   natBuilder.vectorize(true, vecInstMap);
 
   // IR Polish phase: promote i1 vectors and perform early instruction (read: intrinsic) selection

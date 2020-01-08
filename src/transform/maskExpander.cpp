@@ -98,16 +98,14 @@ CreateNot(IRBuilder<> & builder, Value & val, const Twine & name=Twine()) {
 return *builder.CreateNot(&val, name);
 }
 
-MaskExpander::MaskExpander(VectorizationInfo & _vecInfo, const DominatorTree & _domTree, const llvm::PostDominatorTree & _postDomTree, const llvm::LoopInfo & _loopInfo)
+MaskExpander::MaskExpander(VectorizationInfo & _vecInfo, FunctionAnalysisManager & FAM)
 : vecInfo(_vecInfo)
-, domTree(_domTree)
-, postDomTree(_postDomTree)
-, loopInfo(_loopInfo)
+, FAM(FAM)
+, loopInfo(*FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction()))
 , boolTy(Type::getInt1Ty(vecInfo.getContext()))
 , trueConst(ConstantInt::getTrue(vecInfo.getContext()))
 , falseConst(ConstantInt::getFalse(vecInfo.getContext()))
-{
-}
+{}
 
 MaskExpander::~MaskExpander()
 {}
@@ -316,11 +314,13 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   auto itEnd = pred_end(&BB);
 
   // check if we post-dominate our idom (optimization)
-  auto * domNode = domTree.getNode(&BB);
+  auto &DT = FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
+  auto &PDT = FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
+  auto * domNode = DT.getNode(&BB);
   auto &idomBlock = *domNode->getIDom()->getBlock();
 
 // try to re-use the SESE entry mask
-  if (vecInfo.inRegion(idomBlock) && postDomTree.dominates(&BB, &idomBlock)) {
+  if (vecInfo.inRegion(idomBlock) && PDT.dominates(&BB, &idomBlock)) {
     auto & idomMask = requestBlockMask(idomBlock);
 
     {
@@ -391,7 +391,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
     // generate a dominating definition (if necessary)
     if (edgeMaskInst) {
 
-      if (!domTree.dominates(edgeMaskInst->getParent(), &BB)) {
+      if (!DT.dominates(edgeMaskInst->getParent(), &BB)) {
         std::string defBlockName = edgeMaskInst->getParent()->getName();
         auto edgeMaskShape = vecInfo.getVectorShape(*edgeMask);
         auto itInsert = &*BB.begin();

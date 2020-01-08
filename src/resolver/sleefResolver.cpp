@@ -474,7 +474,7 @@ public:
     for (auto * archList : archLists) delete archList;
   }
 
-  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule);
+  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule) override;
 };
 
 
@@ -612,26 +612,22 @@ struct SleefVLAResolver : public FunctionResolver {
     FunctionAnalysisManager FAM;
     PB.registerFunctionAnalyses(FAM);
 
-    // compute DT, PDT, LI
-    auto & DT = FAM.getResult<DominatorTreeAnalysis>(*clonedFunc);
-    auto & PDT = FAM.getResult<PostDominatorTreeAnalysis>(*clonedFunc);
-    auto & LI = FAM.getResult<LoopAnalysis>(*clonedFunc);
-    auto & SE = FAM.getResult<ScalarEvolutionAnalysis>(*clonedFunc);
-    auto & MDR = FAM.getResult<MemoryDependenceAnalysis>(*clonedFunc);
-    auto & BPI = FAM.getResult<BranchProbabilityAnalysis>(*clonedFunc);
-
     // normalize loop exits (TODO make divLoopTrans work without this)
     {
-      LoopInfo tmpLoopInfo(DT);
-      LoopExitCanonicalizer canonicalizer(tmpLoopInfo);
+      LoopInfo &LI = FAM.getResult<LoopAnalysis>(*clonedFunc);
+      LoopExitCanonicalizer canonicalizer(LI);
       canonicalizer.canonicalize(*clonedFunc);
-      DT.recalculate(*clonedFunc);
+      FAM.invalidate<DominatorTreeAnalysis>(*clonedFunc);
+      FAM.invalidate<PostDominatorTreeAnalysis>(*clonedFunc);
+      // invalidate & recompute LI
+      FAM.invalidate<LoopAnalysis>(*clonedFunc);
+      FAM.getResult<LoopAnalysis>(*clonedFunc);
     }
 
     // run pipeline
-    vectorizer.analyze(vecInfo, DT, PDT, LI);
-    vectorizer.linearize(vecInfo, DT, PDT, LI, &BPI);
-    vectorizer.vectorize(vecInfo, DT, LI, SE, MDR, nullptr);
+    vectorizer.analyze(vecInfo, FAM);
+    vectorizer.linearize(vecInfo, FAM);
+    vectorizer.vectorize(vecInfo, FAM, nullptr);
     vectorizer.finalize();
 
     // discard temporary mapping

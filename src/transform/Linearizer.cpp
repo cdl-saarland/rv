@@ -62,7 +62,7 @@ using namespace llvm;
 
 namespace rv {
 
-Linearizer::Linearizer(Config _config, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::DominatorTree & _dt, llvm::LoopInfo & _li)
+Linearizer::Linearizer(Config _config, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::FunctionAnalysisManager &FAM)
 : numCUniPhis(0)
 , numCDivPhis(0)
 , numUniformAssignments(0)
@@ -78,8 +78,8 @@ Linearizer::Linearizer(Config _config, VectorizationInfo & _vecInfo, MaskExpande
 , config(_config)
 , vecInfo(_vecInfo)
 , maskEx(_maskEx)
-, dt(_dt)
-, li(_li)
+, dt(FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction()))
+, li(*FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction()))
 , func(vecInfo.getScalarFunction())
 , context(func.getContext())
 {}

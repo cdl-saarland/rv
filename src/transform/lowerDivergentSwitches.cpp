@@ -1,9 +1,11 @@
 #include "rv/transform/lowerDivergentSwitches.h"
 #include "rv/vectorizationInfo.h"
 
-#include <llvm/IR/IRBuilder.h>
-#include <llvm/IR/Instructions.h>
-#include <llvm/Analysis/LoopInfo.h>
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/Analysis/LoopInfo.h"
+#include "llvm/IR/Dominators.h"
+#include "llvm/Analysis/PostDominators.h"
 
 #include <cassert>
 
@@ -67,9 +69,10 @@ LowerDivergentSwitches::lowerSwitch(SwitchInst & switchInst) {
   switchInst.eraseFromParent();
 }
 
-LowerDivergentSwitches::LowerDivergentSwitches(VectorizationInfo & _vecInfo, LoopInfo & _LI)
+LowerDivergentSwitches::LowerDivergentSwitches(VectorizationInfo & _vecInfo, FunctionAnalysisManager & FAM)
 : vecInfo(_vecInfo)
-, LI(_LI)
+, FAM(FAM)
+, LI(*FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction()))
 {}
 
 bool
@@ -89,7 +92,12 @@ LowerDivergentSwitches::run() {
     lowerSwitch(*swInst);
   }
 
-  return !switchInsts.empty();
+  bool Changed = !switchInsts.empty();
+  if (Changed) {
+    FAM.invalidate<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
+    FAM.invalidate<PostDominatorTreeAnalysis>(vecInfo.getScalarFunction());
+  }
+  return Changed;
 }
 
 

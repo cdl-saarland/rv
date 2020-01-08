@@ -101,9 +101,9 @@ UndeadMaskAnalysis::implies(const Value & lhs, bool lhsNegated, const Value & rh
   return false;
 }
 
-UndeadMaskAnalysis::UndeadMaskAnalysis(const DominatorTree & _domTree, VectorizationInfo & _vecInfo)
-: domTree(_domTree)
-, vecInfo(_vecInfo)
+UndeadMaskAnalysis::UndeadMaskAnalysis(VectorizationInfo & VecInfo, FunctionAnalysisManager &FAM)
+: vecInfo(VecInfo)
+, domTree(FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction()))
 {}
 
 const BasicBlock*

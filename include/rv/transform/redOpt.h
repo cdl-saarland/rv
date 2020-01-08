@@ -10,13 +10,12 @@
 #ifndef RV_REDOPT_H
 #define RV_REDOPT_H
 
+#include "llvm/IR/PassManager.h"
+
 namespace llvm {
   class DominatorTree;
   class PHINode;
 }
-
-
-
 
 namespace rv {
 
@@ -31,7 +30,7 @@ class ReductionOptimization {
 
   bool optimize(llvm::PHINode & phi, Reduction & red);
 public:
-  ReductionOptimization(VectorizationInfo & vecInfo, ReductionAnalysis & reda, llvm::DominatorTree & domTree);
+  ReductionOptimization(VectorizationInfo & vecInfo, ReductionAnalysis & reda, llvm::FunctionAnalysisManager &FAM);
   bool run();
 };
 

@@ -58,7 +58,7 @@ class RecursiveResolverService : public ResolverService {
   VectorizerInterface vectorizer;
 
 public:
-  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule);
+  std::unique_ptr<FunctionResolver> resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule) override;
 
   RecursiveResolverService(PlatformInfo & platInfo, Config config)
   : vectorizer(platInfo, config)
@@ -141,15 +141,10 @@ public:
       canonicalizer.canonicalize(*clonedFunc);
       FAM.invalidate<DominatorTreeAnalysis>(*clonedFunc);
       FAM.invalidate<PostDominatorTreeAnalysis>(*clonedFunc);
+      // invalidate & recompute LI
       FAM.invalidate<LoopAnalysis>(*clonedFunc);
+      FAM.getResult<LoopAnalysis>(*clonedFunc);
     }
-
-    auto & LI = FAM.getResult<LoopAnalysis>(*clonedFunc);
-    auto & DT = FAM.getResult<DominatorTreeAnalysis>(*clonedFunc);
-    auto &PDT = FAM.getResult<PostDominatorTreeAnalysis>(*clonedFunc);
-    auto &SE = FAM.getResult<ScalarEvolutionAnalysis>(*clonedFunc);
-    auto &MDR = FAM.getResult<MemoryDependenceAnalysis>(*clonedFunc);
-    auto &BPI = FAM.getResult<BranchProbabilityAnalysis>(*clonedFunc);
 
 // run analysis until result shape stabilizes
     // this is an ad-hoc mapping
@@ -171,7 +166,7 @@ public:
 
       // run VA (on clonedFunc) -> tempVecInfo
       VectorizationInfo tempVecInfo(funcRegion, recMapping);
-      vectorizer.analyze(tempVecInfo, DT, PDT, LI);
+      vectorizer.analyze(tempVecInfo, FAM);
 
       // refine the result shape (from tempVecInfo)
       if (!returnsVoid) {
@@ -236,9 +231,9 @@ public:
       VectorizationInfo vecInfo(funcRegion, recMapping);
 
     // generate the vector function body
-      vectorizer.analyze(vecInfo, DT, PDT, LI);
-      vectorizer.linearize(vecInfo, DT, PDT, LI, &BPI);
-      vectorizer.vectorize(vecInfo, DT, LI, SE, MDR, nullptr);
+      vectorizer.analyze(vecInfo, FAM);
+      vectorizer.linearize(vecInfo, FAM);
+      vectorizer.vectorize(vecInfo, FAM, nullptr);
       vectorizer.finalize();
     }
 

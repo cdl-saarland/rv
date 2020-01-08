@@ -12,6 +12,7 @@
 #include <llvm/IR/Value.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Dominators.h>
+#include "llvm/IR/PassManager.h"
 
 #include <map>
 
@@ -36,8 +37,8 @@ class VectorizationInfo;
 //   *uniformPtr = <uniform value>
 // }
 class UndeadMaskAnalysis {
-  const llvm::DominatorTree & domTree;
   VectorizationInfo & vecInfo;
+  const llvm::DominatorTree & domTree;
 
   // whether @lhs ^ @lhsNegated implies @rhs ^ @rhsNegated
   // (returns false if answer unknown)
@@ -45,7 +46,7 @@ class UndeadMaskAnalysis {
   std::map<const llvm::Value*, const llvm::BasicBlock*> liveDominatorMap;
 
 public:
-  UndeadMaskAnalysis(const llvm::DominatorTree & domTree, VectorizationInfo & vecInfo);
+  UndeadMaskAnalysis(VectorizationInfo & vecInfo, llvm::FunctionAnalysisManager &FAM);
   bool isUndead(const llvm::Value & mask, const llvm::BasicBlock & where);
 };
 

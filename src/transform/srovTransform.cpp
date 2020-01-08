@@ -843,7 +843,6 @@ run() {
 
   IF_DEBUG_SROV { errs() << "-- SROV finished --\n";  }
 
-
   return changedCode;
 }
 

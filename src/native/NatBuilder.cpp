@@ -174,17 +174,16 @@ VectorShape NatBuilder::getVectorShape(const Value &val) {
 }
 
 NatBuilder::NatBuilder(Config _config, PlatformInfo &_platInfo, VectorizationInfo &_vecInfo,
-                       const DominatorTree &_dominatorTree, MemoryDependenceResults &_memDepRes,
-                       ScalarEvolution &_SE, ReductionAnalysis & _reda) :
+                       ReductionAnalysis & _reda, FunctionAnalysisManager &FAM) :
     builder(_vecInfo.getMapping().vectorFn->getContext()),
     config(_config),
     platInfo(_platInfo),
     vecInfo(_vecInfo),
-    dominatorTree(_dominatorTree),
-    memDepRes(_memDepRes),
-    SE(_SE),
+    dominatorTree(FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction())),
+    memDepRes(FAM.getResult<MemoryDependenceAnalysis>(vecInfo.getScalarFunction())),
+    SE(FAM.getResult<ScalarEvolutionAnalysis>(vecInfo.getScalarFunction())),
     reda(_reda),
-    undeadMasks(dominatorTree, vecInfo),
+    undeadMasks(vecInfo, FAM),
     layout(_vecInfo.getScalarFunction().getParent()),
     i1Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 32)),
