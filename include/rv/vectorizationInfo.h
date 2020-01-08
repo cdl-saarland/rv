@@ -123,6 +123,10 @@ public:
   void setVectorShape(const llvm::Value &val, VectorShape shape);
   void dropVectorShape(const llvm::Value &val);
 
+  // drop all inferred information (everything except block predicated and pinned shapes)
+  // this is required to re-run the DA
+  void forgetInferredProperties();
+
   bool isTemporalDivergent(const llvm::LoopInfo &LI,
                            const llvm::BasicBlock &ObservingBlock,
                            const llvm::Value &Val) const;

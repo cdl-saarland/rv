@@ -227,6 +227,25 @@ VectorShape VectorizationInfo::getVectorShape(const llvm::Value &val) const {
 
 const DataLayout &VectorizationInfo::getDataLayout() const { return DL; }
 
+void
+VectorizationInfo::forgetInferredProperties() {
+  VaryingPredicateBlocks.clear();
+  mDivergentLoops.clear();
+  DivergentLoopExits.clear();
+  JoinDivergentBlocks.clear();
+
+  std::set<const Value*> ForgetValues;
+  for (auto ItValShape : shapes) {
+    if (pinned.count(ItValShape.first)) continue;
+    ForgetValues.insert(ItValShape.first);
+  }
+  for (const Value * ForgetVal : ForgetValues) {
+    auto It = shapes.find(ForgetVal);
+    assert(It != shapes.end());
+    shapes.erase(It);
+  }
+}
+
 void VectorizationInfo::dropVectorShape(const Value &val) {
   auto it = shapes.find(&val);
   if (it == shapes.end())
