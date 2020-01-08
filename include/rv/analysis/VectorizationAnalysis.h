@@ -105,7 +105,7 @@ private:
   /// Get the shape for a value
   //  if loop carried, this is the shape observed within the loop that defines
   //  @V
-  VectorShape getShape(const llvm::Value &V);
+  VectorShape getShape(const llvm::Value &V) const;
 
   // Initialize all statically known shapes (constants, arguments via argument
   // mapping, shapes set by the user)

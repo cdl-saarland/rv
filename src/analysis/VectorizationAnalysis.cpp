@@ -24,7 +24,7 @@
 #if 1
 #define IF_DEBUG_VA IF_DEBUG
 #else
-#define IF_DEBUG_VA if (false)
+#define IF_DEBUG_VA if (true)
 #endif
 
 // FIXME
@@ -77,10 +77,10 @@ bool VectorizationAnalysis::updateTerminator(const Instruction &Term) const {
     return false;
   if (auto *BranchTerm = dyn_cast<BranchInst>(&Term)) {
     assert(BranchTerm->isConditional());
-    return !vecInfo.getVectorShape(*BranchTerm->getCondition()).isUniform();
+    return !getShape(*BranchTerm->getCondition()).isUniform();
   }
   if (auto *SwitchTerm = dyn_cast<SwitchInst>(&Term)) {
-    return !vecInfo.getVectorShape(*SwitchTerm->getCondition()).isUniform();
+    return !getShape(*SwitchTerm->getCondition()).isUniform();
   }
   if (isa<InvokeInst>(Term)) {
     return false; // ignore abnormal executions through landingpad
@@ -357,8 +357,10 @@ void VectorizationAnalysis::compute(const Function &F) {
     IF_DEBUG_VA { errs() << "\t computed: " << New.str() << "\n"; }
 
     // if no output shape could be computed, skip.
+#if 0
     if (!New.isDefined())
       continue;
+#endif
 
     // TODO factor this into vectorShapeTransform. This does not belong here!
     // shape is non-bottom. Apply general refinement rules.
@@ -444,7 +446,7 @@ void VectorizationAnalysis::adjustValueShapes(const Function &F) {
     } else {
       // Adjust pointer argument alignment
       if (arg.getType()->isPointerTy()) {
-        VectorShape argShape = vecInfo.getVectorShape(arg);
+        VectorShape argShape = getShape(arg);
         unsigned minAlignment = arg.getPointerAlignment(layout).valueOrOne().value();
         // max is the more precise one
         argShape.setAlignment(
@@ -455,6 +457,7 @@ void VectorizationAnalysis::adjustValueShapes(const Function &F) {
   }
 
   // Instructions in region(!)
+#if 0
   for (auto &BB : F) {
     if (vecInfo.inRegion(BB)) {
       for (auto &I : BB) {
@@ -463,6 +466,7 @@ void VectorizationAnalysis::adjustValueShapes(const Function &F) {
       }
     }
   }
+#endif
 }
 
 void VectorizationAnalysis::init(const Function &F) {
@@ -516,7 +520,8 @@ bool VectorizationAnalysis::updateShape(const Value &V, VectorShape AT) {
   VectorShape Old = getShape(V);
   VectorShape New = VectorShape::join(Old, AT);
 
-  if (Old == New) {
+  // if the value has an initialized shape identical to the new one stop here
+  if (vecInfo.hasKnownShape(V) && (Old == New)) {
     return false; // nothing changed
   }
 
@@ -568,7 +573,7 @@ void VectorizationAnalysis::pushUsers(const Value &V) {
 
 bool VectorizationAnalysis::pushMissingOperands(const Instruction &I) {
   auto pushIfMissing = [this](bool prevpushed, Value *op) {
-    bool push = isa<Instruction>(op) && !getShape(*op).isDefined();
+    bool push = isa<Instruction>(op) && !vecInfo.hasKnownShape(*op);
     if (push) {
       auto &opInst = *cast<Instruction>(op);
       IF_DEBUG_VA { errs() << "\tmissing op shape " << opInst << "!\n"; }
@@ -581,8 +586,8 @@ bool VectorizationAnalysis::pushMissingOperands(const Instruction &I) {
   return std::accumulate(I.op_begin(), I.op_end(), false, pushIfMissing);
 }
 
-VectorShape VectorizationAnalysis::getShape(const Value &V) {
-  return vecInfo.getVectorShape(V);
+VectorShape VectorizationAnalysis::getShape(const Value &V) const {
+  return vecInfo.hasKnownShape(V) ? vecInfo.getVectorShape(V) : VectorShape::undef();
 }
 
 } // namespace rv
