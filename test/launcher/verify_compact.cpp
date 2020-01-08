@@ -6,7 +6,7 @@
 
 #include "launcherTools.h"
 
-extern "C" int foo_SIMD(float8 a, int8 b);
+extern "C" float8 foo_SIMD(float8 a, int8 b);
 
 int main(int argc, char ** argv) {
   const uint vectorWidth = 8;
