@@ -166,16 +166,26 @@ bool
 VectorizerInterface::linearize(VectorizationInfo& vecInfo,
                  FunctionAnalysisManager & FAM) {
     
-    // use a fresh domtree here
-    // DominatorTree fixedDomTree(vecInfo.getScalarFunction()); // FIXME someone upstream broke the domtree
-    // domTree.recalculate(vecInfo.getScalarFunction());
+    // TODO make this part of a new optimization phase
+    // Scalar-Replication-Of-Varying-(Aggregates): split up structs of vectorizable elements to promote use of vector registers
+    if (config.enableSROV) {
+      SROVTransform srovTransform(vecInfo, platInfo);
+      bool Changed = srovTransform.run();
+      while (Changed) {
+        // re-run DA
+        vecInfo.forgetInferredProperties();
+        analyze(vecInfo, FAM);
 
+        // re-run SROV
+        Changed = srovTransform.run();
+      }
+    } else {
+      Report() << "SROV opt disabled (RV_DISABLE_SROV != 0)\n";
+    }
+  
     // early lowering of divergent switch statements
     LowerDivergentSwitches divSwitchTrans(vecInfo, FAM);
     divSwitchTrans.run();
-    //   postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-    //   domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-    // }
 
     // FIXME materialize masks only very late in the process (risk of mask invalidation through transformations)
     MaskExpander maskEx(vecInfo, FAM);
@@ -191,9 +201,6 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
       guardedDLT.transformDivergentLoops();
     }
 
-    // postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-    // domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-
     // insert CIF branches if desired
     if (config.enableCoherentIF) {
       CoherentIFTransform CoherentIFTrans(vecInfo, platInfo, maskEx, FAM);
@@ -207,9 +214,6 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     }
     // expand masks after BOSCC
     maskEx.expandRegionMasks();
-
-    // postDomTree.recalculate(vecInfo.getScalarFunction()); // FIXME
-    // domTree.recalculate(vecInfo.getScalarFunction()); // FIXME
 
     IF_DEBUG {
       errs() << "--- VecInfo before Linearizer ---\n";
@@ -227,7 +231,6 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     redOpt.run();
 
     // partially linearize acyclic control in the region
-
     Linearizer linearizer(config, vecInfo, maskEx, FAM);
     linearizer.run();
 
@@ -254,22 +257,6 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, FunctionAnalysisManag
     Report() << "Split allocas opt disabled (RV_DISABLE_SPLITALLOCAS != 0)\n";
   }
 
-  // Scalar-Replication-Of-Varying-(Aggregates): split up structs of vectorizable elements to promote use of vector registers
-  if (config.enableSROV) {
-    SROVTransform srovTransform(vecInfo, platInfo);
-    bool Changed = srovTransform.run();
-    while (Changed) {
-      // re-run DA
-      vecInfo.forgetInferredProperties();
-      analyze(vecInfo, FAM);
-
-      // re-run SROV
-      Changed = srovTransform.run();
-    }
-  } else {
-    Report() << "SROV opt disabled (RV_DISABLE_SROV != 0)\n";
-  }
-  
   // transform allocas from Array-of-struct into Struct-of-vector where possibe
   // FIXME Cannot happen before DA re-run because StructOpt modifies ptr shapes to created contiguous stack accesses!
   if (config.enableStructOpt) {
