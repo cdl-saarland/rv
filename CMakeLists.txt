@@ -124,12 +124,6 @@ set(CMAKE_MODULE_PATH
 
 include("rv_macros")
 
-# Verify that we are not building with C++11
-IF (${LLVM_CXX_STD} STREQUAL "c++11")
-  MESSAGE(FATAL_ERROR "-- rv: RV requires C++ 14 (Reconfigure with -DLLVM_CXX_STD=c++14).")
-ENDIF()
-
-
 # Add appropriate flags for GCC
 if (CMAKE_COMPILER_IS_GNUCXX)
   # FIXME: Turn off exceptions, RTTI:
