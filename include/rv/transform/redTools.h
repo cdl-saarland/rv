@@ -17,7 +17,7 @@
 
 namespace rv {
 
-class Config;
+struct Config;
 
 // materialize a single instance of firstArg [[RedKind~OpCode]] secondArg
 llvm::Instruction& CreateReductInst(llvm::IRBuilder<> & builder, RedKind redKind, llvm::Value & firstArg, llvm::Value & secondArg);
