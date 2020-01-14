@@ -103,8 +103,27 @@ namespace rv {
     void mapVectorValue(const llvm::Value *const value, llvm::Value *vecValue);
     void mapScalarValue(const llvm::Value *const value, llvm::Value *mapValue, unsigned laneIdx = 0);
 
-    llvm::Value *getVectorValue(llvm::Value *const value, bool getLastBlock = false);
-    llvm::Value *getScalarValue(llvm::Value *const value, unsigned laneIdx = 0);
+    llvm::BasicBlock *getVectorBlock(llvm::BasicBlock &ScaBlock,
+                                     bool LastBlock);
+    llvm::Value *getVectorValue(llvm::Value &ScaValue,
+                                bool getLastBlock = false);
+    template <typename CastType>
+    CastType *getVectorValueAs(llvm::Value &ScaValue,
+                               bool getLastBlock = false) {
+      auto *VecVal = getVectorValue(ScaValue, getLastBlock);
+      if (!VecVal)
+        return nullptr;
+      return llvm::cast<CastType>(VecVal);
+    }
+    llvm::Value *getScalarValue(llvm::Value &ScaValue, unsigned laneIdx = 0);
+    template <typename CastClass>
+    CastClass *getScalarValueAs(llvm::Value &ScaValue, unsigned laneIdx = 0) {
+      auto VecVal = getScalarValue(ScaValue, laneIdx);
+      if (!VecVal)
+        return nullptr;
+      return llvm::cast<CastClass>(VecVal);
+    }
+
     BasicBlockVector getMappedBlocks(llvm::BasicBlock *const bb);
 
   private:

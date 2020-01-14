@@ -265,7 +265,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
     BasicBlock *bb = node->getBlock();
     if (!vecInfo.inRegion(*bb)) continue;
 
-    BasicBlock *vecBlock = cast<BasicBlock>(getVectorValue(bb));
+    BasicBlock *vecBlock = getVectorBlock(*bb, false);
     vectorize(bb, vecBlock);
 
     // populate queue with pre-order dominators
@@ -288,14 +288,14 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   if (vecInstMap) {
     for (auto & BB : *vecFunc) {
       if (vecInfo.inRegion(BB)) {
-        (*vecInstMap)[&BB] = getVectorValue(&BB);
+        (*vecInstMap)[&BB] = getVectorBlock(BB, false);
       }
       for (auto & I : BB) {
-        auto * vecInst = getVectorValue(&I);
+        auto * vecInst = getVectorValue(I);
         if (vecInst) {
           (*vecInstMap)[&I] = vecInst;
         } else {
-          (*vecInstMap)[&I] = getScalarValue(&I, 0);
+          (*vecInstMap)[&I] = getScalarValue(I, 0);
         }
       }
     }
@@ -316,7 +316,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
       auto *branchTarget = dyn_cast<BasicBlock>(termOp);
       if (!branchTarget) continue;
       if (vecInfo.inRegion(*branchTarget)) {
-        termInst.setOperand(i, getVectorValue(branchTarget));
+        termInst.setOperand(i, getVectorBlock(*branchTarget, false));
       }
     }
   }
@@ -338,7 +338,7 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   IF_DEBUG_NAT {
     errs() << "-- Vectorized IR: --\n";
     for (auto *oldBB : oldBlocks) {
-      Dump(*getVectorValue(oldBB));
+      Dump(*getVectorValue(*oldBB));
     }
     errs() << "-- End of Vectorized IR: --\n";
   }
@@ -499,7 +499,7 @@ NatBuilder::createAnyGuard(bool instNeedsGuard, BasicBlock & origBlock, Instruct
     builder.CreateBr(continueBlock);
     builder.SetInsertPoint(continueBlock);
 
-    BasicBlock *vecOrigBlock = cast<BasicBlock>(getVectorValue(&origBlock, true));
+    BasicBlock *vecOrigBlock = getVectorBlock(origBlock, true);
     PHINode *phi = producesValue ? builder.CreatePHI(vecMem->getType(), 2, "scal_mask_mem_phi") : nullptr;
 
     if (phi) {
@@ -529,7 +529,7 @@ NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool pa
    std::vector<BasicBlock *> maskedBlocks;
 
    // block cascade
-   BasicBlock *vecBlock = cast<BasicBlock>(getVectorValue(&srcBlock));
+   BasicBlock *vecBlock = getVectorBlock(srcBlock, true);
    BasicBlock *resBlock = createCascadeBlocks(vecBlock->getParent(), vectorWidth(), condBlocks, maskedBlocks);
    condBlocks.push_back(resBlock);
 
@@ -710,7 +710,7 @@ void NatBuilder::copyInstruction(Instruction *const inst, unsigned laneIdx) {
     branch->setCondition(cond);
 
     for (unsigned i = 0; i < branch->getNumSuccessors(); ++i) {
-      BasicBlock *succ = cast<BasicBlock>(requestVectorValue(branch->getSuccessor(i)));
+      BasicBlock *succ = getVectorBlock(*branch->getSuccessor(i), false);
       branch->setSuccessor(i, succ);
     }
   } else {
@@ -1950,13 +1950,13 @@ void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
 
   while (lazyInstr != upToInstruction) {
     // skip if already generated (only happens for interleaving)
-    if (getVectorValue(lazyInstr)) {
+    if (getVectorValue(*lazyInstr)) {
       lazyInstr = lazyInstructions.front();
       lazyInstructions.pop_front();
       continue;
     }
 
-    assert(!getVectorValue(lazyInstr) && !getScalarValue(lazyInstr) && "instruction already generated!");
+    assert(!getVectorValue(*lazyInstr) && !getScalarValue(*lazyInstr) && "instruction already generated!");
 
     if (isa<CallInst>(lazyInstr)) {
       if (shouldVectorize(lazyInstr))
@@ -1984,10 +1984,10 @@ void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
   assert(lazyInstr == upToInstruction && "something went wrong during lazy generation!");
 
   // skip if already generated (only happens for interleaving, therefore only getVectorValue needed)
-  if (getVectorValue(lazyInstr))
+  if (getVectorValue(*lazyInstr))
     return;
 
-  assert(!getVectorValue(lazyInstr) && !getScalarValue(lazyInstr) && "instruction already generated!");
+  assert(!getVectorValue(*lazyInstr) && !getScalarValue(*lazyInstr) && "instruction already generated!");
 
   if (isa<CallInst>(lazyInstr)) {
     if (shouldVectorize(lazyInstr))
@@ -2023,7 +2023,7 @@ NatBuilder::requestVectorValue(Value *const value) {
   }
 
   // check if already mapped
-  Value *vecValue = getVectorValue(value);
+  Value *vecValue = getVectorValue(*value);
   if (vecValue) return vecValue;
 
   auto oldIP = builder.GetInsertPoint();
@@ -2036,7 +2036,7 @@ NatBuilder::requestVectorValue(Value *const value) {
     auto * intTy = Type::getInt32Ty(builder.getContext());
 
     for (int i = 0; i < vectorWidth(); ++i) {
-      auto * laneVal = getScalarValue(value, i);
+      auto * laneVal = getScalarValue(*value, i);
       auto * laneInst = dyn_cast<Instruction>(laneVal);
       if (laneInst) SetInsertBeforeTerm(builder, *laneInst->getParent());
       accu = builder.CreateInsertElement(accu, laneVal, ConstantInt::get(intTy, i, false), "_revec");
@@ -2044,7 +2044,7 @@ NatBuilder::requestVectorValue(Value *const value) {
     vecValue = accu;
 
   } else {
-    vecValue = getScalarValue(value);
+    vecValue = getScalarValue(*value);
     Instruction *vecInst = dyn_cast<Instruction>(vecValue);
 
     if (vecInst) {
@@ -2150,7 +2150,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
       requestLazyInstructions(lazyMemInstr);
   }
 
-  Value *mappedVal = getScalarValue(value, laneIdx);
+  Value *mappedVal = getScalarValue(*value, laneIdx);
   if (mappedVal) return mappedVal;
 
   // if value is integer or floating type, contiguous and has value for lane 0, add laneIdx
@@ -2159,7 +2159,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   if (vecInfo.hasKnownShape(*value)) {
     VectorShape shape = getVectorShape(*value);
     Type *type = value->getType();
-    mappedVal = getScalarValue(value);
+    mappedVal = getScalarValue(*value);
     if (mappedVal && (shape.isContiguous() || shape.isStrided()) &&
         (type->isIntegerTy() || type->isFloatingPointTy())) {
       // to avoid dominance problems as below
@@ -2185,7 +2185,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   if (!reqVal) {
     // to avoid dominance problems assume: if we only have a vectorized value and need a scalar one -> do not map
     skipMapping = true;
-    mappedVal = getVectorValue(value);
+    mappedVal = getVectorValue(*value);
     Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
     auto oldIP = builder.GetInsertPoint();
     auto oldIB = builder.GetInsertBlock();
@@ -2277,7 +2277,7 @@ NatBuilder::buildGEP(GetElementPtrInst *const gep, bool buildScalar, unsigned la
 
 llvm::Value*
 NatBuilder::requestVectorGEP(GetElementPtrInst *const gep) {
-  Value *mapped = getVectorValue(gep);
+  Value *mapped = getVectorValue(*gep);
   if (mapped) return mapped;
 
   ++numVecGEPs;
@@ -2289,7 +2289,7 @@ NatBuilder::requestVectorGEP(GetElementPtrInst *const gep) {
 
 llvm::Value*
 NatBuilder::requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneIdx, bool skipMapping) {
-  Value *mapped = getScalarValue(gep, laneIdx);
+  Value *mapped = getScalarValue(*gep, laneIdx);
   if (mapped) return mapped;
 
   ++numScalGEPs;
@@ -2302,7 +2302,7 @@ NatBuilder::requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneId
 
 llvm::Value*
 NatBuilder::requestVectorBitCast(BitCastInst *const bc) {
-  Value *mapped = getVectorValue(bc);
+  Value *mapped = getVectorValue(*bc);
   if (mapped)
     return mapped;
 
@@ -2327,7 +2327,7 @@ NatBuilder::requestVectorBitCast(BitCastInst *const bc) {
 }
 
 Value *NatBuilder::requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx, bool skipMapping) {
-  Value *mapped = getScalarValue(bc, laneIdx);
+  Value *mapped = getScalarValue(*bc, laneIdx);
   if (mapped)
     return mapped;
 
@@ -2665,8 +2665,8 @@ NatBuilder::repairOutsideUses(Instruction & scaChainInst, std::function<Value& (
   std::map<BasicBlock*, Value*> fixMap;
 
   // actually used value
-  Value * vecUsed = getScalarValue(&scaChainInst);
-  if (!vecUsed) vecUsed = getVectorValue(&scaChainInst, 0);
+  Value * vecUsed = getScalarValue(scaChainInst);
+  if (!vecUsed) vecUsed = getVectorValue(scaChainInst, 0);
 
   assert(vecUsed && "could not infer vector version of scalar instruction");
 
@@ -2737,8 +2737,8 @@ NatBuilder::materializeStridePattern(rv::StridePattern & sp) {
   assert(redShape.hasStridedShape());
 
 // vectorize the reduction itself (loop internal uses)
-  auto & vecPhi = *cast<PHINode>(getScalarValue(sp.phi, 0));
-  auto & vecReductor = *cast<Instruction>(getScalarValue(sp.reductor, 0));
+  auto & vecPhi = *getScalarValueAs<PHINode>(*sp.phi, 0);
+  auto & vecReductor = *getScalarValueAs<Instruction>(*sp.reductor, 0);
 
   // create an adjusted reductor (full SIMD stride)
   auto * clonedReductor = cast<Instruction>(vecReductor.clone());
@@ -2756,7 +2756,7 @@ NatBuilder::materializeStridePattern(rv::StridePattern & sp) {
 
   // attach reduced inputs to phi
   vecPhi.addIncoming(sp.phi->getIncomingValue(initOpIdx), sp.phi->getIncomingBlock(initOpIdx));
-  auto * vecLatch = cast<BasicBlock>(getVectorValue(sp.phi->getIncomingBlock(loopOpIdx)));
+  auto * vecLatch = getVectorBlock(*sp.phi->getIncomingBlock(loopOpIdx), true);
   vecPhi.addIncoming(clonedReductor, vecLatch);
 
   repairOutsideUses(*sp.phi,
@@ -2792,7 +2792,7 @@ NatBuilder::materializeRecurrence(Reduction & red, PHINode & scaPhi) {
   assert(vecInfo.getVectorShape(scaPhi).isVarying());
 
 // construct new (vectorized) initial value
-  auto * vecPhi = cast<PHINode>(getVectorValue(&scaPhi));
+  auto * vecPhi = getVectorValueAs<PHINode>(scaPhi);
   auto * vecTy = vecPhi->getType();
 
   auto * inAtZero = dyn_cast<Instruction>(scaPhi.getIncomingValue(0));
@@ -2800,7 +2800,7 @@ NatBuilder::materializeRecurrence(Reduction & red, PHINode & scaPhi) {
   int initIdx = 1 - latchIdx;
 
   BasicBlock * vecInitInputBlock = scaPhi.getIncomingBlock(initIdx);
-  BasicBlock * vecLoopInputBlock = cast<BasicBlock>(getVectorValue(scaPhi.getIncomingBlock(latchIdx)));
+  BasicBlock * vecLoopInputBlock = getVectorBlock(*scaPhi.getIncomingBlock(latchIdx), true);
 
 // broadcast initial value to all lanes
   Value * scaInitValue = scaPhi.getIncomingValue(initIdx);
@@ -2812,7 +2812,7 @@ NatBuilder::materializeRecurrence(Reduction & red, PHINode & scaPhi) {
 
 // add latch update (extract last lane)
   Instruction * scaLatchInst = cast<Instruction>(scaPhi.getIncomingValue(latchIdx));
-  auto * vecLatchInst = cast<Instruction>(getVectorValue(scaLatchInst));
+  auto * vecLatchInst = getVectorValueAs<Instruction>(*scaLatchInst);
   auto itInsert = vecLatchInst->getIterator();
   ++itInsert;
   IRBuilder<> latchBuilder(vecLatchInst->getParent(), itInsert);
@@ -2838,7 +2838,7 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
   assert((red.kind != RedKind::Top) && (red.kind != RedKind::Bot));
 
   const auto vectorWidth = vecInfo.getVectorWidth();
-  auto * vecPhi = cast<PHINode>(getVectorValue(&scaPhi));
+  auto * vecPhi = getVectorValueAs<PHINode>(scaPhi);
   auto redShape = red.getShape(vectorWidth);
   assert(redShape.isVarying()); (void) redShape;
 
@@ -2852,14 +2852,12 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
   int initIdx = 1 - latchIdx;
 
   BasicBlock * vecInitInputBlock = scaPhi.getIncomingBlock(initIdx);
-  auto & vecLatchBlock = cast<BasicBlock>(*getVectorValue(scaPhi.getIncomingBlock(latchIdx)));
-
-  // BasicBlock * vecLoopInputBlock = cast<BasicBlock>(getVectorValue(scaPhi.getIncomingBlock(latchIdx)));
+  auto & vecLatchBlock = *getVectorBlock(*scaPhi.getIncomingBlock(latchIdx), true);
 
 // materialize initial input (insert init value into last lane)
   Value * scaInitValue = scaPhi.getIncomingValue(initIdx);
   auto * scaLatchInst = cast<Instruction>(scaPhi.getIncomingValue(latchIdx));
-  auto * vecLatchInst = cast<Instruction>(getVectorValue(scaLatchInst));
+  auto * vecLatchInst = getVectorValueAs<Instruction>(*scaLatchInst);
 
 // create a scalar ordered Phi nodes
   auto * orderPhi = PHINode::Create(scaPhi.getType(), 2, scaPhi.getName() + ".ord", vecPhi);
@@ -2890,7 +2888,7 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
     if (elem == scaLatchInst) continue; // already reduced that one
     if (!vecInfo.inRegion(*cast<Instruction>(elem))) continue;
 
-    auto& vecElem = *cast<Instruction>(getVectorValue(elem));
+    auto& vecElem = *getVectorValueAs<Instruction>(*elem);
 
     // reduce outside uses on demand
     repairOutsideUses(*elem,
@@ -2917,7 +2915,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
   assert((red.kind != RedKind::Top) && (red.kind != RedKind::Bot));
 
   const auto vectorWidth = vecInfo.getVectorWidth();
-  auto * vecPhi = cast<PHINode>(getVectorValue(&scaPhi));
+  auto * vecPhi = getVectorValueAs<PHINode>(scaPhi);
   auto redShape = red.getShape(vectorWidth);
   assert(redShape.isVarying()); (void) redShape;
 
@@ -2930,7 +2928,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
   int initIdx = 1 - latchIdx;
 
   BasicBlock * vecInitInputBlock = scaPhi.getIncomingBlock(initIdx);
-  BasicBlock * vecLoopInputBlock = cast<BasicBlock>(getVectorValue(scaPhi.getIncomingBlock(latchIdx)));
+  BasicBlock * vecLoopInputBlock = getVectorBlock(*scaPhi.getIncomingBlock(latchIdx), true);
 
 // materialize initial input (insert init value into last lane)
   Value * scaInitValue = scaPhi.getIncomingValue(initIdx);
@@ -2943,7 +2941,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
 
 // add latch update
   Instruction * scaLatchInst = cast<Instruction>(scaPhi.getIncomingValue(latchIdx));
-  auto * vecLatchInst = cast<Instruction>(getVectorValue(scaLatchInst));
+  auto * vecLatchInst = getVectorValueAs<Instruction>(*scaLatchInst);
   vecPhi->addIncoming(vecLatchInst, vecLoopInputBlock);
 
 // reduce reduction phi for outside users
@@ -2971,7 +2969,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
     if (elem == scaLatchInst) continue; // already reduced that one
     if (!vecInfo.inRegion(*cast<Instruction>(elem))) continue;
 
-    auto& vecElem = *cast<Instruction>(getVectorValue(elem));
+    auto& vecElem = *getVectorValueAs<Instruction>(*elem);
 
     // reduce outside uses on demand
     repairOutsideUses(*elem,
@@ -3030,11 +3028,10 @@ void NatBuilder::addValuesToPHINodes() {
     } else {
       // default phi handling (includes fully uniform recurrences)
       for (unsigned lane = 0; lane < loopEnd; ++lane) {
-        PHINode *phi = cast<PHINode>(
-            !shape.isVarying() || replicate ? getScalarValue(scalPhi, lane) : getVectorValue(scalPhi));
+        PHINode *phi = !shape.isVarying() || replicate ? getScalarValueAs<PHINode>(*scalPhi, lane) : getVectorValueAs<PHINode>(*scalPhi);
         for (unsigned i = 0; i < scalPhi->getNumIncomingValues(); ++i) {
           // set insertion point to before Terminator of incoming block
-          BasicBlock *incVecBlock = cast<BasicBlock>(getVectorValue(scalPhi->getIncomingBlock(i), true));
+          BasicBlock *incVecBlock = getVectorBlock(*scalPhi->getIncomingBlock(i), true);
           builder.SetInsertPoint(incVecBlock->getTerminator());
 
           Value *val = !shape.isVarying() || replicate ? requestScalarValue(scalPhi->getIncomingValue(i), lane)
@@ -3059,13 +3056,13 @@ void NatBuilder::mapVectorValue(const Value *const value, Value *vecValue) {
     vectorValueMap[value] = vecValue;
 }
 
-Value *NatBuilder::getVectorValue(Value *const value, bool getLastBlock) {
-  if (isa<BasicBlock>(value)) {
-    if (!vecInfo.inRegion(*cast<BasicBlock>(value))) {
-      return value; // preserve BBs outside of the region
+Value *NatBuilder::getVectorValue(Value& ScaValue, bool getLastBlock) {
+  if (isa<BasicBlock>(ScaValue)) {
+    if (!vecInfo.inRegion(cast<BasicBlock>(ScaValue))) {
+      return &ScaValue; // preserve BBs outside of the region
     }
 
-    BasicBlock *const block = cast<BasicBlock>(value);
+    BasicBlock *const block = cast<BasicBlock>(&ScaValue);
     auto blockIt = basicBlockMap.find(block);
     if (blockIt != basicBlockMap.end()) {
       BasicBlockVector &blocks = blockIt->second;
@@ -3073,9 +3070,23 @@ Value *NatBuilder::getVectorValue(Value *const value, bool getLastBlock) {
     }
   }
 
-  auto vecIt = vectorValueMap.find(value);
+  auto vecIt = vectorValueMap.find(&ScaValue);
   if (vecIt != vectorValueMap.end()) return vecIt->second;
   else return nullptr;
+}
+
+BasicBlock*
+NatBuilder::getVectorBlock(BasicBlock & ScaBlock, bool ReturnLastBlock) {
+  if (!vecInfo.inRegion(ScaBlock)) {
+    return &ScaBlock; // preserve BBs outside of the region
+  }
+
+  auto blockIt = basicBlockMap.find(&ScaBlock);
+  if (blockIt != basicBlockMap.end()) {
+    BasicBlockVector &blocks = blockIt->second;
+    return ReturnLastBlock ? blocks.back() : blocks.front();
+  }
+  return nullptr;
 }
 
 void NatBuilder::mapScalarValue(const Value *const value, Value *mapValue, unsigned laneIdx) {
@@ -3084,28 +3095,28 @@ void NatBuilder::mapScalarValue(const Value *const value, Value *mapValue, unsig
   laneValues.insert(laneValues.begin() + laneIdx, mapValue);
 }
 
-Value *NatBuilder::getScalarValue(Value *const value, unsigned laneIdx) {
-  if (isa<MetadataAsValue>(value)) {
+Value *NatBuilder::getScalarValue(Value & ScaValue, unsigned laneIdx) {
+  if (isa<MetadataAsValue>(ScaValue)) {
     // as used in "llvm.dbg.value" calls
-    return value;
+    return &ScaValue;
   }
 
   // in case of regions, keep any values that are live into the region
   // FIXME make this generic through explicit argument mapping
-  if (vecInfo.getRegion().isVectorLoop() && isa<Argument>(value)) {
-    return value;
-  } else if (vecInfo.getRegion().isVectorLoop() && isa<Instruction>(value) && !vecInfo.inRegion(*cast<Instruction>(value)->getParent())) {
-    return value;
+  if (vecInfo.getRegion().isVectorLoop() && isa<Argument>(ScaValue)) {
+    return &ScaValue;
+  } else if (vecInfo.getRegion().isVectorLoop() && isa<Instruction>(ScaValue) && !vecInfo.inRegion(*cast<Instruction>(ScaValue).getParent())) {
+    return &ScaValue;
   }
 
-  const Constant *constant = dyn_cast<const Constant>(value);
+  const Constant *constant = dyn_cast<const Constant>(&ScaValue);
   if (constant) return const_cast<Constant *>(constant);
 
-  auto scalarIt = scalarValueMap.find(value);
+  auto scalarIt = scalarValueMap.find(&ScaValue);
   if (scalarIt != scalarValueMap.end()) {
     VectorShape shape;
-    if (vecInfo.hasKnownShape(*value)) {
-      shape = getVectorShape(*value);
+    if (vecInfo.hasKnownShape(ScaValue)) {
+      shape = getVectorShape(ScaValue);
       if (shape.isUniform()) laneIdx = 0;
     }
 
