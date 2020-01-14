@@ -116,7 +116,7 @@ GuardedTransformSession::requestGuardedTrackerDesc(const llvm::Value& val) {
 
 void
 GuardedTransformSession::transformLoop() {
-  IF_DEBUG_DLT { errs() << "TransformLoop " << loop.getName() << "\n"; }
+  IF_DEBUG_DLT { errs() << "dlt: Transforming loop " << loop.getName() << "\n:"; loop.print(errs()); }
 
   assert(vecInfo.isDivergentLoop(loop) && "trying to convert a non-divergent loop");
 
@@ -474,13 +474,11 @@ GuardedTransformSession::transformLoop() {
    }
 
    IF_DEBUG_DLT {
-     errs() << "DLT: converted loop:\n";
+     errs() << "dlt: loop after conversion:\n";
+     loop.print(errs());
+     errs() << "dlt: vecInfo after conversion of " << loop.getName() << "\b";
      vecInfo.dump();
    }
-
-   // finally set the loop header mask to terminate maskEx
-   // vecInfo.setPredicate(*loop.getHeader(), *liveMaskDesc.trackerPhi); // illegal
-   // maskEx.setBlockMask(*loop.getHeader(), *liveMaskDesc.trackerPhi);
 }
 
 // split the latch if it is not pure (only a terminator)
@@ -596,6 +594,10 @@ GuardedDivLoopTrans::transformDivergentLoopControl(LoopInfo & LI, Loop & loop) {
 
   // make this loop uniform (all remaining divergent loops are properly nested)
   if (vecInfo.isDivergentLoop(loop)) {
+    IF_DEBUG_DLT {
+      errs() << "dlt: Transforming divergent loop: " << loop.getName() << "\n";
+    }
+
     assert(vecInfo.inRegion(*loop.getHeader()) && "loop outside the Region marked as divergent");
     ++numDivergentLoops;
     hasDivergentLoops = true;
@@ -625,6 +627,16 @@ void
 GuardedDivLoopTrans::transformDivergentLoops() {
   IF_DEBUG_DLT { errs() << "-- divLoopTrans log --\n"; }
   auto &LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
+
+  // verify incoming analysis sructures
+  IF_DEBUG_DLT {
+    errs() << "dlt: Verifying LI:\n";
+    auto & DT = FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
+    LI.verify(DT);
+    errs() << "dlt: LI OK: LI before DLT:\n";
+    LI.print(errs());
+    errs() << "dlt: Beginning transform..\n";
+  }
 
   // create tracker/update phis and make all loops uniform
   bool hasDivergentLoops = false;
