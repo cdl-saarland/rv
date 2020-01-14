@@ -19,6 +19,8 @@
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/IR/Dominators.h"
 
+#include "report.h"
+
 #include <numeric>
 
 #if 1
@@ -172,28 +174,33 @@ void VectorizationAnalysis::pushPHINodes(const BasicBlock &Block) {
   }
 }
 
+/// \p returns whether divergence in \p JoinBlock causes loop divergence in \p
+/// BranchLoop.
 bool VectorizationAnalysis::propagateJoinDivergence(const BasicBlock &JoinBlock,
                                                     const Loop *BranchLoop) {
   IF_DEBUG_VA { errs() << "\tVA: propJoinDiv " << JoinBlock.getName() << "\n"; }
 
   // ignore divergence outside the region
   if (!vecInfo.inRegion(JoinBlock)) {
+    Report() << "VA: detected divergent join outside the region in block " << JoinBlock.getName() << "!\n";
     return false;
   }
 
-  // already to known to be join divergent
+  // JoinBlock is a divergent loop exit
+  // We have to test this first to make sure that divergent loop exits
+  // trigger loop-divergence detection for multi-level loop exiting edges.
+  if (BranchLoop && !BranchLoop->contains(&JoinBlock)) {
+    vecInfo.addJoinDivergentBlock(JoinBlock);
+    pushPHINodes(JoinBlock);
+    return true;
+  }
+
+  // Otw, JoinBlock is an acyclic divergent join
   if (!vecInfo.addJoinDivergentBlock(JoinBlock))
     return false;
 
   // push non-divergent phi nodes in JoinBlock to the worklist
   pushPHINodes(JoinBlock);
-
-  // JoinBlock is a divergent loop exit
-  if (BranchLoop && !BranchLoop->contains(&JoinBlock)) {
-    return true;
-  }
-
-  // disjoint-paths divergent at JoinBlock
   return false;
 }
 
