@@ -180,7 +180,7 @@ void NatBuilder::printStatistics() {
   file.close();
 }
 
-VectorShape NatBuilder::getVectorShape(const Value &val) {
+VectorShape NatBuilder::getVectorShape(const Value &val) const {
   if (vecInfo.hasKnownShape(val)) return vecInfo.getVectorShape(val);
   else return VectorShape::uni();
 }
@@ -1761,7 +1761,7 @@ Value *NatBuilder::createContiguousStore(Value *vecVal, Value *elemPtr, Align al
 
   auto vecPtr = builder.CreatePointerCast(elemPtr, vecVal->getType()->getPointerTo(cast<PointerType>(elemPtr->getType())->getAddressSpace()));
   if (!vecMask.knownAllTrue()) {
-    return builder.CreateMaskedStore(vecVal, vecPtr, alignment.value(), vecMask.getPred());
+    return builder.CreateMaskedStore(vecVal, vecPtr, alignment, vecMask.getPred());
 
   } else {
     StoreInst *store = builder.CreateStore(vecVal, vecPtr);
@@ -1786,7 +1786,7 @@ Value *NatBuilder::createContiguousLoad(Value *elemPtr, Align alignment, Mask ve
   auto VecElemPtrTy = ScaElemTy->getPointerTo(ElemPtrTy->getPointerAddressSpace());
   auto VecPtr = builder.CreatePointerCast(elemPtr, VecElemPtrTy);
   if (!vecMask.knownAllTrue()) {
-    return builder.CreateMaskedLoad(VecPtr, alignment.value(), vecMask.getPred(), passThru, "cont_load");
+    return builder.CreateMaskedLoad(VecPtr, alignment, vecMask.getPred(), passThru, "cont_load");
 
   } else {
     LoadInst *load = builder.CreateLoad(VecPtr, "cont_load");
@@ -1945,7 +1945,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   if (isa<BitCastInst>(value))
     return requestScalarBitCast(cast<BitCastInst>(value), laneIdx, false);
 
-  Value *mappedVal = getScalarValue(value, laneIdx);
+  Value *mappedVal = getScalarValue(*value, laneIdx);
   if (mappedVal) return mappedVal;
 
   // if value is integer or floating type, contiguous and has value for lane 0, add laneIdx
@@ -2484,7 +2484,7 @@ NatBuilder::repairOutsideUses(Instruction & scaChainInst, std::function<Value& (
   std::map<BasicBlock*, Value*> fixMap;
 
   // actually used value
-  Value * vecUsed = getScalarValue(&scaChainInst);
+  Value * vecUsed = getScalarValue(scaChainInst);
   if (!vecUsed) vecUsed = getVectorValue(scaChainInst); // FIXME
 
   assert(vecUsed && "could not infer vector version of scalar instruction");
@@ -2848,7 +2848,7 @@ void NatBuilder::addValuesToPHINodes() {
       // default phi handling (includes fully uniform recurrences)
       for (unsigned lane = 0; lane < loopEnd; ++lane) {
         PHINode *phi = 
-            (!shape.isVarying() || replicate) ? getScalarValueAs<PHINode>(scalPhi, lane) : getVectorValueAs<PHINode>(*scalPhi);
+            (!shape.isVarying() || replicate) ? getScalarValueAs<PHINode>(*scalPhi, lane) : getVectorValueAs<PHINode>(*scalPhi);
         for (unsigned i = 0; i < scalPhi->getNumIncomingValues(); ++i) {
           // set insertion point to before Terminator of incoming block
           BasicBlock *incVecBlock = getVectorBlock(*scalPhi->getIncomingBlock(i), true);
@@ -2877,7 +2877,7 @@ void NatBuilder::mapVectorValue(const Value *const value, Value *vecValue) {
   }
 }
 
-Value *NatBuilder::getVectorValue(Value &ScaValue, bool getLastBlock) {
+Value *NatBuilder::getVectorValue(Value &ScaValue, bool getLastBlock) const {
   if (isa<BasicBlock>(ScaValue)) {
     return getVectorBlock(cast<BasicBlock>(ScaValue), getLastBlock);
   }
@@ -2890,14 +2890,14 @@ Value *NatBuilder::getVectorValue(Value &ScaValue, bool getLastBlock) {
 }
 
 BasicBlock *NatBuilder::getVectorBlock(BasicBlock &ScaBlock,
-                                       bool ReturnLastBlock) {
+                                       bool ReturnLastBlock) const {
   if (!vecInfo.inRegion(ScaBlock)) {
     return &ScaBlock; // preserve BBs outside of the region
   }
 
   auto blockIt = basicBlockMap.find(&ScaBlock);
   if (blockIt != basicBlockMap.end()) {
-    BasicBlockVector &blocks = blockIt->second;
+    const BasicBlockVector &blocks = blockIt->second;
     return ReturnLastBlock ? blocks.back() : blocks.front();
   }
   return nullptr;
@@ -2909,7 +2909,7 @@ void NatBuilder::mapScalarValue(const Value *const value, Value *mapValue, unsig
   laneValues.insert(laneValues.begin() + laneIdx, mapValue);
 }
 
-Value *NatBuilder::getScalarValue(Value & ScaValue, unsigned laneIdx) {
+Value *NatBuilder::getScalarValue(Value & ScaValue, unsigned laneIdx) const {
   if (isa<MetadataAsValue>(ScaValue)) {
     // as used in "llvm.dbg.value" calls
     return &ScaValue;
@@ -2934,7 +2934,7 @@ Value *NatBuilder::getScalarValue(Value & ScaValue, unsigned laneIdx) {
       if (shape.isUniform()) laneIdx = 0;
     }
 
-    LaneValueVector &laneValues = scalarIt->second;
+    const LaneValueVector &laneValues = scalarIt->second;
     if (laneValues.size() > laneIdx) return laneValues[laneIdx];
     else return nullptr;
   } else return nullptr;

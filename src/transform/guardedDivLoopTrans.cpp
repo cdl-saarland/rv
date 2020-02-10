@@ -17,8 +17,9 @@
 #include "report.h"
 
 #include <llvm/Analysis/LoopInfo.h>
-#include <llvm/IR/Dominators.h>
+#include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/Dominators.h>
 #include <llvm/IR/IRBuilder.h>
 
 #include <llvm/Transforms/Utils/SSAUpdater.h>

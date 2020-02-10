@@ -148,7 +148,7 @@ void vectorizeLoop(Function &parentFn, Loop &TheLoop, unsigned vectorWidth,
   rv::RemainderTransform remTrans(parentFn, DT, PDT, LI,
                                   reductionAnalysis);
   auto LoopPrep = remTrans.createVectorizableLoop(
-      loop, uniOverrides, config.useAVL, vectorWidth, 1);
+      TheLoop, uniOverrides, config.useAVL, vectorWidth, 1);
   auto *preparedLoop = LoopPrep.TheLoop;
 
   if (!preparedLoop) {

@@ -65,7 +65,7 @@ namespace rv {
 
     void printStatistics();
 
-    rv::VectorShape getVectorShape(const llvm::Value &val);
+    rv::VectorShape getVectorShape(const llvm::Value &val) const;
 
     // get the appropriate integer ty to index into the ptr-typed \p val.
     llvm::Type* getIndexTy(llvm::Value * val) const;
@@ -105,20 +105,21 @@ namespace rv {
     void mapScalarValue(const llvm::Value *const value, llvm::Value *mapValue, unsigned laneIdx = 0);
 
     llvm::BasicBlock *getVectorBlock(llvm::BasicBlock &ScaBlock,
-                                     bool LastBlock);
+                                     bool LastBlock) const;
     llvm::Value *getVectorValue(llvm::Value &ScaValue,
-                                bool getLastBlock = false);
+                                bool getLastBlock = false) const;
     template <typename CastType>
     CastType *getVectorValueAs(llvm::Value &ScaValue,
-                               bool getLastBlock = false) {
+                               bool getLastBlock = false) const {
       auto *VecVal = getVectorValue(ScaValue, getLastBlock);
       if (!VecVal)
         return nullptr;
       return llvm::cast<CastType>(VecVal);
     }
-    llvm::Value *getScalarValue(llvm::Value &ScaValue, unsigned laneIdx = 0);
+    llvm::Value *getScalarValue(llvm::Value &ScaValue, unsigned laneIdx = 0) const;
     template <typename CastClass>
-    CastClass *getScalarValueAs(llvm::Value &ScaValue, unsigned laneIdx = 0) {
+    CastClass *getScalarValueAs(llvm::Value &ScaValue,
+                                unsigned laneIdx = 0) const {
       auto VecVal = getScalarValue(ScaValue, laneIdx);
       if (!VecVal)
         return nullptr;

@@ -190,7 +190,7 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     MaskExpander maskEx(vecInfo, FAM);
 
     // convert divergent loops inside the region to uniform loops
-    GuardedDivLoopTrans guardedDLT(platInfo, vecInfo, domTree, loopInfo);
+    GuardedDivLoopTrans guardedDLT(platInfo, vecInfo, FAM);
     guardedDLT.transformDivergentLoops();
 
     // insert CIF branches if desired
@@ -320,7 +320,7 @@ lowerIntrinsicCall(CallInst* call) {
         IRBuilder<> builder(call);
         auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
         auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-        auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
+        auto * gep = builder.CreateGEP(ptrCast, call->getOperand(1));
         return builder.CreateLoad(gep);
       });
     } break;
@@ -330,7 +330,7 @@ lowerIntrinsicCall(CallInst* call) {
         IRBuilder<> builder(call);
         auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
         auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-        auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
+        auto * gep = builder.CreateGEP(ptrCast, call->getOperand(1));
         return builder.CreateStore(call->getOperand(2), gep);
       });
     } break;
