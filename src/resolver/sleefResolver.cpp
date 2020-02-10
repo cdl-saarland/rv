@@ -801,7 +801,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
       return nullptr;
     }
 
-    return std::make_unique<SleefVLAResolver>(platInfo, vlaFunc->getName(), config, *vlaFunc, argShapes, vectorWidth);
+    return std::make_unique<SleefVLAResolver>(platInfo, vlaFunc->getName().str(), config, *vlaFunc, argShapes, vectorWidth);
 
   } else {
     // these are pure functions

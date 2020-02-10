@@ -53,7 +53,7 @@ std::string GetIntrinsicName(RVIntrinsic id, Type * DataTy) {
     std::string typeSuffix = MangleType(*DataTy);
     return (BaseName + "_" + typeSuffix).str();
   }
-  return BaseName;
+  return BaseName.str();
 }
 
 static

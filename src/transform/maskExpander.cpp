@@ -392,7 +392,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
     if (edgeMaskInst) {
 
       if (!DT.dominates(edgeMaskInst->getParent(), &BB)) {
-        std::string defBlockName = edgeMaskInst->getParent()->getName();
+        std::string defBlockName = edgeMaskInst->getParent()->getName().str();
         auto edgeMaskShape = vecInfo.getVectorShape(*edgeMask);
         auto itInsert = &*BB.begin();
         auto * edgePhi = PHINode::Create(boolTy, numPreds, "edgemask_domphi_" + defBlockName, itInsert);
