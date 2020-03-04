@@ -1635,6 +1635,8 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Value * scaPayload = nullptr;
         RedKind memRed = matchMemoryReduction(accessedPtr, storedValue, scaPayload, scaOldLoad);
         if (memRed == RedKind::Top) {
+          errs() << *inst << "\n";
+          errs() << *storedValue << " : " << valShape.str() << "\n";
           errs() << "ERROR: Storing a non-uniform value to a uniform pointer but could not identify reduction pattern!\n";
           abort();
         }
