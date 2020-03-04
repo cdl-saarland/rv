@@ -14,7 +14,7 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
 
-#include "llvm/IR/IntrinsicsX86.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IRBuilder.h"
@@ -451,7 +451,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     auto newValue = getConditionFromMask(builder, valueMask);
     auto newStore = builder.CreateStore(newValue, storeInst->getOperand(1));
 
-    newStore->setAlignment(MaybeAlign(storeInst->getAlignment()));
+    newStore->setAlignment(storeInst->getAlignment());
     newStore->setVolatile(storeInst->isVolatile());
     newStore->setOrdering(storeInst->getOrdering());
     newStore->setSyncScopeID(storeInst->getSyncScopeID());
@@ -461,7 +461,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     auto ptr = loadInst->getOperand(0);
     auto newLoad = builder.CreateLoad(ptr);
 
-    newLoad->setAlignment(MaybeAlign(loadInst->getAlignment()));
+    newLoad->setAlignment(loadInst->getAlignment());
     newLoad->setVolatile(loadInst->isVolatile());
     newLoad->setOrdering(loadInst->getOrdering());
     newLoad->setSyncScopeID(loadInst->getSyncScopeID());

@@ -741,7 +741,8 @@ Linearizer::foldPhis(BasicBlock & block) {
         numFoldedAssignments += 2;
         ++numCDivPhis;
       }
-      headerPhi.setIncomingValueForBlock(phiLoop->getLoopPreheader(), foldedInVal);
+      int BlockIdx = headerPhi.getBasicBlockIndex(phiLoop->getLoopPreheader());
+      headerPhi.setIncomingValue(BlockIdx, foldedInVal);
     }
 
     return;

@@ -185,7 +185,7 @@ WFVPass::runOnModule(Module & M) {
   auto & protoFunc = *wfvJobs[0].scalarFn;
 
   // configure platform info
-  auto & TLI = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(protoFunc);
+  auto & TLI = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
 
   // FIXME this assumes that all functions were compiled for the same target
   auto & TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(protoFunc);

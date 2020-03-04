@@ -386,7 +386,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   this->MDR = &FAM.getResult<MemoryDependenceAnalysis>(F);
   this->PB = &FAM.getResult<BranchProbabilityAnalysis>(F);
   TargetTransformInfo & tti = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F); // FIXME use FAM
-  TargetLibraryInfo & tli = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(F); // FIXME use FAM
+  TargetLibraryInfo & tli = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(); // FIXME use FAM
 
   this->config = Config::createForFunction(F);
 

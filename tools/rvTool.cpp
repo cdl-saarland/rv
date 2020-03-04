@@ -350,7 +350,7 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   assert(scalarCopy);
   scalarCopy->setCallingConv(scalarFn->getCallingConv());
   scalarCopy->setAttributes(scalarFn->getAttributes());
-  scalarCopy->setAlignment(MaybeAlign(scalarFn->getAlignment()));
+  scalarCopy->setAlignment(scalarFn->getAlignment());
   scalarCopy->setLinkage(GlobalValue::InternalLinkage);
   scalarCopy->setName(scalarFn->getName() + ".vectorizer.tmp");
 

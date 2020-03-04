@@ -783,7 +783,8 @@ run() {
       }
 
    // dont bother with unused instructions
-      if (I.uses().empty()) continue; // skip dead code
+      if (I.getNumUses() == 0)
+        continue; // skip dead code
 
       // only start replication from extractvalue
       if (isa<ExtractValueInst>(I)) {

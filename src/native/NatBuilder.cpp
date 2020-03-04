@@ -13,7 +13,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Metadata.h>
-#include "llvm/IR/IntrinsicsX86.h"
+#include "llvm/IR/Intrinsics.h"
 #include <report.h>
 #include <fstream>
 
@@ -753,7 +753,7 @@ void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
     auto * scaleFactor = ConstantInt::get(indexTy, vectorWidth());
 
     auto * baseAlloca = builder.CreateAlloca(allocTy, allocaInst->getType()->getAddressSpace(), scaleFactor, name + ".scaled_alloca");
-    baseAlloca->setAlignment(MaybeAlign(allocAlign));
+    baseAlloca->setAlignment(allocAlign);
 
     // extract basePtrs
     auto * offsetVec = createContiguousVector(vectorWidth(), indexTy, 0, 1);
@@ -1118,7 +1118,7 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
     auto vecWidth = vecInfo.getVectorWidth();
     assert(vecWidth == 4 || vecWidth == 8);
 
-    Intrinsic::ID id = Intrinsic::x86_avx512_mask_expand;
+    Intrinsic::ID id = vecWidth == 8 ? Intrinsic::x86_avx512_mask_expand_pd_512 : Intrinsic::x86_avx512_mask_expand_ps_512;
 
     assert(rvCall.getNumArgOperands() == 1 && "expected 1 argument for rv_index(mask)");
 
@@ -1799,7 +1799,7 @@ NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, u
   // extract and materialize store
   auto * lastLaneVal = builder.CreateExtractElement(values, indexVal, "xt.lastlane");
   auto * vecMem = builder.CreateStore(lastLaneVal, addr);
-  cast<StoreInst>(vecMem)->setAlignment(MaybeAlign(alignment));
+  cast<StoreInst>(vecMem)->setAlignment(alignment);
 
   // proceed in continue block (if any)
   if (continueBlock) {
@@ -1822,10 +1822,10 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedTy
     Instruction* vecMem;
     if (values) {
       vecMem = builder.CreateStore(values, addr);
-      cast<StoreInst>(vecMem)->setAlignment(MaybeAlign(alignment));
+      cast<StoreInst>(vecMem)->setAlignment(alignment);
     } else {
       vecMem = builder.CreateLoad(addr, "scal_mask_mem");
-      cast<LoadInst>(vecMem)->setAlignment(MaybeAlign(alignment));
+      cast<LoadInst>(vecMem)->setAlignment(alignment);
     }
     return vecMem;
   });
@@ -1909,7 +1909,7 @@ Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, unsigned alignm
 
   } else {
     StoreInst *store = builder.CreateStore(val, ptr);
-    store->setAlignment(MaybeAlign(alignment));
+    store->setAlignment(alignment);
     return store;
   }
 }
@@ -1920,7 +1920,7 @@ Value *NatBuilder::createContiguousLoad(Value *ptr, unsigned alignment, Value *m
 
   } else {
     LoadInst *load = builder.CreateLoad(ptr, "cont_load");
-    load->setAlignment(MaybeAlign(alignment));
+    load->setAlignment(alignment);
     return load;
   }
 }
@@ -2577,7 +2577,7 @@ Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigne
     } else {
       // ... load from pointer, insert to result vector, branch to next
       Value *loadInst = builder.CreateLoad(pointerLaneVal, "load_lane_" + std::to_string(i));
-      cast<LoadInst>(loadInst)->setAlignment(MaybeAlign(alignment));
+      cast<LoadInst>(loadInst)->setAlignment(alignment);
       insert = builder.CreateInsertElement(resVec, loadInst, ConstantInt::get(i32Ty, i),
                                            "insert_lane_" + std::to_string(i));
     }

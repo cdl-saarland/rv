@@ -23,7 +23,7 @@ MangleType(const Type & Ty) {
   } else if (Ty.isFloatTy()) {
     return "f";
   } else if (Ty.isVectorTy()) {
-    return (Ty.getVectorIsScalable() ? "nxv" : "v") + std::to_string(Ty.getVectorElementCount().Min) + MangleType(Ty);
+    return "v" + std::to_string(Ty.getVectorNumElements()) + MangleType(Ty);
   }
   abort(); // TODO we really should use LLVM's facilities here...
 }
