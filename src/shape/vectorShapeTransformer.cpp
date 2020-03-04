@@ -274,7 +274,8 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       const VectorShape& sel1Shape = getObservedShape(BB, selection1);
       const VectorShape& sel2Shape = getObservedShape(BB, selection2);
 
-      if (!condShape.isUniform()) return VectorShape::varying();
+      if (condShape.greaterThanUniform())
+        return VectorShape::varying();
 
       return VectorShape::join(sel1Shape, sel2Shape);
     }
