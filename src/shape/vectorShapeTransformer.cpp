@@ -24,13 +24,16 @@ using namespace llvm;
 
 rv::VectorShape
 GenericTransfer(rv::VectorShape a) {
+  if (!a.isDefined())
+    return a;
   return a.isUniform() ? rv::VectorShape::uni() : rv::VectorShape::varying();
 }
 
 template<class ... Shapes>
 rv::VectorShape
 GenericTransfer(rv::VectorShape a, Shapes... nextShapes) {
-  if (!a.isUniform()) return rv::VectorShape::varying();
+  if (a.isDefined() && !a.isUniform())
+    return a.isDefined() ? rv::VectorShape::varying() : VectorShape::undef();
   else return GenericTransfer(nextShapes...);
 }
 
@@ -279,11 +282,17 @@ VectorShapeTransformer::computeGenericArithmeticTransfer(const Instruction & I) 
   const auto & BB = *I.getParent();
 
   assert(I.getNumOperands() > 0 && "can not compute arithmetic transfer for instructions w/o operands");
-  // generic transfer function
+
+  // interpret as a cascade of generic binary operators
+  VectorShape AccuShape = VectorShape::undef();
   for (unsigned i = 0; i < I.getNumOperands(); ++i) {
-    if (!getObservedShape(BB, *I.getOperand(i)).isUniform()) return VectorShape::varying();
+    VectorShape ObsOpShape = getObservedShape(BB, *I.getOperand(i));
+    AccuShape = GenericTransfer(AccuShape, ObsOpShape);
+    // early exit
+    if (AccuShape.isVarying())
+      return AccuShape;
   }
-  return VectorShape::uni();
+  return AccuShape;
 }
 
 VectorShape
