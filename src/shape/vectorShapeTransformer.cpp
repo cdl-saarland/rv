@@ -186,13 +186,19 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       if (id == Intrinsic::memcpy) {
         auto & mcInst = cast<MemCpyInst>(call);
         auto srcShape = getObservedShape(BB, *mcInst.getSource());
-        if (!srcShape.isUniform()) taintedOps.push_back(mcInst.getDest());
-        return srcShape.isUniform() ? srcShape : VectorShape::varying();
+        if (srcShape.isDefined() && !srcShape.isUniform())
+          taintedOps.push_back(mcInst.getDest());
+        return (!srcShape.isDefined() || srcShape.isUniform())
+                   ? srcShape
+                   : VectorShape::varying();
       } else if (id == Intrinsic::memmove) {
         auto & movInst = cast<MemMoveInst>(call);
         auto srcShape = getObservedShape(BB, *movInst.getSource());
-        if (!srcShape.isUniform()) taintedOps.push_back(movInst.getDest());
-        return srcShape.isUniform() ? srcShape : VectorShape::varying();
+        if (srcShape.isDefined() && !srcShape.isUniform())
+          taintedOps.push_back(movInst.getDest());
+        return (!srcShape.isDefined() || srcShape.isUniform())
+                   ? srcShape
+                   : VectorShape::varying();
       }
 
       // If the function is rv_align, use the alignment information
@@ -250,8 +256,12 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       auto & storeInst = cast<StoreInst>(I);
       auto valShape = getObservedShape(BB, *storeInst.getValueOperand());
       auto ptrShape = getObservedShape(BB, *storeInst.getPointerOperand());
-      if (!valShape.isUniform()) taintedOps.push_back(storeInst.getPointerOperand());
-      return VectorShape::join(ptrShape, valShape.isUniform() ? valShape : VectorShape::varying());
+      if (valShape.isDefined() && !valShape.isUniform())
+        taintedOps.push_back(storeInst.getPointerOperand());
+      return VectorShape::join(ptrShape,
+                               (!valShape.isDefined() || valShape.isUniform())
+                                   ? valShape
+                                   : VectorShape::varying());
     }
 
     case Instruction::Select:
