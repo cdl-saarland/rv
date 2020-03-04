@@ -52,6 +52,7 @@ public:
   bool isStrided(int ofStride) const { return hasStridedShape() && stride == ofStride; }
   bool isStrided() const { return hasStridedShape() && stride != 0 && stride != 1; }
   bool isUniform() const { return isStrided(0); }
+  bool greaterThanUniform() const { return !isUniform() && isDefined(); }
   inline bool isContiguous() const { return isStrided(1); }
 
   static VectorShape varying(int aligned = 1) { return VectorShape(aligned); }

@@ -191,6 +191,10 @@ VectorShape VectorizationInfo::getObservedShape(const LoopInfo &LI,
   auto valShape = getVectorShape(val);
   uint alignment = valShape.getAlignmentGeneral();
 
+  // forward undef shapes
+  if (!valShape.isDefined())
+    return valShape;
+
   if (isTemporalDivergent(LI, observerBlock, val)) {
     return VectorShape::varying(alignment);
   }
