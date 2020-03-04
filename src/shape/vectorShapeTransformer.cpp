@@ -200,6 +200,7 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       }
 
       // collect required argument shapes
+      // bail if any shape was undefined
       bool allArgsUniform = true;
       size_t numParams = call.getNumArgOperands();
       VectorShapeVec callArgShapes;
@@ -208,6 +209,8 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
         auto argShape = getObservedShape(BB, op);
         allArgsUniform &= argShape.isUniform();
         callArgShapes.push_back(argShape);
+        if (!argShape.isDefined())
+          return VectorShape::undef();
       }
 
       // known LLVM intrinsic shapes
@@ -530,4 +533,3 @@ VectorShapeTransformer::computeShapeForPHINode(const PHINode &Phi) const {
   // joined incoming shapes
   return accu;
 }
-
