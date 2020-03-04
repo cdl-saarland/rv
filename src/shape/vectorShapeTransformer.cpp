@@ -258,10 +258,9 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       auto ptrShape = getObservedShape(BB, *storeInst.getPointerOperand());
       if (valShape.isDefined() && !valShape.isUniform())
         taintedOps.push_back(storeInst.getPointerOperand());
-      return VectorShape::join(ptrShape,
-                               (!valShape.isDefined() || valShape.isUniform())
-                                   ? valShape
-                                   : VectorShape::varying());
+      return VectorShape::join(
+          ptrShape,
+          (valShape.greaterThanUniform() ? VectorShape::varying() : valShape));
     }
 
     case Instruction::Select:
