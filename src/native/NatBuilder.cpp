@@ -86,6 +86,12 @@ bool DumpStatistics(std::string &file) {
   else return !(file = envVal).empty();
 }
 
+Value*
+NatBuilder::getSplat(Constant* Elt) {
+  ElementCount EC(vectorWidth(), false);
+  return ConstantVector::getSplat(EC, Elt);
+}
+
 Type*
 NatBuilder::getIndexTy(Value * val) const {
   IF_DEBUG { errs() << " querying the indexType for value: " << *val << "\n"; }
@@ -1064,7 +1070,7 @@ NatBuilder::createVectorMaskSummary(Mask vecMask, RVIntrinsic mode, Type * index
         return &vecMask.requestAVLAsValue(builder.getContext());
       } 
 
-      auto AllOnes = ConstantVector::getSplat(vectorWidth(), ConstantInt::get(indexTy, 1, false));
+      auto AllOnes = getSplat(ConstantInt::get(indexTy, 1, false));
       result = &CreateMaskedVectorReduce(config, builder, vecMask, RedKind::Add, *AllOnes, nullptr);
     } break;
 
@@ -2666,7 +2672,7 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
 
 // construct new (vectorized) initial value
   // TODO generalize to multi phi reductions
-  Value * vecNeutral = ConstantVector::getSplat(vectorWidth, &GetNeutralElement(red.kind, *scaPhi.getType()));
+  Value * vecNeutral = getSplat(&GetNeutralElement(red.kind, *scaPhi.getType()));
 
   auto * inAtZero = dyn_cast<Instruction>(scaPhi.getIncomingValue(0));
   int latchIdx = (inAtZero && vecInfo.inRegion(*inAtZero)) ? 0 : 1;
@@ -2742,7 +2748,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
 
 // construct new (vectorized) initial value
   // TODO generalize to multi phi reductions
-  Value * vecNeutral = ConstantVector::getSplat(vectorWidth, &GetNeutralElement(red.kind, *scaPhi.getType()));
+  Value * vecNeutral = getSplat(&GetNeutralElement(red.kind, *scaPhi.getType()));
 
   auto * inAtZero = dyn_cast<Instruction>(scaPhi.getIncomingValue(0));
   int latchIdx = (inAtZero && vecInfo.inRegion(*inAtZero)) ? 0 : 1;

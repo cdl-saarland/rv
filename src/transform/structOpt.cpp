@@ -321,6 +321,15 @@ static bool VectorizableType(Type & type) {
   }
   return type.isIntegerTy() || type.isFloatingPointTy();
 }
+static Type*
+getFirstCompositeElement(Type* Ty) {
+  auto STy = dyn_cast<StructType>(Ty);
+  if (STy) return STy->getElementType(0);
+
+  auto SeqTy = dyn_cast<SequentialType>(Ty);
+  if (SeqTy) return SeqTy->getElementType();
+  return nullptr;
+}
 
 bool
 StructOpt::IsGEPByBitcast(Type * actualTy, Type * bcDestTy) {
@@ -333,9 +342,9 @@ StructOpt::IsGEPByBitcast(Type * actualTy, Type * bcDestTy) {
   if (layout.getTypeAllocSize(bcDestTy) == layout.getTypeAllocSize(actualTy)) return true;
 
   // Otw, recursive into first element
-  auto * compTy = dyn_cast<CompositeType>(actualTy);
-  if (!compTy) return false;
-  return IsGEPByBitcast(compTy->getTypeAtIndex((unsigned) 0), bcDestTy);
+  auto * firstElemTy = getFirstCompositeElement(actualTy);
+  if (!firstElemTy) return false;
+  return IsGEPByBitcast(firstElemTy, bcDestTy);
 }
 
 /// whether any address computation on this alloc is uniform

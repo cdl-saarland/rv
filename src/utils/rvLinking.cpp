@@ -57,7 +57,7 @@ GlobalValue & cloneGlobalIntoModule(GlobalValue &gv, Module &cloneInto) {
     }
 
     clonedGlobal->setThreadLocalMode(global.getThreadLocalMode());
-    clonedGlobal->setAlignment(global.getAlignment());
+    clonedGlobal->setAlignment(global.getAlign());
     clonedGlobal->copyAttributesFrom(&global);
     return *clonedGlobal;
   }
