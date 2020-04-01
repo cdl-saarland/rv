@@ -24,13 +24,16 @@ using namespace llvm;
 
 rv::VectorShape
 GenericTransfer(rv::VectorShape a) {
+  if (!a.isDefined())
+    return a;
   return a.isUniform() ? rv::VectorShape::uni() : rv::VectorShape::varying();
 }
 
 template<class ... Shapes>
 rv::VectorShape
 GenericTransfer(rv::VectorShape a, Shapes... nextShapes) {
-  if (!a.isUniform()) return rv::VectorShape::varying();
+  if (a.isDefined() && !a.isUniform())
+    return a.isDefined() ? rv::VectorShape::varying() : VectorShape::undef();
   else return GenericTransfer(nextShapes...);
 }
 
@@ -183,13 +186,19 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       if (id == Intrinsic::memcpy) {
         auto & mcInst = cast<MemCpyInst>(call);
         auto srcShape = getObservedShape(BB, *mcInst.getSource());
-        if (!srcShape.isUniform()) taintedOps.push_back(mcInst.getDest());
-        return srcShape.isUniform() ? srcShape : VectorShape::varying();
+        if (srcShape.isDefined() && !srcShape.isUniform())
+          taintedOps.push_back(mcInst.getDest());
+        return (!srcShape.isDefined() || srcShape.isUniform())
+                   ? srcShape
+                   : VectorShape::varying();
       } else if (id == Intrinsic::memmove) {
         auto & movInst = cast<MemMoveInst>(call);
         auto srcShape = getObservedShape(BB, *movInst.getSource());
-        if (!srcShape.isUniform()) taintedOps.push_back(movInst.getDest());
-        return srcShape.isUniform() ? srcShape : VectorShape::varying();
+        if (srcShape.isDefined() && !srcShape.isUniform())
+          taintedOps.push_back(movInst.getDest());
+        return (!srcShape.isDefined() || srcShape.isUniform())
+                   ? srcShape
+                   : VectorShape::varying();
       }
 
       // If the function is rv_align, use the alignment information
@@ -200,6 +209,7 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       }
 
       // collect required argument shapes
+      // bail if any shape was undefined
       bool allArgsUniform = true;
       size_t numParams = call.getNumArgOperands();
       VectorShapeVec callArgShapes;
@@ -208,6 +218,8 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
         auto argShape = getObservedShape(BB, op);
         allArgsUniform &= argShape.isUniform();
         callArgShapes.push_back(argShape);
+        if (!argShape.isDefined())
+          return VectorShape::undef();
       }
 
       // known LLVM intrinsic shapes
@@ -244,8 +256,11 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       auto & storeInst = cast<StoreInst>(I);
       auto valShape = getObservedShape(BB, *storeInst.getValueOperand());
       auto ptrShape = getObservedShape(BB, *storeInst.getPointerOperand());
-      if (!valShape.isUniform()) taintedOps.push_back(storeInst.getPointerOperand());
-      return VectorShape::join(ptrShape, valShape.isUniform() ? valShape : VectorShape::varying());
+      if (valShape.isDefined() && !valShape.isUniform())
+        taintedOps.push_back(storeInst.getPointerOperand());
+      return VectorShape::join(
+          ptrShape,
+          (valShape.greaterThanUniform() ? VectorShape::varying() : valShape));
     }
 
     case Instruction::Select:
@@ -258,7 +273,8 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       const VectorShape& sel1Shape = getObservedShape(BB, selection1);
       const VectorShape& sel2Shape = getObservedShape(BB, selection2);
 
-      if (!condShape.isUniform()) return VectorShape::varying();
+      if (condShape.greaterThanUniform())
+        return VectorShape::varying();
 
       return VectorShape::join(sel1Shape, sel2Shape);
     }
@@ -276,11 +292,17 @@ VectorShapeTransformer::computeGenericArithmeticTransfer(const Instruction & I) 
   const auto & BB = *I.getParent();
 
   assert(I.getNumOperands() > 0 && "can not compute arithmetic transfer for instructions w/o operands");
-  // generic transfer function
+
+  // interpret as a cascade of generic binary operators
+  VectorShape AccuShape = VectorShape::undef();
   for (unsigned i = 0; i < I.getNumOperands(); ++i) {
-    if (!getObservedShape(BB, *I.getOperand(i)).isUniform()) return VectorShape::varying();
+    VectorShape ObsOpShape = getObservedShape(BB, *I.getOperand(i));
+    AccuShape = GenericTransfer(AccuShape, ObsOpShape);
+    // early exit
+    if (AccuShape.isVarying())
+      return AccuShape;
   }
-  return VectorShape::uni();
+  return AccuShape;
 }
 
 VectorShape
@@ -530,4 +552,3 @@ VectorShapeTransformer::computeShapeForPHINode(const PHINode &Phi) const {
   // joined incoming shapes
   return accu;
 }
-

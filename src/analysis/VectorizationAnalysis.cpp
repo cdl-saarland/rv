@@ -376,10 +376,10 @@ void VectorizationAnalysis::compute(const Function &F) {
       unsigned minAlignment = I.getPointerAlignment(layout).valueOrOne().value();
       New.setAlignment(
           std::max<unsigned>(minAlignment, New.getAlignmentFirst()));
-    } else if (isa<FPMathOperator>(I)) {
+    } else if (isa<FPMathOperator>(I) && !isa<CallInst>(I)) {
       // allow strided/aligned fp values only in fast math mode
       FastMathFlags flags = I.getFastMathFlags();
-      if (!flags.isFast() && !New.isUniform()) {
+      if (!flags.isFast() && (New.isDefined() && !New.isUniform())) {
         New = VectorShape::varying();
       }
     }

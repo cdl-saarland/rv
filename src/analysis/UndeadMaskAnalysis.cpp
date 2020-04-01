@@ -14,6 +14,7 @@
 #include <llvm/IR/Constants.h>
 #include "rv/region/Region.h"
 #include "rv/vectorizationInfo.h"
+#include "rv/rvDebug.h"
 
 #include "rv/intrinsics.h"
 #include "rvConfig.h"
@@ -134,7 +135,7 @@ IsTargetOnFalse(const BranchInst & branch, const BasicBlock & Dest) {
 
 bool
 UndeadMaskAnalysis::isUndead(const Value & mask, const BasicBlock & where) {
-  IF_DEBUG_UDM { where.getParent()->dump(); }
+  // IF_DEBUG_UDM { DumpValue(*where.getParent()); }
 
   // use cached result (where available_
   auto it = liveDominatorMap.find(&mask);
