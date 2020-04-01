@@ -19,7 +19,8 @@ void Mask::print(llvm::raw_ostream &out) const {
   if (ActiveVectorLength) {
     if (hasText)
       out << ", ";
-    out << "V: "; ActiveVectorLength->printAsOperand(out);
+    out << "V: ";
+    ActiveVectorLength->printAsOperand(out);
   }
   out << "}";
 }
@@ -52,12 +53,14 @@ Mask Mask::getAllFalse(LLVMContext &Ctx) {
   return Mask::fromVectorLength(*VLZero);
 }
 
-llvm::Value &Mask::requestPredAsValue(llvm::LLVMContext &Ctx, unsigned VectorWidth) const {
+llvm::Value &Mask::requestPredAsValue(llvm::LLVMContext &Ctx,
+                                      unsigned VectorWidth) const {
   if (getPred())
     return *getPred();
 
   if (VectorWidth > 0) {
-    return *ConstantVector::getSplat(VectorWidth, ConstantInt::getTrue(Ctx));
+    return *ConstantVector::getSplat(ElementCount(VectorWidth, false),
+                                     ConstantInt::getTrue(Ctx));
   }
   return *ConstantInt::getTrue(Ctx);
 }
@@ -68,10 +71,11 @@ llvm::Value &Mask::requestAVLAsValue(llvm::LLVMContext &Ctx) const {
   return *ConstantInt::get(Type::getInt32Ty(Ctx), -1, true);
 }
 
-bool
-Mask::knownImplies(const Mask &M) const {
-  if (knownAllFalse()) return true;
-  if (M.knownAllTrue()) return true;
+bool Mask::knownImplies(const Mask &M) const {
+  if (knownAllFalse())
+    return true;
+  if (M.knownAllTrue())
+    return true;
   if (getPred() == M.getPred()) {
     return (getAVL() == M.getAVL()) || (getAVL() && !M.getAVL());
   }
@@ -80,13 +84,15 @@ Mask::knownImplies(const Mask &M) const {
 }
 
 bool Mask::knownAllTruePred() const {
-  if (!getPred()) return true;
+  if (!getPred())
+    return true;
   auto ConstPred = dyn_cast<Constant>(getPred());
   return ConstPred && ConstPred->isAllOnesValue();
 }
 
 bool Mask::knownAllFalsePred() const {
-  if (!getPred()) return false;
+  if (!getPred())
+    return false;
   auto ConstPred = dyn_cast<Constant>(getPred());
   return ConstPred && ConstPred->isZeroValue();
 }
@@ -98,7 +104,6 @@ bool Mask::knownAllTrueAVL() const {
   // TODO use same logic as VPIntrinsic::canIgnoreVectorLength() here
   return ConstAVL && (ConstAVL->getSExtValue() < 0);
 }
-
 
 bool Mask::knownAllFalseAVL() const {
   if (!getAVL())
