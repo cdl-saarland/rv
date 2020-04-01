@@ -74,6 +74,12 @@ bool DumpStatistics(std::string &file) {
   else return !(file = envVal).empty();
 }
 
+Value*
+NatBuilder::getSplat(Constant* Elt) {
+  ElementCount EC(vectorWidth(), false);
+  return ConstantVector::getSplat(EC, Elt);
+}
+
 Type*
 NatBuilder::getIndexTy(Value * val) const {
   IF_DEBUG { errs() << " querying the indexType for value: " << *val << "\n"; }
@@ -1079,7 +1085,6 @@ NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> 
         auto maskZExt = builder.CreateZExt(maskBitCast, &indexTy);
         auto ctPopFunc = Intrinsic::getDeclaration(mod, Intrinsic::ctpop, &indexTy); // FIXME use a larger type (what should happen for <4096 x i8>)??
         result = builder.CreateCall(ctPopFunc, {maskZExt}, "rv_popcount");
-
 
       } else {
         auto * maskedOnes = builder.CreateZExt(vecVal, intVecTy, "rv_zext");
@@ -2847,7 +2852,7 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
 
 // construct new (vectorized) initial value
   // TODO generalize to multi phi reductions
-  Value * vecNeutral = ConstantVector::getSplat(vectorWidth, &GetNeutralElement(red.kind, *scaPhi.getType()));
+  Value * vecNeutral = getSplat(&GetNeutralElement(red.kind, *scaPhi.getType()));
 
   auto * inAtZero = dyn_cast<Instruction>(scaPhi.getIncomingValue(0));
   int latchIdx = (inAtZero && vecInfo.inRegion(*inAtZero)) ? 0 : 1;
@@ -2923,7 +2928,7 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
 
 // construct new (vectorized) initial value
   // TODO generalize to multi phi reductions
-  Value * vecNeutral = ConstantVector::getSplat(vectorWidth, &GetNeutralElement(red.kind, *scaPhi.getType()));
+  Value * vecNeutral = getSplat(&GetNeutralElement(red.kind, *scaPhi.getType()));
 
   auto * inAtZero = dyn_cast<Instruction>(scaPhi.getIncomingValue(0));
   int latchIdx = (inAtZero && vecInfo.inRegion(*inAtZero)) ? 0 : 1;

@@ -194,6 +194,7 @@ namespace rv {
     llvm::Function *createCascadeMemory(llvm::VectorType *pointerVectorType, unsigned alignment,
                                         llvm::VectorType *maskType, bool store);
 
+    llvm::Value* getSplat(llvm::Constant* Elt);
     void mapCascadeFunction(unsigned bitWidth, llvm::Function *function, bool store);
     llvm::Function *getCascadeFunction(unsigned bitWidth, bool store);
 
