@@ -10,26 +10,25 @@
 
 #include "rvTools.h"
 
+#include <map>
 #include <sstream>   // stringstream
 #include <stdexcept> // logic_error
-#include <map>
 
-#include <llvm/IR/Module.h>
-#include <llvm/IR/Value.h>
-#include <llvm/IR/Type.h>
-#include <llvm/IR/DerivedTypes.h> // VectorType
+#include <llvm/Analysis/LoopInfo.h> // Loop
+#include <llvm/IR/Attributes.h>
 #include <llvm/IR/Constants.h>    // UndefValue
+#include <llvm/IR/DerivedTypes.h> // VectorType
 #include <llvm/IR/Instructions.h> // BitCastInst
 #include <llvm/IR/Intrinsics.h>
-#include <llvm/IR/Attributes.h>
 #include <llvm/IR/Metadata.h>
-#include <llvm/Analysis/LoopInfo.h> // Loop
-#include <llvm/IR/CallSite.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Type.h>
+#include <llvm/IR/Value.h>
 
-#include <llvm/Support/MemoryBuffer.h> // MemoryBuffer
 #include <llvm/IRReader/IRReader.h>
-#include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Support/MemoryBuffer.h> // MemoryBuffer
+#include <llvm/Support/SourceMgr.h>
 
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/raw_ostream.h>
@@ -39,18 +38,20 @@
 
 using namespace llvm;
 
-
 namespace rv {
 
 // This function defines what we consider matching types
 // in terms of uniform/varying.
-bool
-typesMatch(Type* t1, Type* t2)
-{
-    assert (t1 && t2);
-    if (t1 == t2) return true;
+bool typesMatch(Type *t1, Type *t2) {
+  assert(t1 && t2);
+  if (t1 == t2)
+    return true;
 
-    if (t1->getTypeID() != t2->getTypeID()) return false;
+  return false;
+#if 0
+  // FIXME probably legacy cruft
+  if (t1->getTypeID() != t2->getTypeID())
+    return false;
 
     // check additional possibilities:
     // - structurally equivalent struct types
@@ -58,186 +59,192 @@ typesMatch(Type* t1, Type* t2)
     // - vector types of same element type and same bit size, e.g.:
     // - <16 x i8> == <2 x i64>
     // - <4 x float> == <2 x double>
-    // - structs with mixed uniform/varying elements (TODO: should we disallow these?)
-#define MATCH_RETURN(TEST) { bool res = TEST; errs() << " }="<< (res ? "yes" : "no") << "\n"; return res; }
+    // - structs with mixed uniform/varying elements (TODO: should we disallow
+    // these?)
+#define MATCH_RETURN(TEST)                                                     \
+  {                                                                            \
+    bool res = TEST;                                                           \
+    IF_DEBUG { errs() << " }=" << (res ? "yes" : "no") << "\n"; }                           \
+    return res;                                                                \
+  }
 
-    errs() << "Types match? " << *t1 << " vs " << *t2 << " { ";
-    switch (t1->getTypeID())
-    {
-        case Type::VectorTyID:
-        {
-            const unsigned elems1 = t1->getVectorNumElements();
-            const unsigned elems2 = t2->getVectorNumElements();
-            const unsigned bitSize1 = t1->getVectorElementType()->getScalarSizeInBits() * elems1;
-            const unsigned bitSize2 = t2->getVectorElementType()->getScalarSizeInBits() * elems2;
+  IF_DEBUG { errs() << "Types match? " << *t1 << " vs " << *t2 << " { "; }
+  switch (t1->getTypeID()) {
+  case Type::FixedVectorTyID: {
+    auto vt1 = cast<FixedVectorType>(t1);
+    auto vt2 = cast<FixedVectorType>(t2);
+    const unsigned elems1 = vt1->getNumElements();
+    const unsigned elems2 = vt2->getNumElements();
+    const unsigned bitSize1 =
+        vt1->getElementType()->getScalarSizeInBits() * elems1;
+    const unsigned bitSize2 =
+        vt2->getElementType()->getScalarSizeInBits() * elems2;
 
-            if (t1->getVectorElementType()->isFloatingPointTy())
-            {
-            	MATCH_RETURN(t2->getVectorElementType()->isFloatingPointTy() && bitSize1 == bitSize2)
-            }
-            else
-            {
-                assert (t1->getVectorElementType()->isIntegerTy());
-                MATCH_RETURN(t2->getVectorElementType()->isIntegerTy() && bitSize1 == bitSize2)
-            }
-
-            MATCH_RETURN(false)
-        }
-        case Type::PointerTyID:
-        {
-            // if one of the types is a void pointer, any pointer is allowed to match.
-            if (t1->getPointerElementType()->isIntegerTy(8)) return true;
-            if (t2->getPointerElementType()->isIntegerTy(8)) return true;
-
-            MATCH_RETURN(typesMatch(t1->getPointerElementType(), t2->getPointerElementType()))
-        }
-        case Type::ArrayTyID:
-        {
-            if (t1->getArrayNumElements() != t2->getArrayNumElements()) MATCH_RETURN(false)
-
-				MATCH_RETURN(typesMatch(t1->getArrayElementType(), t2->getArrayElementType()))
-        }
-        case Type::StructTyID:
-        {
-            StructType* sType1 = cast<StructType>(t1);
-            StructType* sType2 = cast<StructType>(t2);
-            if (sType1->isLayoutIdentical(sType2)) return true;
-            if (sType1->getNumContainedTypes() != sType2->getNumContainedTypes()) return false;
-
-            for (unsigned i=0; i<sType1->getNumContainedTypes(); ++i)
-            {
-                const bool elemVerified =
-                    typesMatch(sType1->getElementType(i), sType2->getElementType(i));
-                if (!elemVerified) MATCH_RETURN(false)
-            }
-
-            MATCH_RETURN(true)
-        }
-        default:
-        {
-        	MATCH_RETURN(false)
-        }
+    if (t1->getVectorElementType()->isFloatingPointTy()) {
+      MATCH_RETURN(typesMatch(vt1->getElementt2->getVectorElementType()->isFloatingPointTy() &&
+                   bitSize1 == bitSize2)
+    } else {
+      assert(t1->getVectorElementType()->isIntegerTy());
+      MATCH_RETURN(t2->getVectorElementType()->isIntegerTy() &&
+                   bitSize1 == bitSize2)
     }
 
     MATCH_RETURN(false)
+  }
+  case Type::PointerTyID: {
+    // if one of the types is a void pointer, any pointer is allowed to match.
+    if (t1->getPointerElementType()->isIntegerTy(8))
+      return true;
+    if (t2->getPointerElementType()->isIntegerTy(8))
+      return true;
+
+    MATCH_RETURN(
+        typesMatch(t1->getPointerElementType(), t2->getPointerElementType()))
+  }
+  case Type::ArrayTyID: {
+    if (t1->getArrayNumElements() != t2->getArrayNumElements())
+      MATCH_RETURN(false)
+
+    MATCH_RETURN(
+        typesMatch(t1->getArrayElementType(), t2->getArrayElementType()))
+  }
+  case Type::StructTyID: {
+    StructType *sType1 = cast<StructType>(t1);
+    StructType *sType2 = cast<StructType>(t2);
+    if (sType1->isLayoutIdentical(sType2))
+      return true;
+    if (sType1->getNumContainedTypes() != sType2->getNumContainedTypes())
+      return false;
+
+    for (unsigned i = 0; i < sType1->getNumContainedTypes(); ++i) {
+      const bool elemVerified =
+          typesMatch(sType1->getElementType(i), sType2->getElementType(i));
+      if (!elemVerified)
+        MATCH_RETURN(false)
+    }
+
+    MATCH_RETURN(true)
+  }
+  default: {
+    MATCH_RETURN(false)
+  }
+  }
+
+  MATCH_RETURN(false)
 
 #undef MATCH_RETURN
+#endif
 }
 
-Module*
-createModuleFromBuffer(const char buffer[], size_t length, LLVMContext & context) {
-  std::unique_ptr<MemoryBuffer> mb = MemoryBuffer::getMemBuffer(StringRef(buffer, length), "", false);
+Module *createModuleFromBuffer(const char buffer[], size_t length,
+                               LLVMContext &context) {
+  std::unique_ptr<MemoryBuffer> mb =
+      MemoryBuffer::getMemBuffer(StringRef(buffer, length), "", false);
   SMDiagnostic smDiag;
   std::unique_ptr<Module> modPtr = parseIR(*mb, smDiag, context);
-  if (!modPtr) smDiag.print("rv::createModuleFromBuffer", errs());
+  if (!modPtr)
+    smDiag.print("rv::createModuleFromBuffer", errs());
   mb.release();
   return modPtr.release();
 }
 
-Module*
-createModuleFromFile(const std::string & fileName, LLVMContext & context) {
-    SMDiagnostic smDiag;
-    std::unique_ptr<Module> modPtr = parseIRFile(fileName, smDiag, context);
-    if (!modPtr) smDiag.print("rv::createModuleFromFile", errs());
-    return modPtr.release();
+Module *createModuleFromFile(const std::string &fileName,
+                             LLVMContext &context) {
+  SMDiagnostic smDiag;
+  std::unique_ptr<Module> modPtr = parseIRFile(fileName, smDiag, context);
+  if (!modPtr)
+    smDiag.print("rv::createModuleFromFile", errs());
+  return modPtr.release();
 }
 
-void
-writeModuleToFile(const Module& mod, const std::string& fileName)
-{
-    std::error_code EC;
-    raw_fd_ostream file(fileName, EC, sys::fs::OpenFlags::OF_None);
-    mod.print(file, nullptr);
-    file.close();
-    if (EC)
-    {
-        errs() << "ERROR: printing module to file failed: " << EC.message() << "\n";
-    }
+void writeModuleToFile(const Module &mod, const std::string &fileName) {
+  std::error_code EC;
+  raw_fd_ostream file(fileName, EC, sys::fs::OpenFlags::OF_None);
+  mod.print(file, nullptr);
+  file.close();
+  if (EC) {
+    errs() << "ERROR: printing module to file failed: " << EC.message() << "\n";
+  }
 }
 
-void
-writeFunctionToFile(const Function& f, const std::string & fileName)
-{
-    std::error_code EC;
-    raw_fd_ostream file(fileName, EC, sys::fs::OpenFlags::OF_None);
-    f.print(file);
-    file.close();
-    if (EC)
-    {
-        errs() << "ERROR: printing function to file failed: " << EC.message() << "\n";
-    }
+void writeFunctionToFile(const Function &f, const std::string &fileName) {
+  std::error_code EC;
+  raw_fd_ostream file(fileName, EC, sys::fs::OpenFlags::OF_None);
+  f.print(file);
+  file.close();
+  if (EC) {
+    errs() << "ERROR: printing function to file failed: " << EC.message()
+           << "\n";
+  }
 }
 
-void
-getExitingBlocks(BasicBlock*                  exitBlock,
-                      const LoopInfo&              loopInfo,
-                      SmallVector<BasicBlock*, 2>& exitingBlocks)
-{
-    const Loop* outerLoop = loopInfo.getLoopFor(exitBlock);
-    for (pred_iterator P=pred_begin(exitBlock), PE=pred_end(exitBlock); P!=PE; ++P)
-    {
-        BasicBlock* exitingBlock = *P;
-        const Loop* loop = loopInfo.getLoopFor(exitingBlock);
-        if (loop && loop != outerLoop && loop->isLoopExiting(exitingBlock))
-        {
-            exitingBlocks.push_back(exitingBlock);
-        }
+void getExitingBlocks(BasicBlock *exitBlock, const LoopInfo &loopInfo,
+                      SmallVector<BasicBlock *, 2> &exitingBlocks) {
+  const Loop *outerLoop = loopInfo.getLoopFor(exitBlock);
+  for (pred_iterator P = pred_begin(exitBlock), PE = pred_end(exitBlock);
+       P != PE; ++P) {
+    BasicBlock *exitingBlock = *P;
+    const Loop *loop = loopInfo.getLoopFor(exitingBlock);
+    if (loop && loop != outerLoop && loop->isLoopExiting(exitingBlock)) {
+      exitingBlocks.push_back(exitingBlock);
     }
+  }
 
-    // Apparently, irreducible loops can turn out to have no exiting blocks due
-    // to this criterion (Irreducible4).
-    if (exitingBlocks.empty()) return;
+  // Apparently, irreducible loops can turn out to have no exiting blocks due
+  // to this criterion (Irreducible4).
+  if (exitingBlocks.empty())
+    return;
 
-    // Sanity check
-    Loop* commonLoop = loopInfo.getLoopFor(*exitingBlocks.begin());
-    RV_UNUSED(commonLoop);
-    for (const auto &exitingBB : exitingBlocks)
-    {
-        RV_UNUSED(exitingBB);
-        assert (loopInfo.getLoopFor(exitingBB) == commonLoop);
-        assert (commonLoop->contains(exitingBB));
-    }
+  // Sanity check
+  Loop *commonLoop = loopInfo.getLoopFor(*exitingBlocks.begin());
+  RV_UNUSED(commonLoop);
+  for (const auto &exitingBB : exitingBlocks) {
+    RV_UNUSED(exitingBB);
+    assert(loopInfo.getLoopFor(exitingBB) == commonLoop);
+    assert(commonLoop->contains(exitingBB));
+  }
 }
 
-bool
-returnsVoidPtr(const Instruction& inst)
-{
-    if (!isa<CastInst>(inst)) return false;
-    if (!inst.getType()->isPointerTy()) return false;
+bool returnsVoidPtr(const Instruction &inst) {
+  if (!isa<CastInst>(inst))
+    return false;
+  if (!inst.getType()->isPointerTy())
+    return false;
 
-    return inst.getType()->getPointerElementType()->isIntegerTy(8);
+  return inst.getType()->getPointerElementType()->isIntegerTy(8);
 }
 
 ///// defaulting phi semantics /////
 namespace {
-   const char * ShadowInputMDName = "rv.shadow.in";
+const char *ShadowInputMDName = "rv.shadow.in";
 }
 
-void
-setShadowInput(PHINode & phi, Value & defInput) {
-  auto * valAsMd = ValueAsMetadata::get(&defInput);
-  auto * mdTuple = MDTuple::get(phi.getContext(), {valAsMd});
+void setShadowInput(PHINode &phi, Value &defInput) {
+  auto *valAsMd = ValueAsMetadata::get(&defInput);
+  auto *mdTuple = MDTuple::get(phi.getContext(), {valAsMd});
   phi.setMetadata(ShadowInputMDName, mdTuple);
 }
 
-void dropShadowInput(PHINode & phi) {
+void dropShadowInput(PHINode &phi) {
   phi.setMetadata(ShadowInputMDName, nullptr);
 }
 
-Value* getShadowInput(const PHINode & phi) {
+Value *getShadowInput(const PHINode &phi) {
   // short cut
-  if (!phi.hasMetadataOtherThanDebugLoc()) return nullptr;
+  if (!phi.hasMetadataOtherThanDebugLoc())
+    return nullptr;
 
   // otw, parse default shadow input argument
-  auto * shadowInputMD = phi.getMetadata(ShadowInputMDName);
-  if (!shadowInputMD) return nullptr;
-  const auto * mdTuple = dyn_cast<MDTuple>(shadowInputMD);
-  if (!mdTuple) return nullptr;
+  auto *shadowInputMD = phi.getMetadata(ShadowInputMDName);
+  if (!shadowInputMD)
+    return nullptr;
+  const auto *mdTuple = dyn_cast<MDTuple>(shadowInputMD);
+  if (!mdTuple)
+    return nullptr;
   assert(mdTuple->getNumOperands() == 1 && "ill-formed shadow input");
-  const auto * valueAsMd = dyn_cast<ValueAsMetadata>(mdTuple->getOperand(0));
+  const auto *valueAsMd = dyn_cast<ValueAsMetadata>(mdTuple->getOperand(0));
   assert(valueAsMd && "ill-formed shadow input");
   return valueAsMd->getValue();
 }
-
 
 } // namespace rv

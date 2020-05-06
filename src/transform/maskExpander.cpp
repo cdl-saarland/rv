@@ -33,7 +33,7 @@ MatchMaskIntrinsic(Value & condVal) {
   auto * call = dyn_cast<CallInst>(&condVal);
   if (!call) return nullptr;
 
-  auto * callee = dyn_cast<Function>(call->getCalledValue());
+  auto * callee = call->getCalledFunction();
   if (!callee) return nullptr;
 
   if (callee->getName() == "rv_any") {

@@ -27,13 +27,14 @@ void ShuffleBuilder::prepareCroppedVector(IRBuilder<> &builder) {
 
 void ShuffleBuilder::add(Value *vector) {
   inputVectors.push_back(vector);
-  if (vector->getType()->getVectorNumElements() < vectorWidth)
+  if (cast<FixedVectorType>(vector->getType())->getNumElements() < vectorWidth)
     cropped = true;
 }
 
 void ShuffleBuilder::add(std::vector<Value *> &sources) {
   inputVectors = sources;
-  if (sources.back()->getType()->getVectorNumElements() < vectorWidth)
+  if (cast<FixedVectorType>(sources.back()->getType())->getNumElements() <
+      vectorWidth)
     cropped = true;
 }
 
@@ -193,13 +194,13 @@ Value *ShuffleBuilder::append(IRBuilder<> &builder) {
 
     Type *ty1 = vec1->getType(), *ty2 = vec2->getType();
 
-    unsigned numElements = ty1->getVectorNumElements() + ty2->getVectorNumElements();
+    unsigned numElements = cast<FixedVectorType>(ty1)->getNumElements() + cast<FixedVectorType>(ty2)->getNumElements();
     Value *shuffleMask = createContiguousVector(numElements, builder.getInt32Ty(), 0, 1);
     shuffle = builder.CreateShuffleVector(vec1, vec2, shuffleMask, "append_shuffle");
 
     appendQueue.push_back(shuffle);
   }
-  assert(shuffle->getType()->getVectorNumElements() == vectorWidth && "mismatch between append length and vector width!");
+  assert(cast<FixedVectorType>(shuffle->getType())->getNumElements() == vectorWidth && "mismatch between append length and vector width!");
   return shuffle;
 }
 

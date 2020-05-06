@@ -36,6 +36,16 @@
 using namespace llvm;
 using namespace rv;
 
+static const Type*
+GetVectorElementType(const Type* Ty) {
+  return cast<FixedVectorType>(Ty)->getElementType();
+}
+
+static unsigned
+GetVectorNumElements(const Type* Ty) {
+  return cast<FixedVectorType>(Ty)->getNumElements();
+}
+
 static Value* getNotArgument(const llvm::Value* value) {
     using namespace llvm::PatternMatch;
     llvm::Value* arg;
@@ -77,7 +87,7 @@ bool IRPolisher::canReplaceInst(llvm::Instruction *inst, unsigned& bitWidth) {
   if (!isa<CmpInst>(inst)) return false;
 
   // Only support for SSE/AVX with 32 or 64-bit floats
-  auto vecLen = instTy->getVectorNumElements();
+  auto vecLen = GetVectorNumElements(instTy);
   if (vecLen != 2 && vecLen != 4 && vecLen != 8) return false;
 
   bitWidth = inst->getOperand(0)->getType()->getScalarSizeInBits();
@@ -93,7 +103,7 @@ inline bool startsWith(const char* str1, const char* str2) {
 }
 
 Value *IRPolisher::mapIntrinsicCall(llvm::IRBuilder<>& builder, llvm::CallInst* callInst, unsigned bitWidth) {
-  if (!isa<Function>(callInst->getCalledValue())) return nullptr;
+  if (!callInst->getCalledFunction()) return nullptr;
   auto callee = callInst->getCalledFunction();
   auto isReduceOr = startsWith(callee->getName().data(), "rv_reduce_or");
   auto isReduceAnd = startsWith(callee->getName().data(), "rv_reduce_and");
@@ -101,7 +111,7 @@ Value *IRPolisher::mapIntrinsicCall(llvm::IRBuilder<>& builder, llvm::CallInst* 
     // Use the PTEST instruction for boolean reductions
     auto newArg = getMaskForValueOrInst(builder, callInst->getArgOperand(0), bitWidth);
 
-    auto vecLen = newArg->getType()->getVectorNumElements();
+    auto vecLen = GetVectorNumElements(newArg->getType());
     auto destTy = VectorType::get(builder.getIntNTy(64), bitWidth * vecLen / 64);
 
     bool useNot = false;
@@ -152,7 +162,7 @@ Value *IRPolisher::mapIntrinsicCall(llvm::IRBuilder<>& builder, llvm::CallInst* 
 }
 
 Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
-  if (!isa<Function>(callInst->getCalledValue())) return nullptr;
+  if (!callInst->getCalledFunction()) return nullptr;
   auto callee = callInst->getCalledFunction();
 
   auto isReduceOr = startsWith(callee->getName().data(), "rv_reduce_or");
@@ -163,7 +173,7 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
   if (isReduceOr || isReduceAnd) {
     IRBuilder<> builder(callInst);
     auto arg = callInst->getArgOperand(0);
-    auto castTy = builder.getIntNTy(arg->getType()->getVectorNumElements());
+    auto castTy = builder.getIntNTy(GetVectorNumElements(arg->getType()));
     auto castedArg = builder.CreateBitCast(arg, castTy);
     return isReduceOr
       ? builder.CreateICmpNE(castedArg, Constant::getNullValue(castTy))
@@ -174,7 +184,7 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
   if (isGather) {
     // Only support 32bit gathers
     auto vecTy = callInst->getType();
-    if (vecTy->getVectorNumElements() != 8 ||
+    if (GetVectorNumElements(vecTy) != 8 ||
         vecTy->getScalarSizeInBits() != 32)
       return nullptr;
 
@@ -199,7 +209,7 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
       baseGep = dyn_cast<GetElementPtrInst>(basePtr);
       if (!baseGep || baseGep->getNumIndices() != 2 || !gepVal->hasAllConstantIndices())
         return nullptr;
-      auto structTy = basePtr->getType()->getVectorElementType()->getPointerElementType();
+      auto structTy = GetVectorElementType(basePtr->getType())->getPointerElementType();
       if (!structTy->isStructTy() || !cast<Constant>(baseGep->getOperand(1))->isNullValue())
         return nullptr;
 
@@ -261,7 +271,7 @@ Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, 
 
   auto pred = cmpInst->getPredicate();
   auto newLeftTy = newLeft->getType();
-  auto vecLen    = newLeftTy->getVectorNumElements();
+  auto vecLen    = GetVectorNumElements(newLeftTy);
   auto scalarTy  = newLeftTy->getScalarType();
   assert(vecLen > 0);
 
@@ -322,7 +332,7 @@ Value *IRPolisher::replaceSelectInst(IRBuilder<> &builder, llvm::SelectInst *sel
 
   auto newS1Ty = newS1->getType();
   auto opBitWidth = newS1Ty->getScalarSizeInBits();
-  auto vecLen = newS1Ty->getVectorNumElements();
+  auto vecLen = GetVectorNumElements(newS1Ty);
 
   // If the select is part of a min/max pattern, try to keep the pattern intact
   auto cmpInst = dyn_cast<CmpInst>(selectInst->getOperand(0));
@@ -468,7 +478,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
 
     newInst = getMaskForValue(builder, newLoad, bitWidth);
   } else if (auto phiNode = dyn_cast<PHINode>(inst)) {
-    auto vecLen = phiNode->getType()->getVectorNumElements();
+    auto vecLen = GetVectorNumElements(phiNode->getType());
     auto vecTy = VectorType::get(builder.getIntNTy(bitWidth), vecLen);
 
     auto newPhi = builder.CreatePHI(vecTy, phiNode->getNumIncomingValues());
@@ -520,7 +530,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
 
 llvm::Value *IRPolisher::getMaskForValue(IRBuilder<> &builder, llvm::Value *value, unsigned bitWidth) {
   auto scalarType = builder.getIntNTy(bitWidth);
-  auto vectorLen = value->getType()->getVectorNumElements();
+  auto vectorLen = GetVectorNumElements(value->getType());
   if (scalarType == value->getType()->getScalarType()) return value;
 
   if (value->getType()->getScalarSizeInBits() < bitWidth)

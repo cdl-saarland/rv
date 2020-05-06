@@ -99,7 +99,7 @@ VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, FunctionAnal
     for (auto & Inst : BB) {
       auto * call = dyn_cast<CallInst>(&Inst);
       if (!call) continue;
-      auto * callee = dyn_cast<Function>(call->getCalledValue());
+      auto * callee = call->getCalledFunction();
       if (!callee) continue;
       if (callee->isIntrinsic() || !callee->isDeclaration()) continue;
 
@@ -134,7 +134,7 @@ VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, FunctionAnal
     auto & entryBB = *call->getParent();
     auto * hostLoop = LI.getLoopFor(&entryBB);
     InlineFunctionInfo IFI;
-    InlineFunction(call, IFI);
+    InlineFunction(*call, IFI);
 
     if (hostLoop) EmbedInlinedCode(entryBB, *hostLoop, LI, funcBlocks);
   }

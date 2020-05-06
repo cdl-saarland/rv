@@ -995,7 +995,7 @@ NatBuilder::vectorizeShuffleCall(CallInst *rvCall) {
   }
 
   // build shuffle indices
-  SmallVector<uint32_t, 32> shflIds(vectorWidth());
+  SmallVector<int, 32> shflIds(vectorWidth());
   for (int i = 0; i < vectorWidth(); i++) {
     shflIds[i] = (i + shiftVal) % vectorWidth();
   }
@@ -1008,7 +1008,7 @@ Value*
 NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> & builder, RVIntrinsic mode) {
   Module *mod = vecInfo.getMapping().vectorFn->getParent();
 
-  auto vecWidth = cast<VectorType>(vecVal->getType())->getVectorNumElements();
+  auto vecWidth = cast<FixedVectorType>(vecVal->getType())->getNumElements();
   auto * intVecTy = VectorType::get(&indexTy, vecWidth);
 
   Value * result = nullptr;
@@ -1227,7 +1227,7 @@ NatBuilder::vectorizeCompactCall(CallInst *rvCall) {
   auto * vecVal  = requestVectorValue(vecArg);
   auto * maskVal = requestVectorValue(maskArg);
 
-  auto vecWidth = cast<VectorType>(maskVal->getType())->getVectorNumElements();
+  auto vecWidth = cast<FixedVectorType>(maskVal->getType())->getNumElements();
   auto tableIndex = createVectorMaskSummary(*rvCall->getType(), maskVal, builder, RVIntrinsic::Ballot);
   auto table = createCompactLookupTable(vecWidth);
   auto indices = builder.CreateLoad(builder.CreateInBoundsGEP(table, { builder.getInt32(0), tableIndex }), "rv_compact_indices");
@@ -1300,7 +1300,7 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   auto & scaBlock = *scalCall->getParent();
   bool hasCallPredicate = !hasUniformPredicate(scaBlock);
 
-  Value * callee = scalCall->getCalledValue();
+  Value * callee = scalCall->getCalledOperand();
   StringRef calleeName = callee->getName();
   Function * calledFunction = dyn_cast<Function>(callee);
 
@@ -1442,7 +1442,7 @@ void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx)
   // 1) get scalar callee
   // 2) construct arguments
   // 3) create call instruction
-  auto *callee = scalCall->getCalledValue();
+  auto *callee = scalCall->getCalledOperand();
 
   std::vector<Value *> args;
   for (unsigned i = 0; i < scalCall->getNumArgOperands(); ++i) {
@@ -1451,7 +1451,8 @@ void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx)
     args.push_back(laneArg);
   }
 
-  Value *call = builder.CreateCall(callee, args, scalCall->getName());
+  // FIXME transfer fast math MD
+  Value *call = builder.CreateCall(scalCall->getFunctionType(), callee, args, scalCall->getName());
   mapScalarValue(scalCall, call, laneIdx);
 
   ++numScalarized;
@@ -1555,14 +1556,14 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   std::vector<Value *> addr;
   std::vector<Value *> srcs;
   std::vector<Value *> masks;
-  unsigned alignment;
+  MaybeAlign alignment;
   bool interleaved = false;
-  int byteSize = static_cast<int>(layout.getTypeStoreSize(accessedType));
+  uint64_t byteSize = static_cast<uint64_t>(layout.getTypeStoreSize(accessedType));
 
   if (addrShape.isUniform()) {
     // scalar access
     addr.push_back(requestScalarValue(accessedPtr));
-    alignment = addrShape.getAlignmentFirst();
+    alignment = MaybeAlign(addrShape.getAlignmentFirst());
 
   } else if ((addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !(needsMask && !config.enableMaskedMove)) {
     // cast pointer to vector-width pointer
@@ -1570,7 +1571,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     auto & ptrTy = *cast<PointerType>(ptr->getType());
     PointerType *vecPtrType = vecType->getPointerTo(ptrTy.getAddressSpace());
     addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
-    alignment = addrShape.getAlignmentFirst();
+    alignment = MaybeAlign(addrShape.getAlignmentFirst());
 
   } else if ((addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) && !(needsMask && !config.enableMaskedMove)) {
     // interleaved access. ptrs: base, base+vector, base+2vector, ...
@@ -1581,36 +1582,36 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       if (needsMask)
         masks.push_back(mask);
     }
-    alignment = addrShape.getAlignmentFirst();
+    alignment = MaybeAlign(addrShape.getAlignmentFirst());
     interleaved = true;
 
   } else {
     addr.push_back(requestVectorValue(accessedPtr));
-    alignment = addrShape.getAlignmentGeneral();
+    alignment = MaybeAlign(addrShape.getAlignmentGeneral());
   }
 
-  unsigned origAlignment = load ? load->getAlignment() : store->getAlignment();
-  alignment = std::max<unsigned>(alignment, origAlignment);
+  MaybeAlign origAlignment = load ? load->getAlign() : store->getAlign();
+  alignment = std::max<MaybeAlign>(alignment, origAlignment);
 
   Value *vecMem = nullptr;
   if (load) {
     if (needsMask && addrShape.isUniform()) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
-      vecMem = createUniformMaskedMemory(load, accessedType, alignment, addr[0], predicate, mask, nullptr);
+      vecMem = createUniformMaskedMemory(load, accessedType, alignment.valueOrOne(), addr[0], predicate, mask, nullptr);
 
     } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
-      vecMem = createContiguousLoad(addr[0], alignment, needsMask ? mask : nullptr, UndefValue::get(vecType));
+      vecMem = createContiguousLoad(addr[0], alignment.valueOrOne(), needsMask ? mask : nullptr, UndefValue::get(vecType));
 
       addrShape.isUniform() ? ++numUniLoads : needsMask ? ++numContMaskedLoads : ++numContLoads;
 
     } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
-      createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs);
+      createInterleavedMemory(vecType, alignment.valueOrOne(), &addr, &masks, nullptr, &srcs);
 
     } else {
       assert(addr.size() == 1 && "multiple addresses for single access!");
-      vecMem = createVaryingMemory(vecType, alignment, addr[0], mask, nullptr);
+      vecMem = createVaryingMemory(vecType, alignment.valueOrOne(), addr[0], mask, nullptr);
     }
 
 
@@ -1621,12 +1622,12 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       auto valShape = vecInfo.getVectorShape(*store->getValueOperand());
       if (!valShape.isUniform()) {
         Value *mappedStoredVal = requestVectorValue(storedValue);
-        vecMem = createVaryingToUniformStore(store, accessedType, alignment, addr[0], needsMask ? mask : nullptr, mappedStoredVal);
+        vecMem = createVaryingToUniformStore(store, accessedType, alignment.valueOrOne(), addr[0], needsMask ? mask : nullptr, mappedStoredVal);
       } else {
         Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                        : requestVectorValue(storedValue);
 
-        vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr[0], predicate, mask, mappedStoredVal);
+        vecMem = createUniformMaskedMemory(store, accessedType, alignment.valueOrOne(), addr[0], predicate, mask, mappedStoredVal);
       }
 
     } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
@@ -1653,7 +1654,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                 : requestVectorValue(storedValue);
       }
-      vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment, needsMask ? mask : nullptr);
+      vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment.valueOrOne(), needsMask ? mask : nullptr);
 
       addrShape.isUniform() ? ++numUniStores : needsMask ? ++numContMaskedStores : ++numContStores;
 
@@ -1666,13 +1667,13 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Value *val = requestVectorValue(srcVal);
         vals.push_back(val);
       }
-      createInterleavedMemory(vecType, alignment, &addr, &masks, &vals, &srcs);
+      createInterleavedMemory(vecType, alignment.valueOrOne(), &addr, &masks, &vals, &srcs);
 
     } else {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                        : requestVectorValue(storedValue);
-      vecMem = createVaryingMemory(vecType, alignment, addr[0], mask, mappedStoredVal);
+      vecMem = createVaryingMemory(vecType, alignment.valueOrOne(), addr[0], mask, mappedStoredVal);
     }
   }
 
@@ -1708,7 +1709,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
 
 Value *
-NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, unsigned int alignment, Value *addr, Value *mask, Value *values) {
+NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, llvm::Align alignment, Value *addr, Value *mask, Value *values) {
   Value * indexVal = nullptr;
   auto & ctx = builder.getContext();
 
@@ -1817,7 +1818,7 @@ NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, u
   return vecMem;
 }
 
-Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedType, unsigned int alignment,
+Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedType, llvm::Align alignment,
                                              Value *addr, Value * scalarMask, Value * vectorMask, Value *values) {
   values ? ++numUniMaskedStores : ++numUniMaskedLoads;
 
@@ -1838,7 +1839,7 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedTy
   });
 }
 
-Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Value *addr, Value *mask,
+Value *NatBuilder::createVaryingMemory(Type *vecType, llvm::Align alignment, Value *addr, Value *mask,
                                        Value *values) {
   bool scatter(values != nullptr);
   bool maskNonConst(!isa<ConstantVector>(mask));
@@ -1850,7 +1851,7 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
     std::vector<Value *> args;
     if (scatter) args.push_back(values);
     args.push_back(addr);
-    args.push_back(ConstantInt::get(i32Ty, alignment));
+    args.push_back(ConstantInt::get(i32Ty, alignment.value()));
     args.push_back(mask);
     if (!scatter) args.push_back(UndefValue::get(vecType));
     Module *mod = vecInfo.getMapping().vectorFn->getParent();
@@ -1860,10 +1861,10 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, unsigned int alignment, Va
     return builder.CreateCall(intr, args);
 
   } else
-    return scatter ? requestCascadeStore(values, addr, alignment, mask) : requestCascadeLoad(addr, alignment, mask);
+    return scatter ? requestCascadeStore(values, addr, alignment.value(), mask) : requestCascadeLoad(addr, alignment.value(), mask);
 }
 
-void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std::vector<Value *> *addr, std::vector<Value *> *masks,
+void NatBuilder::createInterleavedMemory(Type *vecType, llvm::Align alignment, std::vector<Value *> *addr, std::vector<Value *> *masks,
                                          std::vector<Value *> *values, std::vector<Value *> *srcs) {
 
   unsigned stride = (unsigned) addr->size();
@@ -1910,7 +1911,7 @@ void NatBuilder::createInterleavedMemory(Type *vecType, unsigned alignment, std:
   }
 }
 
-Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, unsigned alignment, Value *mask) {
+Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, llvm::Align alignment, Value *mask) {
   if (mask) {
     return builder.CreateMaskedStore(val, ptr, alignment, mask);
 
@@ -1921,7 +1922,7 @@ Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, unsigned alignm
   }
 }
 
-Value *NatBuilder::createContiguousLoad(Value *ptr, unsigned alignment, Value *mask, Value *passThru) {
+Value *NatBuilder::createContiguousLoad(Value *ptr, llvm::Align alignment, Value *mask, Value *passThru) {
   if (mask) {
     return builder.CreateMaskedLoad(ptr, alignment, mask, passThru, "cont_load");
 
@@ -2637,7 +2638,9 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
   }
 
   Value * ptest = nullptr;
-  auto * redFunc = platInfo.requestVectorMaskReductionFunc("rv_reduce_or", vector->getType()->getVectorNumElements());
+  auto *redFunc = platInfo.requestVectorMaskReductionFunc(
+      "rv_reduce_or",
+      cast<FixedVectorType>(vector->getType())->getNumElements());
   ptest = builder.CreateCall(redFunc, vector, "ptest");
 
   if (isRv_all) {

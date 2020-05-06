@@ -106,7 +106,7 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
 // check call mappings, critical sections
   auto * call = dyn_cast<CallInst>(&inst);
   if (call) {
-    auto * callee = dyn_cast_or_null<Function>(call->getCalledValue());
+    auto * callee = call->getCalledFunction();
     if (!callee) return 1;
 
     // check if this is a critical section

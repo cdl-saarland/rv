@@ -228,7 +228,7 @@ Value * reaggregateInstruction(IRBuilder<> & builder, const ValVec & replVec, Ty
   } else if (aggTy->isVectorTy()) {
     Value * aggVal = UndefValue::get(aggTy);
     vecInfo.setVectorShape(*aggVal, vecShape);
-    size_t n = aggTy->getVectorNumElements();
+    size_t n = cast<FixedVectorType>(aggTy)->getNumElements();
     for (size_t i = 0; i < n; i++) {
       aggVal = builder.CreateInsertElement(aggVal, replVec[i], ConstantInt::get(Type::getInt32Ty(builder.getContext()), i));
       vecInfo.setVectorShape(*aggVal, vecShape);
@@ -451,9 +451,9 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
 
   } else if (ptrElemTy->isVectorTy()) {
     auto * intTy = Type::getInt32Ty(builder.getContext());
-    size_t n = ptrElemTy->getVectorNumElements();
+    size_t n = cast<FixedVectorType>(ptrElemTy)->getNumElements();
     auto * ptrTy = cast<PointerType>(ptr->getType());
-    auto * scaPtrTy = PointerType::get(ptrTy->getPointerElementType()->getVectorElementType(), ptrTy->getPointerAddressSpace());
+    auto * scaPtrTy = PointerType::get(cast<FixedVectorType>(ptrTy->getPointerElementType())->getElementType(), ptrTy->getPointerAddressSpace());
     auto * scaPtr = builder.CreatePointerCast(ptr, scaPtrTy);
     vecInfo.setVectorShape(*scaPtr, ptrShape);
 
@@ -614,9 +614,8 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
     ValVec lhsVec = requestReplicate(*shuffle.getOperand(0));
     ValVec rhsVec = requestReplicate(*shuffle.getOperand(1));
 
-    auto & shuffleMask = *shuffle.getMask();
     for (int c = 0; c < width; ++c) {
-      int laneIdx = GetShuffleIndex(shuffleMask, c);
+      int laneIdx = shuffle.getMaskValue(c);
       Value * laneRepl;
       if (laneIdx >= 0) {
          laneRepl = laneIdx < width ? lhsVec[laneIdx] : rhsVec[laneIdx - width];

@@ -69,7 +69,8 @@ IsPower2(int x) {
 static Type&
 GetScalarType(Value & val) {
   auto * valTy = val.getType();
-  if (valTy->isVectorTy()) return *valTy->getVectorElementType();
+  if (valTy->isVectorTy())
+    return *cast<FixedVectorType>(valTy)->getElementType();
   else return *valTy;
 }
 
@@ -111,9 +112,9 @@ GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oRequiresR
 // reduce the vector @vectorVal to a scalar value (using redKind)
 Value &
 CreateVectorReduce(Config & config, IRBuilder<> & builder, RedKind redKind, Value & vecVal, Value * initVal) {
-  unsigned vecWidth = vecVal.getType()->getVectorNumElements();
-  auto & vecTy = *vecVal.getType();
-  auto & elemTy = *vecTy.getVectorElementType();
+  auto & vecTy = *cast<FixedVectorType>(vecVal.getType());
+  unsigned vecWidth = vecTy.getNumElements();
+  auto & elemTy = *vecTy.getElementType();
 
 // Workaround backend deficiencies
   bool useFallback = false;
