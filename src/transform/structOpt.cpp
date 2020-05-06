@@ -49,7 +49,7 @@ IsLifetimeUse(Instruction & userInst) {
   // that pointer must only be used in lifetimes
   auto * call = dyn_cast<CallInst>(&ptrUser);
   if (!call) return false;
-  auto * callee = dyn_cast<Function>(call->getCalledValue());
+  auto * callee = call->getCalledFunction();
   if (!callee) return false;
 
   if ((callee->getIntrinsicID() != Intrinsic::lifetime_start) &&
@@ -64,7 +64,7 @@ IsLifetimeUse(Instruction & userInst) {
 static bool
 IsLoadStoreIntrinsicUse(Value * userInst) {
   if (auto call = dyn_cast<CallInst>(userInst)) {
-    auto * callee = dyn_cast<Function>(call->getCalledValue());
+    auto * callee = call->getCalledFunction();
     return callee && (callee->getName() == "rv_load" || callee->getName() == "rv_store");
   } else if (auto bitcast = dyn_cast<BitCastInst>(userInst)) {
     bool hasSuchUse = false;
@@ -336,6 +336,17 @@ getFirstCompositeElement(Type& Ty) {
   auto VecTy = dyn_cast<VectorType>(&Ty);
   if (VecTy) return *VecTy->getElementType();
   llvm_unreachable("not an expected composite type");
+}
+
+uint64_t
+getCompositeNumElements(Type *Ty) {
+  auto ArrTy = dyn_cast<ArrayType>(Ty);
+  if (ArrTy) return ArrTy->getNumElements();
+  auto FixedVecTy = dyn_cast<FixedVectorType>(Ty);
+  if (FixedVecTy) return FixedVecTy->getNumElements();
+  auto StructTy = dyn_cast<StructType>(Ty);
+  if (StructTy) return StructTy->getNumElements();
+  llvm_unreachable("unpexpected datatype");
 }
 
 bool
@@ -614,7 +625,7 @@ StructOpt::vectorizeType(llvm::Type & scalarAllocaTy) {
 
   if (isVectorTy || isArrayTy) {
     auto &ElemTy = getFirstCompositeElement(scalarAllocaTy);
-    auto numElements = isArrayTy ? scalarAllocaTy.getArrayNumElements() : scalarAllocaTy.getVectorNumElements();
+    auto numElements = getCompositeNumElements(&scalarAllocaTy);
 
     auto * vecElem = vectorizeType(ElemTy);
     if (!vecElem) return nullptr;

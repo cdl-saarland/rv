@@ -11,6 +11,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/DerivedTypes.h>
 
 using namespace llvm;
 
@@ -22,8 +23,10 @@ MangleType(const Type & Ty) {
     return "d";
   } else if (Ty.isFloatTy()) {
     return "f";
-  } else if (Ty.isVectorTy()) {
-    return (Ty.getVectorIsScalable() ? "nxv" : "v") + std::to_string(Ty.getVectorElementCount().Min) + MangleType(Ty);
+  } else if (auto ScalableVT = dyn_cast<ScalableVectorType>(&Ty)) {
+    return "nxv"+ std::to_string(ScalableVT->getElementCount().Min) + MangleType(*ScalableVT->getElementType());
+  } else if (auto FixedVT = dyn_cast<FixedVectorType>(&Ty)) {
+    return "v" + std::to_string(FixedVT->getNumElements()) + MangleType(*FixedVT->getElementType());
   }
   abort(); // TODO we really should use LLVM's facilities here...
 }
@@ -61,7 +64,7 @@ const Function*
 GetCallee(const Value & val) {
   const auto * call = dyn_cast<const CallInst>(&val);
   if (!call) return nullptr;
-  const auto * func = dyn_cast<const Function>(call->getCalledValue());
+  const auto * func = call->getCalledFunction();
   if (!func) return nullptr;
   return func;
 }

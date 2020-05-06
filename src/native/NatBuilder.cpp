@@ -45,6 +45,11 @@
 
 using namespace llvm;
 
+unsigned
+GetVectorNumElements(Type * VecTy) {
+  return cast<FixedVectorType>(VecTy)->getNumElements();
+}
+
 // TODO move to vector builder class...
 Value*
 CreateBroadcast(IRBuilder<> & builder, Value & vec, int idx) {
@@ -1030,7 +1035,7 @@ NatBuilder::vectorizeShuffleCall(CallInst *rvCall) {
   }
 
   // build shuffle indices
-  SmallVector<uint32_t, 32> shflIds(vectorWidth());
+  SmallVector<int, 32> shflIds(vectorWidth());
   for (int i = 0; i < vectorWidth(); i++) {
     shflIds[i] = (i + shiftVal) % vectorWidth();
   }
@@ -1299,7 +1304,7 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   auto & scaBlock = *scalCall->getParent();
   bool hasCallPredicate = !hasUniformPredicate(scaBlock);
 
-  Value * callee = scalCall->getCalledValue();
+  Value * callee = scalCall->getCalledOperand();
   StringRef calleeName = callee->getName();
   Function * calledFunction = dyn_cast<Function>(callee);
 
@@ -1440,7 +1445,7 @@ void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx)
   // 1) get scalar callee
   // 2) construct arguments
   // 3) create call instruction
-  auto *callee = scalCall->getCalledValue();
+  auto *callee = scalCall->getCalledOperand();
 
   std::vector<Value *> args;
   for (unsigned i = 0; i < scalCall->getNumArgOperands(); ++i) {
@@ -2434,7 +2439,7 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
   }
 
   Value * ptest = nullptr;
-  auto * redFunc = platInfo.requestVectorMaskReductionFunc("rv_reduce_or", vector->getType()->getVectorNumElements());
+  auto * redFunc = platInfo.requestVectorMaskReductionFunc("rv_reduce_or", GetVectorNumElements(vector->getType()));
   ptest = builder.CreateCall(redFunc, vector, "ptest");
 
   if (isRv_all) {

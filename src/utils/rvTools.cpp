@@ -24,7 +24,6 @@
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/Analysis/LoopInfo.h> // Loop
-#include <llvm/IR/CallSite.h>
 
 #include <llvm/Support/MemoryBuffer.h> // MemoryBuffer
 #include <llvm/IRReader/IRReader.h>
@@ -41,6 +40,16 @@ using namespace llvm;
 
 
 namespace rv {
+
+static unsigned
+GetVectorNumElements(Type* Ty) {
+  return cast<FixedVectorType>(Ty)->getNumElements();
+}
+
+static Type*
+GetVectorElementType(Type* Ty) {
+  return cast<FixedVectorType>(Ty)->getElementType();
+}
 
 // This function defines what we consider matching types
 // in terms of uniform/varying.
@@ -64,21 +73,23 @@ typesMatch(Type* t1, Type* t2)
     errs() << "Types match? " << *t1 << " vs " << *t2 << " { ";
     switch (t1->getTypeID())
     {
-        case Type::VectorTyID:
+        case Type::FixedVectorTyID:
         {
-            const unsigned elems1 = t1->getVectorNumElements();
-            const unsigned elems2 = t2->getVectorNumElements();
-            const unsigned bitSize1 = t1->getVectorElementType()->getScalarSizeInBits() * elems1;
-            const unsigned bitSize2 = t2->getVectorElementType()->getScalarSizeInBits() * elems2;
+            const unsigned elems1 = GetVectorNumElements(t1);
+            const unsigned elems2 = GetVectorNumElements(t2);
+            const unsigned bitSize1 = GetVectorElementType(t1)->getScalarSizeInBits() * elems1;
+            const unsigned bitSize2 = GetVectorElementType(t2)->getScalarSizeInBits() * elems2;
 
-            if (t1->getVectorElementType()->isFloatingPointTy())
+            auto t1Elem = GetVectorElementType(t1);
+            auto t2Elem = GetVectorElementType(t2);
+            if (t1Elem->isFloatingPointTy())
             {
-            	MATCH_RETURN(t2->getVectorElementType()->isFloatingPointTy() && bitSize1 == bitSize2)
+            	MATCH_RETURN(t2Elem->isFloatingPointTy() && bitSize1 == bitSize2)
             }
             else
             {
-                assert (t1->getVectorElementType()->isIntegerTy());
-                MATCH_RETURN(t2->getVectorElementType()->isIntegerTy() && bitSize1 == bitSize2)
+                assert (t1Elem->isIntegerTy());
+                MATCH_RETURN(t2Elem->isIntegerTy() && bitSize1 == bitSize2)
             }
 
             MATCH_RETURN(false)

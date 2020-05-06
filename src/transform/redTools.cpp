@@ -69,7 +69,8 @@ IsPower2(int x) {
 static Type&
 GetScalarType(Value & val) {
   auto * valTy = val.getType();
-  if (valTy->isVectorTy()) return *valTy->getVectorElementType();
+  if (valTy->isVectorTy())
+    return *cast<FixedVectorType>(valTy)->getElementType();
   else return *valTy;
 }
 
@@ -147,9 +148,9 @@ GetMaskedIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oReq
 
 Value &
 CreateMaskedVectorReduce(Config & config, IRBuilder<> & builder, Mask vecMask, RedKind redKind, Value & vecVal, Value * initVal) {
-  unsigned vecWidth = vecVal.getType()->getVectorNumElements();
+  unsigned vecWidth = cast<FixedVectorType>(vecVal.getType())->getNumElements();
   auto & vecTy = *vecVal.getType();
-  auto & elemTy = *vecTy.getVectorElementType();
+  auto & elemTy = *cast<VectorType>(vecTy).getElementType();
 
 // use LLVM's experimental intrinsics where possible
   bool hasInitValArg = false; // whether the intrinsic has an initial value argument
@@ -186,9 +187,9 @@ CreateMaskedVectorReduce(Config & config, IRBuilder<> & builder, Mask vecMask, R
 // reduce the vector @vectorVal to a scalar value (using redKind)
 Value &
 CreateVectorReduce(Config & config, IRBuilder<> & builder, RedKind redKind, Value & vecVal, Value * initVal) {
-  unsigned vecWidth = vecVal.getType()->getVectorNumElements();
-  auto & vecTy = *vecVal.getType();
-  auto & elemTy = *vecTy.getVectorElementType();
+  auto & vecTy = *cast<FixedVectorType>(vecVal.getType());
+  unsigned vecWidth = vecTy.getNumElements();
+  auto & elemTy = *vecTy.getElementType();
 
 // Workaround backend deficiencies
   bool useFallback = false;

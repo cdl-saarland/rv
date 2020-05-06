@@ -20,7 +20,7 @@ static bool rv_m_Any(Value &condVal, Value *&oMask) {
   if (!call)
     return false;
 
-  auto *callee = dyn_cast<Function>(call->getCalledValue());
+  auto *callee = call->getCalledFunction();
   if (!callee)
     return false;
 
