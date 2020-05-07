@@ -39,8 +39,37 @@ using namespace llvm;
 #else
 #define IF_DEBUG_SROV if (true)
 #endif
+static uint64_t
+GetNumElements(const Type *Ty) {
+  auto VecTy = dyn_cast<VectorType>(Ty);
+#if 0
+  return cast<FixedVectorType>(Ty)->getNumElements();
+#endif
+  if (VecTy)
+    return VecTy->getNumElements();
+  auto ArrTy = dyn_cast<ArrayType>(Ty);
+  if (ArrTy)
+    return ArrTy->getNumElements();
+  auto StructTy = dyn_cast<StructType>(Ty);
+  if (StructTy)
+    return StructTy->getNumElements();
+  llvm_unreachable("unexpected aggregate type");
+}
 
-// InsertElementInst operand accessors missing in LLVM 4.0
+static Type*
+GetElementType(const Type* Ty) {
+  auto VecTy = dyn_cast<VectorType>(Ty);
+  if (VecTy)
+    return VecTy->getElementType();
+  auto ArrTy = dyn_cast<ArrayType>(Ty);
+  if (ArrTy)
+    return ArrTy->getElementType();
+  auto PtrTy = dyn_cast<PointerType>(Ty);
+  if (PtrTy)
+    return PtrTy->getElementType();
+  llvm_unreachable("unexpected aggregate type");
+}
+
 static Value*
 GetVectorOperand(InsertElementInst & insertInst) {
   return insertInst.getOperand(0);
@@ -228,7 +257,7 @@ Value * reaggregateInstruction(IRBuilder<> & builder, const ValVec & replVec, Ty
   } else if (aggTy->isVectorTy()) {
     Value * aggVal = UndefValue::get(aggTy);
     vecInfo.setVectorShape(*aggVal, vecShape);
-    size_t n = aggTy->getVectorNumElements();
+    size_t n = GetNumElements(aggTy);
     for (size_t i = 0; i < n; i++) {
       aggVal = builder.CreateInsertElement(aggVal, replVec[i], ConstantInt::get(Type::getInt32Ty(builder.getContext()), i));
       vecInfo.setVectorShape(*aggVal, vecShape);
@@ -451,9 +480,9 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
 
   } else if (ptrElemTy->isVectorTy()) {
     auto * intTy = Type::getInt32Ty(builder.getContext());
-    size_t n = ptrElemTy->getVectorNumElements();
+    size_t n = GetNumElements(ptrElemTy); //cast<FixedVectorType>(ptrElemTy)->getNumElements();
     auto * ptrTy = cast<PointerType>(ptr->getType());
-    auto * scaPtrTy = PointerType::get(ptrTy->getPointerElementType()->getVectorElementType(), ptrTy->getPointerAddressSpace());
+    auto * scaPtrTy = PointerType::get(GetElementType(ptrTy->getPointerElementType()), ptrTy->getPointerAddressSpace());
     auto * scaPtr = builder.CreatePointerCast(ptr, scaPtrTy);
     vecInfo.setVectorShape(*scaPtr, ptrShape);
 
@@ -614,9 +643,8 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
     ValVec lhsVec = requestReplicate(*shuffle.getOperand(0));
     ValVec rhsVec = requestReplicate(*shuffle.getOperand(1));
 
-    auto & shuffleMask = *shuffle.getMask();
     for (int c = 0; c < width; ++c) {
-      int laneIdx = GetShuffleIndex(shuffleMask, c);
+      int laneIdx = shuffle.getMaskValue(c);
       Value * laneRepl;
       if (laneIdx >= 0) {
          laneRepl = laneIdx < width ? lhsVec[laneIdx] : rhsVec[laneIdx - width];

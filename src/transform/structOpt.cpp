@@ -321,14 +321,21 @@ static bool VectorizableType(Type & type) {
   }
   return type.isIntegerTy() || type.isFloatingPointTy();
 }
-static Type*
-getFirstCompositeElement(Type* Ty) {
-  auto STy = dyn_cast<StructType>(Ty);
-  if (STy) return STy->getElementType(0);
 
-  auto SeqTy = dyn_cast<SequentialType>(Ty);
-  if (SeqTy) return SeqTy->getElementType();
-  return nullptr;
+static bool
+isCompositeType(Type & Ty) {
+  return isa<StructType>(Ty) || isa<VectorType>(Ty) || isa<ArrayType>(Ty);
+}
+
+static Type&
+getFirstCompositeElement(Type& Ty) {
+  auto STy = dyn_cast<StructType>(&Ty);
+  if (STy) return *STy->getElementType(0);
+  auto ArrTy = dyn_cast<ArrayType>(&Ty);
+  if (ArrTy) return *ArrTy->getElementType();
+  auto VecTy = dyn_cast<VectorType>(&Ty);
+  if (VecTy) return *VecTy->getElementType();
+  llvm_unreachable("not an expected composite type");
 }
 
 bool
@@ -342,9 +349,9 @@ StructOpt::IsGEPByBitcast(Type * actualTy, Type * bcDestTy) {
   if (layout.getTypeAllocSize(bcDestTy) == layout.getTypeAllocSize(actualTy)) return true;
 
   // Otw, recursive into first element
-  auto * firstElemTy = getFirstCompositeElement(actualTy);
-  if (!firstElemTy) return false;
-  return IsGEPByBitcast(firstElemTy, bcDestTy);
+  if (!isCompositeType(*actualTy)) return false;
+  auto &firstElemTy = getFirstCompositeElement(*actualTy);
+  return IsGEPByBitcast(&firstElemTy, bcDestTy);
 }
 
 /// whether any address computation on this alloc is uniform
@@ -606,10 +613,10 @@ StructOpt::vectorizeType(llvm::Type & scalarAllocaTy) {
   bool isArrayTy = isa<ArrayType>(scalarAllocaTy);
 
   if (isVectorTy || isArrayTy) {
-    auto * elemTy = scalarAllocaTy.getSequentialElementType();
+    auto &ElemTy = getFirstCompositeElement(scalarAllocaTy);
     auto numElements = isArrayTy ? scalarAllocaTy.getArrayNumElements() : scalarAllocaTy.getVectorNumElements();
 
-    auto * vecElem = vectorizeType(*elemTy);
+    auto * vecElem = vectorizeType(ElemTy);
     if (!vecElem) return nullptr;
     // we create an arraytype in any case since we may promote scalar types (ints) to vectors
     return ArrayType::get(vecElem, numElements);
