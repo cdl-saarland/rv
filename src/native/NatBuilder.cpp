@@ -1449,7 +1449,8 @@ void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx)
     args.push_back(laneArg);
   }
 
-  Value *call = builder.CreateCall(callee, args, scalCall->getName());
+  Value *call = builder.CreateCall(scalCall->getFunctionType(), callee, args,
+                                   scalCall->getName());
   mapScalarValue(scalCall, call, laneIdx);
 
   ++numScalarized;

@@ -163,7 +163,7 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
           result.setAlignment(newalignment);
         } else {
           // NOTE: If indexShape is varying, this still reasons about alignment
-          subT = isa<PointerType>(subT) ? subT->getPointerElementType() : subT->getSequentialElementType();
+          subT = isa<PointerType>(subT) ? subT->getPointerElementType() : subT->getArrayElementType();
 
           const int typeSizeInBytes = (int)layout.getTypeStoreSize(subT);
           result = result + typeSizeInBytes * getObservedShape(BB, *index);
@@ -176,7 +176,7 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
     case Instruction::Call:
     {
       auto & call = cast<CallInst>(I);
-      const auto* calledValue = call.getCalledValue();
+      const auto* calledValue = call.getCalledOperand();
       const Function * callee = dyn_cast<Function>(calledValue);
       if (!callee) return VectorShape::varying(); // calling a non-function
 
