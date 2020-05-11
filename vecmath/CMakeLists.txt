@@ -19,14 +19,6 @@ SET ( SLEEF_COMMON_DIR "${SLEEF_DIR}/src/common" )
 SET ( RV_LIB_SLEEF_DIR "${SLEEF_DIR}/src/libm" )
 SET ( RV_LIB_EXTRAS_DIR "${RV_SOURCE_DIR}/vecmath/extras" )
 
-# compiler-rt
-SET ( CRT_BC "${VECMATH_LIB_DIR}/crt.bc" )
-SET ( CRT_GENBC "${VECMATH_LIB_DIR}/crt.gen.cpp" )
-
-# extra libs
-SET ( SLEEF_BC_ADVSIMD_SP )
-SET ( SLEEF_GENBC_ADVSIMD_SP )
-
 
 ##### SLEEF target modules #####
 
@@ -86,6 +78,9 @@ SET ( SLEEF_GENBC_VLA_SP "${VECMATH_GENBC_DIR}/vla_sleef_sp.gen.cpp" )
 SET ( SLEEF_BC_VLA_DP "${VECMATH_LIB_DIR}/vla_sleef_dp.bc" )
 SET ( SLEEF_GENBC_VLA_DP "${VECMATH_GENBC_DIR}/vla_sleef_dp.gen.cpp" )
 
+# compiler-rt
+SET ( CRT_BC "${VECMATH_LIB_DIR}/crt.bc" )
+SET ( CRT_GENBC "${VECMATH_GENBC_DIR}/crt.gen.cpp" )
 
 ### SLEEF Build rules ###
 
