@@ -97,6 +97,7 @@ add_rv_library(RV
   ${RV_HEADER_FILES}
 )
 
+# link-in the SLEEF BC library (if enabled)
 if (TARGET gensleef)
   target_link_libraries(RV PRIVATE gensleef)
 ENDIF()

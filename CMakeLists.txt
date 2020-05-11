@@ -90,6 +90,7 @@ else ()
 endif ()
 
 # Options
+OPTION(RV_REBUILD_GENBC "Build the builtin BC library (SLEEF, SIMD random, ..) from source (requires the SLEEF submodule). Otw, use the pre-built BC buffers from vecmath/prebuilt_genbc" OFF)
 OPTION(RV_ENABLE_SLEEF "Generate RV's builtin vector-math library" ON)
 OPTION(RV_ENABLE_CRT "Implement complex math functions using BC-compiler compiler-rt" OFF)
 OPTION(RV_DEBUG "Enable verbose debug output and expensive internal checks." OFF)
