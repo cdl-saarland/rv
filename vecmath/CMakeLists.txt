@@ -1,3 +1,16 @@
+# try to find compiler-rt
+function(get_compiler_rt_path path)
+  set(CRT_SEARCH_PATHS "${CMAKE_SOURCE_DIR}/runtimes/compiler-rt;${CMAKE_SOURCE_DIR}/projects/compiler-rt;${CMAKE_SOURCE_DIR}/../compiler-rt/")
+  foreach(entry ${CRT_SEARCH_PATHS})
+     if (IS_DIRECTORY ${entry})
+      set(${path} ${entry} PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+endfunction()
+
+
+
 SET ( VECMATH_LIB_DIR ${RV_BINARY_DIR}/lib )
 # Sleef lib
 SET ( SLEEF_DIR "${RV_SOURCE_DIR}/vecmath/sleef" CACHE STRING "Path to libsleef sources" FORCE )
@@ -14,77 +27,88 @@ SET ( CRT_GENBC "${VECMATH_LIB_DIR}/crt.gen.cpp" )
 SET ( SLEEF_BC_ADVSIMD_SP )
 SET ( SLEEF_GENBC_ADVSIMD_SP )
 
-# SLEEF bc build paths
 
+##### SLEEF target modules #####
+
+IF (RV_REBUILD_GENBC)
+  Message("-- rv: Building the SLEEF BC library from source.")
+  SET( VECMATH_GENBC_DIR ${VECMATH_LIB_DIR} )
+ELSE()
+  Message("-- rv: Using pre-built SLEEF BC files.")
+  SET( VECMATH_GENBC_DIR ${RV_SOURCE_DIR}/vecmath/prebuilt_genbc )
+ENDIF()
+
+## X86 ##
+SET ( SLEEF_BC_AVX512_SP "${VECMATH_LIB_DIR}/avx512_sleef_sp.bc" )
+SET ( SLEEF_GENBC_AVX512_SP "${VECMATH_GENBC_DIR}/avx512_sleef_sp.gen.cpp" )
+
+SET ( SLEEF_BC_AVX512_DP "${VECMATH_LIB_DIR}/avx512_sleef_dp.bc" )
+SET ( SLEEF_GENBC_AVX512_DP "${VECMATH_GENBC_DIR}/avx512_sleef_dp.gen.cpp" )
+
+SET ( EXTRAS_AVX512_BC "${VECMATH_LIB_DIR}/avx512_extras.bc" )
+SET ( EXTRAS_AVX512_GENBC "${VECMATH_GENBC_DIR}/avx512_extras.gen.cpp" )
+
+SET ( SLEEF_BC_AVX2_SP "${VECMATH_LIB_DIR}/avx2_sleef_sp.bc" )
+SET ( SLEEF_GENBC_AVX2_SP "${VECMATH_GENBC_DIR}/avx2_sleef_sp.gen.cpp" )
+
+SET ( EXTRAS_AVX2_BC "${VECMATH_LIB_DIR}/avx2_extras.bc" )
+SET ( EXTRAS_AVX2_GENBC "${VECMATH_GENBC_DIR}/avx2_extras.gen.cpp" )
+
+SET ( SLEEF_BC_AVX_SP "${VECMATH_LIB_DIR}/avx_sleef_sp.bc" )
+SET ( SLEEF_GENBC_AVX_SP "${VECMATH_GENBC_DIR}/avx_sleef_sp.gen.cpp" )
+
+SET ( SLEEF_BC_SSE_SP "${VECMATH_LIB_DIR}/sse_sleef_sp.bc" )
+SET ( SLEEF_GENBC_SSE_SP "${VECMATH_GENBC_DIR}/sse_sleef_sp.gen.cpp" )
+
+SET ( SLEEF_BC_AVX2_DP "${VECMATH_LIB_DIR}/avx2_sleef_dp.bc" )
+SET ( SLEEF_GENBC_AVX2_DP "${VECMATH_GENBC_DIR}/avx2_sleef_dp.gen.cpp" )
+
+SET ( SLEEF_BC_AVX_DP "${VECMATH_LIB_DIR}/avx_sleef_dp.bc" )
+SET ( SLEEF_GENBC_AVX_DP "${VECMATH_GENBC_DIR}/avx_sleef_dp.gen.cpp" )
+
+SET ( SLEEF_BC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.bc" )
+SET ( SLEEF_GENBC_SSE_DP "${VECMATH_GENBC_DIR}/sse_sleef_dp.gen.cpp" )
+  
+## ARM ##
+SET ( SLEEF_BC_ADVSIMD_DP "${VECMATH_LIB_DIR}/advsimd_sleef_dp.bc" )
+SET ( SLEEF_GENBC_ADVSIMD_DP "${VECMATH_GENBC_DIR}/advsimd_sleef_dp.gen.cpp" )
+
+SET ( SLEEF_BC_ADVSIMD_SP "${VECMATH_LIB_DIR}/advsimd_sleef_sp.bc" )
+SET ( SLEEF_GENBC_ADVSIMD_SP "${VECMATH_GENBC_DIR}/advsimd_sleef_sp.gen.cpp" )
+
+SET ( EXTRAS_ADVSIMD_BC "${VECMATH_LIB_DIR}/advsimd_extras.bc" )
+SET ( EXTRAS_ADVSIMD_GENBC "${VECMATH_GENBC_DIR}/advsimd_extras.gen.cpp" )
+  
+## VLA: Vector-length Agnostic ##
+SET ( SLEEF_BC_VLA_SP "${VECMATH_LIB_DIR}/vla_sleef_sp.bc" )
+SET ( SLEEF_GENBC_VLA_SP "${VECMATH_GENBC_DIR}/vla_sleef_sp.gen.cpp" )
+
+SET ( SLEEF_BC_VLA_DP "${VECMATH_LIB_DIR}/vla_sleef_dp.bc" )
+SET ( SLEEF_GENBC_VLA_DP "${VECMATH_GENBC_DIR}/vla_sleef_dp.gen.cpp" )
+
+
+### SLEEF Build rules ###
 
 IF (RV_ENABLE_SLEEF)
+  ## X86 ##
   IF (RV_ENABLE_X86)
-  Message("-- rv: SLEEF with x86 support.")
-  SET ( SLEEF_BC_AVX512_SP "${VECMATH_LIB_DIR}/avx512_sleef_sp.bc" )
-  SET ( SLEEF_GENBC_AVX512_SP "${VECMATH_LIB_DIR}/avx512_sleef_sp.gen.cpp" )
-  
-  SET ( SLEEF_BC_AVX512_DP "${VECMATH_LIB_DIR}/avx512_sleef_dp.bc" )
-  SET ( SLEEF_GENBC_AVX512_DP "${VECMATH_LIB_DIR}/avx512_sleef_dp.gen.cpp" )
-  
-  SET ( EXTRAS_AVX512_BC "${VECMATH_LIB_DIR}/avx512_extras.bc" )
-  SET ( EXTRAS_AVX512_GENBC "${VECMATH_LIB_DIR}/avx512_extras.gen.cpp" )
-  
-  SET ( SLEEF_BC_AVX2_SP "${VECMATH_LIB_DIR}/avx2_sleef_sp.bc" )
-  SET ( SLEEF_GENBC_AVX2_SP "${VECMATH_LIB_DIR}/avx2_sleef_sp.gen.cpp" )
-  
-  SET ( EXTRAS_AVX2_BC "${VECMATH_LIB_DIR}/avx2_extras.bc" )
-  SET ( EXTRAS_AVX2_GENBC "${VECMATH_LIB_DIR}/avx2_extras.gen.cpp" )
-  
-  SET ( SLEEF_BC_AVX_SP "${VECMATH_LIB_DIR}/avx_sleef_sp.bc" )
-  SET ( SLEEF_GENBC_AVX_SP "${VECMATH_LIB_DIR}/avx_sleef_sp.gen.cpp" )
-  
-  SET ( SLEEF_BC_SSE_SP "${VECMATH_LIB_DIR}/sse_sleef_sp.bc" )
-  SET ( SLEEF_GENBC_SSE_SP "${VECMATH_LIB_DIR}/sse_sleef_sp.gen.cpp" )
-  
-  SET ( SLEEF_BC_AVX2_DP "${VECMATH_LIB_DIR}/avx2_sleef_dp.bc" )
-  SET ( SLEEF_GENBC_AVX2_DP "${VECMATH_LIB_DIR}/avx2_sleef_dp.gen.cpp" )
-  
-  SET ( SLEEF_BC_AVX_DP "${VECMATH_LIB_DIR}/avx_sleef_dp.bc" )
-  SET ( SLEEF_GENBC_AVX_DP "${VECMATH_LIB_DIR}/avx_sleef_dp.gen.cpp" )
-  
-  SET ( SLEEF_BC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.bc" )
-  SET ( SLEEF_GENBC_SSE_DP "${VECMATH_LIB_DIR}/sse_sleef_dp.gen.cpp" )
-  
-  SET ( SLEEF_BC_LIBS ${SLEEF_BC_LIBS} ${SLEEF_BC_AVX2_SP} ${SLEEF_BC_AVX_SP} ${SLEEF_BC_SSE_SP} ${SLEEF_BC_AVX2_DP} ${SLEEF_BC_AVX_DP} ${SLEEF_BC_SSE_DP} ${EXTRAS_AVX2_BC} ${EXTRAS_AVX512_BC} )
-  SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP}  ${SLEEF_GENBC_AVX512_SP} ${SLEEF_GENBC_AVX512_DP} ${EXTRAS_AVX2_GENBC} ${EXTRAS_AVX512_GENBC} )
+    Message("-- rv: SLEEF with x86 support.")
+    SET ( SLEEF_BC_LIBS ${SLEEF_BC_LIBS} ${SLEEF_BC_AVX2_SP} ${SLEEF_BC_AVX_SP} ${SLEEF_BC_SSE_SP} ${SLEEF_BC_AVX2_DP} ${SLEEF_BC_AVX_DP} ${SLEEF_BC_SSE_DP} ${EXTRAS_AVX2_BC} ${EXTRAS_AVX512_BC} )
+    SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${SLEEF_GENBC_AVX2_SP} ${SLEEF_GENBC_AVX_SP} ${SLEEF_GENBC_SSE_SP} ${SLEEF_GENBC_AVX2_DP} ${SLEEF_GENBC_AVX_DP} ${SLEEF_GENBC_SSE_DP}  ${SLEEF_GENBC_AVX512_SP} ${SLEEF_GENBC_AVX512_DP} ${EXTRAS_AVX2_GENBC} ${EXTRAS_AVX512_GENBC} )
   ENDIF()
-  
-  
+
+  ## ARM ##
   IF (RV_ENABLE_ADVSIMD)
     Message("-- rv: SLEEF with Advanced SIMD support.")
   
-  SET ( SLEEF_BC_ADVSIMD_DP "${VECMATH_LIB_DIR}/advsimd_sleef_dp.bc" )
-  SET ( SLEEF_GENBC_ADVSIMD_DP "${VECMATH_LIB_DIR}/advsimd_sleef_dp.gen.cpp" )
-  
-  SET ( SLEEF_BC_ADVSIMD_SP "${VECMATH_LIB_DIR}/advsimd_sleef_sp.bc" )
-  SET ( SLEEF_GENBC_ADVSIMD_SP "${VECMATH_LIB_DIR}/advsimd_sleef_sp.gen.cpp" )
-  
-  SET ( EXTRAS_ADVSIMD_BC "${VECMATH_LIB_DIR}/advsimd_extras.bc" )
-  SET ( EXTRAS_ADVSIMD_GENBC "${VECMATH_LIB_DIR}/advsimd_extras.gen.cpp" )
-  
-  SET ( SLEEF_BC_LIBS ${SLEEF_BC_LIBS} ${SLEEF_BC_ADVSIMD_SP} ${SLEEF_BC_ADVSIMD_DP} ${EXTRAS_ADVSIMD_BC} )
-  SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${SLEEF_GENBC_ADVSIMD_SP} ${SLEEF_GENBC_ADVSIMD_DP} ${EXTRAS_ADVSIMD_GENBC} )
+    SET ( SLEEF_BC_LIBS ${SLEEF_BC_LIBS} ${SLEEF_BC_ADVSIMD_SP} ${SLEEF_BC_ADVSIMD_DP} ${EXTRAS_ADVSIMD_BC} )
+    SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${SLEEF_GENBC_ADVSIMD_SP} ${SLEEF_GENBC_ADVSIMD_DP} ${EXTRAS_ADVSIMD_GENBC} )
   ENDIF()
-  
-  
-  
-  SET ( SLEEF_BC_VLA_SP "${VECMATH_LIB_DIR}/vla_sleef_sp.bc" )
-  SET ( SLEEF_GENBC_VLA_SP "${VECMATH_LIB_DIR}/vla_sleef_sp.gen.cpp" )
-  
-  SET ( SLEEF_BC_VLA_DP "${VECMATH_LIB_DIR}/vla_sleef_dp.bc" )
-  SET ( SLEEF_GENBC_VLA_DP "${VECMATH_LIB_DIR}/vla_sleef_dp.gen.cpp" )
-  
+
+  ## VLA##
   SET ( SLEEF_BC_LIBS ${SLEEF_BC_LIBS} ${SLEEF_BC_VLA_DP} ${SLEEF_BC_VLA_SP} )
   SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${SLEEF_GENBC_VLA_SP} ${SLEEF_GENBC_VLA_DP} )
 ENDIF()
-
-
-
 
 SET( FLAGS_SSE -m64 -msse2 -msse4.1 -DENABLE_BUILTIN_MATH -DENABLE_SSE2=ON )
 SET( FLAGS_AVX -mavx -mfma -DENABLE_BUILTIN_MATH -DENABLE_AVX=ON )
@@ -97,26 +121,31 @@ IF (RV_ENABLE_CRT)
   SET ( RV_GENBC_SOURCES ${RV_GENBC_SOURCES} ${CRT_GENBC} )
 ENDIF()
 
+### Commands to generate 'bc.gencpp' files from C/CPP sources ###
 # conditionally provide extra sources
 SET ( RV_LIB_SLEEF_OUT_DIR ${VECMATH_LIB_DIR} )
 
 SET ( GENCPP_TOOL "${RV_SOURCE_DIR}/tools/gen_cpp.py" )
 
 IF (${RV_ENABLE_SLEEF})
+  MESSAGE("-- rv: Building with SLEEF")
+
+  IF (${RV_REBUILD_GENBC})
+
   IF(TARGET clang)
     SET(LLVM_TOOL_CLANG clang)
   ELSE(TARGET clang)
     SET(LLVM_TOOL_CLANG ${RV_BINARY_DIR}/../../bin/clang)
   ENDIF(TARGET clang)
-  # add SLEEF bc generators as extra source
-  MESSAGE("-- rv: Building with SLEEF")
 
   # add SLEEF bc generators as extra source
-  ADD_CUSTOM_TARGET ( libsleef_x64 DEPENDS ${RV_GENBC_SOURCES} )
+  # ADD_CUSTOM_TARGET ( libsleef_x64 DEPENDS ${RV_GENBC_SOURCES} )
 
+  # common build option for BC libraries from SLEEF sources
   SET( RVLIB_BUILD_OPTS -DNDEBUG -O3 -fno-vectorize -ffp-contract=fast -I${RV_LIB_SLEEF_DIR}/../arch -I${RV_LIB_SLEEF_DIR}/../common)
   # extra libs
   # Sleef single precision
+
 ### ADVSIMD
 IF (RV_ENABLE_ADVSIMD)
   ADD_CUSTOM_COMMAND (
@@ -140,11 +169,9 @@ IF (RV_ENABLE_ADVSIMD)
     COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${EXTRAS_ADVSIMD_GENBC} \"advsimd_extras\" ${EXTRAS_ADVSIMD_BC}
     DEPENDS ${RV_LIB_EXTRAS_DIR}/vrand_advsimd.c ${LLVM_TOOL_CLANG}
   )
-ENDIF()
-### NEON32
-  # NEON32 TODO
+ENDIF()  # !RV_ENABLE_ADVSIMD
+
 if (RV_ENABLE_X86)
-### extra lib (avxmath)
 
 ### AVX512
   ADD_CUSTOM_COMMAND (
@@ -220,7 +247,7 @@ if (RV_ENABLE_X86)
     COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_DP} \"sse_dp\" ${SLEEF_BC_SSE_DP}
     DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
   )
-ENDIF()
+ENDIF() # !RV_ENABLE_X86
 
 ### vector-length agnostic
 ADD_CUSTOM_COMMAND (
@@ -237,19 +264,6 @@ ADD_CUSTOM_COMMAND (
   COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_VLA_DP} \"vla_dp\" ${SLEEF_BC_VLA_DP}
   DEPENDS ${RV_LIB_SLEEF_DIR}/sleefdp.c ${LLVM_TOOL_CLANG}
 )
-
-
-# try to find compiler-rt
-function(get_compiler_rt_path path)
-  set(CRT_SEARCH_PATHS "${CMAKE_SOURCE_DIR}/runtimes/compiler-rt;${CMAKE_SOURCE_DIR}/projects/compiler-rt;${CMAKE_SOURCE_DIR}/../compiler-rt/")
-  foreach(entry ${CRT_SEARCH_PATHS})
-     if (IS_DIRECTORY ${entry})
-      set(${path} ${entry} PARENT_SCOPE)
-      return()
-    endif()
-  endforeach()
-endfunction()
-
 
 IF (RV_ENABLE_CRT) 
   # look for compiler-rt source folder
@@ -270,13 +284,15 @@ IF (RV_ENABLE_CRT)
     COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${CRT_GENBC} \"crt\" ${CRT_BC}
     DEPENDS ${RV_SOURCE_DIR}/vecmath/crt.c ${LLVM_TOOL_CLANG}
   )
-
-ELSE()
+ELSE()  # !RV_ENABLE_CRT
   Message("-- rv: Building without compiler-rt BC libs.")
 ENDIF()
+
+ENDIF() # RV_REBUILD_GENBC
+
 # generate static library
 add_rv_library(gensleef STATIC ${RV_GENBC_SOURCES})
 
-ELSE()
+ELSE() # !RV_ENABLE_SLEEF
     Message("-- rv: Buildling without SLEEF.")
-ENDIF ()
+ENDIF()
