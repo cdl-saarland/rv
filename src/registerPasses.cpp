@@ -39,24 +39,20 @@ static cl::opt<bool>
     cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static cl::opt<bool>
-    rvOnlyCNS("rv-cns", cl::desc("Only run RV's Irreducible Loop Normalizer."),
-    cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+    rvAutoVectorizeMath("rv-math", cl::desc("Use RV to auto-vectorize libm calls."),
+    cl::init(true), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static bool mayVectorize() { return rvWFVEnabled || rvLoopVecEnabled || rvVectorizeEnabled; }
 static bool shouldRunWFVPass() { return rvWFVEnabled || rvVectorizeEnabled; }
 static bool shouldRunLoopVecPass() { return rvLoopVecEnabled || rvVectorizeEnabled; }
 static bool shouldLowerBuiltins() { return rvLowerBuiltins; }
+static bool shouldAutoVectorizeMath() { return rvAutoVectorizeMath; }
 
 static void
 registerRVPasses(const llvm::PassManagerBuilder &Builder,
                                        llvm::legacy::PassManagerBase &PM) {
   if (rvOnlyPolish) {
     PM.add(rv::createIRPolisherWrapperPass());
-    return;
-  }
-
-  if (rvOnlyCNS) {
-    PM.add(rv::createCNSPass());
     return;
   }
 
@@ -69,6 +65,10 @@ registerRVPasses(const llvm::PassManagerBuilder &Builder,
   }
   if (shouldRunLoopVecPass()) {
     rv::addOuterLoopVectorizer(PM);
+  }
+
+  if (shouldAutoVectorizeMath()) {
+    rv::addAutoMathPass(PM);
   }
 
   if (mayVectorize()) {

@@ -32,14 +32,14 @@
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/Transforms/Utils/ValueMapper.h>
 
-#include "rv/vectorizationInfo.h"
 #include "rv/PlatformInfo.h"
 #include "rv/transform/maskExpander.h"
+#include "rv/vectorizationInfo.h"
 
 #include "rv/rvDebug.h"
 #include <rvConfig.h>
 #include "report.h"
-#include "cns/llvmDuplication.h"
+#include "utils/llvmDuplication.h"
 #include "rv/utils.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/GenericDomTree.h"

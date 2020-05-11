@@ -6,6 +6,8 @@
 
 #include "llvmDomination.h"
 
+#include "rvConfig.h"
+
 namespace rv {
 
 BlockSet getSelfDominatedBlocks(llvm::BasicBlock *entryBlock,
@@ -67,10 +69,10 @@ BlockSet computeDominatedRegion(llvm::DominatorTree &domTree,
     blocks.erase(itBegin);
 
     if (!exits.count(block) && // this is not an exit from this region
-        //					domTree.dominates(header, block) && //
-        //we dominate this
+                               //					domTree.dominates(header,
+                               //block) && // we dominate this
         visited.insert(block).second // we have not yet visited this node
-        ) {
+    ) {
       for (llvm::succ_iterator itSucc = llvm::succ_begin(block);
            itSucc != llvm::succ_end(block); ++itSucc)
         blocks.insert(*itSucc);
@@ -101,4 +103,4 @@ llvm::DomTreeNode *findImmediateDominator(llvm::DominatorTree &domTree,
 
   return node;
 }
-}
+} // namespace rv

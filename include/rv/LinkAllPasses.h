@@ -19,11 +19,11 @@ namespace llvm {
 class Pass;
 class PassRegistry;
 
-void initializeLoopVectorizerPass(PassRegistry&);
-void initializeWFVPassPass(PassRegistry&);
+void initializeAutoMathPassPass(PassRegistry&);
 void initializeIRPolisherWrapperPass(PassRegistry&);
-void initializeCNSPass(PassRegistry&);
+void initializeLoopVectorizerPass(PassRegistry&);
 void initializeLowerRVIntrinsicsPass(PassRegistry&);
+void initializeWFVPassPass(PassRegistry&);
 } // namespace llvm
 
 namespace {
@@ -36,12 +36,11 @@ struct RVForcePassLinking {
     if (std::getenv("bar") != (char *)-1)
       return;
 
-    // rv::createWFVPass();
-    rv::createLoopVectorizerPass();
+    rv::createAutoMathPass();
     rv::createIRPolisherWrapperPass();
-    rv::createCNSPass();
-    rv::createWFVPass();
+    rv::createLoopVectorizerPass();
     rv::createLowerRVIntrinsicsPass();
+    rv::createWFVPass();
   }
 } RVForcePassLinking; // Force link by creating a global definition.
 

@@ -8,53 +8,51 @@
 
 #include "rv/passes.h"
 
-#include "llvm/Transforms/Scalar.h"
-#include "llvm/Transforms/Utils.h"
+#include "rv/transform/loopExitCanonicalizer.h"
 #include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
-#include "rv/transform/loopExitCanonicalizer.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils.h"
 
 using namespace llvm;
 
 namespace rv {
 
-
-
-void
-addPreparatoryPasses(legacy::PassManagerBase & PM) {
-   PM.add(createLoopSimplifyPass());
-   PM.add(createLCSSAPass());
-   PM.add(createLoopExitCanonicalizerPass()); // required for divLoopTrans
+void addPreparatoryPasses(legacy::PassManagerBase &PM) {
+  PM.add(createLoopSimplifyPass());
+  PM.add(createLCSSAPass());
+  PM.add(createLoopExitCanonicalizerPass()); // required for divLoopTrans
 }
 
-void
-addCleanupPasses(legacy::PassManagerBase & PM) {
-   // post rv cleanup
-   PM.add(createAlwaysInlinerLegacyPass());
-   PM.add(createAggressiveInstCombinerPass());
-   PM.add(createAggressiveDCEPass());
+void addCleanupPasses(legacy::PassManagerBase &PM) {
+  // post rv cleanup
+  PM.add(createAlwaysInlinerLegacyPass());
+  PM.add(createAggressiveInstCombinerPass());
+  PM.add(createAggressiveDCEPass());
 }
 
-void
-addOuterLoopVectorizer(legacy::PassManagerBase & PM) {
-   PM.add(rv::createLoopVectorizerPass());
+void addOuterLoopVectorizer(legacy::PassManagerBase &PM) {
+  PM.add(rv::createLoopVectorizerPass());
 }
 
+void addAutoMathPass(llvm::legacy::PassManagerBase &PM) {
+  PM.add(rv::createAutoMathPass());
+}
 
-void
-addWholeFunctionVectorizer(llvm::legacy::PassManagerBase & PM) {
+void addWholeFunctionVectorizer(llvm::legacy::PassManagerBase &PM) {
   PM.add(rv::createWFVPass());
 }
 
-void
-addLowerBuiltinsPass(legacy::PassManagerBase & PM) {
-   PM.add(rv::createLowerRVIntrinsicsPass());
+void addLowerBuiltinsPass(legacy::PassManagerBase &PM) {
+  PM.add(rv::createLowerRVIntrinsicsPass());
 }
 
-void
-addRVPasses(llvm::legacy::PassManagerBase & PM) {
+void addRVPasses(llvm::legacy::PassManagerBase &PM) {
   // normalize loops
   addPreparatoryPasses(PM);
+
+  // supplement vector math functions for select targets using RV's resolver API
+  addAutoMathPass(PM);
 
   // vectorize scalar functions that have VectorABI attributes
   addWholeFunctionVectorizer(PM);
@@ -66,4 +64,4 @@ addRVPasses(llvm::legacy::PassManagerBase & PM) {
   addCleanupPasses(PM);
 }
 
-}
+} // namespace rv

@@ -24,7 +24,7 @@ void
 MaterializeEntryMask(llvm::Function &F, rv::PlatformInfo &platInfo);
 
 llvm::Type*
-vectorizeType(llvm::Type* scalarTy, rv::VectorShape shape, unsigned vectorWidth);
+vectorizeType(llvm::Type* scalarTy, VectorShape shape, unsigned vectorWidth);
 
 llvm::Function*
 createVectorDeclaration(llvm::Function& scalarFn, VectorShape resShape,

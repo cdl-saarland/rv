@@ -1,40 +1,48 @@
-/*
- * llvmDuplication.cpp
- *
- *  Created on: Jun 21, 2010
- */
+//===- src/utils/llvmDuplication.cpp - fancy IR cloning --*- C++ -*-===//
+//
+// Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//  Additional facilities for cloning blocks, loops and mapping betwen the
+//  original IR and the clones.
+//===----------------------------------------------------------------------===//
 
 #include "llvmDuplication.h"
 #include <llvm/Transforms/Utils/Cloning.h>
 
 #include "llvmDomination.h"
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/ValueMap.h>
 #include <llvm/Transforms/Utils/SSAUpdater.h>
-#include <llvm/IR/IRBuilder.h>
 
 #include "CommonTypes.h"
 
+#include "rvConfig.h"
+
 using namespace llvm;
 
-#if 0
-#undef IF_DEBUG_CNS
-#define IF_DEBUG_CNS if (true)
+#if 1
+#define IF_DEBUG_DUP IF_DEBUG
+#else
+#define IF_DEBUG_DUP if (false)
 #endif
 
-// #define CNS_SSA_UPDATER // TODO did not work (defaulting to Store+Load, folloed by mem2reg)
+// #define CNS_SSA_UPDATER // TODO did not work (defaulting to Store+Load,
+// folloed by mem2reg)
 
-static void
-simplifyPhis(BasicBlock & block, BasicBlock & predBlock) {
+static void simplifyPhis(BasicBlock &block, BasicBlock &predBlock) {
   // Fix all PHI-nodes of the cloned block
   // FIXME don't do this for loop carries..
   for (llvm::BasicBlock::iterator it = block.begin();
        it != block.end() && llvm::isa<llvm::PHINode>(it);) {
     llvm::PHINode *phi = llvm::cast<llvm::PHINode>(it++);
 
-    auto * liveIn = phi->getIncomingValueForBlock(&predBlock);
+    auto *liveIn = phi->getIncomingValueForBlock(&predBlock);
     assert(liveIn && "pred is not incoming block!");
     // turn into a sinle-input phi
     for (size_t i = 0; i < phi->getNumIncomingValues();) {
@@ -47,10 +55,10 @@ simplifyPhis(BasicBlock & block, BasicBlock & predBlock) {
   }
 }
 
-static Value*
-ExtractVal(Value * val) {
-  auto * phi = dyn_cast<PHINode>(val);
-  if (phi && phi->getNumIncomingValues() == 1) return phi->getIncomingValue(0);
+static Value *ExtractVal(Value *val) {
+  auto *phi = dyn_cast<PHINode>(val);
+  if (phi && phi->getNumIncomingValues() == 1)
+    return phi->getIncomingValue(0);
   return val;
 }
 
@@ -59,18 +67,18 @@ namespace rv {
 BlockSet splitNode(llvm::BasicBlock *srcBlock, llvm::DominatorTree *domTree) {
   assert(srcBlock && "was NULL");
 
-  IF_DEBUG_CNS {
+  IF_DEBUG_DUP {
     errs() << "Splitting " << srcBlock->getName() << "\n";
     errs() << *srcBlock << "\n";
   }
 
   BlockVector preds;
-  for (auto * BB : predecessors(srcBlock)) {
+  for (auto *BB : predecessors(srcBlock)) {
     preds.push_back(BB);
   }
 
   BlockSet succSet;
-  for (auto * succ : successors(srcBlock)) {
+  for (auto *succ : successors(srcBlock)) {
     succSet.insert(succ);
   }
 
@@ -85,68 +93,72 @@ BlockSet splitNode(llvm::BasicBlock *srcBlock, llvm::DominatorTree *domTree) {
   }
 
   // clone all blocks
-  std::map<BasicBlock*,ValueMap*> cloneMap;
+  std::map<BasicBlock *, ValueMap *> cloneMap;
 
   for (BlockVector::iterator itPred = (preds.begin() + 1);
        itPred != preds.end(); ++itPred) {
     llvm::BasicBlock *predBlock = *itPred;
-    llvm::BasicBlock *clonedBlock = cloneBlockForBranch(srcBlock, predBlock, cloneMap, domTree);
+    llvm::BasicBlock *clonedBlock =
+        cloneBlockForBranch(srcBlock, predBlock, cloneMap, domTree);
     clones.insert(clonedBlock);
     simplifyPhis(*clonedBlock, *predBlock);
   }
 
   simplifyPhis(*srcBlock, *preds[0]);
 
-
-
-  IF_DEBUG_CNS {
+  IF_DEBUG_DUP {
     errs() << "--- predecessors after CFG embedding ---\n";
-    for (auto * p : preds) {
+    for (auto *p : preds) {
       errs() << *p << "\n";
     }
 
     errs() << "--- cloned blocks after CFG embedding ---\n";
     errs() << *srcBlock << "\n";
-    for (auto * clone : clones) {
+    for (auto *clone : clones) {
       errs() << *clone << "\n";
     }
   }
 
-  IF_DEBUG_CNS errs() << "-- fixing live out uses ---\n";
+  IF_DEBUG_DUP errs() << "-- fixing live out uses ---\n";
 
   // fix remote live out uses
-  for (auto & inst : *srcBlock) {
-    if (inst.getType()->isVoidTy()) continue;
-    if (inst.getNumUses() == 0) continue;
+  for (auto &inst : *srcBlock) {
+    if (inst.getType()->isVoidTy())
+      continue;
+    if (inst.getNumUses() == 0)
+      continue;
 
-    IF_DEBUG_CNS errs() << "Fixing uses of " << inst << "\n";
+    IF_DEBUG_DUP errs() << "Fixing uses of " << inst << "\n";
 
     bool ssaUpReady = false;
 #ifdef CNS_SSA_UPDATER
-    SmallVector<PHINode*, 8> phiVec;
+    SmallVector<PHINode *, 8> phiVec;
     SSAUpdater ssaUpdater(&phiVec);
     ssaUpdater.Initialize(inst.getType(), inst.getName().str() + ".cnsphi");
 #else
-    AllocaInst * location = nullptr;
+    AllocaInst *location = nullptr;
 #endif
 
-    IF_DEBUG_CNS errs() << "Definition : " << inst << "   @" << srcBlock->getName() << "\n";
-    std::vector<Use*> cachedUses;
-    for (auto & use : inst.uses()) {
+    IF_DEBUG_DUP errs() << "Definition : " << inst << "   @"
+                        << srcBlock->getName() << "\n";
+    std::vector<Use *> cachedUses;
+    for (auto &use : inst.uses()) {
       cachedUses.push_back(&use);
     }
-    for (auto * useP : cachedUses) {
-      auto & use = *useP;
-      auto & userInst = *cast<Instruction>(use.getUser());
+    for (auto *useP : cachedUses) {
+      auto &use = *useP;
+      auto &userInst = *cast<Instruction>(use.getUser());
 
-      if (userInst.getParent() == srcBlock) continue; // self loops etc should be patched already
+      if (userInst.getParent() == srcBlock)
+        continue; // self loops etc should be patched already
 
-      IF_DEBUG_CNS errs() << "USER : " << *use.getUser() << "    @" << userInst.getParent()->getName() << "\n";
-      auto * userPhi = dyn_cast<PHINode>(use.getUser());
+      IF_DEBUG_DUP errs() << "USER : " << *use.getUser() << "    @"
+                          << userInst.getParent()->getName() << "\n";
+      auto *userPhi = dyn_cast<PHINode>(use.getUser());
 
       // there is a pre-existing receiving phi in the successor block
       if (userPhi && succSet.count(userPhi->getParent())) {
-        IF_DEBUG_CNS errs() << "\t successor phi case:\n";
+        IF_DEBUG_DUP errs() << "\t successor phi case:\n";
         int recIdx = userPhi->getBasicBlockIndex(srcBlock);
         assert(recIdx >= 0);
         assert(userPhi->getIncomingValue(recIdx) == &inst && "cross use");
@@ -154,8 +166,8 @@ BlockSet splitNode(llvm::BasicBlock *srcBlock, llvm::DominatorTree *domTree) {
         // userPhi->removeIncomingValue(recIdx, false);
 
         for (auto itMap : cloneMap) {
-          auto * cloneBlock = itMap.first;
-          auto * clonedVal = &*(*itMap.second)[&inst];
+          auto *cloneBlock = itMap.first;
+          auto *clonedVal = &*(*itMap.second)[&inst];
           userPhi->addIncoming(clonedVal, cloneBlock);
         }
 
@@ -163,28 +175,34 @@ BlockSet splitNode(llvm::BasicBlock *srcBlock, llvm::DominatorTree *domTree) {
         if (!ssaUpReady) {
 #ifdef CNS_SSA_UPDATER
 #else
-          auto * func = srcBlock->getParent();
-          location = new AllocaInst(inst.getType(), 0, "cns.stash", func->begin()->getFirstNonPHI());
+          auto *func = srcBlock->getParent();
+          location = new AllocaInst(inst.getType(), 0, "cns.stash",
+                                    func->begin()->getFirstNonPHI());
 #endif
-          IF_DEBUG_CNS errs() << "SSAUpdater setup:\n";
+          IF_DEBUG_DUP errs() << "SSAUpdater setup:\n";
           for (auto itMap : cloneMap) {
-            auto * cloneBlock = itMap.first;
-            auto * clonedInst = cast<Instruction>(&*(*itMap.second)[&inst]);
-            auto * clonedVal = ExtractVal(clonedInst);
+            auto *cloneBlock = itMap.first;
+            auto *clonedInst = cast<Instruction>(&*(*itMap.second)[&inst]);
+            auto *clonedVal = ExtractVal(clonedInst);
             assert(clonedVal && "cloned val not mapped!");
-            IF_DEBUG_CNS errs() << "\t\t\t" << *clonedVal << "   @" << cloneBlock->getName() << "\n";
+            IF_DEBUG_DUP errs() << "\t\t\t" << *clonedVal << "   @"
+                                << cloneBlock->getName() << "\n";
 #ifdef CNS_SSA_UPDATER
             ssaUpdater.AddAvailableValue(cloneBlock, clonedVal);
 #else
-            IRBuilder<> builder(clonedInst->getParent(), clonedInst->getParent()->getTerminator()->getIterator());
+            IRBuilder<> builder(
+                clonedInst->getParent(),
+                clonedInst->getParent()->getTerminator()->getIterator());
             builder.CreateStore(clonedVal, location, false);
 #endif
           }
-          IF_DEBUG_CNS errs() << "\t\t\t" << *ExtractVal(&inst) << "   @" << srcBlock->getName() << "\n";
+          IF_DEBUG_DUP errs() << "\t\t\t" << *ExtractVal(&inst) << "   @"
+                              << srcBlock->getName() << "\n";
 #ifdef CNS_SSA_UPDATER
           ssaUpdater.AddAvailableValue(srcBlock, ExtractVal(&inst));
 #else
-          IRBuilder<> builder(inst.getParent(), inst.getParent()->getTerminator()->getIterator());
+          IRBuilder<> builder(inst.getParent(),
+                              inst.getParent()->getTerminator()->getIterator());
           builder.CreateStore(ExtractVal(&inst), location, false);
 #endif
           ssaUpReady = true;
@@ -193,10 +211,10 @@ BlockSet splitNode(llvm::BasicBlock *srcBlock, llvm::DominatorTree *domTree) {
 #if 0
         ssaUpdater.RewriteUse(use);
 #else
-        Value * fixedDef = nullptr;
+        Value *fixedDef = nullptr;
         if (!userPhi) {
           // non-phi request def in middle of block (creating phi nodes)
-          IF_DEBUG_CNS errs() << "\t inst user case:\n";
+          IF_DEBUG_DUP errs() << "\t inst user case:\n";
 
 #ifdef CNS_SSA_UPDATER
           fixedDef = ssaUpdater.GetValueInMiddleOfBlock(userInst.getParent());
@@ -207,13 +225,14 @@ BlockSet splitNode(llvm::BasicBlock *srcBlock, llvm::DominatorTree *domTree) {
 #endif
 
         } else {
-          IF_DEBUG_CNS errs() << "\t remote phi user case:\n";
+          IF_DEBUG_DUP errs() << "\t remote phi user case:\n";
           // using phi request definition at incoming block
-          int valIdx = userPhi->getIncomingValueNumForOperand(use.getOperandNo());
-          auto * inBlock = userPhi->getIncomingBlock(valIdx);
-          IF_DEBUG_CNS {
+          int valIdx =
+              userPhi->getIncomingValueNumForOperand(use.getOperandNo());
+          auto *inBlock = userPhi->getIncomingBlock(valIdx);
+          IF_DEBUG_DUP {
             errs() << "incoming value at block " << inBlock->getName() << "\n";
-            for (auto * predBlock: predecessors(inBlock)) {
+            for (auto *predBlock : predecessors(inBlock)) {
               errs() << "- " << predBlock->getName() << "\n";
             }
           }
@@ -231,19 +250,20 @@ BlockSet splitNode(llvm::BasicBlock *srcBlock, llvm::DominatorTree *domTree) {
 #endif
       }
 
-      IF_DEBUG_CNS errs() << "fixed USER : " << *use.getUser() << "\n";
+      IF_DEBUG_DUP errs() << "fixed USER : " << *use.getUser() << "\n";
     }
   }
 
 #if 0
-    IF_DEBUG_CNS errs() << "@" << srcBlock->getName() << " : " << inst << "\n";
+    IF_DEBUG_DUP errs() << "@" << srcBlock->getName() << " : " << inst << "\n";
     for (auto * clone : clones) {
       auto * cloneVal = &*(*cloneMap[clone])[&inst];
-      IF_DEBUG_CNS errs() << "@" << clone->getName() << " : " << *cloneVal << "\n";
+      IF_DEBUG_DUP errs() << "@" << clone->getName() << " : " << *cloneVal << "\n";
     }
 #endif
 
-  for (auto it : cloneMap) delete it.second;
+  for (auto it : cloneMap)
+    delete it.second;
 
   return clones;
 }
@@ -303,28 +323,28 @@ void patchClonedBlocksForBranch(ValueMap &cloneMap,
 #if 0
 #endif
 
-// Fix all branches coming from branchBlocks
-    IF_DEBUG_CNS llvm::errs() << "## Patching branchBlocks\n";
-      auto *termInst = branchBlock->getTerminator();
-      IF_DEBUG_CNS {
-        llvm::errs() << "unpatched:";
-        termInst->dump();
-      }
-      RemapInstruction(termInst, cloneMap, RF_IgnoreMissingLocals);
-      IF_DEBUG_CNS {
-        llvm::errs() << "patched:";
-        termInst->dump();
-      }
+    // Fix all branches coming from branchBlocks
+    IF_DEBUG_DUP llvm::errs() << "## Patching branchBlocks\n";
+    auto *termInst = branchBlock->getTerminator();
+    IF_DEBUG_DUP {
+      llvm::errs() << "unpatched:";
+      termInst->dump();
+    }
+    RemapInstruction(termInst, cloneMap, RF_IgnoreMissingLocals);
+    IF_DEBUG_DUP {
+      llvm::errs() << "patched:";
+      termInst->dump();
+    }
 
-    IF_DEBUG_CNS llvm::errs() << "## Patching cloned block\n";
+    IF_DEBUG_DUP llvm::errs() << "## Patching cloned block\n";
     // Fix all instructions in the block itself
     for (Instruction &inst : *clonedBlock) {
-      IF_DEBUG_CNS {
+      IF_DEBUG_DUP {
         llvm::errs() << "unpatched:";
         inst.dump();
       }
       RemapInstruction(&inst, cloneMap, RF_IgnoreMissingLocals);
-      IF_DEBUG_CNS {
+      IF_DEBUG_DUP {
         llvm::errs() << "patched:";
         inst.dump();
       }
@@ -341,7 +361,7 @@ void patchClonedBlocksForBranch(ValueMap &cloneMap,
       llvm::BasicBlock::iterator itPHI;
       for (itPHI = succBlock->begin(); llvm::isa<llvm::PHINode>(itPHI);
            ++itPHI) {
-        IF_DEBUG_CNS {
+        IF_DEBUG_DUP {
           llvm::errs() << "## patching PHI:";
           itPHI->dump();
         }
@@ -351,7 +371,7 @@ void patchClonedBlocksForBranch(ValueMap &cloneMap,
         llvm::Value *inVal = phi->getIncomingValueForBlock(srcBlock);
         handledSrcValues.insert(inVal);
 
-        IF_DEBUG_CNS {
+        IF_DEBUG_DUP {
           llvm::errs() << "### fixed PHI for new incoming edge\n";
           inVal->dump();
         }
@@ -412,22 +432,23 @@ void patchClonedBlocksForBranch(ValueMap &cloneMap,
  * creates a copy of @srcBlock that replaces the original srcBlock on the edge
  * coming from branchBlock
  */
-llvm::BasicBlock *cloneBlockForBranch(llvm::BasicBlock *srcBlock,
-                                      llvm::BasicBlock *branchBlock,
-                                      std::map<BasicBlock*,ValueToValueMapTy*> & unifiedCloneMap,
-                                      llvm::DominatorTree *domTree) {
-  IF_DEBUG_CNS {
+llvm::BasicBlock *cloneBlockForBranch(
+    llvm::BasicBlock *srcBlock, llvm::BasicBlock *branchBlock,
+    std::map<BasicBlock *, ValueToValueMapTy *> &unifiedCloneMap,
+    llvm::DominatorTree *domTree) {
+  IF_DEBUG_DUP {
     llvm::errs() << " cloning block : " << srcBlock->getName().str() << "\n";
-               //<< " for blockset : " << toString(branchSet) << "\n";
+    //<< " for blockset : " << toString(branchSet) << "\n";
   }
 
   // sanity check
   assert(!srcBlock->getUniquePredecessor() &&
          "block already has only a single predecessor");
 
-  ValueMap * cloneMap = new ValueMap;
+  ValueMap *cloneMap = new ValueMap;
 
-  llvm::BasicBlock *clonedBlock = cloneBlockAndMapInstructions(srcBlock, *cloneMap);
+  llvm::BasicBlock *clonedBlock =
+      cloneBlockAndMapInstructions(srcBlock, *cloneMap);
   (*cloneMap)[srcBlock] = clonedBlock;
   ValueMap branchFixMap;
   // branchFixMap[srcBlock] = clonedBlock;
@@ -436,7 +457,8 @@ llvm::BasicBlock *cloneBlockForBranch(llvm::BasicBlock *srcBlock,
   BlockVector originalBlocks(1, srcBlock);
   BlockVector clonedBlocks(1, clonedBlock);
 
-  patchClonedBlocksForBranch(*cloneMap, originalBlocks, clonedBlocks, branchBlock);
+  patchClonedBlocksForBranch(*cloneMap, originalBlocks, clonedBlocks,
+                             branchBlock);
 
   // fix up the dominance tree
   if (domTree) {
@@ -447,4 +469,4 @@ llvm::BasicBlock *cloneBlockForBranch(llvm::BasicBlock *srcBlock,
 
   return clonedBlock;
 }
-}
+} // namespace rv
