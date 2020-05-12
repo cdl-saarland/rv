@@ -56,7 +56,7 @@
 using namespace rv;
 using namespace llvm;
 
-#if 1
+#if 0
 #define IF_DEBUG_AM if (true)
 #else
 #define IF_DEBUG_AM IF_DEBUG
