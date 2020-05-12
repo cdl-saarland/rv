@@ -75,10 +75,6 @@ static void registerRVPasses(const llvm::PassManagerBuilder &Builder,
     rv::addOuterLoopVectorizer(PM);
   }
 
-  if (shouldAutoVectorizeMath()) {
-    rv::addAutoMathPass(PM);
-  }
-
   if (mayVectorize()) {
     rv::addCleanupPasses(PM);
   }
@@ -89,6 +85,10 @@ static void registerLateRVPasses(const llvm::PassManagerBuilder &Builder,
   if (shouldLowerBuiltins()) {
     rv::addLowerBuiltinsPass(PM);
   }
+  if (shouldAutoVectorizeMath()) {
+    rv::addAutoMathPass(PM);
+  }
+
 }
 
 static llvm::RegisterStandardPasses
