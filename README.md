@@ -84,6 +84,8 @@ Whether RV should inline and vectorize complex math functions. This makes use of
 List of LLVM targets, for which the SLEEF vector math library should be built. Same format as `LLVM_TARGETS_TO_BUILD`. RV uses SLEEF to vectorize math functions. Clang has to be able to (cross-)compile for all of these targets or the build will fail. Defaults to "Native", the host target.
 * `RV_DEBUG:BOOL`
 If enabled, RV will produce (very) verbose debug output and run additional consistency checks. Make sure you compile with assertions. Recommended for debugging only. Defaults to OFF.
+* `LLVM_RVPLUG_LINK_INTO_TOOLS:BOOL`
+Enables the LLVM pass plugin mechanism to link RV into all LLVM tools (opt, clang, ..). Obviates the need to load libRV manually as a plugin on the command line.
 
 
 

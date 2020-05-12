@@ -177,5 +177,7 @@ add_subdirectory(src)
 
 add_subdirectory(tools)
 
+add_subdirectory(plugin)
+
 # Add target to check formatting of RV files
 file( GLOB_RECURSE files *.h src/*.cpp src/*.c tools/*.cpp tools/*.c tools/*.h)
