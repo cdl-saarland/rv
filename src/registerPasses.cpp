@@ -85,10 +85,13 @@ static void registerLateRVPasses(const llvm::PassManagerBuilder &Builder,
   if (shouldLowerBuiltins()) {
     rv::addLowerBuiltinsPass(PM);
   }
+}
+
+static void registerLastRVPasses(const llvm::PassManagerBuilder &Builder,
+                                 llvm::legacy::PassManagerBase &PM) {
   if (shouldAutoVectorizeMath()) {
     rv::addAutoMathPass(PM);
   }
-
 }
 
 static llvm::RegisterStandardPasses
@@ -98,6 +101,10 @@ static llvm::RegisterStandardPasses
 static llvm::RegisterStandardPasses
     RegisterRV_Late(llvm::PassManagerBuilder::EP_ScalarOptimizerLate,
                     registerLateRVPasses);
+
+static llvm::RegisterStandardPasses
+    RegisterRV_Last(llvm::PassManagerBuilder::EP_OptimizerLast,
+                    registerLastRVPasses);
 
 ///// New PM Registration /////
 namespace rv {
