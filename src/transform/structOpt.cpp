@@ -159,7 +159,7 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
   if (load)  {
     auto * vecLoad = builder.CreateLoad(castElemTy, load->getName());
     vecInfo.setVectorShape(*vecLoad, vecInfo.getVectorShape(*load));
-    vecLoad->setAlignment(MaybeAlign(alignment));
+    vecLoad->setAlignment(llvm::Align(alignment));
 
     if (replaceInst) load->replaceAllUsesWith(vecLoad);
 
@@ -167,7 +167,7 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
     return vecLoad;
   } else {
     auto * vecStore = builder.CreateStore(storeVal, castElemTy, store->isVolatile());
-    vecStore->setAlignment(MaybeAlign(alignment));
+    vecStore->setAlignment(llvm::Align(alignment));
     vecInfo.setVectorShape(*vecStore, vecInfo.getVectorShape(*store));
 
     if (replaceInst) vecInfo.dropVectorShape(*store);
