@@ -245,6 +245,11 @@ struct FuncSession {
     for (auto &ItJob : VectorJobs) {
       ResolverJob &ResJob = ItJob.second;
       auto &VecMathFunc = ResJob.ResolverPtr->requestVectorized();
+      // Use a fastcc and resolve conflicts (unless this is an intrinsic)
+      if (VecMathFunc.getIntrinsicID() == Intrinsic::not_intrinsic) {
+        VecMathFunc.setLinkage(GlobalVariable::WeakAnyLinkage);
+        VecMathFunc.setCallingConv(CallingConv::Fast);
+      }
       for (auto &VecMathCI : ResJob.CallInsts) {
         VecMathCI->setCalledFunction(&VecMathFunc);
       }
