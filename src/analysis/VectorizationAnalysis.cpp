@@ -373,7 +373,7 @@ void VectorizationAnalysis::compute(const Function &F) {
     // shape is non-bottom. Apply general refinement rules.
     if (I.getType()->isPointerTy()) {
       // adjust result type to match alignment
-      unsigned minAlignment = I.getPointerAlignment(layout).valueOrOne().value();
+      unsigned minAlignment = I.getPointerAlignment(layout).value();
       New.setAlignment(
           std::max<unsigned>(minAlignment, New.getAlignmentFirst()));
     } else if (isa<FPMathOperator>(I) && !isa<CallInst>(I)) {
@@ -454,7 +454,7 @@ void VectorizationAnalysis::adjustValueShapes(const Function &F) {
       // Adjust pointer argument alignment
       if (arg.getType()->isPointerTy()) {
         VectorShape argShape = getShape(arg);
-        unsigned minAlignment = arg.getPointerAlignment(layout).valueOrOne().value();
+        unsigned minAlignment = arg.getPointerAlignment(layout).value();
         // max is the more precise one
         argShape.setAlignment(
             std::max<unsigned>(minAlignment, argShape.getAlignmentFirst()));

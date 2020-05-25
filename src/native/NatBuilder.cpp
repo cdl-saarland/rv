@@ -14,6 +14,7 @@
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Metadata.h>
 #include "llvm/IR/IntrinsicsX86.h"
+#include "llvm/Support/Alignment.h"
 #include <report.h>
 #include <fstream>
 
@@ -1556,14 +1557,14 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   std::vector<Value *> addr;
   std::vector<Value *> srcs;
   std::vector<Value *> masks;
-  MaybeAlign alignment;
+  llvm::Align alignment;
   bool interleaved = false;
   uint64_t byteSize = static_cast<uint64_t>(layout.getTypeStoreSize(accessedType));
 
   if (addrShape.isUniform()) {
     // scalar access
     addr.push_back(requestScalarValue(accessedPtr));
-    alignment = MaybeAlign(addrShape.getAlignmentFirst());
+    alignment = llvm::Align(addrShape.getAlignmentFirst());
 
   } else if ((addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !(needsMask && !config.enableMaskedMove)) {
     // cast pointer to vector-width pointer
@@ -1571,7 +1572,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     auto & ptrTy = *cast<PointerType>(ptr->getType());
     PointerType *vecPtrType = vecType->getPointerTo(ptrTy.getAddressSpace());
     addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
-    alignment = MaybeAlign(addrShape.getAlignmentFirst());
+    alignment = llvm::Align(addrShape.getAlignmentFirst());
 
   } else if ((addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) && !(needsMask && !config.enableMaskedMove)) {
     // interleaved access. ptrs: base, base+vector, base+2vector, ...
@@ -1582,36 +1583,36 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       if (needsMask)
         masks.push_back(mask);
     }
-    alignment = MaybeAlign(addrShape.getAlignmentFirst());
+    alignment = llvm::Align(addrShape.getAlignmentFirst());
     interleaved = true;
 
   } else {
     addr.push_back(requestVectorValue(accessedPtr));
-    alignment = MaybeAlign(addrShape.getAlignmentGeneral());
+    alignment = llvm::Align(addrShape.getAlignmentGeneral());
   }
 
-  MaybeAlign origAlignment = load ? load->getAlign() : store->getAlign();
-  alignment = std::max<MaybeAlign>(alignment, origAlignment);
+  llvm::Align origAlignment = load ? load->getAlign() : store->getAlign();
+  alignment = std::max<llvm::Align>(alignment, origAlignment);
 
   Value *vecMem = nullptr;
   if (load) {
     if (needsMask && addrShape.isUniform()) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
-      vecMem = createUniformMaskedMemory(load, accessedType, alignment.valueOrOne(), addr[0], predicate, mask, nullptr);
+      vecMem = createUniformMaskedMemory(load, accessedType, alignment, addr[0], predicate, mask, nullptr);
 
     } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
-      vecMem = createContiguousLoad(addr[0], alignment.valueOrOne(), needsMask ? mask : nullptr, UndefValue::get(vecType));
+      vecMem = createContiguousLoad(addr[0], alignment, needsMask ? mask : nullptr, UndefValue::get(vecType));
 
       addrShape.isUniform() ? ++numUniLoads : needsMask ? ++numContMaskedLoads : ++numContLoads;
 
     } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
-      createInterleavedMemory(vecType, alignment.valueOrOne(), &addr, &masks, nullptr, &srcs);
+      createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs);
 
     } else {
       assert(addr.size() == 1 && "multiple addresses for single access!");
-      vecMem = createVaryingMemory(vecType, alignment.valueOrOne(), addr[0], mask, nullptr);
+      vecMem = createVaryingMemory(vecType, alignment, addr[0], mask, nullptr);
     }
 
 
@@ -1622,12 +1623,12 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
       auto valShape = vecInfo.getVectorShape(*store->getValueOperand());
       if (!valShape.isUniform()) {
         Value *mappedStoredVal = requestVectorValue(storedValue);
-        vecMem = createVaryingToUniformStore(store, accessedType, alignment.valueOrOne(), addr[0], needsMask ? mask : nullptr, mappedStoredVal);
+        vecMem = createVaryingToUniformStore(store, accessedType, alignment, addr[0], needsMask ? mask : nullptr, mappedStoredVal);
       } else {
         Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                        : requestVectorValue(storedValue);
 
-        vecMem = createUniformMaskedMemory(store, accessedType, alignment.valueOrOne(), addr[0], predicate, mask, mappedStoredVal);
+        vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr[0], predicate, mask, mappedStoredVal);
       }
 
     } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
@@ -1654,7 +1655,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                 : requestVectorValue(storedValue);
       }
-      vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment.valueOrOne(), needsMask ? mask : nullptr);
+      vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment, needsMask ? mask : nullptr);
 
       addrShape.isUniform() ? ++numUniStores : needsMask ? ++numContMaskedStores : ++numContStores;
 
@@ -1667,13 +1668,13 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Value *val = requestVectorValue(srcVal);
         vals.push_back(val);
       }
-      createInterleavedMemory(vecType, alignment.valueOrOne(), &addr, &masks, &vals, &srcs);
+      createInterleavedMemory(vecType, alignment, &addr, &masks, &vals, &srcs);
 
     } else {
       assert(addr.size() == 1 && "multiple addresses for single access!");
       Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                        : requestVectorValue(storedValue);
-      vecMem = createVaryingMemory(vecType, alignment.valueOrOne(), addr[0], mask, mappedStoredVal);
+      vecMem = createVaryingMemory(vecType, alignment, addr[0], mask, mappedStoredVal);
     }
   }
 

@@ -579,7 +579,8 @@ StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
   auto * vecAlloc = new AllocaInst(vecAllocTy, allocaInst.getType()->getAddressSpace(), allocaInst.getName(), &allocaInst);
 
   // align at least to vector size
-  vecAlloc->setAlignment(MaybeAlign(vecInfo.getVectorWidth() * allocaInst.getAlignment()));
+  vecAlloc->setAlignment(
+      Align(vecInfo.getVectorWidth() * allocaInst.getAlignment()));
 
   const unsigned alignment = layout.getPrefTypeAlignment(vecAllocTy); // TODO should enfore a stricter alignment at this point
   vecInfo.setVectorShape(*vecAlloc, VectorShape::uni(alignment));
