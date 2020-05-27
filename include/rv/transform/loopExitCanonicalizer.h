@@ -10,7 +10,8 @@
 #ifndef _LOOPEXITCANONICALIZER_H
 #define	_LOOPEXITCANONICALIZER_H
 
-#include <llvm/Pass.h>
+#include "llvm/Pass.h"
+#include "llvm/IR/BasicBlock.h"
 
 namespace llvm {
 class LoopInfo;
