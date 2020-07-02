@@ -328,7 +328,7 @@ lowerIntrinsicCall(CallInst* call) {
         IRBuilder<> builder(call);
         auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
         auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-        auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
+        auto * gep = builder.CreateGEP(ptrCast, call->getOperand(1));
         return builder.CreateLoad(gep);
       });
     } break;
@@ -338,7 +338,7 @@ lowerIntrinsicCall(CallInst* call) {
         IRBuilder<> builder(call);
         auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
         auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-        auto * gep = builder.CreateGEP(ptrCast, { call->getOperand(1) });
+        auto * gep = builder.CreateGEP(ptrCast, call->getOperand(1));
         return builder.CreateStore(call->getOperand(2), gep);
       });
     } break;
