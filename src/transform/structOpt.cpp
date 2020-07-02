@@ -153,7 +153,7 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
 
   auto * castElemTy = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
 
-  const unsigned alignment = layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
+  const unsigned alignment = (unsigned) layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
   vecInfo.setVectorShape(*castElemTy, VectorShape::cont(alignment));
 
   if (load)  {
@@ -256,7 +256,7 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
         auto * vecElemTy = cast<VectorType>(vecPtrVal->getType()->getPointerElementType());
         auto * plainElemTy = vecElemTy->getElementType();
         auto * castElemVal = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
-        const unsigned alignment = layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
+        const unsigned alignment = (unsigned) layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
         vecInfo.setVectorShape(*castElemVal, VectorShape::uni(alignment));
         inst->setOperand(i, castElemVal);
       }
