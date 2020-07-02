@@ -189,7 +189,7 @@ VectorShape VectorizationInfo::getObservedShape(const LoopInfo &LI,
                                                 const BasicBlock &observerBlock,
                                                 const llvm::Value &val) const {
   auto valShape = getVectorShape(val);
-  uint alignment = valShape.getAlignmentGeneral();
+  unsigned alignment = valShape.getAlignmentGeneral();
 
   // forward undef shapes
   if (!valShape.isDefined())
