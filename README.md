@@ -22,8 +22,10 @@ For any questions, please get in touch with Simon Moll (moll@cs.uni-saarland.de)
 
 ## Buildling libRV
 
-RV is an LLVM tool project and integrates into the LLVM build system.
-Clone this repository into llvm/tools/rv where llvm is your LLVM source directory. RV will build along with LLVM.
+RV is an LLVM project and integrates into the LLVM build system.
+Clone this repository into llvm-project/rv where llvm-project is your LLVM source directory.
+To build RV along with LLVM, you need to tell cmake where to find RV.
+This can be done by specifying `-DLLVM_EXTERNAL_PROJECTS="rv" -DLLVM_EXTERNAL_RV_SOURCE_DIR=llvm-project/rv` to cmake.
 Run `git submodule update --init` to pull the SLEEF submodule.
 To (optionally) enable vectorized complex arithmetic through compiler-rt checkout compiler-rt in llvm/runtimes and configure cmake with `-DRV_ENABLE_CRT=on`.
 
