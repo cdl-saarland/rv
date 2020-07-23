@@ -39,37 +39,8 @@ using namespace llvm;
 #else
 #define IF_DEBUG_SROV if (true)
 #endif
-static uint64_t
-GetNumElements(const Type *Ty) {
-  auto VecTy = dyn_cast<VectorType>(Ty);
-#if 0
-  return cast<FixedVectorType>(Ty)->getNumElements();
-#endif
-  if (VecTy)
-    return VecTy->getNumElements();
-  auto ArrTy = dyn_cast<ArrayType>(Ty);
-  if (ArrTy)
-    return ArrTy->getNumElements();
-  auto StructTy = dyn_cast<StructType>(Ty);
-  if (StructTy)
-    return StructTy->getNumElements();
-  llvm_unreachable("unexpected aggregate type");
-}
 
-static Type*
-GetElementType(const Type* Ty) {
-  auto VecTy = dyn_cast<VectorType>(Ty);
-  if (VecTy)
-    return VecTy->getElementType();
-  auto ArrTy = dyn_cast<ArrayType>(Ty);
-  if (ArrTy)
-    return ArrTy->getElementType();
-  auto PtrTy = dyn_cast<PointerType>(Ty);
-  if (PtrTy)
-    return PtrTy->getElementType();
-  llvm_unreachable("unexpected aggregate type");
-}
-
+// InsertElementInst operand accessors missing in LLVM 4.0
 static Value*
 GetVectorOperand(InsertElementInst & insertInst) {
   return insertInst.getOperand(0);
@@ -257,7 +228,7 @@ Value * reaggregateInstruction(IRBuilder<> & builder, const ValVec & replVec, Ty
   } else if (aggTy->isVectorTy()) {
     Value * aggVal = UndefValue::get(aggTy);
     vecInfo.setVectorShape(*aggVal, vecShape);
-    size_t n = GetNumElements(aggTy);
+    size_t n = cast<FixedVectorType>(aggTy)->getNumElements();
     for (size_t i = 0; i < n; i++) {
       aggVal = builder.CreateInsertElement(aggVal, replVec[i], ConstantInt::get(Type::getInt32Ty(builder.getContext()), i));
       vecInfo.setVectorShape(*aggVal, vecShape);
@@ -480,9 +451,9 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
 
   } else if (ptrElemTy->isVectorTy()) {
     auto * intTy = Type::getInt32Ty(builder.getContext());
-    size_t n = GetNumElements(ptrElemTy); //cast<FixedVectorType>(ptrElemTy)->getNumElements();
+    size_t n = cast<FixedVectorType>(ptrElemTy)->getNumElements();
     auto * ptrTy = cast<PointerType>(ptr->getType());
-    auto * scaPtrTy = PointerType::get(GetElementType(ptrTy->getPointerElementType()), ptrTy->getPointerAddressSpace());
+    auto * scaPtrTy = PointerType::get(cast<FixedVectorType>(ptrTy->getPointerElementType())->getElementType(), ptrTy->getPointerAddressSpace());
     auto * scaPtr = builder.CreatePointerCast(ptr, scaPtrTy);
     vecInfo.setVectorShape(*scaPtr, ptrShape);
 
