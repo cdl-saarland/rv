@@ -1,4 +1,4 @@
-//===- src/analysis/VectorizationAnalysis.cpp - divergence analysis --*- C++ -*-===//
+//- src/analysis/VectorizationAnalysis.cpp - divergence analysis --*-- C++ -*-//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -20,6 +20,7 @@
 #include "llvm/IR/Dominators.h"
 
 #include "report.h"
+#include <fstream>
 
 #include <numeric>
 
@@ -33,6 +34,7 @@
 const bool IsLCSSAForm = true;
 
 using namespace llvm;
+
 
 namespace rv {
 
@@ -182,7 +184,8 @@ bool VectorizationAnalysis::propagateJoinDivergence(const BasicBlock &JoinBlock,
 
   // ignore divergence outside the region
   if (!vecInfo.inRegion(JoinBlock)) {
-    Report() << "VA: detected divergent join outside the region in block " << JoinBlock.getName() << "!\n";
+    Report() << "VA: detected divergent join outside the region in block "
+             << JoinBlock.getName() << "!\n";
     return false;
   }
 
@@ -204,64 +207,55 @@ bool VectorizationAnalysis::propagateJoinDivergence(const BasicBlock &JoinBlock,
   return false;
 }
 
-using SmallConstBlockVec = SmallVector<const BasicBlock*, 4>;
-using SmallConstBlockSet = SmallPtrSet<const BasicBlock*, 4>;
+using SmallConstBlockVec = SmallVector<const BasicBlock *, 4>;
+using SmallConstBlockSet = SmallPtrSet<const BasicBlock *, 4>;
 
-SmallConstBlockVec
-GetUniqueSuccessors(const Instruction & Term) {
+SmallConstBlockVec GetUniqueSuccessors(const Instruction &Term) {
   // const auto & Term = *BB.getTerminator();
   SmallConstBlockSet seenBefore;
   SmallConstBlockVec termSuccs;
-  for (int i = 0; i < (int) Term.getNumSuccessors(); ++i) {
-    const auto * anotherSucc = Term.getSuccessor(i);
-    if (!seenBefore.insert(anotherSucc).second) continue;
+  for (int i = 0; i < (int)Term.getNumSuccessors(); ++i) {
+    const auto *anotherSucc = Term.getSuccessor(i);
+    if (!seenBefore.insert(anotherSucc).second)
+      continue;
     termSuccs.push_back(anotherSucc);
   }
   return termSuccs;
 }
 
-template<typename RootNodeType>
-void
-VectorizationAnalysis::propagateControlDivergence(const Loop * BranchLoop, llvm::ArrayRef<const BasicBlock*> UniqueSuccessors, RootNodeType & rootNode, const BasicBlock & domBoundBlock) {
-  bool IsBranchLoopDivergent = false;
+void VectorizationAnalysis::propagateControlDivergence(
+    const Loop *BranchLoop, llvm::ArrayRef<const BasicBlock *> UniqueSuccessors,
+    const Instruction &rootNode, const BasicBlock &domBoundBlock) {
+
+  // Block predicates may turn varying due to the divergence of this branch
+  PredA.addDivergentBranch(domBoundBlock, UniqueSuccessors,
+                           [&](const BasicBlock &varPredBlock) {
+                             pushPredicatedInsts(varPredBlock);
+                           });
 
   // Iterates over the following:
   // a) Blocks that are reachable by disjoint paths from \p rootNode.
-  // b) Loop exits (of the inner most loop carrying \p rootNode) that becomes divergent due to divergence in in \p Term.
-  for (const BasicBlock *JoinBlock : SDA.join_blocks(rootNode)) {
-    if (!vecInfo.inRegion(*JoinBlock)) {
-      IF_DEBUG_VA {
-        errs() << "VA: Ignoring divergent join outside region: "
-               << JoinBlock->getName() << "\n";
-      }
-      continue;
-    }
+  // b) Loop exits (of the inner most loop carrying \p rootNode) that becomes
+  // divergent due to divergence in in \p Term.
+  // Disjoint-paths joins.
+  const auto &DivDesc = SDA.join_blocks(rootNode);
 
-    // propagates disjoint paths divergence to join points
-    bool causedLoopDivergence = propagateJoinDivergence(*JoinBlock, BranchLoop);
-
-    if (causedLoopDivergence) {
-      vecInfo.addDivergentLoopExit(*JoinBlock);
-      IsBranchLoopDivergent = true;
-    }
+  for (const BasicBlock *JoinBlock : DivDesc.JoinDivBlocks) {
+    vecInfo.addJoinDivergentBlock(*JoinBlock);
+    pushPHINodes(*JoinBlock);
   }
 
-  // Block predicates may turn varying due to the divergence of this branch
-  PredA.addDivergentBranch(domBoundBlock, UniqueSuccessors, [&](const BasicBlock & varPredBlock) {
-      pushPredicatedInsts(varPredBlock);
-  });
+  // Identified divergent loop exits.
+  for (const BasicBlock *ExitBlock : DivDesc.LoopDivBlocks) {
+    auto ExitLoop = LI.getLoopFor(ExitBlock);
+    const Loop *L = BranchLoop;
+    while (L != ExitLoop) {
+      vecInfo.addDivergentLoop(*L);
+      L = L->getParentLoop();
+    }
 
-  // Branch loop is a divergent loop due to the divergent branch in Term
-  if (IsBranchLoopDivergent) {
-    assert(BranchLoop);
-    IF_DEBUG_VA {
-      errs() << "VA: Detected divergent loop: " << BranchLoop->getName()
-             << "\n";
-    }
-    if (!vecInfo.addDivergentLoop(*BranchLoop)) {
-      return;
-    }
-    propagateLoopDivergence(*BranchLoop);
+    vecInfo.addDivergentLoopExit(*ExitBlock);
+    pushPHINodes(*ExitBlock);
   }
 }
 
@@ -274,8 +268,8 @@ void VectorizationAnalysis::propagateBranchDivergence(const Instruction &Term) {
 
   auto termSuccVec = GetUniqueSuccessors(Term);
 
-  const auto & termBlock = *Term.getParent();
-  propagateControlDivergence<const Instruction>(BranchLoop, termSuccVec, Term, termBlock);
+  const auto &termBlock = *Term.getParent();
+  propagateControlDivergence(BranchLoop, termSuccVec, Term, termBlock);
 }
 
 void VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
@@ -285,9 +279,8 @@ void VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
   if (!vecInfo.inRegion(*ExitingLoop.getHeader()))
     return;
 
-  const auto & loopHeader = *ExitingLoop.getHeader();
-
-  const auto *BranchLoop = ExitingLoop.getParentLoop();
+  const auto &loopHeader = *ExitingLoop.getHeader();
+  // const auto *BranchLoop = ExitingLoop.getParentLoop();
 
   // Uses of loop-carried values could occur anywhere
   // within the dominance region of the definition. All loop-carried
@@ -302,18 +295,19 @@ void VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
   SmallConstBlockVec exitBlockVec;
   {
     // TODO fix un-constness of decltype(::getUniqueExitBlocks(..)) in LLVM
-    llvm::SmallVector<BasicBlock*, 4> tmpUniqueExitBlockVec;
+    llvm::SmallVector<BasicBlock *, 4> tmpUniqueExitBlockVec;
     ExitingLoop.getUniqueExitBlocks(tmpUniqueExitBlockVec);
-    for (const auto * BB : tmpUniqueExitBlockVec) exitBlockVec.push_back(BB);
+    for (const auto *BB : tmpUniqueExitBlockVec)
+      exitBlockVec.push_back(BB);
   }
 
-  propagateControlDivergence<const Loop>(BranchLoop, exitBlockVec, ExitingLoop, loopHeader);
+  // This is identical to returning an EmptyBlockSet here
 }
 
 void VectorizationAnalysis::compute(const Function &F) {
   IF_DEBUG_VA { errs() << "\n\n-- VA::compute() log -- \n"; }
 
-  VectorShapeTransformer vecShapeTrans(LI, platInfo, vecInfo);
+  VectorShapeTransformer vecShapeTrans(layout, LI, platInfo, vecInfo);
 
   // main fixed point loop
   while (const Instruction *nextI = takeFromWorklist()) {
@@ -337,52 +331,32 @@ void VectorizationAnalysis::compute(const Function &F) {
       }
     }
 
-    // compute the output shape
-    VectorShape New;
-    if (isa<PHINode>(I)) {
-      // allow incomplete inputs for PHI nodes
-      New = vecShapeTrans.computeShapeForPHINode(cast<PHINode>(I));
-      if (!New.isDefined())
-        pushMissingOperands(I); // FIXME this could diverge
-    } else if (pushMissingOperands(I)) {
-      // If any operand is bottom put them in the work list.
-      continue;
-    } else {
-      // Otw, we can compute the instruction shape
-      SmallValVec taintedPtrOps;
-      New = vecShapeTrans.computeShapeForInst(I, taintedPtrOps);
+    // Queue all missing operands on first visit
+    bool FirstVisit = !vecInfo.hasKnownShape(I);
 
-      // taint allocas
-      for (auto *ptr : taintedPtrOps) {
-        const auto &prov = allocaSSA.getProvenance(*ptr);
-        for (const auto *allocaInst : prov.allocs) {
-          updateShape(*allocaInst, VectorShape::varying());
-        }
+    // Always compute shapes for PHINodes to break dependence cycles
+    // Compute at least an 'undef' shape for PHINodes to break dependence cycles
+    if (!isa<PHINode>(I) && FirstVisit && pushMissingOperands(I))
+      continue;
+
+    // Query the transformer
+    SmallValVec taintedPtrOps;
+    VectorShape New = vecShapeTrans.computeShape(I, taintedPtrOps);
+
+    // taint allocas
+    for (auto *ptr : taintedPtrOps) {
+      const auto &prov = allocaSSA.getProvenance(*ptr);
+      for (const auto *allocaInst : prov.allocs) {
+        // Out-of-region allocas are shared
+        if (!vecInfo.inRegion(*allocaInst))
+          continue;
+
+        // In-region allocas are private
+        updateShape(*allocaInst, VectorShape::varying());
       }
     }
 
     IF_DEBUG_VA { errs() << "\t computed: " << New.str() << "\n"; }
-
-    // if no output shape could be computed, skip.
-#if 0
-    if (!New.isDefined())
-      continue;
-#endif
-
-    // TODO factor this into vectorShapeTransform. This does not belong here!
-    // shape is non-bottom. Apply general refinement rules.
-    if (I.getType()->isPointerTy()) {
-      // adjust result type to match alignment
-      unsigned minAlignment = I.getPointerAlignment(layout).valueOrOne().value();
-      New.setAlignment(
-          std::max<unsigned>(minAlignment, New.getAlignmentFirst()));
-    } else if (isa<FPMathOperator>(I) && !isa<CallInst>(I)) {
-      // allow strided/aligned fp values only in fast math mode
-      FastMathFlags flags = I.getFastMathFlags();
-      if (!flags.isFast() && (New.isDefined() && !New.isUniform())) {
-        New = VectorShape::varying();
-      }
-    }
 
     // if shape changed put users on worklist
     updateShape(I, New);
@@ -441,39 +415,33 @@ void VectorizationAnalysis::promoteUndefShapesToUniform(const Function &F) {
 }
 
 void VectorizationAnalysis::adjustValueShapes(const Function &F) {
-  // Enforce shapes to be existing, if absent, set to VectorShape::undef()
-  // If already there, also optimize alignment in case of pointer type
-
   // Arguments
   for (auto &arg : F.args()) {
+    // Minimal ABI alignment
+    align_t ArgAlign = 1;
+    if (arg.getType()->isPointerTy()) {
+      ArgAlign = arg.getPointerAlignment(layout).value();
+    }
+
     if (!vecInfo.hasKnownShape(arg)) {
       // assert(vecInfo.getRegion() && "will only default function args if in
       // region mode"); set argument shapes to uniform if not known better
-      vecInfo.setVectorShape(arg, VectorShape::uni());
-    } else {
-      // Adjust pointer argument alignment
-      if (arg.getType()->isPointerTy()) {
-        VectorShape argShape = getShape(arg);
-        unsigned minAlignment = arg.getPointerAlignment(layout).valueOrOne().value();
-        // max is the more precise one
-        argShape.setAlignment(
-            std::max<unsigned>(minAlignment, argShape.getAlignmentFirst()));
-        vecInfo.setVectorShape(arg, argShape);
-      }
+      vecInfo.setVectorShape(arg, VectorShape::uni(ArgAlign));
+      continue;
     }
-  }
 
-  // Instructions in region(!)
-#if 0
-  for (auto &BB : F) {
-    if (vecInfo.inRegion(BB)) {
-      for (auto &I : BB) {
-        if (!vecInfo.hasKnownShape(I))
-          vecInfo.setVectorShape(I, VectorShape::undef());
-      }
-    }
+    // Refine alignment in the initial shape
+    VectorShape argShape = getShape(arg);
+    // max is the more precise one
+    argShape.setAlignment(
+        std::max<align_t>(ArgAlign, argShape.getAlignmentFirst()));
+    vecInfo.setVectorShape(arg, argShape);
   }
-#endif
+}
+
+static bool
+is_const_use(const llvm::Use & U) {
+  return isa<Constant,User>(U);
 }
 
 void VectorizationAnalysis::init(const Function &F) {
@@ -509,7 +477,7 @@ void VectorizationAnalysis::init(const Function &F) {
           I.printAsOperand(errs(), false);
           errs() << "\n";
         };
-      } else if (isa<PHINode>(I) && any_of(I.operands(), isa<Constant, Use>)) {
+      } else if (isa<PHINode>(I) && any_of(I.operands(), is_const_use)) {
         // Phis that depend on constants are added to the WL
         putOnWorklist(I);
 
@@ -547,14 +515,19 @@ bool VectorizationAnalysis::updateShape(const Value &V, VectorShape AT) {
   return true;
 }
 
-void
-VectorizationAnalysis::pushPredicatedInsts(const llvm::BasicBlock & BB) {
-  IF_DEBUG_VA { errs() << "VA: Pushing predicate-dependent insts of " << BB.getName() << ":\n"; }
-  for (const auto & Inst : BB) {
+void VectorizationAnalysis::pushPredicatedInsts(const llvm::BasicBlock &BB) {
+  IF_DEBUG_VA {
+    errs() << "VA: Pushing predicate-dependent insts of " << BB.getName()
+           << ":\n";
+  }
+  for (const auto &Inst : BB) {
     // skip over insts whose result shape does not depend on the block predicate
-    if (isa<PHINode>(Inst)) continue;
-    if (isa<BinaryOperator>(Inst)) continue;
-    if (Inst.isTerminator()) continue;
+    if (isa<PHINode>(Inst))
+      continue;
+    if (isa<BinaryOperator>(Inst))
+      continue;
+    if (Inst.isTerminator())
+      continue;
 
     IF_DEBUG_VA { errs() << "\tPushed: " << Inst << "\n"; }
     putOnWorklist(Inst);

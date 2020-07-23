@@ -30,6 +30,7 @@
 #include "rv/rvDebug.h"
 #include "rvConfig.h"
 
+#include "llvm/ADT/Triple.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"

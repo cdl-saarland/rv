@@ -196,7 +196,14 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
     return true;
 
   } else if (selInst) {
-    return canReplicate(*selInst->getTrueValue(), checkedSet) && canReplicate(*selInst->getFalseValue(), checkedSet);
+    bool IsMaskSelect = isa<VectorType>(selInst->getCondition()->getType());
+    bool CanReplResults = canReplicate(*selInst->getTrueValue(), checkedSet) &&
+                          canReplicate(*selInst->getFalseValue(), checkedSet);
+    if (IsMaskSelect) {
+      return CanReplResults &&
+             canReplicate(*selInst->getCondition(), checkedSet);
+    }
+    return CanReplResults;
 
   } else if (insertValInst) {
     return canReplicate(*insertValInst->getAggregateOperand(), checkedSet);
@@ -548,11 +555,17 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
 
     auto replTrueVec = requestReplicate(selTrue);
     auto replFalseVec = requestReplicate(selFalse);
+    ValVec replCondVec;
+    bool IsMaskSelect = isa<VectorType>(selMask.getType());
+    if (IsMaskSelect)
+      replCondVec = requestReplicate(selMask);
 
     for (size_t i = 0; i < replTyVec.size(); ++i) {
       std::stringstream ss;
       ss << oldInstName << ".repl." << i;
-      auto * replSelect = builder.CreateSelect(&selMask, replTrueVec[i], replFalseVec[i], ss.str());
+      auto *SelElem = IsMaskSelect ? replCondVec[i] : &selMask;
+      auto *replSelect = builder.CreateSelect(SelElem, replTrueVec[i],
+                                              replFalseVec[i], ss.str());
       replVec.push_back(replSelect);
     }
 

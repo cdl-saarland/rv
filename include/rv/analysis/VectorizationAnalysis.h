@@ -142,8 +142,7 @@ private:
   // \p UniqueSuccessors uniqued set of immediate successors of this node
   // \p rootNode         the node handle
   // \p domBoundBlock    Immediate dominator of all UniqueSuccessors
-  template<typename RootNodeType>
-  void propagateControlDivergence(const llvm::Loop * BranchLoop, llvm::ArrayRef<const llvm::BasicBlock*> UniqueSuccessors, RootNodeType & rootNode, const llvm::BasicBlock & domBoundBlock);
+  void propagateControlDivergence(const llvm::Loop * BranchLoop, llvm::ArrayRef<const llvm::BasicBlock*> UniqueSuccessors, const llvm::Instruction & rootNode, const llvm::BasicBlock & domBoundBlock);
 
   // front-ends to propagateControlDivergence..
   // .. for divergent branches (really any degree > 1 terminator)

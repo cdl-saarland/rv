@@ -436,7 +436,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     // Typical use of this pattern is for broadcasts
     auto v1 = shuffle->getOperand(0);
     auto v2 = shuffle->getOperand(1);
-    auto mask = shuffle->getOperand(2);
+    auto mask = shuffle->getShuffleMaskForBitcode();
 
     newInst = builder.CreateShuffleVector(
       getMaskForValueOrInst(builder, v1, bitWidth),
@@ -460,8 +460,8 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     auto valueMask = getMaskForValueOrInst(builder, value, bitWidth);
     auto newValue = getConditionFromMask(builder, valueMask);
     auto newStore = builder.CreateStore(newValue, storeInst->getOperand(1));
-
-    newStore->setAlignment(MaybeAlign(storeInst->getAlignment()));
+//
+    newStore->setAlignment(llvm::Align(storeInst->getAlignment()));
     newStore->setVolatile(storeInst->isVolatile());
     newStore->setOrdering(storeInst->getOrdering());
     newStore->setSyncScopeID(storeInst->getSyncScopeID());
@@ -471,7 +471,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     auto ptr = loadInst->getOperand(0);
     auto newLoad = builder.CreateLoad(ptr);
 
-    newLoad->setAlignment(MaybeAlign(loadInst->getAlignment()));
+    newLoad->setAlignment(llvm::Align(loadInst->getAlignment()));
     newLoad->setVolatile(loadInst->isVolatile());
     newLoad->setOrdering(loadInst->getOrdering());
     newLoad->setSyncScopeID(loadInst->getSyncScopeID());

@@ -65,7 +65,7 @@ CreateBroadcast(IRBuilder<> & builder, Value & vec, int idx) {
 
 Value*
 CreateScalarBroadcast(IRBuilder<> & builder, Value & scaValue, int elemCount) {
-  auto * vecTy = VectorType::get(scaValue.getType(), elemCount);
+  auto * vecTy = FixedVectorType::get(scaValue.getType(), elemCount);
   auto * udVal = UndefValue::get(vecTy);
   auto & firstLaneVec = *builder.CreateInsertElement(udVal, &scaValue, (uint64_t) 0, scaValue.getName() + ".infirst");
   return CreateBroadcast(builder, firstLaneVec, 0);
@@ -460,7 +460,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
 
 ValVec
 NatBuilder::scalarize(BasicBlock & scaBlock, Instruction & inst, bool packResult, std::function<Value*(IRBuilder<>&,size_t)> genFunc) {
-  auto * vecTy = packResult ? VectorType::get(inst.getType(), vectorWidth()) : nullptr;
+  auto * vecTy = packResult ? FixedVectorType::get(inst.getType(), vectorWidth()) : nullptr;
   Value * accu = packResult ? UndefValue::get(vecTy) : nullptr;
 
   ValVec laneRepls;
@@ -560,7 +560,7 @@ NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool pa
    builder.SetInsertPoint(condBlocks[0]);
 
    // vector aggregate if packing was requested
-   auto * vecTy = packResult ? VectorType::get(inst.getType(), vectorWidth()) : nullptr;
+   auto * vecTy = packResult ? FixedVectorType::get(inst.getType(), vectorWidth()) : nullptr;
    Value * accu = packResult ? UndefValue::get(vecTy) : nullptr;
 
    bool producesValue = !inst.getType()->isVoidTy();
@@ -763,7 +763,7 @@ bool IsVectorizableTy(const Type & ty) {
 }
 
 void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
-  auto allocAlign = allocaInst->getAlignment();
+  llvm::Align allocAlign = allocaInst->getAlign();
   auto * allocTy = allocaInst->getType()->getElementType();
 
   ++numSlowAllocas;
@@ -779,7 +779,7 @@ void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
     auto * scaleFactor = ConstantInt::get(indexTy, vectorWidth());
 
     auto * baseAlloca = builder.CreateAlloca(allocTy, allocaInst->getType()->getAddressSpace(), scaleFactor, name + ".scaled_alloca");
-    baseAlloca->setAlignment(MaybeAlign(allocAlign));
+    baseAlloca->setAlignment(allocAlign);
 
     // extract basePtrs
     auto * offsetVec = createContiguousVector(vectorWidth(), indexTy, 0, 1);
@@ -1144,8 +1144,8 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
 
 
     auto * fpLaneTy = Type::getDoubleTy(rvCall.getContext());
-    auto * fpVecTy = VectorType::get(fpLaneTy, vecWidth);
-    auto * intVecTy = VectorType::get(intLaneTy, vecWidth);
+    auto * fpVecTy =  FixedVectorType::get(fpLaneTy, vecWidth);
+    auto * intVecTy = FixedVectorType::get(intLaneTy, vecWidth);
 
     auto * fpValVec = builder.CreateBitCast(contVec, fpVecTy);
 
@@ -1686,7 +1686,7 @@ NatBuilder::createVaryingToUniformStore(Instruction *scaInst, Type *accessedType
       auto * nativeIntTy = Type::getInt32Ty(ctx);
 
       // SExt to full width int
-      auto * vecLaneTy = VectorType::get(nativeIntTy, vectorWidth());
+      auto * vecLaneTy = FixedVectorType::get(nativeIntTy, vectorWidth());
       auto * sxMask = builder.CreateSExt(vecMask.getPred(), vecLaneTy);
 
       // AND with lane index vector
@@ -1700,7 +1700,7 @@ NatBuilder::createVaryingToUniformStore(Instruction *scaInst, Type *accessedType
     // extract and materialize store
     auto * lastLaneVal = builder.CreateExtractElement(values, indexVal, "xt.lastlane");
     auto * vecMem = builder.CreateStore(lastLaneVal, addr);
-    cast<StoreInst>(vecMem)->setAlignment(MaybeAlign(alignment));
+    cast<StoreInst>(vecMem)->setAlignment(Align(alignment));
     return vecMem;
   });
 }
@@ -1719,10 +1719,10 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *scaInst,
     Instruction* vecMem;
     if (vecValues) {
       vecMem = builder.CreateStore(vecValues, vecBasePtr);
-      cast<StoreInst>(vecMem)->setAlignment(AlignOpt);
+      cast<StoreInst>(vecMem)->setAlignment(AlignOpt.valueOrOne());
     } else {
       vecMem = builder.CreateLoad(vecBasePtr, "scal_mask_mem");
-      cast<LoadInst>(vecMem)->setAlignment(AlignOpt);
+      cast<LoadInst>(vecMem)->setAlignment(AlignOpt.valueOrOne());
     }
     return vecMem;
   });
@@ -1779,7 +1779,7 @@ Value *NatBuilder::createContiguousStore(Value *vecVal, Value *elemPtr, Align al
 
   } else {
     StoreInst *store = builder.CreateStore(vecVal, vecPtr);
-    store->setAlignment(MaybeAlign(alignment));
+    store->setAlignment(Align(alignment));
     return store;
   }
 }
@@ -1804,7 +1804,7 @@ Value *NatBuilder::createContiguousLoad(Value *elemPtr, Align alignment, Mask ve
 
   } else {
     LoadInst *load = builder.CreateLoad(VecPtr, "cont_load");
-    load->setAlignment(MaybeAlign(alignment));
+    load->setAlignment(Align(alignment));
     return load;
   }
 }
@@ -1846,7 +1846,7 @@ NatBuilder::requestVectorValue(Value *const value) {
 
   auto shape = getVectorShape(*value);
   if (shape.isVarying()) { // !vecValue
-    auto * vecTy = VectorType::get(value->getType(), vectorWidth());
+    auto * vecTy = FixedVectorType::get(value->getType(), vectorWidth());
     Value * accu = UndefValue::get(vecTy);
     auto * intTy = Type::getInt32Ty(builder.getContext());
 
@@ -1914,7 +1914,7 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
       } else {
         // sub element stride
         auto * charPtrTy = builder.getInt8PtrTy(AddrSpace);
-        auto * charPtrVec = builder.CreatePointerCast(vecValue, VectorType::get(charPtrTy, vectorWidth()), "byte_ptr");
+        auto * charPtrVec = builder.CreatePointerCast(vecValue, FixedVectorType::get(charPtrTy, vectorWidth()), "byte_ptr");
         Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride());
         auto * bytePtrVec = builder.CreateGEP(charPtrVec, contVec, "expand_byte_ptr");
         vecValue = builder.CreatePointerCast(bytePtrVec, actualPtrVecTy);
@@ -2386,7 +2386,7 @@ Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigne
     } else {
       // ... load from pointer, insert to result vector, branch to next
       Value *loadInst = builder.CreateLoad(pointerLaneVal, "load_lane_" + std::to_string(i));
-      cast<LoadInst>(loadInst)->setAlignment(MaybeAlign(alignment));
+      cast<LoadInst>(loadInst)->setAlignment(Align(alignment));
       insert = builder.CreateInsertElement(resVec, loadInst, ConstantInt::get(i32Ty, i),
                                            "insert_lane_" + std::to_string(i));
     }

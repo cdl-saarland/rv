@@ -90,12 +90,14 @@ struct LoopCloner {
   void
   CloneBranchProbabilities(Loop & srcLoop, ValueToValueMapTy & valueMap) {
     for (auto * block : srcLoop.blocks()) {
+      auto * cloned = &LookUp(valueMap, *block);
       const auto & term = *block->getTerminator();
+      SmallVector<BranchProbability, 2> Probs;
+      Probs.resize(term.getNumSuccessors());
       for (size_t i = 0; i < term.getNumSuccessors(); ++i) {
-        auto p = PB->getEdgeProbability(block, i);
-        auto * cloned = &LookUp(valueMap, *block);
-        PB->setEdgeProbability(cloned, i, p);
+        Probs[i] = PB->getEdgeProbability(block, i);
       }
+      PB->setEdgeProbability(cloned, Probs);
     }
   }
 

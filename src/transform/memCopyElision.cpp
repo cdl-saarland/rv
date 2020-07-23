@@ -104,17 +104,23 @@ void
 MemCopyElision::lowerMemCopy(llvm::Value * destBase, llvm::Value * srcBase, llvm::Type * commonTy, llvm::IRBuilder<> & builder, size_t numBytes) {
   // TODO this code is highly specific to Coord<D> lowering
   auto * intTy = IntegerType::getInt32Ty(builder.getContext());
-  auto * nullInt = ConstantInt::getNullValue(intTy);
 
-  const size_t elemSize = 8;
+  unsigned AddrSpace = cast<PointerType>(srcBase->getType())->getAddressSpace();
+  auto *commonSrcBase =
+      builder.CreatePointerCast(srcBase, commonTy->getPointerTo(AddrSpace));
+  auto *commonDestBase =
+      builder.CreatePointerCast(destBase, commonTy->getPointerTo(AddrSpace));
+
+  const size_t elemSize = layout.getTypeStoreSize(commonTy);
+  assert(numBytes % elemSize == 0);
   const size_t numElems = numBytes / elemSize;
 
   auto varShape = VectorShape::varying();
   for (size_t i = 0; i < numElems; ++i) {
     auto * idxConst = ConstantInt::get(intTy, i, false);
   // gep to elemens
-    auto * srcElemPtr = builder.CreateGEP(srcBase, {nullInt, idxConst});
-    auto * destElemPtr = builder.CreateGEP(destBase, {nullInt, idxConst});
+    auto * srcElemPtr = builder.CreateGEP(commonSrcBase, idxConst);
+    auto * destElemPtr = builder.CreateGEP(commonDestBase, idxConst);
     vecInfo.setVectorShape(*srcElemPtr, varShape);
     vecInfo.setVectorShape(*destElemPtr, varShape);
 
@@ -190,4 +196,3 @@ MemCopyElision::run() {
 
   return changed;
 }
-
