@@ -45,6 +45,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 
+#include "llvm/Analysis/LoopDependenceAnalysis.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 
 #include "report.h"
@@ -105,6 +106,19 @@ int LoopVectorizer::getTripCount(Loop &L) {
 
 bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
   LoopMD mdAnnot = GetLoopAnnotation(L);
+
+  // FIXME Just added for testing purposes
+  auto &LDI = FAM.getResult<LoopDependenceAnalysis>(*F);
+  auto DepInfo = LDI.getDependenceInfo(L);
+  if (!DepInfo.VectorizationFactor.hasValue()) {
+    if (enableDiagOutput) { Report() << "loopVecPass: LDI: parallel loop " << L.getName() << "\n"; }
+    mdAnnot.minDepDist = ParallelDistance;
+    mdAnnot.vectorizeEnable = true;
+  } else if (DepInfo.VectorizationFactor.getValue() > 1) {
+    mdAnnot.minDepDist = DepInfo.VectorizationFactor.getValue();
+    mdAnnot.vectorizeEnable = true;
+    if (enableDiagOutput) { Report() << "loopVecPass: LDI: loop " << L.getName() << " with dep dist" << mdAnnot.minDepDist.get() << "\n"; }
+  }
 
   if (enableDiagOutput) {
     Report() << "loopVecPass: ";

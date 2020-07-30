@@ -27,6 +27,7 @@ namespace llvm {
   class PostDominatorTree;
   class MemoryDependenceResults;
   class BranchProbabilityInfo;
+  class LoopDependenceInfo;
 }
 
 
