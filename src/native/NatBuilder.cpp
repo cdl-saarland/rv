@@ -292,8 +292,8 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
     vectorize(bb, vecBlock);
 
     // populate queue with pre-order dominators
-    for (auto it = node->getChildren().begin(), et = node->getChildren().end(); it != et; ++it) {
-      nodeQueue.push_back(*it);
+    for (auto *N : node->children()) {
+      nodeQueue.push_back(N);
     }
   }
 

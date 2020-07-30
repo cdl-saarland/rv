@@ -570,7 +570,6 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   PassBuilder PB;
   PB.registerFunctionAnalyses(FAM);
 
-  // stash function analyses
   this->config = Config::createForFunction(F);
   this->F = &F;
   TargetTransformInfo &PassTTI =
