@@ -133,6 +133,7 @@ Config::createForFunction(Function & F) {
   std::string triple = F.getParent()->getTargetTriple();
   if (StringRef(triple).startswith("ve-")) {
     config.useVE = true;
+    config.useAVL = true;
     return config;
   }
 

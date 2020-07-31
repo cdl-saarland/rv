@@ -279,7 +279,7 @@ PreparedLoop LoopVectorizer::transformToVectorizableLoop(
   MyReda.analyze(L);
   RemainderTransform remTrans(*F, FAM, MyReda);
   PreparedLoop LoopPrep = remTrans.createVectorizableLoop(
-      L, uniformOverrides, false, VectorWidth, tripAlign);
+      L, uniformOverrides, config.useAVL, VectorWidth, tripAlign);
 
   return LoopPrep;
 }
@@ -367,8 +367,6 @@ bool LoopVectorizer::prepareLoopVectorization() {
       introduced = true;
     }
 
-    assert(!LoopPrep.EntryAVL && "AVL code path disabled!");
-
     // use prepared loop instead
     LJ.Header = LoopPrep.TheLoop->getHeader();
     LoopsToVectorize.push_back(
@@ -416,7 +414,9 @@ bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
   Region LoopRegion(LoopRegionImpl);
 
   VectorizationInfo vecInfo(*F, LVJob.LJ.VectorWidth, LoopRegion);
-  // vecInfo.setEntryAVL(LVJob.EntryAVL);
+  if (LVJob.EntryAVL) {
+    vecInfo.setEntryAVL(LVJob.EntryAVL);
+  }
 
   // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable

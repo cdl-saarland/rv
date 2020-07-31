@@ -216,7 +216,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
       IF_DEBUG_ME {errs() << "region entryMask: true\n"; }
       return setBlockMask(BB, Mask::getAllTrue());
     }
-      IF_DEBUG_ME {errs() << "region entryMask: with evl: " << *vecInfo.getEntryAVL() << "\n"; }
+    IF_DEBUG_ME {errs() << "region entryMask: with evl: " << *vecInfo.getEntryAVL() << "\n"; }
     return setBlockMask(BB, Mask::fromVectorLength(*vecInfo.getEntryAVL()));
   }
 
@@ -228,7 +228,11 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   bool BlockHasVaryingControlMask = true;
   if (vecInfo.getVaryingPredicateFlag(BB, BlockHasVaryingControlMask)) {
     if (!BlockHasVaryingControlMask) {
-      return setBlockMask(BB, Mask::inferFromPredicate(*trueConst));
+      if (vecInfo.getEntryAVL()) {
+        return setBlockMask(BB, Mask::fromVectorLength(*vecInfo.getEntryAVL()));
+      } else {
+        return setBlockMask(BB, Mask::inferFromPredicate(*trueConst));
+      }
     }
   }
 
@@ -273,6 +277,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   PHINode *PredPhi = Builder.CreatePHI(boolTy, numPreds, BB.getName() + ".cm");
   // PHINode *AVLPhi = Builder.CreatePHI(avlTy, numPreds, BB.getName() + ".cm"); // TODO implement AVL support
 
+  Value * UniqueAVL = nullptr;
   for (auto itPred = itBegin; itPred != itEnd; ++itPred) {
     auto * predBlock = *itPred;
 
@@ -286,6 +291,13 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
 
     // generate a dominating definition (if necessary)
     Mask InCMask = requestJoinedEdgeMask(predTerm, predIndices);
+
+    if (!UniqueAVL) {
+      UniqueAVL = InCMask.getAVL();
+    } else if (InCMask.getAVL() && (InCMask.getAVL() != UniqueAVL)) {
+      errs() << "TODO: support multiple AVLs in mask expansion\n";
+      abort();
+    }
 
     if (vecInfo.getVectorShape(InCMask).isUniform()) {
       // exploit partial linearization knowing that control will only reach
@@ -316,6 +328,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
 
     BlockMask = Mask::inferFromPredicate(*PredPhi);
   }
+  BlockMask.setAVL(UniqueAVL); // FIXME support multiple AVLs
 
   IF_DEBUG_ME { errs() << "> " << BlockMask << "\n"; }
 
