@@ -17,23 +17,22 @@ namespace rv {
 
 struct LoopCloner {
   Function & F;
-  DominatorTree & DT;
-  PostDominatorTree & PDT;
-  LoopInfo & LI;
+  LoopInfo &LI;
+  DominatorTree *DT;
+  PostDominatorTree *PDT;
   BranchProbabilityInfo * PB;
 
-  LoopCloner(Function & _F, DominatorTree & _DT, PostDominatorTree & _PDT, LoopInfo & _LI, BranchProbabilityInfo * _PB)
+  LoopCloner(Function & _F, FunctionAnalysisManager & FAM)
   : F(_F)
-  , DT(_DT)
-  , PDT(_PDT)
-  , LI(_LI)
-  , PB(_PB)
+  , LI(*FAM.getCachedResult<LoopAnalysis>(F))
+  , DT(FAM.getCachedResult<DominatorTreeAnalysis>(F))
+  , PDT(FAM.getCachedResult<PostDominatorTreeAnalysis>(F))
+  , PB(FAM.getCachedResult<BranchProbabilityAnalysis>(F))
   {}
 
   // TODO pretend that the new loop is inserted
   // LoopInfo and DomTree will be updated as-if the preheader branches to both the original and the sclar loop
   // Note that this will not repair the analysis structures beyond the exits edges
-
   LoopCloneInfo
   CloneLoop(Loop & L, ValueToValueMapTy & valueMap) {
     auto * loopPreHead = L.getLoopPreheader();
@@ -65,14 +64,20 @@ struct LoopCloner {
     assert(clonedLoop);
 
     // repair the dom tree
-    CloneDomTree(*loopPreHead, L, loopHead, valueMap);
-    auto * clonedDomNode = DT.getNode(&clonedHead);
-    assert(clonedDomNode);
+    decltype(DT->getNode(&clonedHead)) clonedDomNode = nullptr;
+    if (DT) {
+      CloneDomTree(*loopPreHead, L, loopHead, valueMap);
+      clonedDomNode = DT->getNode(&clonedHead);
+      assert(clonedDomNode);
+    }
 
-    auto * loopPostDom = PDT.getNode(loopExiting)->getIDom()->getBlock();
-    ClonePostDomTree(*loopPostDom, L, *loopExiting, valueMap);
-    PDT.recalculate(F);
-    auto * clonedExitingPostDom = PDT.getNode(&clonedExiting);
+    decltype(PDT->getNode(&clonedExiting)) clonedExitingPostDom = nullptr;
+    if (PDT) {
+      auto * loopPostDom = PDT->getNode(loopExiting)->getIDom()->getBlock();
+      ClonePostDomTree(*loopPostDom, L, *loopExiting, valueMap);
+      PDT->recalculate(F);
+      clonedExitingPostDom = PDT->getNode(&clonedExiting);
+    }
 
     // transfer branch probabilities, if any
     if (PB) {
@@ -83,7 +88,7 @@ struct LoopCloner {
     splitBranch->eraseFromParent();
     assert(loopPreHead->getTerminator() == preTerm);
 
-    return LoopCloneInfo{*clonedLoop, *clonedDomNode, *clonedExitingPostDom};
+    return LoopCloneInfo{*clonedLoop, clonedDomNode, clonedExitingPostDom};
   }
 
   // transfer all branch probabilities from the src loop to the dest loop
@@ -122,12 +127,13 @@ struct LoopCloner {
   // register with the dom tree
   void
   CloneDomTree(BasicBlock & clonedIDom, Loop & L, BasicBlock & currentBlock, ValueToValueMapTy & valueMap) {
+    assert(DT);
     if (!L.contains(&currentBlock)) return;
 
     auto & currentClone = LookUp(valueMap, currentBlock);
-    DT.addNewBlock(&currentClone, &clonedIDom);
+    DT->addNewBlock(&currentClone, &clonedIDom);
 
-    auto * domNode = DT.getNode(&currentBlock);
+    auto * domNode = DT->getNode(&currentBlock);
     for (auto * childDom : *domNode) {
       CloneDomTree(currentClone, L, *childDom->getBlock(), valueMap);
     }
@@ -136,12 +142,13 @@ struct LoopCloner {
   // register with the post dom tree
   void
   ClonePostDomTree(BasicBlock & clonedIDom, Loop & L, BasicBlock & currentBlock, ValueToValueMapTy & valueMap) {
+    assert(PDT);
     if (!L.contains(&currentBlock)) return;
 
     auto & currentClone = LookUp(valueMap, currentBlock);
-    PDT.addNewBlock(&currentClone, &clonedIDom);
+    PDT->addNewBlock(&currentClone, &clonedIDom);
 
-    auto * pDomNode = DT.getNode(&currentBlock);
+    auto * pDomNode = DT->getNode(&currentBlock);
     for (auto * childPostDom : *pDomNode) {
       ClonePostDomTree(currentClone, L, *childPostDom->getBlock(), valueMap);
     }
@@ -186,8 +193,8 @@ struct LoopCloner {
 
 
 LoopCloneInfo
-CloneLoop(llvm::Loop & L, llvm::Function & F, llvm::DominatorTree & DT, llvm::PostDominatorTree & PDT, llvm::LoopInfo & LI, llvm::BranchProbabilityInfo * PB, ValueToValueMapTy & cloneMap) {
-  LoopCloner loopCloner(F, DT, PDT, LI, PB);
+CloneLoop(llvm::Loop & L, llvm::Function & F, llvm::FunctionAnalysisManager & FAM, ValueToValueMapTy & cloneMap) {
+  LoopCloner loopCloner(F, FAM);
   return loopCloner.CloneLoop(L, cloneMap);
 }
 

@@ -43,11 +43,12 @@ struct PreparedLoop {
 
 class RemainderTransform {
   llvm::Function & F;
+  llvm::FunctionAnalysisManager &FAM;
   llvm::DominatorTree & DT;
   llvm::PostDominatorTree & PDT;
   llvm::LoopInfo & LI;
+  llvm::BranchProbabilityInfo &PBI;
   ReductionAnalysis & reda;
-  llvm::BranchProbabilityInfo * PB;
 
 
 // RemainderTransform capability checks
@@ -58,14 +59,7 @@ class RemainderTransform {
   bool canTransformLoop(llvm::Loop & L);
 
 public:
-  RemainderTransform(llvm::Function &_F, llvm::DominatorTree & _DT, llvm::PostDominatorTree & _PDT, llvm::LoopInfo & _LI, ReductionAnalysis & _reda, llvm::BranchProbabilityInfo * _PB = nullptr)
-  : F(_F)
-  , DT(_DT)
-  , PDT(_PDT)
-  , LI(_LI)
-  , reda(_reda)
-  , PB(_PB)
-  {}
+  RemainderTransform(llvm::Function &_F, llvm::FunctionAnalysisManager & FAM, ReductionAnalysis & _reda);
 
   // create a vectorizable loop or return nullptr if remTrans can not currently do it
   PreparedLoop

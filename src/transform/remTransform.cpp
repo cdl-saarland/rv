@@ -1028,6 +1028,17 @@ RemainderTransform::canTransformLoop(llvm::Loop & L) {
   return true;
 }
 
+
+RemainderTransform::RemainderTransform(llvm::Function &_F, llvm::FunctionAnalysisManager & FAM, ReductionAnalysis & _reda)
+: F(_F)
+, FAM(FAM)
+, DT(FAM.getResult<llvm::DominatorTreeAnalysis>(F))
+, PDT(FAM.getResult<llvm::PostDominatorTreeAnalysis>(F))
+, LI(FAM.getResult<llvm::LoopAnalysis>(F))
+, PBI(FAM.getResult<llvm::BranchProbabilityAnalysis>(F))
+, reda(_reda)
+{}
+
 PreparedLoop
 RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, bool useTailPredication, int vectorWidth, int tripAlign) {
 // run capability checks
@@ -1051,7 +1062,7 @@ RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, bo
 
 // otw, clone the scalar loop
   ValueToValueMapTy cloneMap;
-  auto cloneInfo = CloneLoop(L, F, DT, PDT, LI, PB, cloneMap);
+  auto cloneInfo = CloneLoop(L, F, FAM, cloneMap);
 #if 0
   LoopCloner loopCloner(F, DT, PDT, LI, PB);
   ValueToValueMapTy cloneMap;

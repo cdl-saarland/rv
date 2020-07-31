@@ -29,11 +29,11 @@ namespace llvm {
 namespace rv {
   struct LoopCloneInfo {
     llvm::Loop & clonedLoop;
-    llvm::DomTreeNode & headerDomNode;
-    llvm::DomTreeNode & exitingPostDom;
+    llvm::DomTreeNode * headerDomNode;
+    llvm::DomTreeNode * exitingPostDom;
   };
 
-  LoopCloneInfo CloneLoop(llvm::Loop & L, llvm::Function & F, llvm::DominatorTree & DT, llvm::PostDominatorTree & PDT, llvm::LoopInfo & LI, llvm::BranchProbabilityInfo * PB, llvm::ValueToValueMapTy & cloneMap);
+  LoopCloneInfo CloneLoop(llvm::Loop & L, llvm::Function & F, llvm::FunctionAnalysisManager & FAM, llvm::ValueToValueMapTy & cloneMap);
 }
 
 #endif// RV_TRANSFORM_LOOPCLONER_H

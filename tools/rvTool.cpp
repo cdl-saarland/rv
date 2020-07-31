@@ -141,12 +141,7 @@ void vectorizeLoop(Function &parentFn, Loop &TheLoop, unsigned vectorWidth,
   reductionAnalysis.analyze(TheLoop);
 
   ValueSet uniOverrides;
-  auto & DT = FAM.getResult<DominatorTreeAnalysis>(parentFn);
-  auto & PDT = FAM.getResult<PostDominatorTreeAnalysis>(parentFn);
-  auto & LI = *FAM.getCachedResult<LoopAnalysis>(parentFn);
-
-  rv::RemainderTransform remTrans(parentFn, DT, PDT, LI,
-                                  reductionAnalysis);
+  rv::RemainderTransform remTrans(parentFn, FAM, reductionAnalysis);
   auto LoopPrep = remTrans.createVectorizableLoop(
       TheLoop, uniOverrides, config.useAVL, vectorWidth, 1);
   auto *preparedLoop = LoopPrep.TheLoop;
