@@ -41,15 +41,10 @@ public:
   LoopVectorizer()
   : llvm::FunctionPass(ID)
   , config()
+  , F(nullptr)
+  , PassSE(nullptr)
   , enableDiagOutput(false)
   , introduced(false)
-  , DT(nullptr)
-  , PDT(nullptr)
-  , LI(nullptr)
-  , SE(nullptr)
-  , MDR(nullptr)
-  , PB(nullptr)
-  , reda()
   , vectorizer()
   {}
 
@@ -60,19 +55,53 @@ public:
 
 private:
   Config config;
+  llvm::Function * F;
+  llvm::ScalarEvolution * PassSE;
 
   bool enableDiagOutput;
   bool introduced;
 
-  llvm::Function * F;
+  // cost estimation
+  struct LoopScore {
+    LoopScore() : Score(0) {}
+    unsigned Score;
+  };
+  
+  struct LoopJob {
+    LoopJob()
+    : Header(nullptr)
+    , VectorWidth(0)
+    , DepDist(0)
+    , TripAlign(0)
+    {}
+
+    llvm::BasicBlock *Header;
+    unsigned VectorWidth;
+
+    iter_t DepDist; // minimal dependence distance between loop iterations
+    iter_t TripAlign; // multiple of loop trip count
+  };
+
+  /// \return true if legal (in that case LJ&LS get populated)
+  bool scoreLoop(LoopJob& LJ, LoopScore& LS, llvm::Loop & L);
+
+  // Step 1: Decide which loops to vectorize.
+  // Step 2: Prepare all loops for vectorization.
+  // Step 3: Vectorize the regions.
+  bool collectLoopJobs(llvm::LoopInfo & LI);
+  std::vector<LoopJob> LoopsToPrepare;
+  bool prepareLoopVectorization(); // TODO mark this function as un-vectorizable (or prepare a holdout copy)
+
+  struct LoopVectorizerJob {
+    LoopJob LJ;
+    ValueSet uniOverrides;
+    llvm::Value *EntryAVL; // loop entry AVL (FIXME)
+  };
+  std::vector<LoopVectorizerJob> LoopsToVectorize;
+  bool vectorizeLoopRegions();
+  bool vectorizeLoop(LoopVectorizerJob& LVJob);
+
   llvm::FunctionAnalysisManager FAM; // private pass infrastructure
-  llvm::DominatorTree * DT;
-  llvm::PostDominatorTree * PDT;
-  llvm::LoopInfo * LI;
-  llvm::ScalarEvolution * SE;
-  llvm::MemoryDependenceResults * MDR;
-  llvm::BranchProbabilityInfo * PB;
-  std::unique_ptr<ReductionAnalysis> reda;
   std::unique_ptr<VectorizerInterface> vectorizer;
 
   bool canVectorizeLoop(llvm::Loop &L);
@@ -90,8 +119,8 @@ private:
   // returns 1 for loop w/o known alignment
   int getTripAlignment(llvm::Loop & L);
 
-  bool vectorizeLoop(llvm::Loop &L);
-  bool vectorizeLoopOrSubLoops(llvm::Loop &L);
+  // vectorize all loops
+  bool runLoopJobs();
 };
 
 } // namespace rv
