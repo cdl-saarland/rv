@@ -23,7 +23,11 @@
 
 using namespace llvm;
 
+#if 1
+#define IF_DEBUG_CM IF_DEBUG
+#else
 #define IF_DEBUG_CM if (true)
+#endif
 
 namespace rv {
 
