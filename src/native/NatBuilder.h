@@ -172,6 +172,7 @@ namespace rv {
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
     std::map<const llvm::Type *, rv::MemoryAccessGrouper> grouperMap;
+    std::map<std::pair<Mask, int>, llvm::Value*> MaskLaneMap;
     std::vector<llvm::PHINode *> phiVector;
 
     // request the vector version of a given mask

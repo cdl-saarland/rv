@@ -489,15 +489,11 @@ NatBuilder::scalarize(BasicBlock & scaBlock, Instruction & inst, bool packResult
 Value&
 NatBuilder::createAnyGuard(bool instNeedsGuard, BasicBlock & origBlock, bool producesValue, std::function<Value*(IRBuilder<>&)> genFunc) {
   Mask vecMask = requestVectorMask(origBlock);
- // auto * scalarMask = vecInfo.getPredicate(origBlock);
+  auto ScalarMask = vecInfo.getMask(origBlock);
   // assert(!vecMask.getAVL() && "TODO implement for AVL");
   // only emit a guard if rv_any(p) may be false AND the emitted instructions will need it.
-#if 1
-  bool needsGuard = instNeedsGuard; // TODO && !undeadMasks.isUndead(*scalarMask, origBlock);
-#else
-  if (instNeedsGuard) Report() << "Not guarding side effect in " << inst << "!\n";
-  bool needsGuard = false; // FIXME
-#endif
+  bool needsGuard =
+      instNeedsGuard && !undeadMasks.isUndead(ScalarMask, origBlock);
 
   BasicBlock* memBlock, * continueBlock;
 
@@ -1326,7 +1322,7 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   }
 
 // Vectorize this function using a resolver provided vector function.
-  auto & scaMask = *vecInfo.getPredicate(scaBlock);
+  auto scaMask = vecInfo.getMask(scaBlock);
   std::unique_ptr<FunctionResolver> funcResolver = nullptr;
   if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth(), hasCallPredicate);
   if (funcResolver && !CheckFlag("RV_SPLIT")) {
@@ -1712,7 +1708,7 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *scaInst,
   vecValues ? ++numUniMaskedStores : ++numUniMaskedLoads;
 
   // emit a scalar memory acccess within a any-guarded section
-  bool needsGuard = true;
+  bool needsGuard = false; // FIXME
   return &createAnyGuard(needsGuard, *scaInst->getParent(), isa<LoadInst>(scaInst),
       [=](IRBuilder<> & builder)
   {
@@ -2451,17 +2447,37 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
 
 bool
 NatBuilder::hasUniformPredicate(const BasicBlock & BB) const {
+  // FIXME use getMask instead
   if (!vecInfo.getRegion().contains(&BB) || !vecInfo.getPredicate(BB)) return true;
   else return vecInfo.getVectorShape(*vecInfo.getPredicate(BB)).isUniform();
 }
 
 Value*
 NatBuilder::requestLanePredicate(const BasicBlock &ScaBlock, int Lane) {
+  auto &Ctx = ScaBlock.getContext();
+
+  // FIXME use getMask instead
   if (!vecInfo.hasMask(ScaBlock) || vecInfo.getMask(ScaBlock).knownAllTrue()) {
     return ConstantInt::getTrue(builder.getContext());
   }
-  assert(vecInfo.getMask(ScaBlock).knownAllTrueAVL() && "TODO implement AVL support");
-  return requestScalarValue(vecInfo.getPredicate(ScaBlock), Lane);
+  auto ScaMask = vecInfo.getMask(ScaBlock);
+  auto ItMaskLane = MaskLaneMap.find(std::make_pair<>(ScaMask, Lane));
+  if (ItMaskLane != MaskLaneMap.end()) {
+    return ItMaskLane->second;
+  }
+
+  Value *LaneP = requestScalarValue(&ScaMask.requestPredAsValue(Ctx));
+
+  // Perform a scalar comparision against the AVL (if set)
+  if (ScaMask.getAVL()) {
+    auto *VecAVL = requestScalarValue(ScaMask.getAVL());
+    auto *LaneConst = ConstantInt::get(ScaMask.getAVL()->getType(), Lane, false);
+    auto *LessThanAVL = builder.CreateICmpULT(LaneConst, VecAVL, "avl_check");
+    LaneP =  builder.CreateAnd(LaneP, LessThanAVL, "mask_check");
+  }
+  
+  MaskLaneMap[std::make_pair<>(ScaMask, Lane)] = LaneP;
+  return LaneP;
 }
 
 Mask
