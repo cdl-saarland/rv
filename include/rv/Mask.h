@@ -76,6 +76,9 @@ public:
   static Mask getAllFalse(llvm::LLVMContext &);
   // All lanes enabled mask.
   static Mask getAllTrue() { return Mask(); }
+
+  bool operator!=(const Mask &B) const { return !(*this == B); }
+  bool operator<(const Mask &) const;
 };
 
 } // namespace rv

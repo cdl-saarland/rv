@@ -43,11 +43,6 @@ Mask Mask::fromVectorLength(llvm::Value &EVLen) {
   return Mask(nullptr, &EVLen);
 }
 
-bool Mask::operator==(const Mask &B) const {
-  return (Predicate == B.Predicate) &&
-         (ActiveVectorLength == B.ActiveVectorLength);
-}
-
 Mask Mask::getAllFalse(LLVMContext &Ctx) {
   auto VLZero = ConstantInt::getNullValue(Type::getInt32Ty(Ctx));
   return Mask::fromVectorLength(*VLZero);
@@ -134,6 +129,17 @@ bool Mask::knownAllFalse() const {
 
   // Don't know
   return false;
+}
+
+bool Mask::operator==(const Mask &B) const {
+  return (Value *)Predicate == (Value *)B.Predicate &&
+         (Value *)ActiveVectorLength == (Value *)B.ActiveVectorLength;
+}
+bool Mask::operator<(const Mask &B) const {
+  bool PredLT = (Value *)Predicate < (Value *)B.Predicate;
+  bool PredEQ = (Value *)Predicate == (Value *)B.Predicate;
+  bool AVLLT = (Value *)ActiveVectorLength == (Value *)B.ActiveVectorLength;
+  return PredLT || (PredEQ && AVLLT);
 }
 
 } // namespace rv
