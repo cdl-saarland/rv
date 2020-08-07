@@ -133,19 +133,31 @@ IsTargetOnFalse(const BranchInst & branch, const BasicBlock & Dest) {
   return branch.getSuccessor(1) == &Dest;
 }
 
+// full mask implication
 bool
-UndeadMaskAnalysis::isUndead(const Value & mask, const BasicBlock & where) {
+UndeadMaskAnalysis::implies(const Mask & lhs, bool lhsNegated, const Mask & rhs, bool rhsNegated) {
+  assert((lhs.getAVL() == rhs.getAVL()) && "TODO implement mixed AVL vectorization");
+  if (!lhs.getPred()) return true;
+
+  // Make sure we always have a materialized predicate
+  auto &Ctx = lhs.getPred()->getContext();
+  Value &rhsPred = rhs.requestPredAsValue(Ctx);
+  return implies(*lhs.getPred(), lhsNegated, rhsPred, rhsNegated);
+}
+
+bool
+UndeadMaskAnalysis::isUndead(const Mask & mask, const BasicBlock & where) {
   // IF_DEBUG_UDM { DumpValue(*where.getParent()); }
 
   // use cached result (where available_
-  auto it = liveDominatorMap.find(&mask);
+  auto it = liveDominatorMap.find(mask);
   if (it != liveDominatorMap.end()) {
     const auto * liveDomBlock = it->second;
     if (liveDomBlock) return domTree.dominates(liveDomBlock, &where);
     else return false; // mask has no live dominator
   }
 
-  IF_DEBUG_UDM { errs() << "UDM: query for " << mask.getName() << " at block " << where.getName() << "\n"; }
+  IF_DEBUG_UDM { errs() << "UDM: query for "; mask.print(errs()); errs() << " at block " << where.getName() << "\n"; }
 
   // descend down the dominator tree to find a dominating known-unead branch condition that implies @mask
   auto * domNode = domTree.getNode(const_cast<BasicBlock*>(&where));
@@ -163,21 +175,24 @@ UndeadMaskAnalysis::isUndead(const Value & mask, const BasicBlock & where) {
       auto * predTerm = predBlock->getTerminator();
       auto * predBranch = dyn_cast<BranchInst>(predTerm);
       if (predBranch && predBranch->isConditional()) {
-        const auto * predCond = predBranch->getCondition();
+        Value *brCond = predBranch->getCondition();
 
         // check that the predicate of the controlling branch ia undead
-        auto * predMask = vecInfo.getPredicate(*predBlock);
-        IF_DEBUG_UDM { if (predMask) errs() << "Checking that the pred mask is undead " << *predMask << "\n"; }
-        if (predMask && !IsConstMask(*predMask, true) && !isUndead(*predMask, *predBlock)) {
-          liveDominatorMap[&mask] = nullptr;
+        auto predMask = vecInfo.getMask(*predBlock);
+        IF_DEBUG_UDM { errs() << "Checking that the pred mask is undead "; predMask.print(errs()); errs() << "\n"; }
+        if (!predMask.knownAllTrue() && !isUndead(predMask, *predBlock)) {
+          liveDominatorMap[mask] = nullptr;
           return false;
         }
 
+        Mask branchMask = Mask::inferFromPredicate(*brCond);
         // whether the branch predicate implies that at least one lane in @mask is live
-        if (implies(*predCond, IsTargetOnFalse(*predBranch, *block), mask, false)) {
-          liveDominatorMap[&mask] = block;
-          return true;
-        }
+        if (!implies(branchMask, IsTargetOnFalse(*predBranch, *block), mask,
+                     false))
+          continue;
+
+        liveDominatorMap[mask] = block;
+        return true;
       }
     }
 
@@ -185,7 +200,7 @@ UndeadMaskAnalysis::isUndead(const Value & mask, const BasicBlock & where) {
     domNode = domNode->getIDom();
   }
 
-  liveDominatorMap[&mask] = nullptr;
+  liveDominatorMap[mask] = nullptr;
   return false;
 }
 
