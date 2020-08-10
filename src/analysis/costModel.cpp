@@ -20,6 +20,7 @@
 #include "llvm/IR/Intrinsics.h"
 
 #include "rv/utils.h"
+#include "rvConfig.h"
 
 using namespace llvm;
 
