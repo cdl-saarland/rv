@@ -479,7 +479,7 @@ bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
         return false;
       }
 
-      // unsupported reduction kind
+      // unsupported reduction kind (operator in value SCC unrecognized)
       if (redInfo->kind == RedKind::Top) {
         Report() << " can not vectorize this non-trivial SCC: ";
         redInfo->print(ReportContinue());
@@ -487,8 +487,9 @@ bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
         return false;
       }
 
-      // FIXME rv codegen only supports trivial recurrences at the moment
-      if (false) { // redInfo->kind == RedKind::Bot) {
+      // Unsupported recurrence (definition and use in different loop
+      // iterations)
+      if (redInfo->kind == RedKind::Bot) {
         Report() << " can not vectorize this non-affine recurrence: ";
         redInfo->print(ReportContinue());
         ReportContinue() << "\n";
