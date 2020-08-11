@@ -472,7 +472,7 @@ bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
         return false;
       }
 
-      if (false) { // !IsSupportedReduction(*LoopPrep.TheLoop, *redInfo)) {
+      if (!IsSupportedReduction(L, *redInfo)) {
         Report() << " unsupported reduction: ";
         redInfo->print(ReportContinue());
         ReportContinue() << "\n";
