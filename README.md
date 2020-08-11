@@ -10,6 +10,7 @@ RV provides a unified interface to vectorize code regions, such as inner and out
 
 * Support for tail-predicated OLV through [LLVM-VP](https://reviews.llvm.org/D57504).
 * Support for OpenMP 4.5 `#pragma omp simd` **and** `#pragma omp declare simd` (pass `-fopenmp -fplugin=libRV.so -mllvm -rv` to Clang and you are set).
+* Automatic outer-loop vectorization (preview feature) (pass `-mllvm -rv-autovec` to enable).
 * Support for inter-procedural/recursive vectorization.
 * Implements [*Partial Control-Flow Linearization*](http://compilers.cs.uni-saarland.de/papers/moll_parlin_pldi18.pdf), S. Moll and S. Hack (PLDI '18).
 * Automatically uses [SLEEF](https://github.com/shibatch/sleef) vector math functions.
