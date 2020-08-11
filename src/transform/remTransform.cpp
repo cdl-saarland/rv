@@ -1039,6 +1039,17 @@ RemainderTransform::RemainderTransform(llvm::Function &_F, llvm::FunctionAnalysi
 , reda(_reda)
 {}
 
+bool
+RemainderTransform::analyzeLoopStructure(Loop &L) {
+// run capability checks
+  // CFG caps
+  if (!canTransformLoop(L)) return false;
+
+  // branch condition caps
+  auto * branchCond = analyzeExitCondition(L, 1);
+  return branchCond;
+}
+
 PreparedLoop
 RemainderTransform::createVectorizableLoop(Loop & L, ValueSet & uniOverrides, bool useTailPredication, int vectorWidth, int tripAlign) {
 // run capability checks

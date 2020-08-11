@@ -64,6 +64,9 @@ public:
   // create a vectorizable loop or return nullptr if remTrans can not currently do it
   PreparedLoop
   createVectorizableLoop(llvm::Loop & L, ValueSet & uniOverrides, bool useTailPredication, int vectorWidth, int tripAlign);
+
+  // Check whether ::createVectorizableLoop will succeed on \p L.
+  bool analyzeLoopStructure(llvm::Loop &L);
 };
 
 }

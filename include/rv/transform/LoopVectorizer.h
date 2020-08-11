@@ -106,6 +106,7 @@ private:
   std::unique_ptr<VectorizerInterface> vectorizer;
 
   bool canVectorizeLoop(llvm::Loop &L);
+  bool hasVectorizableLoopStructure(llvm::Loop &L);
 
   // convert L into a vectorizable loop
   // this will create a new scalar loop that can be vectorized directly with RV

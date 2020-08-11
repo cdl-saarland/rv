@@ -72,16 +72,21 @@ static cl::opt<bool> rvAutoVec(
 // Whether LV should try to detect parallel loops
 static bool AutoDetectParallelLoops() { return rvAutoVec; }
 
-bool LoopVectorizer::canVectorizeLoop(Loop &L) {
-  if (!L.isAnnotatedParallel())
-    return false;
-
-  BasicBlock *ExitingBlock = L.getExitingBlock();
-  if (!ExitingBlock)
-    return false;
-
-  if (!isa<BranchInst>(ExitingBlock->getTerminator()))
-    return false;
+static bool IsSupportedReduction(Loop &L, Reduction &red) {
+  // check that all users of the reduction are either (a) part of it or (b)
+  // outside the loop
+  for (auto *inst : red.elements) {
+    for (auto itUser : inst->users()) {
+      auto *userInst = dyn_cast<Instruction>(itUser);
+      if (!userInst)
+        return false; // unsupported
+      if (L.contains(userInst->getParent()) && !red.elements.count(userInst)) {
+        errs() << "Unsupported user of reduction: ";
+        Dump(*userInst);
+        return false;
+      }
+    }
+  }
 
   return true;
 }
@@ -114,9 +119,73 @@ int LoopVectorizer::getTripCount(Loop &L) {
   return BTCVal + 1;
 }
 
-bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
-  LoopMD mdAnnot = GetLoopAnnotation(L);
+bool LoopVectorizer::hasVectorizableLoopStructure(Loop &L) {
+  ReductionAnalysis MyReda(*F, FAM);
+  MyReda.analyze(L);
 
+  // Verify vectorizable control flow
+  RemainderTransform remTrans(*F, FAM, MyReda);
+  if (!remTrans.analyzeLoopStructure(L))
+    return false;
+
+  // Next, check that we can vectorize all value recurrences (header phi nodes)
+  // in this lop
+  for (auto &Phi : L.getHeader()->phis()) {
+    // Trivial constant strided shape
+    rv::StridePattern *pat = MyReda.getStrideInfo(Phi);
+    if (pat)
+      continue;
+
+    rv::Reduction *redInfo = MyReda.getReductionInfo(Phi);
+    IF_DEBUG { errs() << "loopVecPass: header phi  " << Phi << " : "; }
+
+    // failure to derive a reduction descriptor
+    if (!redInfo) {
+      Report() << "\n\tskip: unrecognized phi use in vector loop "
+               << L.getName() << "\n";
+      return false;
+    }
+
+    if (!IsSupportedReduction(L, *redInfo)) {
+      Report() << " unsupported reduction: ";
+      redInfo->print(ReportContinue());
+      ReportContinue() << "\n";
+      return false;
+    }
+
+    // unsupported reduction kind (operator in value SCC unrecognized)
+    if (redInfo->kind == RedKind::Top) {
+      Report() << " can not vectorize this non-trivial SCC: ";
+      redInfo->print(ReportContinue());
+      ReportContinue() << "\n";
+      return false;
+    }
+
+    // Unsupported recurrence (definition and use in different loop
+    // iterations)
+    if (redInfo->kind == RedKind::Bot) {
+      Report() << " can not vectorize this non-affine recurrence: ";
+      redInfo->print(ReportContinue());
+      ReportContinue() << "\n";
+      return false;
+    }
+
+    // Otw, this is a privatizable reduction pattern
+    IF_DEBUG { redInfo->dump(); }
+  }
+
+  return true;
+}
+
+bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
+  // Check we are technically capable of turning this loop into a lock-step loop
+  // (cheap-ish)
+  if (!hasVectorizableLoopStructure(L)) {
+    return false;
+  }
+
+  // Check whether this loop is actually parallel (expensive)
+  LoopMD mdAnnot = GetLoopAnnotation(L);
   if (AutoDetectParallelLoops()) {
     // Auto-detect vectorizable loops with the LoopDependenceAnalysis
     auto &LDI = FAM.getResult<LoopDependenceAnalysis>(*F);
@@ -408,25 +477,6 @@ bool LoopVectorizer::prepareLoopVectorization() {
   return !LoopsToVectorize.empty();
 }
 
-static bool IsSupportedReduction(Loop &L, Reduction &red) {
-  // check that all users of the reduction are either (a) part of it or (b)
-  // outside the loop
-  for (auto *inst : red.elements) {
-    for (auto itUser : inst->users()) {
-      auto *userInst = dyn_cast<Instruction>(itUser);
-      if (!userInst)
-        return false; // unsupported
-      if (L.contains(userInst->getParent()) && !red.elements.count(userInst)) {
-        errs() << "Unsupported user of reduction: ";
-        Dump(*userInst);
-        return false;
-      }
-    }
-  }
-
-  return true;
-}
-
 bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
   // auto &LI = *FAM.getCachedResult<LoopAnalysis>(*F);
   auto &LI = FAM.getResult<LoopAnalysis>(*F);
@@ -463,47 +513,19 @@ bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
       phiShape = pat->getShape(LVJob.LJ.VectorWidth);
     } else {
       rv::Reduction *redInfo = MyReda.getReductionInfo(*phi);
-      IF_DEBUG { errs() << "loopVecPass: header phi  " << *phi << " : "; }
 
-      // failure to derive a reduction descriptor
-      if (!redInfo) {
-        Report() << "\n\tskip: unrecognized phi use in vector loop "
-                 << L.getName() << "\n";
-        return false;
-      }
-
-      if (!IsSupportedReduction(L, *redInfo)) {
-        Report() << " unsupported reduction: ";
-        redInfo->print(ReportContinue());
-        ReportContinue() << "\n";
-        return false;
-      }
-
+      assert(redInfo);
+      assert(IsSupportedReduction(L, *redInfo));
       // unsupported reduction kind (operator in value SCC unrecognized)
-      if (redInfo->kind == RedKind::Top) {
-        Report() << " can not vectorize this non-trivial SCC: ";
-        redInfo->print(ReportContinue());
-        ReportContinue() << "\n";
-        return false;
-      }
+      assert (redInfo->kind != RedKind::Top);
 
       // Unsupported recurrence (definition and use in different loop
       // iterations)
-      if (redInfo->kind == RedKind::Bot) {
-        Report() << " can not vectorize this non-affine recurrence: ";
-        redInfo->print(ReportContinue());
-        ReportContinue() << "\n";
-        return false;
-      }
+      assert (redInfo->kind != RedKind::Bot);
 
       // Otw, this is a privatizable reduction pattern
       IF_DEBUG { redInfo->dump(); }
       phiShape = redInfo->getShape(LVJob.LJ.VectorWidth);
-    }
-
-    IF_DEBUG {
-      errs() << "header phi " << phi->getName() << " has shape "
-             << phiShape.str() << "\n";
     }
 
     if (phiShape.isDefined())
