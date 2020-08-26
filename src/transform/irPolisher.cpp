@@ -436,7 +436,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     // Typical use of this pattern is for broadcasts
     auto v1 = shuffle->getOperand(0);
     auto v2 = shuffle->getOperand(1);
-    auto mask = shuffle->getOperand(2);
+    auto mask = shuffle->getShuffleMask();
 
     newInst = builder.CreateShuffleVector(
       getMaskForValueOrInst(builder, v1, bitWidth),
