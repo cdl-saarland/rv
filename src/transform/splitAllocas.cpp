@@ -102,6 +102,7 @@ std::unique_ptr<SplitAllocas::AllocaTree> SplitAllocas::createAllocaTree(llvm::A
   } else {
     IF_DEBUG_SA { errs() << "\t- " << *type << "\n"; }
     auto alloca = new AllocaInst(type, allocaInst->getType()->getAddressSpace(), allocaInst->getName(), allocaInst);
+    alloca->setAlignment(allocaInst->getAlign());
     vecInfo.setVectorShape(*alloca, vectorShape);
     return std::unique_ptr<AllocaTree>(new AllocaTree(type, alloca));
   }
