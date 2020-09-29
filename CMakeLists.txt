@@ -171,10 +171,13 @@ endif()
 
 add_definitions( -D_GNU_SOURCE )
 
+# populates $RV_SLEEF_OBJECTS with sleef BC buffer files (if RV_ENABLE_SLEEF is set).
 add_subdirectory(vecmath)
 
+# links RV_SLEEF_OBJECTS into libRV
 add_subdirectory(src)
 
+# rvTool, ..
 add_subdirectory(tools)
 
 add_subdirectory(plugin)
