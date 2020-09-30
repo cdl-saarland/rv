@@ -498,18 +498,18 @@ class SleefLookupResolver : public FunctionResolver {
     , destFuncName(_destFuncName)
   {}
 
-  CallPredicateMode getCallSitePredicateMode() {
+  CallPredicateMode getCallSitePredicateMode() override {
     // FIXME this is not entirely true for vector math
     return CallPredicateMode::SafeWithoutPredicate;
   }
 
   // mask position (if any)
-  int getMaskPos() {
+  int getMaskPos() override {
     return -1; // FIXME vector math is unpredicated
   }
 
   llvm::Function&
-  requestVectorized() {
+  requestVectorized() override {
     auto * existingFunc = targetModule.getFunction(destFuncName);
     if (existingFunc) {
       return *existingFunc;
@@ -521,7 +521,7 @@ class SleefLookupResolver : public FunctionResolver {
   }
 
   // result shape of function @funcName in target module @module
-  VectorShape requestResultShape() { return resShape; }
+  VectorShape requestResultShape() override { return resShape; }
 };
 
 
@@ -573,7 +573,7 @@ struct SleefVLAResolver : public FunctionResolver {
     // FIXME this is a hacky workaround for sqrt
     if (scaFunc.getName().startswith("xsqrt")) {
       auto funcTy = scaFunc.getFunctionType();
-      auto vecTy = VectorType::get(funcTy->getReturnType(), vectorWidth);
+      auto vecTy = FixedVectorType::get(funcTy->getReturnType(), vectorWidth);
       vecFunc = Intrinsic::getDeclaration(&targetModule, Intrinsic::sqrt, {vecTy});
       return *vecFunc;
     }
@@ -774,7 +774,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
   // Skip for fast builtin functions // FIXME should be in its own target-dependent resolver
   if (StringRef(sleefName).startswith("xsqrt")) {
     // "every" target has a sqrt instruction of sorts
-    auto vecTy = VectorType::get(scaFuncTy.getReturnType(), vectorWidth);
+    auto vecTy = FixedVectorType::get(scaFuncTy.getReturnType(), vectorWidth);
     auto vecFunc = Intrinsic::getDeclaration(&destModule, Intrinsic::sqrt, {vecTy});
 
     // FIXME abusing the SleefLookupResolver to retrieve an existing declaration...

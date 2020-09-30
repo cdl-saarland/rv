@@ -125,7 +125,7 @@ vectorizeType(Type* scalarTy, VectorShape shape, unsigned vectorWidth)
     if (scalarTy->isVoidTy()) return scalarTy;
     if (!shape.isDefined() || shape.hasStridedShape()) return scalarTy;
 
-    return VectorType::get(scalarTy, vectorWidth);
+    return FixedVectorType::get(scalarTy, vectorWidth);
 }
 
 Function*

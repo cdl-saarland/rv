@@ -24,7 +24,7 @@ MangleType(const Type & Ty) {
   } else if (Ty.isFloatTy()) {
     return "f";
   } else if (auto ScalableVT = dyn_cast<ScalableVectorType>(&Ty)) {
-    return "nxv"+ std::to_string(ScalableVT->getElementCount().Min) + MangleType(*ScalableVT->getElementType());
+    return "nxv"+ std::to_string(ScalableVT->getElementCount().getKnownMinValue()) + MangleType(*ScalableVT->getElementType());
   } else if (auto FixedVT = dyn_cast<FixedVectorType>(&Ty)) {
     return "v" + std::to_string(FixedVT->getNumElements()) + MangleType(*FixedVT->getElementType());
   }

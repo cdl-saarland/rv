@@ -492,6 +492,7 @@ void VectorizationAnalysis::init(const Function &F) {
   }
 
   // push non-user instructions
+  auto IsaConstant = [](const Value* V) { return isa<Constant>(V); };
   for (const BasicBlock &BB : F) {
     vecInfo.setVectorShape(BB, VectorShape::uni());
 
@@ -509,7 +510,7 @@ void VectorizationAnalysis::init(const Function &F) {
           I.printAsOperand(errs(), false);
           errs() << "\n";
         };
-      } else if (isa<PHINode>(I) && any_of(I.operands(), isa<Constant, Use>)) {
+      } else if (isa<PHINode>(I) && any_of(I.operands(), IsaConstant)) {
         // Phis that depend on constants are added to the WL
         putOnWorklist(I);
 

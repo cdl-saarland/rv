@@ -112,7 +112,7 @@ Value *IRPolisher::mapIntrinsicCall(llvm::IRBuilder<>& builder, llvm::CallInst* 
     auto newArg = getMaskForValueOrInst(builder, callInst->getArgOperand(0), bitWidth);
 
     auto vecLen = GetVectorNumElements(newArg->getType());
-    auto destTy = VectorType::get(builder.getIntNTy(64), bitWidth * vecLen / 64);
+    auto destTy = FixedVectorType::get(builder.getIntNTy(64), bitWidth * vecLen / 64);
 
     bool useNot = false;
     Value * left = nullptr, * right = nullptr;
@@ -241,8 +241,8 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
     // Convert to an AVX2 gather
     IRBuilder<> builder(callInst);
     auto func = Intrinsic::getDeclaration(callInst->getModule(), Intrinsic::x86_avx2_gather_d_ps_256);
-    auto idxTy = VectorType::get(builder.getInt32Ty(), 8);
-    auto valTy = VectorType::get(builder.getFloatTy(), 8);
+    auto idxTy = FixedVectorType::get(builder.getInt32Ty(), 8);
+    auto valTy = FixedVectorType::get(builder.getFloatTy(), 8);
     auto ptrTy = PointerType::get(builder.getInt8Ty(), 0);
     auto maskVal = builder.CreateBitCast(getMaskForValueOrInst(builder, callInst->getOperand(2), 32), valTy);
     auto extIdx = idxVal->getType()->getScalarSizeInBits() != 32
@@ -310,7 +310,7 @@ Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, 
     if (id != Intrinsic::not_intrinsic && cmpOp >= 0) {
       auto func = Intrinsic::getDeclaration(cmpInst->getModule(), id);
       auto cmpCall = builder.CreateCall(func, { invert ? newRight : newLeft, invert ? newLeft : newRight, builder.getInt8(cmpOp) });
-      auto vecTy = VectorType::get(builder.getIntNTy(scalarTy->getPrimitiveSizeInBits()), vecLen);
+      auto vecTy = FixedVectorType::get(builder.getIntNTy(scalarTy->getPrimitiveSizeInBits()), vecLen);
       return builder.CreateBitCast(cmpCall, vecTy);
     }
   }
@@ -479,7 +479,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     newInst = getMaskForValue(builder, newLoad, bitWidth);
   } else if (auto phiNode = dyn_cast<PHINode>(inst)) {
     auto vecLen = GetVectorNumElements(phiNode->getType());
-    auto vecTy = VectorType::get(builder.getIntNTy(bitWidth), vecLen);
+    auto vecTy = FixedVectorType::get(builder.getIntNTy(bitWidth), vecLen);
 
     auto newPhi = builder.CreatePHI(vecTy, phiNode->getNumIncomingValues());
     // We need to insert the phi node in the map here,
@@ -534,9 +534,9 @@ llvm::Value *IRPolisher::getMaskForValue(IRBuilder<> &builder, llvm::Value *valu
   if (scalarType == value->getType()->getScalarType()) return value;
 
   if (value->getType()->getScalarSizeInBits() < bitWidth)
-    return builder.CreateSExtOrBitCast(value, VectorType::get(scalarType, vectorLen));
+    return builder.CreateSExtOrBitCast(value, FixedVectorType::get(scalarType, vectorLen));
   else
-    return builder.CreateTrunc(value, VectorType::get(scalarType, vectorLen));
+    return builder.CreateTrunc(value, FixedVectorType::get(scalarType, vectorLen));
 }
 
 llvm::Value *IRPolisher::getMaskForValueOrInst(IRBuilder<> &builder, llvm::Value *value, unsigned bitWidth) {

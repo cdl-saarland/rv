@@ -17,6 +17,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/Support/TypeSize.h>
 
 #include "rvConfig.h"
 
@@ -174,7 +175,7 @@ PlatformInfo::requestVectorMaskReductionFunc(const std::string &name, size_t wid
     return redFunc;
   auto &context = mod.getContext();
   auto *boolTy = Type::getInt1Ty(context);
-  auto *vecBoolTy = VectorType::get(boolTy, width);
+  auto *vecBoolTy = FixedVectorType::get(boolTy, width);
   auto *funcTy = FunctionType::get(boolTy, vecBoolTy, false);
   redFunc = Function::Create(funcTy, GlobalValue::ExternalLinkage, mangledName, &mod);
   redFunc->setDoesNotAccessMemory();

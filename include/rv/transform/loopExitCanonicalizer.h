@@ -31,12 +31,12 @@ public:
 
   LoopExitCanonicalizerWrapper();
 
-  virtual void releaseMemory();
-  virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const;
-  virtual bool doInitialization(llvm::Module &M);
-  virtual bool doFinalization(llvm::Module &M);
-  virtual bool runOnFunction(llvm::Function &F);
-  virtual void print(llvm::raw_ostream &O, const llvm::Module *M) const;
+  void releaseMemory() override;
+  void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
+  bool doInitialization(llvm::Module &M) override;
+  bool doFinalization(llvm::Module &M) override;
+  bool runOnFunction(llvm::Function &F) override;
+  void print(llvm::raw_ostream &O, const llvm::Module *M) const override;
 };
 
 class LoopExitCanonicalizer {

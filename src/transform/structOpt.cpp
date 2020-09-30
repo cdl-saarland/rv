@@ -602,7 +602,7 @@ StructOpt::vectorizeType(llvm::Type & scalarAllocaTy) {
 // primite type -> vector
   if (scalarAllocaTy.isIntegerTy() ||
       scalarAllocaTy.isFloatingPointTy())
-    return VectorType::get(&scalarAllocaTy, vecInfo.getVectorWidth());
+    return FixedVectorType::get(&scalarAllocaTy, vecInfo.getVectorWidth());
 
 // finite aggrgate -> aggrgate of vectorized elemnts
   if (scalarAllocaTy.isStructTy()) {
