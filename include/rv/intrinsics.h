@@ -34,6 +34,9 @@ namespace rv {
     Mask = 6, // Gets the current execution mask
     Compact = 7, // rv_compact(V, M) returns the V compacted according to M
 
+    LaneID = 8, // rv_lane_id() returns for each lane its position in the vector
+    NumLanes = 9, // total number of lanes (== static vector width)
+
   // data intrinsics
     Extract = 100, // rv_extract(V, L) returns the L-th lane of V as a uniform value (lane broadcast)
     Insert = 101 , // rv_insert(V, L, X) returns the result of inserting the uniform value X into the L-th lane of V
