@@ -420,6 +420,8 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         case RVIntrinsic::PopCount: vectorizePopCountCall(call); break;
         case RVIntrinsic::Index: vectorizeIndexCall(*call); break;
         case RVIntrinsic::Align: vectorizeAlignCall(call); break;
+        case RVIntrinsic::LaneID: vectorizeLaneIDCall(call); break;
+        case RVIntrinsic::NumLanes: vectorizeNumLanesCall(call); break;
         default: {
           if (config.enableInterleaved) addLazyInstruction(inst);
           else {
@@ -1207,6 +1209,23 @@ NatBuilder::vectorizeAlignCall(CallInst *rvCall) {
     mapVectorValue(rvCall, requestVectorValue(vecArg));
   else
     mapScalarValue(rvCall, requestScalarValue(vecArg));
+}
+
+void
+NatBuilder::vectorizeLaneIDCall(CallInst *rvCall) {
+  ++numRVIntrinsics;
+
+  assert(rvCall->getNumArgOperands() == 0 && "expected 0 arguments for rv_lane_id()");
+  Value *contVec = createContiguousVector(vectorWidth(), rvCall->getType(), 0, 1);
+  mapVectorValue(rvCall, contVec);
+}
+
+void
+NatBuilder::vectorizeNumLanesCall(CallInst *rvCall) {
+  ++numRVIntrinsics;
+
+  assert(rvCall->getNumArgOperands() == 0 && "expected 0 arguments for rv_num_lanes()");
+  mapScalarValue(rvCall, ConstantInt::get(rvCall->getType(), vectorWidth(), false));
 }
 
 void

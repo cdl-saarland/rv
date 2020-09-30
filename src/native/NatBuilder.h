@@ -143,6 +143,8 @@ namespace rv {
     void vectorizeAlignCall(llvm::CallInst *rvCall);
     void vectorizeIndexCall(llvm::CallInst & rvCall);
     void vectorizeCompactCall(llvm::CallInst * rvCall);
+    void vectorizeLaneIDCall(llvm::CallInst *rvCall);
+    void vectorizeNumLanesCall(llvm::CallInst *rvCall);
 
     // create a lookup table for an efficient compaction intrinsic
     llvm::Constant* createCompactLookupTable(unsigned vecWidth);

@@ -19,7 +19,7 @@
 
 llvm::Type *getVectorType(llvm::Type *type, unsigned width);
 
-llvm::Value *createContiguousVector(unsigned width, llvm::Type *type, int start, int stride);
+llvm::Value *createContiguousVector(unsigned width, llvm::Type *ElemType, int start, int stride);
 
 llvm::Value *getConstantVector(unsigned width, llvm::Type *type, unsigned value);
 llvm::Value *getConstantVector(unsigned width, llvm::Constant *constant);

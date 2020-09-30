@@ -356,6 +356,10 @@ lowerIntrinsicCall(CallInst* call) {
         return builder.CreateZExt(call->getOperand(0), call->getType());
       });
     } break;
+    case RVIntrinsic::NumLanes:
+      return ConstantInt::get(call->getType(), 1, false);
+    case RVIntrinsic::LaneID:
+      return ConstantInt::get(call->getType(), 0, false);
   }
 
   return true;
