@@ -55,8 +55,46 @@ VectorShapeTransformer::getObservedShape(const BasicBlock & observerBlock, const
   return vecInfo.getObservedShape(LI, observerBlock, val);
 }
 
+static Type* getElementType(Type* Ty) {
+  if (auto VecTy = dyn_cast<VectorType>(Ty)) {
+    return VecTy->getElementType();
+  }
+  if (auto PtrTy = dyn_cast<PointerType>(Ty)) {
+    return PtrTy->getElementType();
+  }
+  if (auto ArrTy = dyn_cast<ArrayType>(Ty)) {
+    return ArrTy->getElementType();
+  }
+  return nullptr;
+}
+
 VectorShape
-VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & taintedOps) const {
+VectorShapeTransformer::computeShape(const Instruction& I, SmallValVec & taintedOps) const {
+  const auto *Phi = dyn_cast<const PHINode>(&I);
+  if (Phi)
+    return computeShapeForPHINode(*Phi);
+
+  // Otw, this is an instruction
+  auto NewShape = computeIdealShapeForInst(I, taintedOps);
+  // TODO factor this into vectorShapeTransform. This does not belong here!
+  // shape is non-bottom. Apply general refinement rules.
+  if (I.getType()->isPointerTy()) {
+    // adjust result type to match alignment
+    unsigned minAlignment = I.getPointerAlignment(DL).value();
+    NewShape.setAlignment(
+        std::max<unsigned>(minAlignment, NewShape.getAlignmentFirst()));
+  } else if (isa<FPMathOperator>(I) && !isa<CallInst>(I)) {
+    // allow strided/aligned fp values only in fast math mode
+    FastMathFlags flags = I.getFastMathFlags();
+    if (!flags.isFast() && (NewShape.isDefined() && !NewShape.isUniform())) {
+      NewShape = VectorShape::varying();
+    }
+  }
+  return NewShape;
+}
+
+VectorShape
+VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValVec & taintedOps) const {
   // always default to the naive transformer (only top or bottom)
   if (I.isBinaryOp()) return computeShapeForBinaryInst(cast<const BinaryOperator>(I));
   if (I.isCast()) return computeShapeForCastInst(cast<const CastInst>(I));
@@ -159,13 +197,14 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
           unsigned elemoffset = (unsigned) structlayout->getElementOffset(idxconst);
 
           // Behaves like addition, pointer + offset and offset is uniform, hence the stride stays
-          unsigned newalignment = gcd(result.getAlignmentFirst(), elemoffset);
+          align_t newalignment = gcd(result.getAlignmentFirst(), elemoffset);
           result.setAlignment(newalignment);
         } else {
           // NOTE: If indexShape is varying, this still reasons about alignment
-          subT = isa<PointerType>(subT) ? subT->getPointerElementType() : subT->getArrayElementType();
+          subT = getElementType(subT);
+          assert(subT && "Unknown LLVM element type .. IR type system change?");
 
-          const int typeSizeInBytes = (int)layout.getTypeStoreSize(subT);
+          const size_t typeSizeInBytes = (size_t)layout.getTypeStoreSize(subT);
           result = result + typeSizeInBytes * getObservedShape(BB, *index);
         }
       }
@@ -178,7 +217,9 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
       auto & call = cast<CallInst>(I);
       const auto* calledValue = call.getCalledOperand();
       const Function * callee = dyn_cast<Function>(calledValue);
-      if (!callee) return VectorShape::varying(); // calling a non-function
+      if (!callee) {
+        return VectorShape::varying(); // calling a non-function
+      }
 
       // memcpy shape is uniform if src ptr shape is uniform
       // TODO re-factor into resolver
@@ -318,8 +359,6 @@ VectorShapeTransformer::computeShapeForBinaryInst(const BinaryOperator& I) const
   const VectorShape& shape1 = getObservedShape(BB, *op1);
   const VectorShape& shape2 = getObservedShape(BB, *op2);
 
-  const int stride1 = shape1.getStride();
-
   const unsigned alignment1 = shape1.getAlignmentFirst();
   const unsigned alignment2 = shape2.getAlignmentFirst();
 
@@ -393,38 +432,49 @@ VectorShapeTransformer::computeShapeForBinaryInst(const BinaryOperator& I) const
     }
 
     case Instruction::Shl: {
+      // FIXME overflow
       // interpret shift by constant as multiplication
       if (auto* shiftCI = dyn_cast<ConstantInt>(op2)) {
-        int shiftAmount = (int) shiftCI->getSExtValue();
+        unsigned shiftAmount = (int) shiftCI->getZExtValue();
         if (shiftAmount > 0) {
-          int factor = 1 << shiftAmount;
+          int64_t factor = ((int64_t) 1) << shiftAmount;
           return factor * shape1;
         }
       }
+    } break;
 
+    // TODO Instruction::LShr
+    case Instruction::AShr: {
+      // Special handling for implicit sign extend `(ashr X (shl X $v))`
+      auto OpInst = dyn_cast<Instruction>(op1);
+      if (OpInst && OpInst->getOpcode() == Instruction::Shl) {
+        const auto *ShlAmount = OpInst->getOperand(1);
+        if (ShlAmount == op2) {
+          // FIXME (ashr X (shlr X 31) 31) is a one-bit sext.. should this
+          // really preserve the shape of `X`?
+          return vecInfo.getVectorShape(*OpInst->getOperand(0));
+        }
+      }
+
+      // FIXME overflow
+      // interpret shift by constant as division.
+      if (auto *shiftCI = dyn_cast<ConstantInt>(op2)) {
+        int shiftAmount = (int)shiftCI->getSExtValue();
+        if (shiftAmount > 0) {
+          int64_t factor = 1 << shiftAmount;
+          return shape1 / factor;
+        }
+      }
     } break;
 
     case Instruction::SDiv:
     case Instruction::UDiv:
     {
       const ConstantInt* constDivisor = dyn_cast<ConstantInt>(op2);
-      if (shape1.hasStridedShape() && constDivisor) {
-        const int64_t c  = constDivisor->getSExtValue();// FIXME proper code path for UDiv
-
-        if (c == 0) return VectorShape::uni(1); // FIXME divide by zero?
-        if ((alignment1 % c == 0) && // c divides the alignment
-            (stride1 % c == 0))      // c divides the stride
-        {
-          return VectorShape::strided(stride1 / c, alignment1 / std::abs(c));
-        }
+      if (constDivisor) {
+        return shape1 / constDivisor->getSExtValue();
       }
-
-      if (shape1.isUniform() && shape2.isUniform()) {
-        return VectorShape::uni(1); // division destroyes alignment in general
-      }
-
-      return VectorShape::varying(1);
-    }
+    } break;
 
     default:
       break;

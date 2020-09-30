@@ -23,7 +23,7 @@ using namespace llvm;
 
 namespace {
 
-unsigned
+align_t
 getAlignment(const Constant* c) {
   assert (c);
 
@@ -34,7 +34,7 @@ getAlignment(const Constant* c) {
   if (isa<UndefValue>(c)) return 1;
 
   if (const ConstantInt* cint = dyn_cast<ConstantInt>(c)) {
-    return static_cast<unsigned>(std::abs(cint->getSExtValue()));
+    return static_cast<align_t>(std::abs(cint->getSExtValue()));
   }
 
   // Other than that, only integer vector constants can be aligned.
@@ -46,9 +46,9 @@ getAlignment(const Constant* c) {
   if (const ConstantDataVector* cdv = dyn_cast<ConstantDataVector>(c)) {
     if (!cdv->getElementType()->isIntegerTy()) return 1;
 
-    const int intValue = (int) cast<ConstantInt>(cdv->getAggregateElement(0U))->getSExtValue();
+    const int intValue = (align_t) cast<ConstantInt>(cdv->getAggregateElement(0U))->getZExtValue();
 
-    return static_cast<unsigned>(std::abs(intValue));
+    return static_cast<align_t>(std::abs(intValue));
   }
 
   assert (isa<ConstantVector>(c));
@@ -58,10 +58,10 @@ getAlignment(const Constant* c) {
 
   assert (isa<ConstantInt>(cv->getOperand(0)));
   const ConstantInt* celem = cast<ConstantInt>(cv->getOperand(0));
-  const int intValue = (int) celem->getSExtValue();
+  const int intValue = (align_t) celem->getZExtValue();
 
   // The vector is aligned if its first element is aligned
-  return static_cast<unsigned>(std::abs(intValue));
+  return static_cast<align_t>(std::abs(intValue));
 }
 
 }
@@ -72,12 +72,12 @@ namespace rv {
 VectorShape::VectorShape()
     : stride(0), hasConstantStride(false), alignment(0), defined(false) {}
 
-VectorShape::VectorShape(unsigned _alignment)
+VectorShape::VectorShape(align_t _alignment)
     : stride(0), hasConstantStride(false), alignment(_alignment),
       defined(true) {}
 
 // constant stride constructor
-VectorShape::VectorShape(int _stride, unsigned _alignment)
+VectorShape::VectorShape(stride_t _stride, align_t _alignment)
     : stride(_stride), hasConstantStride(true), alignment(_alignment),
       defined(true) {}
 
@@ -85,12 +85,12 @@ VectorShape VectorShape::fromConstant(const Constant* C) {
   return VectorShape::uni(getAlignment(C));
 }
 
-unsigned VectorShape::getAlignmentGeneral() const {
+align_t VectorShape::getAlignmentGeneral() const {
   if (hasConstantStride) {
     if (stride == 0)
       return alignment;
     else
-      return gcd(alignment, (unsigned) std::abs(stride));
+      return gcd(alignment, (align_t) std::abs(stride));
   }
   else
     return alignment; // General alignment in case of varying shape
@@ -170,12 +170,40 @@ VectorShape operator-(const VectorShape& a, const VectorShape& b) {
   return VectorShape::strided(a.stride - b.stride, gcd(a.alignment, b.alignment));
 }
 
-VectorShape operator*(int m, const VectorShape& a) {
-  if (!a.defined) return a;
+VectorShape operator*(int64_t m, const VectorShape &a) {
+  if (!a.isDefined())
+    return a;
 
-  if (!a.hasConstantStride) return VectorShape::varying(((m > 0) ? m : -m) * a.alignment);
+  if (!a.hasStridedShape())
+    return VectorShape::varying(std::abs(m) * a.alignment);
 
-  return VectorShape::strided(m * a.stride, ((m > 0) ? m : -m) * a.alignment);
+  // FIXME overflow
+  return VectorShape::strided(m * a.getStride(),
+                              std::abs(m) * a.getAlignmentFirst());
+}
+
+VectorShape VectorShape::operator/(int64_t M) const {
+  if (!isDefined())
+    return *this;
+
+  bool IsCleanAlignDiv = (getAlignmentFirst() % M == 0);
+
+  // Result alignment
+  align_t NewA = 1;
+  if (IsCleanAlignDiv) {
+    NewA = getAlignmentFirst() / M;
+  }
+
+  if (isVarying() || isUniform()) {
+    return isVarying() ? VectorShape::varying(NewA) : VectorShape::uni(NewA);
+  }
+
+  assert(hasStridedShape());
+  bool IsCleanDiv = (getStride() % M == 0) && IsCleanAlignDiv;
+  if (IsCleanDiv) {
+    return VectorShape::strided(getStride() % M, NewA);
+  }
+  return VectorShape::varying(1);
 }
 
 VectorShape VectorShape::join(VectorShape a, VectorShape b) {
