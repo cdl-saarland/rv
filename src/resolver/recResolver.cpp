@@ -81,7 +81,7 @@ public:
   getVectorName() const { return recMapping.vectorFn->getName(); }
 
   // a reference to it
-  llvm::Function &requestVectorized() {
+  llvm::Function &requestVectorized() override {
     assert(isValid());
     assert(recMapping.vectorFn);
     return *recMapping.vectorFn;
@@ -89,15 +89,15 @@ public:
 
   // need a proper res shape
   VectorShape
-  requestResultShape() {
+  requestResultShape() override {
     return recMapping.resultShape;
   }
 
   // how the vector function of \p requestVectorized() should be called in a predicated context.
-  CallPredicateMode getCallSitePredicateMode() { return recMapping.predMode; }
+  CallPredicateMode getCallSitePredicateMode() override { return recMapping.predMode; }
 
   // mask position (if any)
-  int getMaskPos() { return recMapping.maskPos; }
+  int getMaskPos() override { return recMapping.maskPos; }
 
   bool isValid() const { return hasValidVectorFunc; }
 

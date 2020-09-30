@@ -62,7 +62,6 @@ class IRPolisher {
 
   bool isBooleanVector(const llvm::Type*);
   bool isNot(const llvm::Value*);
-  llvm::Value *getNotArgument(llvm::Value*);
   bool canReplaceInst(llvm::Instruction*, unsigned&);
 
   llvm::Value *mapIntrinsicCall(llvm::IRBuilder<>&, llvm::CallInst*, unsigned);

@@ -72,15 +72,6 @@ bool IRPolisher::isNot(const llvm::Value *value) {
              llvm::cast<llvm::Constant>(binOp->getOperand(1))->isAllOnesValue()));
 }
 
-llvm::Value *IRPolisher::getNotArgument(llvm::Value *value) {
-    assert(isNot(value));
-    auto binOp = llvm::cast<BinaryOperator>(value);
-    if (llvm::isa<llvm::Constant>(binOp->getOperand(0)) &&
-        llvm::cast<llvm::Constant>(binOp->getOperand(0))->isAllOnesValue())
-        return binOp->getOperand(1);
-    return binOp->getOperand(0);
-}
-
 bool IRPolisher::canReplaceInst(llvm::Instruction *inst, unsigned& bitWidth) {
   auto instTy = inst->getType();
   if (!instTy->isVectorTy()) return false;
@@ -657,7 +648,7 @@ public:
   , config(_config)
   {}
 
-  bool runOnFunction(Function & F) {
+  bool runOnFunction(Function & F) override {
     rv::IRPolisher polisher(F, config);
     bool changed = polisher.polish();
     return changed;

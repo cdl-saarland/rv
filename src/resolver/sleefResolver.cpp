@@ -554,18 +554,18 @@ struct SleefVLAResolver : public FunctionResolver {
     IF_DEBUG_SLEEF { errs() << "VLA: " << vecFuncName << "\n"; }
   }
 
-  CallPredicateMode getCallSitePredicateMode() {
+  CallPredicateMode getCallSitePredicateMode() override {
     // FIXME this is not entirely true for vector math
     return CallPredicateMode::SafeWithoutPredicate;
   }
 
   // mask position (if any)
-  int getMaskPos() {
+  int getMaskPos() override {
     return -1; // FIXME vector math is unpredicated
   }
 
   // materialized the vectorized function in the module @insertInto and returns a reference to it
-  llvm::Function& requestVectorized() {
+  llvm::Function& requestVectorized() override {
     if (vecFunc) return *vecFunc;
     vecFunc = targetModule.getFunction(vecFuncName);
     if (vecFunc) return *vecFunc;
@@ -639,7 +639,7 @@ struct SleefVLAResolver : public FunctionResolver {
   }
 
   // result shape of function @funcName in target module @module
-  VectorShape requestResultShape() {
+  VectorShape requestResultShape() override {
     if (resShape.isDefined()) return resShape;
 
     // TODO run VA
