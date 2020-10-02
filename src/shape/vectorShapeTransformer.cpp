@@ -61,6 +61,7 @@ VectorShapeTransformer::computeShapeForInst(const Instruction& I, SmallValVec & 
   if (I.isBinaryOp()) return computeShapeForBinaryInst(cast<const BinaryOperator>(I));
   if (I.isCast()) return computeShapeForCastInst(cast<const CastInst>(I));
   if (isa<PHINode>(I)) return computeShapeForPHINode(cast<const PHINode>(I));
+  if (isa<AtomicRMWInst>(I)) { return VectorShape::varying(); }
 
   const DataLayout & layout = vecInfo.getDataLayout();
   const BasicBlock & BB = *I.getParent();
