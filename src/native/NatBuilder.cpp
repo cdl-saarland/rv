@@ -372,6 +372,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(inst);
     BitCastInst *bc = dyn_cast<BitCastInst>(inst);
     AllocaInst *alloca = dyn_cast<AllocaInst>(inst);
+    AtomicRMWInst *atomicrmw = dyn_cast<AtomicRMWInst>(inst);
 
     // analyze memory predicate
     if (load || store) {
@@ -437,6 +438,34 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       vectorizeAlloca(alloca);
     } else if (gep || bc) {
       continue; // skipped
+    } else if (atomicrmw) {
+      VectorShape shape = getVectorShape(*atomicrmw);
+      if (shape.isStrided() || shape.isContiguous()) {
+        Value *predicate = vecInfo.getPredicate(*inst->getParent());
+        assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
+        bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
+        if (needsMask) {
+            replicateInstruction(inst);
+        } else {
+            AtomicRMWInst *clonedinst = cast<AtomicRMWInst>(atomicrmw->clone());
+            clonedinst->setOperand(0, requestScalarValue(atomicrmw->getPointerOperand()));
+
+            const Value * previousconst = atomicrmw->getValOperand();
+            const IntegerType * previoustype = cast<IntegerType>(previousconst->getType());
+
+            const int stride = shape.getStride();
+            const int updateresult = vectorWidth() * stride;
+
+            clonedinst->setOperand(1, builder.getIntN(previoustype->getBitWidth(), updateresult));
+
+            builder.Insert(clonedinst, inst->getName());
+            mapScalarValue(inst, clonedinst);
+        }
+      } else if (shouldVectorize(inst)) {
+        replicateInstruction(inst);
+      } else {
+        copyInstruction(inst);
+      }
     } else if (canVectorize(inst) && shouldVectorize(inst)) {
       vectorizeInstruction(inst);
     } else if (!canVectorize(inst) && shouldVectorize(inst)){
