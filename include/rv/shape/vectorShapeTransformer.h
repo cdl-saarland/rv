@@ -50,6 +50,9 @@ namespace rv {
     computeGenericArithmeticTransfer(const llvm::Instruction & I) const;
 
     VectorShape
+    computeShapeForAtomicRMWInst(const llvm::AtomicRMWInst &Phi) const;
+
+    VectorShape
     computeShapeForPHINode(const llvm::PHINode &Phi) const;
   };
 }
