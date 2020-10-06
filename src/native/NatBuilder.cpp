@@ -446,7 +446,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
             const Value * previousconst = atomicrmw->getValOperand();
             const IntegerType * previoustype = cast<IntegerType>(previousconst->getType());
 
-            const int stride = shape.getStride();
+            const int stride = (atomicrmw->getOperation() == AtomicRMWInst::Sub) ? -1 * shape.getStride() : shape.getStride();
             const int updateresult = vectorWidth() * stride;
 
             clonedinst->setOperand(1, builder.getIntN(previoustype->getBitWidth(), updateresult));
