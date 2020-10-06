@@ -450,19 +450,63 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
             AtomicRMWInst *clonedinst = cast<AtomicRMWInst>(atomicrmw->clone());
             clonedinst->setOperand(0, requestScalarValue(atomicrmw->getPointerOperand()));
 
-            const Value * previousconst = atomicrmw->getValOperand();
-            const IntegerType * previoustype = cast<IntegerType>(previousconst->getType());
+            Value * previousconst = atomicrmw->getValOperand();
+            IntegerType * previoustype = cast<IntegerType>(previousconst->getType());
 
-            const int stride = (atomicrmw->getOperation() == AtomicRMWInst::Sub) ? -1 * shape.getStride() : shape.getStride();
-            const int updateresult = vectorWidth() * stride;
+            int stride = (atomicrmw->getOperation() == AtomicRMWInst::Sub) ? -1 * shape.getStride() : shape.getStride();
+            int updateresult = vectorWidth() * stride;
 
-            clonedinst->setOperand(1, builder.getIntN(previoustype->getBitWidth(), updateresult));
+            clonedinst->setOperand(1, ConstantInt::get(previoustype, updateresult));
 
             builder.Insert(clonedinst, inst->getName());
             mapScalarValue(inst, clonedinst);
         }
       } else if (shouldVectorize(inst)) {
-        replicateInstruction(inst);
+        Value * ptr = atomicrmw->getPointerOperand();
+        Value * val = atomicrmw->getValOperand();
+        VectorShape ptrShape = getVectorShape(*ptr);
+
+        if (!ptrShape.isUniform()) {
+          replicateInstruction(inst);
+          continue;
+        }
+        Value *predicate = vecInfo.getPredicate(*inst->getParent());
+        assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
+        bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
+        if (needsMask) {
+          replicateInstruction(inst);
+          continue;
+        }
+
+        switch (atomicrmw->getOperation()) {
+        case AtomicRMWInst::Xchg: {
+          AtomicRMWInst *clonedInst = cast<AtomicRMWInst>(atomicrmw->clone());
+          clonedInst->setOperand(0, requestScalarValue(ptr));
+
+          Value *vectorizedVal = requestVectorValue(val);
+          assert(vectorizedVal);
+          Value *finalVal = builder.CreateExtractElement(vectorizedVal, vectorWidth() - 1);
+          clonedInst->setOperand(1, finalVal);
+
+          std::vector<Constant*> constants(vectorWidth(), nullptr);
+          constants[0] = ConstantInt::get(builder.getInt32Ty(), 0);
+          for (int i = 1; i < vectorWidth(); ++i) {
+            Constant *constant = ConstantInt::get(builder.getInt32Ty(), i - 1);
+            constants[i] = constant;
+          }
+          Value *constantvec = ConstantVector::get(constants);
+          Value *shuffle = builder.CreateShuffleVector(vectorizedVal, vectorizedVal, constantvec);
+
+          builder.Insert(clonedInst);
+          Value *insertfinal = builder.CreateInsertElement(shuffle, clonedInst, (uint64_t) 0, inst->getName());
+
+          mapVectorValue(inst, insertfinal);
+          break;
+        }
+        default:
+          replicateInstruction(inst);
+          break;
+        }
       } else {
         copyInstruction(inst);
       }
