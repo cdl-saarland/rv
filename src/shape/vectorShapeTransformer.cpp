@@ -577,15 +577,14 @@ VectorShapeTransformer::computeShapeForCastInst(const CastInst& castI) const {
 
 VectorShape
 VectorShapeTransformer::computeShapeForAtomicRMWInst(const AtomicRMWInst &RMW) const {
-  const Value* op1 = RMW.getPointerOperand();
-  const Value* op2 = RMW.getValOperand();
-
-  const auto & BB = *RMW.getParent();
-
-  const VectorShape& shape1 = getObservedShape(BB, *op1);
-  const VectorShape& shape2 = getObservedShape(BB, *op2);
-
   if (RMW.getOperation() == AtomicRMWInst::Add || RMW.getOperation() == AtomicRMWInst::Sub) {
+    const Value* op1 = RMW.getPointerOperand();
+    const Value* op2 = RMW.getValOperand();
+
+    const auto & BB = *RMW.getParent();
+
+    const VectorShape& shape1 = getObservedShape(BB, *op1);
+
     const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2);
     if (shape1.isUniform() && constantOp) {
       int c = (int) constantOp->getSExtValue();
