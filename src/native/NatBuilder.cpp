@@ -14,6 +14,8 @@
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Metadata.h>
 #include "llvm/IR/IntrinsicsX86.h"
+#include "llvm/Support/Alignment.h"
+#include "llvm/Transforms/Utils/LoopUtils.h"
 #include <report.h>
 #include <fstream>
 
@@ -494,6 +496,92 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
           Value *insertfinal = builder.CreateInsertElement(shuffle, clonedInst, (uint64_t) 0, inst->getName());
 
           mapVectorValue(inst, insertfinal);
+          break;
+        }
+        case AtomicRMWInst::Add:
+        case AtomicRMWInst::Sub:
+        case AtomicRMWInst::And:
+        case AtomicRMWInst::Or:
+        case AtomicRMWInst::Max:
+        case AtomicRMWInst::Min:
+        case AtomicRMWInst::UMax:
+        case AtomicRMWInst::UMin: {
+          AtomicRMWInst *clonedInst = cast<AtomicRMWInst>(atomicrmw->clone());
+          clonedInst->setOperand(0, requestScalarValue(ptr));
+
+          Value *vectorizedVal = requestVectorValue(val);
+          assert(vectorizedVal);
+
+          RedKind reduction = RedKind::Top;
+          switch (atomicrmw->getOperation()) {
+          case AtomicRMWInst::Add:
+          case AtomicRMWInst::Sub:
+            reduction = RedKind::Add;
+            break;
+          case AtomicRMWInst::And:
+            reduction = RedKind::And;
+            break;
+          case AtomicRMWInst::Or:
+            reduction = RedKind::Or;
+            break;
+          case AtomicRMWInst::Max:
+            reduction = RedKind::SMax;
+            break;
+          case AtomicRMWInst::Min:
+            reduction = RedKind::SMin;
+            break;
+          case AtomicRMWInst::UMax:
+            reduction = RedKind::UMax;
+            break;
+          case AtomicRMWInst::UMin:
+            reduction = RedKind::UMin;
+            break;
+          default:
+            llvm_unreachable("case missing");
+          }
+
+          Value *finalVal = &CreateVectorReduce(config, builder, reduction, *vectorizedVal, nullptr);
+
+          clonedInst->setOperand(1, finalVal);
+          builder.Insert(clonedInst);
+
+          Value *itervector = UndefValue::get(vectorizedVal->getType());
+          Value *itervar = clonedInst;
+          itervector = builder.CreateInsertElement(itervector, itervar, (uint64_t) 0);
+          for (int i  = 1; i < vectorWidth(); i++) {
+            Value *update = builder.CreateExtractElement(vectorizedVal, (uint64_t) i - 1);
+            switch (atomicrmw->getOperation()) {
+            case AtomicRMWInst::Add:
+              itervar = builder.CreateAdd(itervar, update);
+              break;
+            case AtomicRMWInst::Sub:
+              itervar = builder.CreateSub(itervar, update);
+              break;
+            case AtomicRMWInst::And:
+              itervar = builder.CreateAnd(itervar, update);
+              break;
+            case AtomicRMWInst::Or:
+              itervar = builder.CreateOr(itervar, update);
+              break;
+            case AtomicRMWInst::Max:
+              itervar = createMinMaxOp(builder, RecurrenceDescriptor::MRK_SIntMax, itervar, update);
+              break;
+            case AtomicRMWInst::UMax:
+              itervar = createMinMaxOp(builder, RecurrenceDescriptor::MRK_UIntMax, itervar, update);
+              break;
+            case AtomicRMWInst::Min:
+              itervar = createMinMaxOp(builder, RecurrenceDescriptor::MRK_SIntMin, itervar, update);
+              break;
+            case AtomicRMWInst::UMin:
+              itervar = createMinMaxOp(builder, RecurrenceDescriptor::MRK_UIntMin, itervar, update);
+              break;
+            default:
+              llvm_unreachable("case missing");
+            }
+            itervector = builder.CreateInsertElement(itervector, itervar, (uint64_t) i);
+          }
+
+          mapVectorValue(inst, itervector);
           break;
         }
         default:
