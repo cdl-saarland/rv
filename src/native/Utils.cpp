@@ -20,7 +20,7 @@ Type *getVectorType(Type *type, unsigned width) {
   if (type->isVoidTy())
     return type;
   else
-    return VectorType::get(type, width);
+    return FixedVectorType::get(type, width);
 }
 
 Value *createContiguousVector(unsigned width, Type *type, int start, int stride) {

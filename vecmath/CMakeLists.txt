@@ -285,8 +285,7 @@ ENDIF()
 
 ENDIF() # RV_REBUILD_GENBC
 
-# generate static library
-add_rv_library(gensleef STATIC ${RV_GENBC_SOURCES})
+SET(RV_SLEEF_OBJECTS ${RV_GENBC_SOURCES} PARENT_SCOPE)
 
 ELSE() # !RV_ENABLE_SLEEF
     Message("-- rv: Buildling without SLEEF.")

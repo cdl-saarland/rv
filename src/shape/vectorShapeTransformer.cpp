@@ -99,6 +99,7 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
   if (I.isBinaryOp()) return computeShapeForBinaryInst(cast<const BinaryOperator>(I));
   if (I.isCast()) return computeShapeForCastInst(cast<const CastInst>(I));
   if (isa<PHINode>(I)) return computeShapeForPHINode(cast<const PHINode>(I));
+  if (isa<AtomicRMWInst>(I)) return computeShapeForAtomicRMWInst(cast<const AtomicRMWInst>(I));
 
   const DataLayout & layout = vecInfo.getDataLayout();
   const BasicBlock & BB = *I.getParent();
@@ -218,7 +219,6 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
       const auto* calledValue = call.getCalledOperand();
       const Function * callee = dyn_cast<Function>(calledValue);
       if (!callee) {
-        // errs() << "CALL: not a function callee!\n";
         return VectorShape::varying(); // calling a non-function
       }
 
@@ -576,6 +576,27 @@ VectorShapeTransformer::computeShapeForCastInst(const CastInst& castI) const {
     default:
       return VectorShape::join(VectorShape::uni(aligned), castOpShape);
   }
+}
+
+VectorShape
+VectorShapeTransformer::computeShapeForAtomicRMWInst(const AtomicRMWInst &RMW) const {
+  if (RMW.getOperation() == AtomicRMWInst::Add || RMW.getOperation() == AtomicRMWInst::Sub) {
+    const Value* op1 = RMW.getPointerOperand();
+    const Value* op2 = RMW.getValOperand();
+
+    const auto & BB = *RMW.getParent();
+
+    const VectorShape& shape1 = getObservedShape(BB, *op1);
+
+    const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2);
+    if (shape1.isUniform() && constantOp) {
+      int c = (int) constantOp->getSExtValue();
+      if (RMW.getOperation() == AtomicRMWInst::Sub) c *= -1;
+      return VectorShape::strided(c);
+    }
+  }
+
+  return VectorShape::varying();
 }
 
 VectorShape

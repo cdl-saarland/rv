@@ -1,4 +1,4 @@
-//===- rv/PlatformInfo.h - target info&function environment --*- C++ -*-===//
+//===- rv/registerPasses.h - RV pass plugin support (RVPLUG) --*- C++ -*-===//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.

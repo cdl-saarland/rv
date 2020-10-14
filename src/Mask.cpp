@@ -54,7 +54,7 @@ llvm::Value &Mask::requestPredAsValue(llvm::LLVMContext &Ctx,
     return *getPred();
 
   if (VectorWidth > 0) {
-    return *ConstantVector::getSplat(ElementCount(VectorWidth, false),
+    return *ConstantVector::getSplat(ElementCount::getFixed(VectorWidth),
                                      ConstantInt::getTrue(Ctx));
   }
   return *ConstantInt::getTrue(Ctx);

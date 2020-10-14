@@ -44,6 +44,9 @@ namespace rv {
     computeIdealShapeForInst(const llvm::Instruction& I, SmallValVec & taintedOps) const;
 
     VectorShape
+    computeShapeForAtomicRMWInst(const llvm::AtomicRMWInst &Phi) const;
+
+    VectorShape
     computeShapeForPHINode(const llvm::PHINode &Phi) const;
 
   public:

@@ -98,12 +98,8 @@ add_rv_library(RV
   utils/rvLinking.cpp
   utils/rvTools.cpp
   ${RV_HEADER_FILES}
+  ${RV_SLEEF_OBJECTS}
 )
-
-# link-in the SLEEF BC library (if enabled)
-if (TARGET gensleef)
-  target_link_libraries(RV PRIVATE gensleef)
-ENDIF()
 
 if (BUILD_SHARED_LIBS)
   target_link_libraries(RV PUBLIC

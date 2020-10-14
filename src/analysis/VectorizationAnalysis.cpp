@@ -79,6 +79,8 @@ const Instruction *VectorizationAnalysis::takeFromWorklist() {
 bool VectorizationAnalysis::updateTerminator(const Instruction &Term) const {
   if (Term.getNumSuccessors() <= 1)
     return false;
+  if (vecInfo.getVectorShape(Term).isVarying()) 
+    return false;
   if (auto *BranchTerm = dyn_cast<BranchInst>(&Term)) {
     assert(BranchTerm->isConditional());
     return !getShape(*BranchTerm->getCondition()).isUniform();
@@ -226,7 +228,6 @@ SmallConstBlockVec GetUniqueSuccessors(const Instruction &Term) {
 void VectorizationAnalysis::propagateControlDivergence(
     const Loop *BranchLoop, llvm::ArrayRef<const BasicBlock *> UniqueSuccessors,
     const Instruction &rootNode, const BasicBlock &domBoundBlock) {
-
   // Block predicates may turn varying due to the divergence of this branch
   PredA.addDivergentBranch(domBoundBlock, UniqueSuccessors,
                            [&](const BasicBlock &varPredBlock) {
@@ -237,8 +238,9 @@ void VectorizationAnalysis::propagateControlDivergence(
   // a) Blocks that are reachable by disjoint paths from \p rootNode.
   // b) Loop exits (of the inner most loop carrying \p rootNode) that becomes
   // divergent due to divergence in in \p Term.
+
   // Disjoint-paths joins.
-  const auto &DivDesc = SDA.join_blocks(rootNode);
+  const auto &DivDesc = SDA.getJoinBlocks(rootNode);
 
   for (const BasicBlock *JoinBlock : DivDesc.JoinDivBlocks) {
     vecInfo.addJoinDivergentBlock(*JoinBlock);
@@ -246,10 +248,10 @@ void VectorizationAnalysis::propagateControlDivergence(
   }
 
   // Identified divergent loop exits.
+  const Loop *L = BranchLoop;
   for (const BasicBlock *ExitBlock : DivDesc.LoopDivBlocks) {
     auto ExitLoop = LI.getLoopFor(ExitBlock);
-    const Loop *L = BranchLoop;
-    while (L != ExitLoop) {
+    while (L && L != ExitLoop) {
       vecInfo.addDivergentLoop(*L);
       L = L->getParentLoop();
     }
@@ -291,17 +293,6 @@ void VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
   if (!IsLCSSAForm) {
     taintLoopLiveOuts(loopHeader); // FIXME AllocaSSA
   }
-
-  SmallConstBlockVec exitBlockVec;
-  {
-    // TODO fix un-constness of decltype(::getUniqueExitBlocks(..)) in LLVM
-    llvm::SmallVector<BasicBlock *, 4> tmpUniqueExitBlockVec;
-    ExitingLoop.getUniqueExitBlocks(tmpUniqueExitBlockVec);
-    for (const auto *BB : tmpUniqueExitBlockVec)
-      exitBlockVec.push_back(BB);
-  }
-
-  // This is identical to returning an EmptyBlockSet here
 }
 
 void VectorizationAnalysis::compute(const Function &F) {
@@ -319,25 +310,20 @@ void VectorizationAnalysis::compute(const Function &F) {
 
     IF_DEBUG_VA { errs() << "# next: " << I << "\n"; }
 
-    // propagate divergence caused by terminator
-    if (I.isTerminator()) {
-      if (updateTerminator(I)) {
-        vecInfo.setVectorShape(
-            I, VectorShape::varying()); // TODO use the condition shape instead
-                                        // of terminator shapes
-        // propagate control divergence to affected instructions
-        propagateBranchDivergence(I);
-        continue;
-      }
-    }
-
     // Queue all missing operands on first visit
     bool FirstVisit = !vecInfo.hasKnownShape(I);
 
-    // Always compute shapes for PHINodes to break dependence cycles
-    // Compute at least an 'undef' shape for PHINodes to break dependence cycles
+    // Compute at least an explicit 'undef' shape for PHINodes to break dependence cycles.
     if (!isa<PHINode>(I) && FirstVisit && pushMissingOperands(I))
       continue;
+
+    // check whether this terminator switches to a divergent state
+    if (I.isTerminator() && updateTerminator(I)) {
+      vecInfo.setVectorShape(I, VectorShape::varying());
+      // propagate control divergence to affected instructions
+      propagateBranchDivergence(I);
+      continue;
+    }
 
     // Query the transformer
     SmallValVec taintedPtrOps;
@@ -403,7 +389,28 @@ void VectorizationAnalysis::analyze() {
   }
 }
 
+static bool AllUniformOrUndefCall(const VectorizationInfo & VecInfo, const Instruction &I) {
+  const auto *C = dyn_cast<CallInst>(&I);
+  if (!C) return false;
+  for (unsigned i = 0; i < C->getNumArgOperands(); ++i) {
+    const auto *Op = C->getArgOperand(i);
+    if (!VecInfo.hasKnownShape(*Op))
+      continue;
+    auto OpShape = VecInfo.getVectorShape(*Op);
+    if (OpShape.isUniform() || !OpShape.isDefined())
+      continue;
+    return false;
+  }
+  return true;
+}
+
 void VectorizationAnalysis::promoteUndefShapesToUniform(const Function &F) {
+  // Walk through the program and query recursive resolvers for all completly
+  // unifrom calls we have missed
+
+  VectorShapeTransformer vecShapeTrans(layout, LI, platInfo, vecInfo);
+
+  std::vector<const CallInst*> CVec;
   for (const BasicBlock &BB : F) {
     if (!vecInfo.inRegion(BB))
       continue;
@@ -439,11 +446,6 @@ void VectorizationAnalysis::adjustValueShapes(const Function &F) {
   }
 }
 
-static bool
-is_const_use(const llvm::Use & U) {
-  return isa<Constant,User>(U);
-}
-
 void VectorizationAnalysis::init(const Function &F) {
   adjustValueShapes(F);
 
@@ -460,6 +462,7 @@ void VectorizationAnalysis::init(const Function &F) {
   }
 
   // push non-user instructions
+  auto IsaConstant = [](const Value* V) { return isa<Constant>(V); };
   for (const BasicBlock &BB : F) {
     vecInfo.setVectorShape(BB, VectorShape::uni());
 
@@ -477,7 +480,7 @@ void VectorizationAnalysis::init(const Function &F) {
           I.printAsOperand(errs(), false);
           errs() << "\n";
         };
-      } else if (isa<PHINode>(I) && any_of(I.operands(), is_const_use)) {
+      } else if (isa<PHINode>(I) && any_of(I.operands(), IsaConstant)) {
         // Phis that depend on constants are added to the WL
         putOnWorklist(I);
 

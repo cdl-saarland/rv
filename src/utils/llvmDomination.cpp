@@ -85,15 +85,14 @@ BlockSet computeDominatedRegion(llvm::DominatorTree &domTree,
 llvm::DomTreeNode *findImmediateDominator(llvm::DominatorTree &domTree,
                                           const BlockSet &blocks) {
   llvm::DomTreeNode *node = domTree.getRootNode();
-
-  for (DomTreeNodeVector::const_iterator itChildNode =
-           node->begin();
-       itChildNode != node->end();) {
+  for (auto itChildNode =
+           node->children().begin();
+       itChildNode != node->children().end();) {
     llvm::DomTreeNode *childNode = *itChildNode;
     // descent
     if (dominatesAll(domTree, childNode, blocks)) {
       node = childNode;
-      itChildNode = node->begin();
+      itChildNode = node->children().begin();
 
       // try next
     } else {

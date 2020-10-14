@@ -24,7 +24,7 @@ MangleType(const Type & Ty) {
   } else if (Ty.isFloatTy()) {
     return "f";
   } else if (auto ScalableVT = dyn_cast<ScalableVectorType>(&Ty)) {
-    return "nxv"+ std::to_string(ScalableVT->getElementCount().Min) + MangleType(*ScalableVT->getElementType());
+    return "nxv"+ std::to_string(ScalableVT->getElementCount().getKnownMinValue()) + MangleType(*ScalableVT->getElementType());
   } else if (auto FixedVT = dyn_cast<FixedVectorType>(&Ty)) {
     return "v" + std::to_string(FixedVT->getNumElements()) + MangleType(*FixedVT->getElementType());
   }
@@ -246,6 +246,28 @@ GetIntrinsicMapping(Function & func, RVIntrinsic rvIntrin) {
         CallPredicateMode::SafeWithoutPredicate
         ));
     } break;
+    case RVIntrinsic::LaneID: {
+      return (VectorMapping(
+        &func,
+        &func,
+        0, // no specific vector width
+        -1, //
+        VectorShape::cont(0), // contiguous thread id
+        {},
+        CallPredicateMode::SafeWithoutPredicate
+        ));
+    } break;
+    case RVIntrinsic::NumLanes: {
+      return (VectorMapping(
+        &func,
+        &func,
+        0, // no specific vector width
+        -1, //
+        VectorShape::uni(), // broadcasted (static) number of lanes
+        {},
+        CallPredicateMode::SafeWithoutPredicate
+        ));
+    } break;
   }
 }
 
@@ -281,6 +303,16 @@ DeclareIntrinsic(RVIntrinsic id, llvm::Module & mod, Type *DataTy) {
   case RVIntrinsic::Ballot:
   case RVIntrinsic::PopCount: {
     auto *funcTy = FunctionType::get(intTy, boolTy, false);
+    rvFunc = Function::Create(funcTy, GlobalValue::ExternalLinkage, mangledName, &mod);
+    rvFunc->setDoesNotAccessMemory();
+    rvFunc->setDoesNotThrow();
+    rvFunc->setConvergent();
+    rvFunc->setDoesNotRecurse();
+  } break;
+
+  case RVIntrinsic::NumLanes:
+  case RVIntrinsic::LaneID: {
+    auto *funcTy = FunctionType::get(intTy, {}, false);
     rvFunc = Function::Create(funcTy, GlobalValue::ExternalLinkage, mangledName, &mod);
     rvFunc->setDoesNotAccessMemory();
     rvFunc->setDoesNotThrow();
