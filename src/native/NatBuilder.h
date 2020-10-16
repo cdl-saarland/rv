@@ -146,6 +146,8 @@ namespace rv {
     void vectorizeLaneIDCall(llvm::CallInst *rvCall);
     void vectorizeNumLanesCall(llvm::CallInst *rvCall);
 
+    void vectorizeAtomicRMW(llvm::AtomicRMWInst *const atomicrmw);
+
     // create a lookup table for an efficient compaction intrinsic
     llvm::Constant* createCompactLookupTable(unsigned vecWidth);
 
