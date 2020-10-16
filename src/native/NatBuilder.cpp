@@ -399,7 +399,40 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     if (canVectorize(inst) && (load || store))
       if (config.enableInterleaved) addLazyInstruction(inst);
       else vectorizeMemoryInstruction(inst);
-    else if (call) {
+    else if (store) {
+      Value *predicate = vecInfo.getPredicate(*inst->getParent());
+      bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
+
+      Value *accessedPtr = store->getPointerOperand();
+      VectorShape addrShape = getVectorShape(*accessedPtr);
+
+      if (needsMask && addrShape.isUniform()) {
+        Value *storedValue = store->getValueOperand();
+        Type *accessedType = storedValue->getType();
+        Value *accessedPtr = store->getPointerOperand();
+        Value *vecMem;
+
+        llvm::Align alignment = llvm::Align(addrShape.getAlignmentFirst());
+        alignment = std::max<llvm::Align>(alignment, store->getAlign());
+        Value *addr = requestScalarValue(accessedPtr);
+        VectorShape valShape = vecInfo.getVectorShape(*storedValue);
+        Value *mask = requestVectorValue(predicate);
+
+        if (!valShape.isUniform()) {
+          Value *mappedStoredVal = requestVectorValue(storedValue);
+          vecMem = createVaryingToUniformStore(store, accessedType, alignment, addr, needsMask ? mask : nullptr, mappedStoredVal);
+        } else {
+          Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
+                                                         : requestVectorValue(storedValue);
+
+          vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr, predicate, mask, mappedStoredVal);
+        }
+        mapScalarValue(inst, vecMem);
+      } else if (needsMask)
+        replicateInstruction(inst);
+      else
+        copyInstruction(inst);
+    } else if (call) {
       // calls need special treatment
       switch (GetIntrinsicID(*call)) {
         case RVIntrinsic::EntryMask: mapVectorValue(call, vecMaskArg); break;
