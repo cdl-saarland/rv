@@ -413,19 +413,22 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         Value *vecMem;
 
         llvm::Align alignment = llvm::Align(addrShape.getAlignmentFirst());
-        alignment = std::max<llvm::Align>(alignment, store->getAlign());
+        llvm::MaybeAlign store_align = store->getAlign();
+        if (store_align.hasValue()) {
+          alignment = std::max<llvm::Align>(alignment, store_align.valueOrOne());
+        }
         Value *addr = requestScalarValue(accessedPtr);
         VectorShape valShape = vecInfo.getVectorShape(*storedValue);
         Value *mask = requestVectorValue(predicate);
 
         if (!valShape.isUniform()) {
           Value *mappedStoredVal = requestVectorValue(storedValue);
-          vecMem = createVaryingToUniformStore(store, accessedType, alignment, addr, needsMask ? mask : nullptr, mappedStoredVal);
+          vecMem = createVaryingToUniformStore(store, accessedType, alignment.value(), addr, needsMask ? mask : nullptr, mappedStoredVal);
         } else {
           Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                          : requestVectorValue(storedValue);
 
-          vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr, predicate, mask, mappedStoredVal);
+          vecMem = createUniformMaskedMemory(store, accessedType, alignment.value(), addr, predicate, mask, mappedStoredVal);
         }
         mapScalarValue(inst, vecMem);
       } else if (needsMask)

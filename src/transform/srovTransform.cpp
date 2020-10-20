@@ -245,7 +245,7 @@ void
 repairExternalUses(Instruction & inst) {
   // no need to re-aggregate instructions with only one replicate
   auto replVec = replMap.getReplVec(inst);
-  if (replVec.size() == 1 && !isa<StructType, ArrayType, VectorType>(inst.getType())) {
+  if (replVec.size() == 1 && !(isa<StructType>(inst.getType()) || isa<ArrayType>(inst.getType()) || isa<VectorType>(inst.getType()))) {
     inst.replaceAllUsesWith(replVec[0]);
     return;
   }
@@ -712,7 +712,7 @@ requestReplicate(Value & val) {
   assert(replTyVec.size() >= 1 && "un-replictable type");
 
 // replication of atoms (unless this is an extract)
-  if ((replTyVec.size() == 1) && !isa<StructType, ArrayType, VectorType>(val.getType()) && !isa<ExtractValueInst>(val) && !isa<ExtractElementInst>(val)) {
+  if ((replTyVec.size() == 1) && !(isa<StructType>(val.getType()) || isa<ArrayType>(val.getType()) || isa<VectorType>(val.getType())) && !isa<ExtractValueInst>(val) && !isa<ExtractElementInst>(val)) {
     replVec.push_back(&val);
     return replVec;
   }
