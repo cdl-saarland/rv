@@ -86,26 +86,26 @@ GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oRequiresR
      if (elemTy.isFloatingPointTy()) {
        oHasInitVal = true;
        oRequiresRetTy = true;
-       return Intrinsic::vector_reduce_fadd;
+       return Intrinsic::experimental_vector_reduce_v2_fadd;
      } else {
-       return Intrinsic::vector_reduce_add;
+       return Intrinsic::experimental_vector_reduce_add;
      }
     }
     case RedKind::Mul: {
      if (elemTy.isFloatingPointTy()) {
        oHasInitVal = true;
        oRequiresRetTy = true;
-       return Intrinsic::vector_reduce_fmul;
+       return Intrinsic::experimental_vector_reduce_v2_fmul;
      } else {
-       return Intrinsic::vector_reduce_mul;
+       return Intrinsic::experimental_vector_reduce_mul;
      }
     }
-    case RedKind::And: return Intrinsic::vector_reduce_and;
-    case RedKind::Or: return Intrinsic::vector_reduce_or;
-    case RedKind::SMax: return elemTy.isFloatingPointTy() ? Intrinsic::vector_reduce_fmax : Intrinsic::vector_reduce_smax;
-    case RedKind::UMax: return elemTy.isFloatingPointTy() ? Intrinsic::vector_reduce_fmax : Intrinsic::vector_reduce_umax;
-    case RedKind::SMin: return elemTy.isFloatingPointTy() ? Intrinsic::vector_reduce_fmin : Intrinsic::vector_reduce_smin;
-    case RedKind::UMin: return elemTy.isFloatingPointTy() ? Intrinsic::vector_reduce_fmin : Intrinsic::vector_reduce_umin;
+    case RedKind::And: return Intrinsic::experimental_vector_reduce_and;
+    case RedKind::Or: return Intrinsic::experimental_vector_reduce_or;
+    case RedKind::SMax: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmax : Intrinsic::experimental_vector_reduce_smax;
+    case RedKind::UMax: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmax : Intrinsic::experimental_vector_reduce_umax;
+    case RedKind::SMin: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmin : Intrinsic::experimental_vector_reduce_smin;
+    case RedKind::UMin: return elemTy.isFloatingPointTy() ? Intrinsic::experimental_vector_reduce_fmin : Intrinsic::experimental_vector_reduce_umin;
   }
 }
 
