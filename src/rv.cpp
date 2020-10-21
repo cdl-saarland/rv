@@ -356,10 +356,18 @@ lowerIntrinsicCall(CallInst* call) {
         return builder.CreateZExt(call->getOperand(0), call->getType());
       });
     } break;
-    case RVIntrinsic::NumLanes:
-      return ConstantInt::get(call->getType(), 1, false);
-    case RVIntrinsic::LaneID:
-      return ConstantInt::get(call->getType(), 0, false);
+
+    case RVIntrinsic::NumLanes: {
+      lowerIntrinsicCall(call, [] (CallInst* call) {
+        return ConstantInt::get(call->getType(), 1, false);
+      });
+    } break;
+
+    case RVIntrinsic::LaneID: {
+      lowerIntrinsicCall(call, [] (CallInst* call) {
+        return ConstantInt::get(call->getType(), 0, false);
+      });
+    } break;
   }
 
   return true;
@@ -369,7 +377,7 @@ bool
 lowerIntrinsics(Module & mod) {
   bool changed = false;
   // TODO re-implement using RVIntrinsic enum
-  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_mask", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align", "rv_popcount", "rv_compact"};
+  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_mask", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align", "rv_popcount", "rv_compact", "rv_num_lanes", "rv_lane_id"};
   for (int i = 0, n = sizeof(names) / sizeof(names[0]); i < n; i++) {
     auto func = mod.getFunction(names[i]);
     if (!func) continue;
