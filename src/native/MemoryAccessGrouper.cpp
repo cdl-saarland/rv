@@ -195,8 +195,8 @@ MemoryAccessGrouper::getConstantDiff(const llvm::SCEV * A, const llvm::SCEV * B,
     case scTruncate:
     case scZeroExtend:
     case scSignExtend: {
-      auto * aCast = cast<SCEVIntegralCastExpr>(A);
-      auto * bCast = cast<SCEVIntegralCastExpr>(B);
+      auto * aCast = cast<SCEVCastExpr>(A);
+      auto * bCast = cast<SCEVCastExpr>(B);
       return getConstantDiff(aCast->getOperand(), bCast->getOperand(), oDelta);
     }
 
