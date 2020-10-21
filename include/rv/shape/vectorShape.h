@@ -13,7 +13,6 @@
 #include <map>
 #include <string>
 #include <vector>
-#include <stdint.h>
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/raw_ostream.h>
@@ -22,47 +21,44 @@ namespace llvm {
 class Constant;
 }
 
-using align_t = unsigned;
-using stride_t = int64_t;
-
 namespace rv {
 
 // describes how the contents of a vector vary with the vectorized dimension
 class VectorShape {
-  stride_t stride;
+  int stride;
   bool hasConstantStride;
-  align_t alignment; // NOTE: General alignment if not hasConstantStride, else alignment of first
+  unsigned alignment; // NOTE: General alignment if not hasConstantStride, else alignment of first
   bool defined;
 
-  VectorShape(align_t _alignment);              // varying
-  VectorShape(stride_t _stride, align_t _alignment); // strided
+  VectorShape(unsigned _alignment);              // varying
+  VectorShape(int _stride, unsigned _alignment); // strided
 
 public:
   VectorShape(); // undef
 
   bool isDefined() const { return defined; }
-  stride_t getStride() const { return stride; }
-  align_t getAlignmentFirst() const { return alignment; }
+  int getStride() const { return stride; }
+  unsigned getAlignmentFirst() const { return alignment; }
 
   // The maximum common alignment for every possible entry (<6, 8, 10, ...> -> 2)
-  align_t getAlignmentGeneral() const;
+  unsigned getAlignmentGeneral() const;
 
-  void setAlignment(align_t newAlignment) { alignment = newAlignment; }
-  void setStride(stride_t newStride) { hasConstantStride = true; stride = newStride; }
-  void setVarying(align_t newAlignment) { hasConstantStride = false; alignment = newAlignment; }
+  void setAlignment(unsigned newAlignment) { alignment = newAlignment; }
+  void setStride(int newStride) { hasConstantStride = true; stride = newStride; }
+  void setVarying(unsigned newAlignment) { hasConstantStride = false; alignment = newAlignment; }
 
   bool isVarying() const { return defined && !hasConstantStride; }
   bool hasStridedShape() const { return defined && hasConstantStride; }
-  bool isStrided(stride_t ofStride) const { return hasStridedShape() && stride == ofStride; }
+  bool isStrided(int ofStride) const { return hasStridedShape() && stride == ofStride; }
   bool isStrided() const { return hasStridedShape() && stride != 0 && stride != 1; }
   bool isUniform() const { return isStrided(0); }
   bool greaterThanUniform() const { return !isUniform() && isDefined(); }
   inline bool isContiguous() const { return isStrided(1); }
 
-  static VectorShape varying(align_t aligned = 1) { return VectorShape(aligned); }
-  static VectorShape strided(stride_t stride, align_t aligned = 1) { return VectorShape(stride, aligned); }
-  static inline VectorShape uni(align_t aligned = 1) { return strided(0, aligned); }
-  static inline VectorShape cont(align_t aligned = 1) { return strided(1, aligned); }
+  static VectorShape varying(int aligned = 1) { return VectorShape(aligned); }
+  static VectorShape strided(int stride, int aligned = 1) { return VectorShape(stride, aligned); }
+  static inline VectorShape uni(int aligned = 1) { return strided(0, aligned); }
+  static inline VectorShape cont(int aligned = 1) { return strided(1, aligned); }
   static VectorShape undef() { return VectorShape(); } // bot
 
   static VectorShape fromConstant(const llvm::Constant* C);
@@ -71,7 +67,6 @@ public:
 
   bool operator==(const VectorShape &a) const;
   bool operator!=(const VectorShape &a) const;
-  VectorShape operator/(int64_t D) const;
 
   // lattice order
   bool morePreciseThan(const VectorShape & a) const; // whether @this is less than @a according to lattice order
@@ -80,7 +75,7 @@ public:
   friend VectorShape operator-(const VectorShape& a);
   friend VectorShape operator+(const VectorShape& a, const VectorShape& b);
   friend VectorShape operator-(const VectorShape& a, const VectorShape& b);
-  friend VectorShape operator*(int64_t m, const VectorShape& a);
+  friend VectorShape operator*(int m, const VectorShape& a);
   friend VectorShape truncateToTypeSize(const VectorShape &a, unsigned typeSize);
 
   std::string str() const;

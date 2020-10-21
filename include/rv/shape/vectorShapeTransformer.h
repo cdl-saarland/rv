@@ -23,11 +23,22 @@ namespace rv {
   class PlatformInfo;
 
   struct VectorShapeTransformer {
-    llvm::DataLayout DL;
     const llvm::LoopInfo & LI;
     PlatformInfo & platInfo;
     const VectorizationInfo & vecInfo;
     VectorShape getObservedShape(const llvm::BasicBlock & observerBlock, const llvm::Value & val) const;
+
+  public:
+    VectorShapeTransformer(const llvm::LoopInfo & _LI, PlatformInfo & _platInfo, const VectorizationInfo & _vecInfo)
+    : LI(_LI)
+    , platInfo(_platInfo)
+    , vecInfo(_vecInfo)
+    {}
+
+    /// compute the shape of the result computed by \p I.
+    /// this will mark all pointer operands that are written to as varying.
+    VectorShape
+    computeShapeForInst(const llvm::Instruction& I, SmallValVec & taintedOps) const;
 
     VectorShape
     computeShapeForBinaryInst(const llvm::BinaryOperator& I) const;
@@ -38,29 +49,11 @@ namespace rv {
     VectorShape
     computeGenericArithmeticTransfer(const llvm::Instruction & I) const;
 
-    /// compute the shape of the result computed by \p I.
-    /// this will mark all pointer operands that are written to as varying.
-    VectorShape
-    computeIdealShapeForInst(const llvm::Instruction& I, SmallValVec & taintedOps) const;
-
     VectorShape
     computeShapeForAtomicRMWInst(const llvm::AtomicRMWInst &Phi) const;
 
     VectorShape
     computeShapeForPHINode(const llvm::PHINode &Phi) const;
-
-  public:
-    VectorShapeTransformer(const llvm::DataLayout & DL, const llvm::LoopInfo & _LI, PlatformInfo & _platInfo, const VectorizationInfo & _vecInfo)
-    : DL(DL)
-    , LI(_LI)
-    , platInfo(_platInfo)
-    , vecInfo(_vecInfo)
-    {}
-
-    // This calls computeIdealShapeForInst internally and adjusts the result
-    // shape using ABI knowledge, fp mode, ..
-    VectorShape
-    computeShape(const llvm::Instruction& I, SmallValVec & taintedOps) const;
   };
 }
 
