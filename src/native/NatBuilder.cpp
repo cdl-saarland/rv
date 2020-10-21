@@ -78,7 +78,7 @@ bool DumpStatistics(std::string &file) {
 
 Value*
 NatBuilder::getSplat(Constant* Elt) {
-  auto EC = ElementCount::getFixed(vectorWidth());
+  ElementCount EC(vectorWidth(), false);
   return ConstantVector::getSplat(EC, Elt);
 }
 
