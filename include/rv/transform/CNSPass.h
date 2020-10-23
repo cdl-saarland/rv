@@ -1,4 +1,4 @@
-//===- rv/transform/WFVPass.h - whole-function vectorizer pass  --*- C++ -*-===//
+//===- rv/transform/CNSPass.h - Regularizer pass  --*- C++ -*-===//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
