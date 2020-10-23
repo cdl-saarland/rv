@@ -11,6 +11,7 @@
 #define	_LOOPEXITCANONICALIZER_H
 
 #include <llvm/Pass.h>
+#include <llvm/IR/PassManager.h>
 
 namespace llvm {
 class LoopInfo;
@@ -19,6 +20,10 @@ class Loop;
 
 namespace rv {
   class RVInfo;
+struct LoopExitCanonicalizerWrapperPass : llvm::PassInfoMixin<LoopExitCanonicalizerWrapperPass> {
+public:
+  llvm::PreservedAnalyses run(llvm::Function &F, llvm::FunctionAnalysisManager &FAM);
+};
 }
 
 

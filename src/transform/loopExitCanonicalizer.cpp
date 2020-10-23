@@ -73,6 +73,16 @@ LoopExitCanonicalizerWrapper::doInitialization(Module& M)
     return false;
 }
 
+llvm::PreservedAnalyses rv::LoopExitCanonicalizerWrapperPass::run(Function &F, FunctionAnalysisManager &FAM) {
+  LoopInfo &loopInfo = FAM.getResult<LoopAnalysis>(F);
+
+  LoopExitCanonicalizer canonicalizer(loopInfo);
+  if (canonicalizer.canonicalize(F))
+    return llvm::PreservedAnalyses::none();
+  else
+    return llvm::PreservedAnalyses::all();
+}
+
 bool
 LoopExitCanonicalizerWrapper::doFinalization(Module& M)
 {
