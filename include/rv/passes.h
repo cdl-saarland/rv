@@ -11,6 +11,7 @@
 
 #include "llvm/Pass.h"
 #include "llvm/IR/LegacyPassManager.h"
+#include "llvm/IR/PassManager.h"
 #include "rv/config.h"
 
 namespace rv {
@@ -19,6 +20,8 @@ namespace rv {
   // add all passes of RV to the pass pipeline PM.
   void addRVPasses(llvm::legacy::PassManagerBase & PM);
 
+  // add all passes of RV to the pass pipeline MPM.
+  void addRVPasses(llvm::ModulePassManager & MPM);
 
 // fine-grained pass adding
   // RV-based loop vectorizer pass
@@ -50,6 +53,27 @@ namespace rv {
 
   // insert a pass that
   void addLowerBuiltinsPass(llvm::legacy::PassManagerBase & PM);
+
+  ///// New PM Registration /////
+
+  // add normalization passes required by RV (BEFORE)
+  void addPreparatoryPasses(llvm::FunctionPassManager & FPM);
+  void addPreparatoryPasses(llvm::ModulePassManager & MPM);
+
+  // add cleanup passes to run after RV (AFTER)
+  void addCleanupPasses(llvm::ModulePassManager & MPM);
+
+  // add RV's outer loop vectorizer and required passes.
+  void addOuterLoopVectorizer(llvm::FunctionPassManager & FPM);
+  void addOuterLoopVectorizer(llvm::ModulePassManager & MPM);
+
+  // add RV's whole function and required passes.
+  void addWholeFunctionVectorizer(llvm::ModulePassManager & MPM);
+
+  // insert a pass that
+  void addLowerBuiltinsPass(llvm::FunctionPassManager & FPM);
+  void addLowerBuiltinsPass(llvm::ModulePassManager & MPM);
+
 } // namespace rv
 
 
