@@ -97,10 +97,3 @@ static llvm::RegisterStandardPasses
 static llvm::RegisterStandardPasses
     RegisterRV_Late(llvm::PassManagerBuilder::EP_ScalarOptimizerLate,
                     registerLateRVPasses);
-
-///// New PM Registration /////
-namespace rv {
-void addRVPasses(PassBuilder &PB) {
-  errs() << "RV: TODO implement new PM pass registration!";
-}
-} // namespace rv

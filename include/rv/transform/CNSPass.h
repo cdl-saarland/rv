@@ -20,12 +20,9 @@ namespace rv {
       std::shared_ptr<llvm::FunctionPass> cns;
     public:
       CNSWrapperPass() : cns(rv::createCNSPass()) {};
-      //CNSWrapperPass(const CNSWrapperPass &obj) : cns(obj.cns) {};
-      //~CNSWrapperPass() { delete cns; };
 
       llvm::PreservedAnalyses run(llvm::Function &F, llvm::FunctionAnalysisManager &AM) {
-        bool changed = cns->runOnFunction(F);
-        if (changed)
+        if (cns->runOnFunction(F))
           return llvm::PreservedAnalyses::none();
         else
           return llvm::PreservedAnalyses::all();
