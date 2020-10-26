@@ -596,6 +596,7 @@ struct SleefVLAResolver : public FunctionResolver {
 
     // TODO move prefered CC into (some) target descriptor class
     if (vectorizer.getConfig().useVE) { vecFunc->setCallingConv(CallingConv::X86_RegCall); }
+    vecFunc->setLinkage(GlobalValue::LinkOnceAnyLinkage);
 
     VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes, CallPredicateMode::SafeWithoutPredicate);
     vectorizer.getPlatformInfo().addMapping(mapping); // prevent recursive vectorization
