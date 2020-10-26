@@ -71,6 +71,16 @@ bool LoopExitCanonicalizerWrapper::runOnFunction(Function &F) {
   return canonicalizer.canonicalize(F);
 }
 
+llvm::PreservedAnalyses rv::LoopExitCanonicalizerWrapperPass::run(Function &F, FunctionAnalysisManager &FAM) {
+  LoopInfo &loopInfo = FAM.getResult<LoopAnalysis>(F);
+
+  LoopExitCanonicalizer canonicalizer(loopInfo);
+  if (canonicalizer.canonicalize(F))
+    return llvm::PreservedAnalyses::none();
+  else
+    return llvm::PreservedAnalyses::all();
+}
+
 void LoopExitCanonicalizerWrapper::print(raw_ostream &O,
                                          const Module *M) const {}
 
