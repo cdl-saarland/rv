@@ -1207,7 +1207,7 @@ NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> 
       }
 
       // AVX-specific code path
-      if (config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) {
+      if ((config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) && (vecWidth == 2 || vecWidth == 4 || vecWidth == 8)) {
       // non-uniform arg
         uint32_t bits = indexTy.getScalarSizeInBits();
         Intrinsic::ID id;
@@ -1215,8 +1215,7 @@ NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> 
         case 2: id = Intrinsic::x86_sse2_movmsk_pd; bits = 64; break;
         case 4: id = Intrinsic::x86_sse_movmsk_ps; break;
         case 8: id = Intrinsic::x86_avx_movmsk_ps_256; break;
-        default: abort();
-          fail("Unsupported vector width in ballot !");
+        default: fail("Unsupported vector width in ballot !"); abort();
         }
 
         auto * extVal = builder.CreateSExt(vecVal, FixedVectorType::get(builder.getIntNTy(bits), vecWidth), "rv_ballot");
@@ -1271,8 +1270,6 @@ void
 NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  auto vecWidth = vecInfo.getVectorWidth();
-  assert((vecWidth == 4 || vecWidth == 8) && "rv_ballot only supports SSE and AVX instruction sets");
   assert(rvCall->getNumArgOperands() == 1 && "expected 1 argument for rv_ballot(cond)");
 
   Value *condArg = rvCall->getArgOperand(0);
@@ -1287,25 +1284,22 @@ void
 NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
   ++numRVIntrinsics;
 
-// avx512vl - expand based implementation
-  if (config.useAVX512) {
-    auto vecWidth = vecInfo.getVectorWidth();
-    assert(vecWidth == 4 || vecWidth == 8);
+  auto vecWidth = vecInfo.getVectorWidth();
+  assert(rvCall.getNumArgOperands() == 1 && "expected 1 argument for rv_index(mask)");
+  Value *condArg = rvCall.getArgOperand(0);
 
-    Intrinsic::ID id = Intrinsic::x86_avx512_mask_expand;
-
-    assert(rvCall.getNumArgOperands() == 1 && "expected 1 argument for rv_index(mask)");
-
-    Value *condArg = rvCall.getArgOperand(0);
-
-    auto * intLaneTy = IntegerType::getIntNTy(rvCall.getContext(), 512 / vecWidth);
-    bool argUniform = hasUniformPredicate(*rvCall.getParent()) && vecInfo.getVectorShape(*condArg).isUniform();
+  auto * intLaneTy = IntegerType::getIntNTy(rvCall.getContext(), 512 / vecWidth);
+  bool argUniform = hasUniformPredicate(*rvCall.getParent()) && vecInfo.getVectorShape(*condArg).isUniform();
 
 // uniform arg
-    if (argUniform) {
-      mapScalarValue(&rvCall, createContiguousVector(vecWidth, intLaneTy, 0, 1));
-      return;
-    }
+  if (argUniform) {
+    mapScalarValue(&rvCall, createContiguousVector(vecWidth, intLaneTy, 0, 1));
+    return;
+  }
+
+// avx512vl - expand based implementation
+  if (config.useAVX512 && (vecWidth == 4 || vecWidth == 8)) {
+    Intrinsic::ID id = Intrinsic::x86_avx512_mask_expand;
 
     auto * maskVec = maskInactiveLanes(requestVectorValue(condArg), rvCall.getParent(), false);
     auto * contVec = createContiguousVector(vecWidth, intLaneTy, 0, 1);
@@ -1330,11 +1324,27 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
 
     mapVectorValue(&rvCall, indexVec);
     return;
-  }
-
+  } else {
 // generic implementation
-  assert(config.useAVX512 && "TODO generic implementation (avx512vl only)");
-  abort(); // "TODO generic implementation (avx512vl only)"
+    auto * maskVec = maskInactiveLanes(requestVectorValue(condArg), rvCall.getParent(), false);
+
+    llvm::Value * CacheVal = ConstantInt::get(rvCall.getType(), 0);
+    auto * OneVal = ConstantInt::get(rvCall.getType(), 1);
+
+    auto replFunc =  [vecWidth,&CacheVal,OneVal,maskVec](IRBuilder<> & builder, size_t lane) -> Value* {
+      auto * OldVal = CacheVal;
+      if (lane < vecWidth - 1) {
+        auto * val = builder.CreateExtractElement(maskVec, ConstantInt::get(Type::getInt32Ty(builder.getContext()), lane));
+        auto * addValue = builder.CreateAdd(CacheVal, OneVal);
+        auto * NewVal = builder.CreateSelect(val, addValue, CacheVal);
+        CacheVal = NewVal;
+      }
+      return OldVal;
+    };
+
+    ValVec resVec = scalarizeCascaded(*rvCall.getParent(), rvCall, true, replFunc);
+    return;
+  }
 }
 
 void
