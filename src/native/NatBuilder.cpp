@@ -2526,7 +2526,8 @@ NatBuilder::repairOutsideUses(Instruction & scaChainInst, std::function<Value& (
     auto & userInst = cast<Instruction>(*use.getUser());
 
     // user is in the region
-    if (vecInfo.inRegion(*userInst.getParent())) continue;
+    if (vecInfo.inRegion(*userInst.getParent()))
+      continue;
 
     auto * userPhi = dyn_cast<PHINode>(&userInst);
     bool isLcssaPhi = userPhi && userPhi->getNumIncomingValues() == 1;
@@ -2607,29 +2608,38 @@ NatBuilder::materializeStridePattern(rv::StridePattern & sp) {
   auto * vecLatch = getVectorBlock(*sp.phi->getIncomingBlock(loopOpIdx), true);
   vecPhi.addIncoming(clonedReductor, vecLatch);
 
-  repairOutsideUses(*sp.phi,
-                    [&](Value& usedVal, BasicBlock& userBlock) ->Value& {
-                      // otw, replace with reduced value
-                      int64_t amount = (vectorWidth - 1) * redShape.getStride();
-                      auto * insertPt = userBlock.getFirstNonPHI();
-                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+  // Compute the result of the last iteration
+  // * With AVL: multiply with remainder AVL at runtime.
+  // * w/o AVL: multiplu with vectorWidth at compile time.
+  auto RepairFunc = [&](Value &usedVal, BasicBlock &userBlock) -> Value & {
+    auto *insertPt = userBlock.getFirstNonPHI();
+    IRBuilder<> builder(&userBlock, insertPt->getIterator());
 
-                      auto * liveOutView = builder.CreateAdd(&usedVal, ConstantInt::getSigned(usedVal.getType(), amount), ".red");
-                      return *liveOutView;
-                    }
-  );
+    // otw, replace with reduced value
+    Value *Amount;
+    if (vecInfo.getEntryAVL()) {
+      // (avl - 1) * [[STRIDE]]
+      auto *VecAVL = requestScalarValue(vecInfo.getEntryAVL());
+      auto *AdjustedVecAVL = builder.CreateSub(
+          VecAVL, ConstantInt::get(VecAVL->getType(), 1, false));
+      auto *CastVecAVL =
+          builder.CreateZExtOrTrunc(AdjustedVecAVL, usedVal.getType());
+      Amount = builder.CreateMul(
+          CastVecAVL, ConstantInt::get(CastVecAVL->getType(),
+                                       (int64_t)redShape.getStride(), true));
 
-  repairOutsideUses(*sp.reductor,
-                    [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
-                      // otw, replace with reduced value
-                      int64_t amount = (vectorWidth - 1) * redShape.getStride();
-                      auto * insertPt = userBlock.getFirstNonPHI();
-                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+    } else {
+      // (vector_width - 1) * [[STRIDE]]
+      int64_t amount = (vectorWidth - 1) * redShape.getStride();
+      Amount = ConstantInt::getSigned(usedVal.getType(), amount);
+    }
 
-                      auto * liveOutView = builder.CreateAdd(&usedVal, ConstantInt::getSigned(usedVal.getType(), amount), ".red");
-                      return *liveOutView;
-                    }
-  );
+    auto *liveOutView = builder.CreateAdd(&usedVal, Amount, ".red");
+    return *liveOutView;
+  };
+
+  repairOutsideUses(*sp.phi, RepairFunc);
+  repairOutsideUses(*sp.reductor, RepairFunc);
 }
 
 void
