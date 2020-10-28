@@ -68,6 +68,9 @@ namespace rv {
   // Encode \p loopMD as LLVM LoopVectorizer Metadata hints for the loop \p L.
   void SetLLVMLoopAnnotations(llvm::Loop & L, LoopMD && loopMD);
 
+  // Encode \p llvmLoopMD as MDNodes to attach to an LLVM Loop ID node.
+  void AppendMDEntries(llvm::LLVMContext & ctx, std::vector<llvm::Metadata*> & mdArgs, const LoopMD & llvmLoopMD);
+
   // Optimistic reading of two conflicting loop annotations
   LoopMD OptimisticJoin(LoopMD && A, LoopMD && B);
 

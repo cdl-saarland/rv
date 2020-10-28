@@ -148,7 +148,7 @@ ClearLoopVectorizeAnnotations(llvm::Loop & L) {
   auto & ctx = L.getHeader()->getContext();
 
   // empty loop metadata
-  llvm::Metadata* tmpNode        = llvm::MDNode::getTemporary(ctx, llvm::None).get();
+  llvm::Metadata* tmpNode        = llvm::MDNode::getTemporary(ctx, llvm::None).release();
 
   // build loopID
   llvm::MDNode *emptyLoopMetadata = llvm::MDNode::get(ctx, {tmpNode});
@@ -157,19 +157,13 @@ ClearLoopVectorizeAnnotations(llvm::Loop & L) {
   L.setLoopID(emptyLoopMetadata);
 }
 
-// Encode \p loopMD as LLVM LoopVectorizer Metadata hints for the loop \p L.
 void
-SetLLVMLoopAnnotations(llvm::Loop & L, LoopMD && llvmLoopMD) {
-  auto & ctx = L.getHeader()->getContext();
-
-  std::vector<Metadata*> mdArgs;
-
+AppendMDEntries(LLVMContext & ctx, std::vector<Metadata*> & mdArgs, const LoopMD & llvmLoopMD) {
   if (llvmLoopMD.alreadyVectorized.isSet()) {
     llvm::Metadata *mdAlreadyVectorized[] = { llvm::MDString::get(ctx, "llvm.loop.isvectorized"),
                                               llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt1Ty(ctx), llvmLoopMD.alreadyVectorized.get()))};
     mdArgs.push_back(llvm::MDNode::get(ctx, mdAlreadyVectorized));
   }
-
   if (llvmLoopMD.vectorizeEnable.isSet()) {
     llvm::Metadata *mdVectorizeEnable[] = { llvm::MDString::get(ctx, "llvm.loop.vectorize.enable"),
                                               llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt1Ty(ctx), llvmLoopMD.vectorizeEnable.get()))};
@@ -180,6 +174,16 @@ SetLLVMLoopAnnotations(llvm::Loop & L, LoopMD && llvmLoopMD) {
                                               llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), llvmLoopMD.explicitVectorWidth.get()))};
     mdArgs.push_back(llvm::MDNode::get(ctx, mdVectorWidth));
   }
+}
+
+// Encode \p loopMD as LLVM LoopVectorizer Metadata hints for the loop \p L.
+void
+SetLLVMLoopAnnotations(llvm::Loop & L, LoopMD && llvmLoopMD) {
+  auto & ctx = L.getHeader()->getContext();
+
+  std::vector<Metadata*> mdArgs;
+
+  AppendMDEntries(ctx, mdArgs, llvmLoopMD);
 
   llvm::MDNode *emptyLoopMetadata = llvm::MDNode::get(ctx, mdArgs);
   emptyLoopMetadata->replaceOperandWith(0, emptyLoopMetadata);
