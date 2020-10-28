@@ -713,9 +713,18 @@ struct LoopTransformer {
     // replicate the vector loop exit condition
     IRBuilder<> builder(vecGuardBlock, vecGuardBr.getIterator());
 
+
+    // Min number of loop iterations for vector instructions
+    // FIXME: make this configurable / cost model dependent
+    if (useTailPredication) {
+      vecGuardBr.setCondition(builder.getFalse());
+      return;
+    }
+    const unsigned VectorLoopThreshold = vectorWidth; // std::min(vectorWidth, 8);
+
     // synthesize(int iterOffset, std::string suffix, IRBuilder<> & builder, std::function<Instruction& (Instruction&)> embedFunc) {
     auto & exitVal =
-      exitConditionBuilder.synthesize(vectorWidth, ".vecGuard", builder, nullptr,
+      exitConditionBuilder.synthesize(VectorLoopThreshold, ".vecGuard", builder, nullptr,
          [&](Instruction & inst) -> IterValue {
            assert (!isa<CallInst>(inst));
 
