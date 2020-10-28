@@ -23,6 +23,7 @@
 #include "CommonTypes.h"
 
 #include "rvConfig.h"
+#include "rv/rvDebug.h"
 
 using namespace llvm;
 
@@ -328,12 +329,12 @@ void patchClonedBlocksForBranch(ValueMap &cloneMap,
     auto *termInst = branchBlock->getTerminator();
     IF_DEBUG_DUP {
       llvm::errs() << "unpatched:";
-      termInst->dump();
+      Dump(*termInst);
     }
     RemapInstruction(termInst, cloneMap, RF_IgnoreMissingLocals);
     IF_DEBUG_DUP {
       llvm::errs() << "patched:";
-      termInst->dump();
+      Dump(*termInst);
     }
 
     IF_DEBUG_DUP llvm::errs() << "## Patching cloned block\n";
@@ -341,12 +342,12 @@ void patchClonedBlocksForBranch(ValueMap &cloneMap,
     for (Instruction &inst : *clonedBlock) {
       IF_DEBUG_DUP {
         llvm::errs() << "unpatched:";
-        inst.dump();
+        Dump(inst);
       }
       RemapInstruction(&inst, cloneMap, RF_IgnoreMissingLocals);
       IF_DEBUG_DUP {
         llvm::errs() << "patched:";
-        inst.dump();
+        Dump(inst);
       }
     }
   }
@@ -373,7 +374,7 @@ void patchClonedBlocksForBranch(ValueMap &cloneMap,
 
         IF_DEBUG_DUP {
           llvm::errs() << "### fixed PHI for new incoming edge\n";
-          inVal->dump();
+          inVal->ump();
         }
         phi->addIncoming(cloneMap[inVal], clonedBlock);
       }
