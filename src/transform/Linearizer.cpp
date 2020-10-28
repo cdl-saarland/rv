@@ -380,7 +380,7 @@ void
 Linearizer::verifyBlockIndex() {
   IF_DEBUG_INDEX {
     errs() << "-- Parlin input func --\n";
-    func.dump();
+    Dump(func);
   }
 
   for (auto & block : func) {
@@ -1355,7 +1355,7 @@ Linearizer::linearizeControl() {
   assert(lastId  == getNumBlocks());
 
   IF_DEBUG_LIN {  errs() << "\n-- LIN: linearization finished --\n";
-    func.dump();
+    Dump(func);
   }
 }
 
