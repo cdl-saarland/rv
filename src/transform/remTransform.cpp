@@ -772,7 +772,8 @@ struct LoopTransformer {
 
     auto & vecExitBr = *cast<BranchInst>(vecToScalarExit->getTerminator());
 
-    if (tripAlign % vectorWidth != 0) {
+    // Whether we need control from the vector loop exit to the scalar loop.
+    if (!useTailPredication && (tripAlign % vectorWidth != 0)) {
       IF_DEBUG { errs() << "remTrans: need a scalar remainder loop.\n"; }
     // replicate the exit condition
       // replace scalar reductors with their vector-loop versions
@@ -806,13 +807,14 @@ struct LoopTransformer {
 
       return;
 
-    } else {
-      // the scalar loop is never executed, unconditionally branch to the loop exit
-      vecExitBr.setCondition(ConstantInt::getTrue(vecExitBr.getContext()));
-      vecExitBr.setSuccessor(0, loopExit);
-      vecExitBr.setSuccessor(1, scalarGuardBlock);
-
     }
+
+    // the scalar loop is never executed (full SIMD vectors for all iteration or
+    // we are using tail predication for the vector loop)
+    // --> unconditionally branch to the loop exit
+    vecExitBr.setCondition(ConstantInt::getTrue(vecExitBr.getContext()));
+    vecExitBr.setSuccessor(0, loopExit);
+    vecExitBr.setSuccessor(1, scalarGuardBlock);
   }
 
   void
