@@ -95,7 +95,7 @@ struct LoopCloner {
       SmallVector<BranchProbability, 2> Probs;
       Probs.reserve(term.getNumSuccessors());
       for (size_t i = 0; i < term.getNumSuccessors(); ++i) {
-        Probs[i] = PB->getEdgeProbability(block, i);
+        Probs.push_back(PB->getEdgeProbability(block, i));
       }
       PB->setEdgeProbability(cloned, Probs);
     }
