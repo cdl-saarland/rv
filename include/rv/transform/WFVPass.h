@@ -19,6 +19,7 @@
 #include "rv/config.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "llvm/ADT/StringRef.h"
+#include "rv/passes.h"
 
 #include <limits>
 #include <vector>
@@ -37,9 +38,7 @@ namespace llvm {
 namespace rv {
 
 struct VectorMapping;
-class VectorizationInfo;
 class VectorizerInterface;
-class PlatformInfo;
 
 class WFVPass : public llvm::ModulePass {
   bool enableDiagOutput; // WFV_DIAG
@@ -63,6 +62,20 @@ public:
 
   void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
   bool runOnModule(llvm::Module & M) override;
+};
+
+struct WFVWrapperPass : llvm::PassInfoMixin<WFVWrapperPass> {
+  private:
+    std::shared_ptr<llvm::ModulePass> wfv;
+  public:
+    WFVWrapperPass() : wfv(rv::createWFVPass()) {};
+
+    llvm::PreservedAnalyses run (llvm::Module &M, llvm::ModuleAnalysisManager &MAM) {
+      if (wfv->runOnModule(M))
+        return llvm::PreservedAnalyses::none();
+      else
+        return llvm::PreservedAnalyses::all();
+    }
 };
 
 } // namespace rv

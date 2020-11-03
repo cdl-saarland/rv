@@ -19,6 +19,7 @@
 #include "llvm/IR/IRBuilder.h"
 
 #include "rv/config.h"
+#include "rv/passes.h"
 
 namespace rv {
 
@@ -80,6 +81,20 @@ public:
   IRPolisher(llvm::Function &f, Config _config) : F(f), config(_config) {}
 
   bool polish();
+};
+
+struct IRPolisherWrapperPass : llvm::PassInfoMixin<IRPolisherWrapperPass> {
+  private:
+    std::shared_ptr<llvm::FunctionPass> irpolisher;
+  public:
+    IRPolisherWrapperPass() : irpolisher(rv::createIRPolisherWrapperPass()) {};
+
+    llvm::PreservedAnalyses run (llvm::Function &F, llvm::FunctionAnalysisManager &FAM) {
+      if (irpolisher->runOnFunction(F))
+        return llvm::PreservedAnalyses::none();
+      else
+        return llvm::PreservedAnalyses::all();
+    }
 };
 
 }
