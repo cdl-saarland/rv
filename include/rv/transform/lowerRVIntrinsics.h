@@ -8,6 +8,8 @@
 //
 
 #include "llvm/Pass.h"
+#include "llvm/IR/PassManager.h"
+#include "rv/passes.h"
 
 namespace rv {
 class LowerRVIntrinsics : public llvm::FunctionPass {
@@ -20,6 +22,20 @@ public:
 
   /// Register all analyses and transformation required.
   void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
+};
+
+struct LowerRVIntrinsicsWrapperPass : llvm::PassInfoMixin<LowerRVIntrinsicsWrapperPass> {
+  private:
+    std::shared_ptr<llvm::FunctionPass> lower;
+  public:
+    LowerRVIntrinsicsWrapperPass() : lower(rv::createLowerRVIntrinsicsPass()) {};
+
+    llvm::PreservedAnalyses run (llvm::Function &F, llvm::FunctionAnalysisManager &FAM) {
+      if (lower->runOnFunction(F))
+        return llvm::PreservedAnalyses::none();
+      else
+        return llvm::PreservedAnalyses::all();
+    }
 };
 
 } // namespace rv

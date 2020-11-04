@@ -135,6 +135,34 @@ using CDNode = CDG::Node;
 llvm::FunctionPass* createDFGPass();
 llvm::FunctionPass* createCDGPass();
 
+struct DFGWrapperPass : llvm::PassInfoMixin<DFGWrapperPass> {
+  private:
+    std::shared_ptr<llvm::FunctionPass> dfg;
+  public:
+    DFGWrapperPass() : dfg(rv::createDFGPass()) {};
+
+    llvm::PreservedAnalyses run (llvm::Function &F, llvm::FunctionAnalysisManager &FAM) {
+      if (dfg->runOnFunction(F))
+        return llvm::PreservedAnalyses::none();
+      else
+        return llvm::PreservedAnalyses::all();
+    }
+};
+
+struct CDGWrapperPass : llvm::PassInfoMixin<CDGWrapperPass> {
+  private:
+    std::shared_ptr<llvm::FunctionPass> cdg;
+  public:
+    CDGWrapperPass() : cdg(rv::createCDGPass()) {};
+
+    llvm::PreservedAnalyses run (llvm::Function &F, llvm::FunctionAnalysisManager &FAM) {
+      if (cdg->runOnFunction(F))
+        return llvm::PreservedAnalyses::none();
+      else
+        return llvm::PreservedAnalyses::all();
+    }
+};
+
 }
 
 
