@@ -109,7 +109,7 @@ writeModuleToFile(Module* mod, const std::string& fileName)
 
 void normalizeFunction(Function &F) {
   legacy::FunctionPassManager FPM(F.getParent());
-  FPM.add(rv::createCNSPass());
+  FPM.add(createFixIrreduciblePass());
   FPM.add(createPromoteMemoryToRegisterPass());
   FPM.add(createLoopSimplifyPass());
   FPM.add(createLCSSAPass());

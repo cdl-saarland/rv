@@ -22,7 +22,6 @@ class PassRegistry;
 void initializeLoopVectorizerPass(PassRegistry&);
 void initializeWFVPassPass(PassRegistry&);
 void initializeIRPolisherWrapperPass(PassRegistry&);
-void initializeCNSPass(PassRegistry&);
 void initializeLowerRVIntrinsicsPass(PassRegistry&);
 } // namespace llvm
 
@@ -39,7 +38,6 @@ struct RVForcePassLinking {
     // rv::createWFVPass();
     rv::createLoopVectorizerPass();
     rv::createIRPolisherWrapperPass();
-    rv::createCNSPass();
     rv::createWFVPass();
     rv::createLowerRVIntrinsicsPass();
   }

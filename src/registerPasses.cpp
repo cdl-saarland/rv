@@ -41,10 +41,6 @@ static cl::opt<bool> rvVectorizeEnabled(
              "(implies -rv-wfv and -rv-loopvec)."),
     cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
 
-static cl::opt<bool>
-    rvOnlyCNS("rv-cns", cl::desc("Only run RV's Irreducible Loop Normalizer."),
-    cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
-
 static bool mayVectorize() {
   return rvWFVEnabled || rvLoopVecEnabled || rvVectorizeEnabled;
 }
@@ -59,11 +55,6 @@ static void registerRVPasses(const llvm::PassManagerBuilder &Builder,
                              llvm::legacy::PassManagerBase &PM) {
   if (rvOnlyPolish) {
     PM.add(rv::createIRPolisherWrapperPass());
-    return;
-  }
-
-  if (rvOnlyCNS) {
-    PM.add(rv::createCNSPass());
     return;
   }
 

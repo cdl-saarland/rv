@@ -62,18 +62,13 @@ add_rv_library(RV
   resolver/sleefResolver.cpp
   shape/vectorShape.cpp
   shape/vectorShapeTransformer.cpp
-  transform/CNSPass.cpp
   transform/CoherentIFTransform.cpp
   transform/Linearizer.cpp
   transform/LoopVectorizer.cpp
   transform/WFVPass.cpp
   transform/bosccTransform.cpp
-  transform/cns/BlockGraph.cpp
-  transform/cns/CNS.cpp
-  transform/cns/CNSScoring.cpp
-  transform/cns/SplitTree.cpp
-  transform/cns/llvmDomination.cpp
-  transform/cns/llvmDuplication.cpp
+  # transform/cns/llvmDomination.cpp
+  utils/llvmDuplication.cpp
   transform/crtLowering.cpp
   transform/crtLowering.cpp
   transform/divLoopTrans.cpp

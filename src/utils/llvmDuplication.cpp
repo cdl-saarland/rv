@@ -1,13 +1,15 @@
-/*
- * llvmDuplication.cpp
- *
- *  Created on: Jun 21, 2010
- */
+//===---- utils/llvmDuplication.cpp - Convenient BB Cloning -----*- C++ -*-===//
+//
+// Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
 
 #include "llvmDuplication.h"
 #include <llvm/Transforms/Utils/Cloning.h>
 
-#include "llvmDomination.h"
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
@@ -15,13 +17,13 @@
 #include <llvm/Transforms/Utils/SSAUpdater.h>
 #include <llvm/IR/IRBuilder.h>
 
-#include "CommonTypes.h"
-
 using namespace llvm;
 
 #if 0
 #undef IF_DEBUG_CNS
 #define IF_DEBUG_CNS if (true)
+#else
+#define IF_DEBUG_CNS if (false)
 #endif
 
 // #define CNS_SSA_UPDATER // TODO did not work (defaulting to Store+Load, folloed by mem2reg)
@@ -85,7 +87,7 @@ BlockSet splitNode(llvm::BasicBlock *srcBlock, llvm::DominatorTree *domTree) {
   }
 
   // clone all blocks
-  std::map<BasicBlock*,ValueMap*> cloneMap;
+  std::map<BasicBlock*,ValueToValueMapTy*> cloneMap;
 
   for (BlockVector::iterator itPred = (preds.begin() + 1);
        itPred != preds.end(); ++itPred) {
@@ -249,7 +251,7 @@ BlockSet splitNode(llvm::BasicBlock *srcBlock, llvm::DominatorTree *domTree) {
 }
 
 llvm::BasicBlock *cloneBlockAndMapInstructions(llvm::BasicBlock *block,
-                                               ValueMap &cloneMap) {
+                                               ValueToValueMapTy &cloneMap) {
   llvm::BasicBlock *clonedBlock =
       llvm::CloneBasicBlock(block, cloneMap, ".cns", block->getParent());
 
@@ -287,7 +289,7 @@ clonedLoop->getBlocks(), branchBlock);
 
 //### fix up incoming values ###
 
-void patchClonedBlocksForBranch(ValueMap &cloneMap,
+void patchClonedBlocksForBranch(ValueToValueMapTy &cloneMap,
                                 const BlockVector &originalBlocks,
                                 const BlockVector &clonedBlocks,
                                 llvm::BasicBlock *branchBlock) {
@@ -296,12 +298,6 @@ void patchClonedBlocksForBranch(ValueMap &cloneMap,
     llvm::BasicBlock *srcBlock = *itBlock;
     llvm::BasicBlock *clonedBlock =
         llvm::cast<llvm::BasicBlock>(cloneMap[srcBlock]);
-
-    // tracker.identifyBlocks(srcBlock, clonedBlock);
-
-    // TODO apply this to all blocks
-#if 0
-#endif
 
 // Fix all branches coming from branchBlocks
     IF_DEBUG_CNS llvm::errs() << "## Patching branchBlocks\n";
@@ -330,82 +326,6 @@ void patchClonedBlocksForBranch(ValueMap &cloneMap,
       }
     }
   }
-
-#if 0
-    // FIXME factor this out
-    // Repair direct receiving PHI-nodes in successor blocks
-    for (llvm::succ_iterator itSucc = llvm::succ_begin(clonedBlock);
-         itSucc != llvm::succ_end(clonedBlock); ++itSucc) {
-      llvm::BasicBlock *succBlock = *itSucc;
-      ValueSet handledSrcValues;
-      llvm::BasicBlock::iterator itPHI;
-      for (itPHI = succBlock->begin(); llvm::isa<llvm::PHINode>(itPHI);
-           ++itPHI) {
-        IF_DEBUG_CNS {
-          llvm::errs() << "## patching PHI:";
-          itPHI->dump();
-        }
-        llvm::PHINode *phi = llvm::cast<llvm::PHINode>(itPHI);
-        assert(phi->getBasicBlockIndex(clonedBlock) == -1 &&
-               "value already mapped!");
-        llvm::Value *inVal = phi->getIncomingValueForBlock(srcBlock);
-        handledSrcValues.insert(inVal);
-
-        IF_DEBUG_CNS {
-          llvm::errs() << "### fixed PHI for new incoming edge\n";
-          inVal->dump();
-        }
-        phi->addIncoming(cloneMap[inVal], clonedBlock);
-      }
-
-
-        for (auto & use : inst.uses()) {
-          auto * user = cast<Instruction>(use.getUser());
-          auto * userPhi = dyn_cast<PHINode>(user);
-
-          auto * clonedLiveOut = &*cloneMap[&inst];
-
-          // there is already a receiving phi in this block
-          if (userPhi && userPhi->getParent() == succBlock) {
-            int oldIdx = userPhi->getBasicBlockIndex(clonedBlock);
-            assert(oldIdx < 0 && "cloned block already patched into live out phis?");
-
-            userPhi->addIncoming(clonedLiveOut, clonedBlock);
-            errs() << "# live out use in succBlock : " << *userPhi << "\n";
-
-          } else {
-            // the live out use is not yet guarded by phi node
-            auto * recPhi = PHINode::Create(inst.getType(), 4, inst.getName() + ".phi", &*succBlock->getFirstInsertionPt());
-            recPhi->addIncoming(clonedLiveOut, clonedBlock);
-
-            user->setOperand(use.getOperandNo(), recPhi); // fix this use
-          }
-        }
-      }
-
-      llvm::BasicBlock::iterator itAfterPHI = itPHI;
-      for (ValueMap::const_iterator itClonePair = cloneMap.begin();
-           itClonePair != cloneMap.end(); ++itClonePair) {
-        llvm::Value *srcVal = const_cast<llvm::Value *>(itClonePair->first);
-        llvm::Value *cloneVal = itClonePair->second;
-
-        if (llvm::isa<llvm::Instruction>(srcVal) &&
-            !handledSrcValues.count(srcVal)) {
-          llvm::Instruction *srcInst = llvm::cast<llvm::Instruction>(srcVal);
-          if (srcInst->isUsedInBasicBlock(succBlock)) {
-            llvm::PHINode *resolvePHI = llvm::PHINode::Create(
-                srcVal->getType(), 2, "intro", cast<Instruction>(itAfterPHI));
-            resolvePHI->addIncoming(srcVal, srcBlock);
-            resolvePHI->addIncoming(cloneVal, clonedBlock);
-            cloneMap[srcVal] = resolvePHI;
-          }
-        }
-      }
-
-      // remap the rest of the block
-      for (; itAfterPHI != succBlock->end(); ++itAfterPHI)
-        RemapInstruction(cast<Instruction>(itAfterPHI), cloneMap, RF_IgnoreMissingLocals);
-#endif
 }
 
 /*
@@ -425,11 +345,11 @@ llvm::BasicBlock *cloneBlockForBranch(llvm::BasicBlock *srcBlock,
   assert(!srcBlock->getUniquePredecessor() &&
          "block already has only a single predecessor");
 
-  ValueMap * cloneMap = new ValueMap;
+  auto * cloneMap = new ValueToValueMapTy;
 
   llvm::BasicBlock *clonedBlock = cloneBlockAndMapInstructions(srcBlock, *cloneMap);
   (*cloneMap)[srcBlock] = clonedBlock;
-  ValueMap branchFixMap;
+  ValueToValueMapTy branchFixMap;
   // branchFixMap[srcBlock] = clonedBlock;
 
   // reattach branches

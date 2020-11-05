@@ -39,7 +39,7 @@
 #include "rv/rvDebug.h"
 #include <rvConfig.h>
 #include "report.h"
-#include "cns/llvmDuplication.h"
+#include "utils/llvmDuplication.h"
 #include "rv/utils.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/GenericDomTree.h"
