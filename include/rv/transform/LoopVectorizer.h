@@ -18,6 +18,8 @@
 #include "rv/config.h"
 #include "llvm/IR/PassManager.h"
 #include "rv/transform/remTransform.h"
+#include "rv/rv.h"
+#include "rv/passes.h"
 
 namespace llvm {
   class Loop;
@@ -32,9 +34,6 @@ namespace llvm {
 
 
 namespace rv {
-
-class VectorizationInfo;
-class VectorizerInterface;
 
 class LoopVectorizer : public llvm::FunctionPass {
 public:
@@ -123,6 +122,20 @@ private:
 
   // vectorize all loops
   bool runLoopJobs();
+};
+
+struct LoopVectorizerWrapperPass : llvm::PassInfoMixin<LoopVectorizerWrapperPass> {
+  private:
+    std::shared_ptr<llvm::FunctionPass> loopvec;
+  public:
+    LoopVectorizerWrapperPass() : loopvec(rv::createLoopVectorizerPass()) {};
+
+    llvm::PreservedAnalyses run (llvm::Function &F, llvm::FunctionAnalysisManager &FAM) {
+      if (loopvec->runOnFunction(F))
+        return llvm::PreservedAnalyses::none();
+      else
+        return llvm::PreservedAnalyses::all();
+    }
 };
 
 } // namespace rv

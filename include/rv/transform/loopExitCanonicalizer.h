@@ -13,6 +13,7 @@
 
 #include "llvm/Pass.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/PassManager.h"
 
 namespace llvm {
 class LoopInfo;
@@ -22,6 +23,11 @@ class BasicBlock;
 
 namespace rv {
 class RVInfo;
+
+struct LoopExitCanonicalizerWrapperPass : llvm::PassInfoMixin<LoopExitCanonicalizerWrapperPass> {
+public:
+  llvm::PreservedAnalyses run(llvm::Function &F, llvm::FunctionAnalysisManager &FAM);
+};
 }
 
 // namespace {

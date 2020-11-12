@@ -106,9 +106,3 @@ static llvm::RegisterStandardPasses
     RegisterRV_Last(llvm::PassManagerBuilder::EP_OptimizerLast,
                     registerLastRVPasses);
 
-///// New PM Registration /////
-namespace rv {
-void addRVPasses(PassBuilder &PB) {
-  errs() << "RV: TODO implement new PM pass registration!";
-}
-} // namespace rv

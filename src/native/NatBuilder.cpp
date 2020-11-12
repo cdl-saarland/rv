@@ -14,6 +14,7 @@
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Metadata.h>
 #include "llvm/IR/IntrinsicsX86.h"
+#include "llvm/Transforms/Utils/LoopUtils.h"
 #include <report.h>
 #include <fstream>
 
@@ -29,6 +30,7 @@
 #include "rv/intrinsics.h"
 #include "rv/Mask.h"
 #include "rv/MaskBuilder.h"
+#include "llvm/Analysis/IVDescriptors.h"
 
 #ifdef LLVM_HAVE_VP
 #include <llvm/IR/VPBuilder.h>
@@ -55,7 +57,7 @@ Value*
 CreateBroadcast(IRBuilder<> & builder, Value & vec, int idx) {
   auto * intTy = Type::getInt32Ty(builder.getContext());
   auto *vecTy = cast<VectorType>(vec.getType());
-  const size_t vectorWidth = vecTy->getNumElements();
+  const size_t vectorWidth = vecTy->getElementCount().getFixedValue();
   std::vector<Constant*> shuffleConsts;
   for (size_t i = 0; i < vectorWidth; ++i) {
     shuffleConsts.push_back(ConstantInt::get(intTy, idx, false));
@@ -446,6 +448,8 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       vectorizeAlloca(alloca);
     } else if (gep || bc) {
       continue; // skipped
+    } else if (auto * atomicrmw = dyn_cast<AtomicRMWInst>(inst)) {
+      vectorizeAtomicRMW(atomicrmw);
     } else if (canVectorize(inst) && shouldVectorize(inst)) {
       vectorizeInstruction(inst);
     } else if (!canVectorize(inst) && shouldVectorize(inst)){
@@ -789,6 +793,135 @@ void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
 
   // fallback code path
   replicateInstruction(allocaInst);
+}
+
+void NatBuilder::vectorizeAtomicRMW(AtomicRMWInst *const atomicrmw) {
+  VectorShape shape = getVectorShape(*atomicrmw);
+  if (shape.isStrided() || shape.isContiguous()) {
+    Value *predicate = vecInfo.getPredicate(*atomicrmw->getParent());
+    assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
+    bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
+    if (needsMask) {
+        replicateInstruction(atomicrmw);
+    } else {
+        AtomicRMWInst *clonedinst = cast<AtomicRMWInst>(atomicrmw->clone());
+        clonedinst->setOperand(0, requestScalarValue(atomicrmw->getPointerOperand()));
+
+        Value * previousconst = atomicrmw->getValOperand();
+        IntegerType * previoustype = cast<IntegerType>(previousconst->getType());
+
+        int stride = (atomicrmw->getOperation() == AtomicRMWInst::Sub) ? -1 * shape.getStride() : shape.getStride();
+        int updateresult = vectorWidth() * stride;
+
+        clonedinst->setOperand(1, ConstantInt::get(previoustype, updateresult));
+
+        builder.Insert(clonedinst, atomicrmw->getName());
+        mapScalarValue(atomicrmw, clonedinst);
+    }
+  } else if (shouldVectorize(atomicrmw)) {
+    Value * ptr = atomicrmw->getPointerOperand();
+    Value * val = atomicrmw->getValOperand();
+    VectorShape ptrShape = getVectorShape(*ptr);
+
+    if (!ptrShape.isUniform()) {
+      replicateInstruction(atomicrmw);
+      return;
+    }
+    Value *predicate = vecInfo.getPredicate(*atomicrmw->getParent());
+    assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
+    bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
+    if (needsMask) {
+      replicateInstruction(atomicrmw);
+      return;
+    }
+
+    switch (atomicrmw->getOperation()) {
+    case AtomicRMWInst::Xchg: {
+      AtomicRMWInst *clonedInst = cast<AtomicRMWInst>(atomicrmw->clone());
+      clonedInst->setOperand(0, requestScalarValue(ptr));
+
+      Value *vectorizedVal = requestVectorValue(val);
+      assert(vectorizedVal);
+      Value *finalVal = builder.CreateExtractElement(vectorizedVal, vectorWidth() - 1);
+      clonedInst->setOperand(1, finalVal);
+
+      std::vector<Constant*> constants(vectorWidth(), nullptr);
+      constants[0] = ConstantInt::get(builder.getInt32Ty(), 0);
+      for (int i = 1; i < vectorWidth(); ++i) {
+        Constant *constant = ConstantInt::get(builder.getInt32Ty(), i - 1);
+        constants[i] = constant;
+      }
+      Value *constantvec = ConstantVector::get(constants);
+      Value *shuffle = builder.CreateShuffleVector(vectorizedVal, vectorizedVal, constantvec);
+
+      builder.Insert(clonedInst);
+      Value *insertfinal = builder.CreateInsertElement(shuffle, clonedInst, (uint64_t) 0, atomicrmw->getName());
+
+      mapVectorValue(atomicrmw, insertfinal);
+      break;
+    }
+    case AtomicRMWInst::Add:
+    case AtomicRMWInst::Sub:
+    case AtomicRMWInst::And:
+    case AtomicRMWInst::Or:
+    case AtomicRMWInst::Max:
+    case AtomicRMWInst::Min:
+    case AtomicRMWInst::UMax:
+    case AtomicRMWInst::UMin: {
+      AtomicRMWInst *clonedInst = cast<AtomicRMWInst>(atomicrmw->clone());
+      clonedInst->setOperand(0, requestScalarValue(ptr));
+
+      Value *vectorizedVal = requestVectorValue(val);
+
+      RedKind reduction = RedKind::Top;
+      switch (atomicrmw->getOperation()) {
+      case AtomicRMWInst::Add:
+      case AtomicRMWInst::Sub:  reduction = RedKind::Add; break;
+      case AtomicRMWInst::And:  reduction = RedKind::And; break;
+      case AtomicRMWInst::Or:   reduction = RedKind::Or; break;
+      case AtomicRMWInst::Max:  reduction = RedKind::SMax; break;
+      case AtomicRMWInst::Min:  reduction = RedKind::SMin; break;
+      case AtomicRMWInst::UMax: reduction = RedKind::UMax; break;
+      case AtomicRMWInst::UMin: reduction = RedKind::UMin; break;
+      default:
+        llvm_unreachable("case missing");
+      }
+
+      Value *finalVal = &CreateVectorReduce(config, builder, reduction, *vectorizedVal, nullptr);
+
+      clonedInst->setOperand(1, finalVal);
+      builder.Insert(clonedInst);
+
+      Value *itervector = UndefValue::get(vectorizedVal->getType());
+      Value *itervar = clonedInst;
+      itervector = builder.CreateInsertElement(itervector, itervar, (uint64_t) 0);
+      for (int i  = 1; i < vectorWidth(); i++) {
+        Value *update = builder.CreateExtractElement(vectorizedVal, (uint64_t) i - 1);
+        switch (atomicrmw->getOperation()) {
+        case AtomicRMWInst::Add:  itervar = builder.CreateAdd(itervar, update); break;
+        case AtomicRMWInst::Sub:  itervar = builder.CreateSub(itervar, update); break;
+        case AtomicRMWInst::And:  itervar = builder.CreateAnd(itervar, update); break;
+        case AtomicRMWInst::Or:   itervar = builder.CreateOr(itervar, update); break;
+        case AtomicRMWInst::Max:  itervar = createMinMaxOp(builder, RecurrenceDescriptor::MRK_SIntMax, itervar, update); break;
+        case AtomicRMWInst::UMax: itervar = createMinMaxOp(builder, RecurrenceDescriptor::MRK_UIntMax, itervar, update); break;
+        case AtomicRMWInst::Min:  itervar = createMinMaxOp(builder, RecurrenceDescriptor::MRK_SIntMin, itervar, update); break;
+        case AtomicRMWInst::UMin: itervar = createMinMaxOp(builder, RecurrenceDescriptor::MRK_UIntMin, itervar, update); break;
+        default:
+          llvm_unreachable("case missing");
+        }
+        itervector = builder.CreateInsertElement(itervector, itervar, (uint64_t) i);
+      }
+
+      mapVectorValue(atomicrmw, itervector);
+      break;
+    }
+    default:
+      replicateInstruction(atomicrmw);
+      break;
+    }
+  } else {
+    copyInstruction(atomicrmw);
+  }
 }
 
 

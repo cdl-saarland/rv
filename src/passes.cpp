@@ -14,6 +14,15 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils.h"
 
+#include "rv/transform/loopExitCanonicalizer.h"
+#include "rv/transform/WFVPass.h"
+#include "rv/transform/LoopVectorizer.h"
+#include "rv/transform/lowerRVIntrinsics.h"
+
+#include "llvm/Transforms/Scalar/ADCE.h"
+#include "llvm/Transforms/Utils/LCSSA.h"
+#include "llvm/Transforms/Utils/LoopSimplify.h"
+
 using namespace llvm;
 
 namespace rv {
@@ -64,4 +73,73 @@ void addRVPasses(llvm::legacy::PassManagerBase &PM) {
   addCleanupPasses(PM);
 }
 
-} // namespace rv
+///// New PM Registration /////
+void
+addPreparatoryPasses(FunctionPassManager & FPM) {
+  FPM.addPass(LoopSimplifyPass());
+  FPM.addPass(LCSSAPass());
+  FPM.addPass(rv::LoopExitCanonicalizerWrapperPass()); // required for divLoopTrans
+}
+
+void
+addPreparatoryPasses(ModulePassManager & MPM) {
+  llvm::FunctionPassManager FPM;
+  addPreparatoryPasses(FPM);
+  MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+}
+
+void
+addCleanupPasses(ModulePassManager & MPM) {
+  // post rv cleanup
+  MPM.addPass(AlwaysInlinerPass());
+  llvm::FunctionPassManager FPM;
+  FPM.addPass(AggressiveInstCombinePass());
+  FPM.addPass(ADCEPass());
+  MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+}
+
+void
+addOuterLoopVectorizer(FunctionPassManager & FPM) {
+  FPM.addPass(rv::LoopVectorizerWrapperPass());
+}
+
+void
+addOuterLoopVectorizer(ModulePassManager & MPM) {
+  llvm::FunctionPassManager FPM;
+  addOuterLoopVectorizer(FPM);
+  MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+}
+
+void
+addWholeFunctionVectorizer(ModulePassManager & MPM) {
+  MPM.addPass(rv::WFVWrapperPass());
+}
+
+void
+addLowerBuiltinsPass(FunctionPassManager & FPM) {
+  FPM.addPass(rv::LowerRVIntrinsicsWrapperPass());
+}
+
+void
+addLowerBuiltinsPass(ModulePassManager & MPM) {
+  llvm::FunctionPassManager FPM;
+  addLowerBuiltinsPass(FPM);
+  MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+}
+
+void
+addRVPasses(ModulePassManager & MPM) {
+  // normalize loops
+  addPreparatoryPasses(MPM);
+
+  // vectorize scalar functions that have VectorABI attributes
+  addWholeFunctionVectorizer(MPM);
+
+  // vectorize annotated loops
+  addOuterLoopVectorizer(MPM);
+
+  // DCE, instcombine, ..
+  addCleanupPasses(MPM);
+}
+
+}
