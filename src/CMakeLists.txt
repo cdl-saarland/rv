@@ -55,6 +55,7 @@ add_rv_library(RV
   analysis/predicateAnalysis.cpp
   analysis/reductionAnalysis.cpp
   analysis/reductions.cpp
+  ./legacy/passes.cpp
   native/MemoryAccessGrouper.cpp
   native/NatBuilder.cpp
   native/ShuffleBuilder.cpp

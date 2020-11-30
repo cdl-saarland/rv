@@ -19,7 +19,7 @@
 #include "rv/config.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "llvm/ADT/StringRef.h"
-#include "rv/passes.h"
+#include "rv/legacy/passes.h"
 
 #include <limits>
 #include <vector>

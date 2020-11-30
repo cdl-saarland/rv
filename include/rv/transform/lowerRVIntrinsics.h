@@ -9,7 +9,7 @@
 
 #include "llvm/Pass.h"
 #include "llvm/IR/PassManager.h"
-#include "rv/passes.h"
+#include "rv/legacy/passes.h"
 
 namespace rv {
 class LowerRVIntrinsics : public llvm::FunctionPass {

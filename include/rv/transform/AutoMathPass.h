@@ -11,6 +11,7 @@
 #define RV_TRANSFORM_AUTOMATHPASS_H
 
 #include "llvm/Pass.h"
+#include "rv/legacy/passes.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallSet.h"
@@ -71,6 +72,21 @@ public:
   void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
   bool runOnModule(llvm::Module & M) override;
 };
+
+struct AutoMathWrapperPass : llvm::PassInfoMixin<AutoMathWrapperPass> {
+  private:
+    std::shared_ptr<llvm::ModulePass> autoMath;
+  public:
+    AutoMathWrapperPass() : autoMath(rv::createAutoMathPass()) {};
+
+    llvm::PreservedAnalyses run (llvm::Module &M, llvm::ModuleAnalysisManager &MAM) {
+      if (autoMath->runOnModule(M))
+        return llvm::PreservedAnalyses::none();
+      else
+        return llvm::PreservedAnalyses::all();
+    }
+};
+
 
 } // namespace rv
 #endif // RV_TRANSFORM_AUTOMATHPASS_H

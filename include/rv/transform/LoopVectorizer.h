@@ -19,7 +19,7 @@
 #include "llvm/IR/PassManager.h"
 #include "rv/transform/remTransform.h"
 #include "rv/rv.h"
-#include "rv/passes.h"
+#include "rv/legacy/passes.h"
 
 namespace llvm {
   class Loop;

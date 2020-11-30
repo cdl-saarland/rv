@@ -11,7 +11,7 @@
 #define RV_LINKALLPASSES_H
 
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-#include "rv/passes.h"
+#include "rv/legacy/passes.h"
 
 #include <cstdlib>
 

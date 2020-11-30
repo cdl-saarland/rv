@@ -14,9 +14,9 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils.h"
 
-#include "rv/transform/loopExitCanonicalizer.h"
-#include "rv/transform/WFVPass.h"
 #include "rv/transform/LoopVectorizer.h"
+#include "rv/transform/WFVPass.h"
+#include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/transform/lowerRVIntrinsics.h"
 
 #include "llvm/Transforms/Scalar/ADCE.h"
@@ -25,112 +25,76 @@
 
 using namespace llvm;
 
+llvm::FunctionPassManager &&
+wrapInModulePass(std::function<void(llvm::FunctionPassManager &)> Adder) {
+  llvm::FunctionPassManager FPM;
+  Adder(FPM);
+  return std::move(FPM);
+}
+
 namespace rv {
 
-void addPreparatoryPasses(legacy::PassManagerBase &PM) {
-  PM.add(createLoopSimplifyPass());
-  PM.add(createLCSSAPass());
-  PM.add(createLoopExitCanonicalizerPass()); // required for divLoopTrans
-}
-
-void addCleanupPasses(legacy::PassManagerBase &PM) {
-  // post rv cleanup
-  PM.add(createAlwaysInlinerLegacyPass());
-  PM.add(createAggressiveInstCombinerPass());
-  PM.add(createAggressiveDCEPass());
-}
-
-void addOuterLoopVectorizer(legacy::PassManagerBase &PM) {
-  PM.add(rv::createLoopVectorizerPass());
-}
-
-void addAutoMathPass(llvm::legacy::PassManagerBase &PM) {
-  PM.add(rv::createAutoMathPass());
-}
-
-void addWholeFunctionVectorizer(llvm::legacy::PassManagerBase &PM) {
-  PM.add(rv::createWFVPass());
-}
-
-void addLowerBuiltinsPass(legacy::PassManagerBase &PM) {
-  PM.add(rv::createLowerRVIntrinsicsPass());
-}
-
-void addRVPasses(llvm::legacy::PassManagerBase &PM) {
-  // normalize loops
-  addPreparatoryPasses(PM);
-
-  // supplement vector math functions for select targets using RV's resolver API
-  addAutoMathPass(PM);
-
-  // vectorize scalar functions that have VectorABI attributes
-  addWholeFunctionVectorizer(PM);
-
-  // vectorize annotated loops
-  addOuterLoopVectorizer(PM);
-
-  // DCE, instcombine, ..
-  addCleanupPasses(PM);
-}
-
-///// New PM Registration /////
-void
-addPreparatoryPasses(FunctionPassManager & FPM) {
+void addPreparatoryPasses(FunctionPassManager &FPM) {
   FPM.addPass(LoopSimplifyPass());
   FPM.addPass(LCSSAPass());
-  FPM.addPass(rv::LoopExitCanonicalizerWrapperPass()); // required for divLoopTrans
+  FPM.addPass(
+      rv::LoopExitCanonicalizerWrapperPass()); // required for divLoopTrans
 }
 
-void
-addPreparatoryPasses(ModulePassManager & MPM) {
+void addPreparatoryPasses(ModulePassManager &MPM) {
   llvm::FunctionPassManager FPM;
   addPreparatoryPasses(FPM);
   MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
 }
 
-void
-addCleanupPasses(ModulePassManager & MPM) {
+void addCleanupPasses(FunctionPassManager &FPM) {
+  // post rv cleanup
+  FPM.addPass(AggressiveInstCombinePass());
+  FPM.addPass(ADCEPass());
+}
+
+void addCleanupPasses(ModulePassManager &MPM) {
   // post rv cleanup
   MPM.addPass(AlwaysInlinerPass());
   llvm::FunctionPassManager FPM;
-  FPM.addPass(AggressiveInstCombinePass());
-  FPM.addPass(ADCEPass());
+  addCleanupPasses(FPM);
   MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
 }
 
-void
-addOuterLoopVectorizer(FunctionPassManager & FPM) {
+void addOuterLoopVectorizer(FunctionPassManager &FPM) {
   FPM.addPass(rv::LoopVectorizerWrapperPass());
 }
 
-void
-addOuterLoopVectorizer(ModulePassManager & MPM) {
+void addOuterLoopVectorizer(ModulePassManager &MPM) {
   llvm::FunctionPassManager FPM;
   addOuterLoopVectorizer(FPM);
   MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
 }
 
-void
-addWholeFunctionVectorizer(ModulePassManager & MPM) {
+void addAutoMathPass(llvm::ModulePassManager &MPM) {
+  MPM.addPass(rv::createAutoMathWrapperPass());
+}
+
+void addWholeFunctionVectorizer(ModulePassManager &MPM) {
   MPM.addPass(rv::WFVWrapperPass());
 }
 
-void
-addLowerBuiltinsPass(FunctionPassManager & FPM) {
+void addLowerBuiltinsPass(FunctionPassManager &FPM) {
   FPM.addPass(rv::LowerRVIntrinsicsWrapperPass());
 }
 
-void
-addLowerBuiltinsPass(ModulePassManager & MPM) {
+void addLowerBuiltinsPass(ModulePassManager &MPM) {
   llvm::FunctionPassManager FPM;
   addLowerBuiltinsPass(FPM);
   MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
 }
 
-void
-addRVPasses(ModulePassManager & MPM) {
+void addRVPasses(ModulePassManager &MPM) {
   // normalize loops
   addPreparatoryPasses(MPM);
+
+  // supplement vector math functions for select targets using RV's resolver API
+  addAutoMathPass(MPM);
 
   // vectorize scalar functions that have VectorABI attributes
   addWholeFunctionVectorizer(MPM);
@@ -142,4 +106,30 @@ addRVPasses(ModulePassManager & MPM) {
   addCleanupPasses(MPM);
 }
 
+static bool
+buildDefaultRVPipeline(StringRef, ModulePassManager &MPM,
+                       ArrayRef<PassBuilder::PipelineElement> Elems) {
+  abort(); // TODO implement properly
+
+  addRVPasses(MPM);
+#if 0
+
+  // normalize loops
+  MPM.addPass(wrapInModulePass([](auto &FPM) { addPreparatoryPasses(FPM); }));
+
+  // vectorize scalar functions that have VectorABI attributes
+  addWholeFunctionVectorizer(MPM);
+
+  // vectorize annotated loops
+  MPM.addPass(wrapInModulePass([](auto &FPM) { addOuterLoopVectorizer(FPM); }));
+
+  // DCE, instcombine, ..
+  addCleanupPasses(MPM);
+#endif
 }
+
+void registerRVPasses(PassBuilder &PB) {
+  PB.registerPipelineParsingCallback(buildDefaultRVPipeline);
+}
+
+} // namespace rv

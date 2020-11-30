@@ -19,7 +19,7 @@
 #include "llvm/IR/IRBuilder.h"
 
 #include "rv/config.h"
-#include "rv/passes.h"
+#include "rv/legacy/passes.h"
 
 namespace rv {
 
