@@ -15,6 +15,7 @@
 #include "llvm/Passes/PassBuilder.h"
 
 namespace rv {
+
 void addRVPasses(llvm::PassBuilder &PB);
 
 // Auto-vectorization of math functions.
@@ -24,7 +25,7 @@ void addAutoMathPass(llvm::ModulePassManager &MPM);
 void addPreparatoryPasses(llvm::ModulePassManager &MPM);
 
 // add cleanup passes to run after RV (AFTER)
-void addCleanupPasses(llvm::FunctionPassManager &MPM);
+void addCleanupPasses(llvm::ModulePassManager &FPM);
 
 // add RV's outer loop vectorizer and required passes.
 void addOuterLoopVectorizer(llvm::FunctionPassManager &FPM);

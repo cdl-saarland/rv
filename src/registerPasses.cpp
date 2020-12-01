@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "rv/passes.h"
+#include "rv/legacy/passes.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/CommandLine.h"
@@ -55,6 +56,7 @@ static bool shouldRunLoopVecPass() {
 }
 static bool shouldLowerBuiltins() { return rvLowerBuiltins; }
 static bool shouldAutoVectorizeMath() { return rvAutoVectorizeMath; }
+
 
 ///// Legacy PM pass registration /////
 static void registerRVPasses(const llvm::PassManagerBuilder &Builder,
@@ -106,3 +108,34 @@ static llvm::RegisterStandardPasses
     RegisterRV_Last(llvm::PassManagerBuilder::EP_OptimizerLast,
                     registerLastRVPasses);
 
+
+///// New PM setup /////
+
+llvm::FunctionPassManager &&
+wrapInModulePass(std::function<void(llvm::FunctionPassManager &)> Adder) {
+  llvm::FunctionPassManager FPM;
+  Adder(FPM);
+  return std::move(FPM);
+}
+
+static bool
+buildDefaultRVPipeline(StringRef, ModulePassManager &MPM,
+                       ArrayRef<PassBuilder::PipelineElement> Elems) {
+  // normalize loops
+  rv::addPreparatoryPasses(MPM);
+
+  // vectorize scalar functions that have VectorABI attributes
+  rv::addWholeFunctionVectorizer(MPM);
+
+  // vectorize annotated loops
+  MPM.addPass(wrapInModulePass([](auto &FPM) { rv::addOuterLoopVectorizer(FPM); }));
+
+  // DCE, instcombine, ..
+  rv::addCleanupPasses(MPM);
+
+  return true; // FIXME
+}
+
+void registerRVPasses(PassBuilder &PB) {
+  PB.registerPipelineParsingCallback(buildDefaultRVPipeline);
+}

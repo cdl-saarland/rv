@@ -1,4 +1,4 @@
-//===- rv/legacy_passes.h - create RV passes --*- C++ -*-===//
+//===- rv/legacy/passes.h - create RV passes --*- C++ -*-===//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -20,7 +20,7 @@ void addRVPasses(llvm::legacy::PassManagerBase &PM);
 
 // fine-grained pass adding
 // RV-based loop vectorizer pass
-llvm::ModulePass *createAutoMathWrapperPass();
+llvm::ModulePass *createAutoMathPass();
 llvm::FunctionPass *createLoopVectorizerPass();
 llvm::ModulePass *createAutoMathPass();
 llvm::ModulePass *createWFVPass();

@@ -18,19 +18,13 @@
 #include "rv/transform/WFVPass.h"
 #include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/transform/lowerRVIntrinsics.h"
+#include "rv/transform/AutoMathPass.h"
 
 #include "llvm/Transforms/Scalar/ADCE.h"
 #include "llvm/Transforms/Utils/LCSSA.h"
 #include "llvm/Transforms/Utils/LoopSimplify.h"
 
 using namespace llvm;
-
-llvm::FunctionPassManager &&
-wrapInModulePass(std::function<void(llvm::FunctionPassManager &)> Adder) {
-  llvm::FunctionPassManager FPM;
-  Adder(FPM);
-  return std::move(FPM);
-}
 
 namespace rv {
 
@@ -47,7 +41,7 @@ void addPreparatoryPasses(ModulePassManager &MPM) {
   MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
 }
 
-void addCleanupPasses(FunctionPassManager &FPM) {
+static void addCleanupPasses(FunctionPassManager &FPM) {
   // post rv cleanup
   FPM.addPass(AggressiveInstCombinePass());
   FPM.addPass(ADCEPass());
@@ -72,7 +66,7 @@ void addOuterLoopVectorizer(ModulePassManager &MPM) {
 }
 
 void addAutoMathPass(llvm::ModulePassManager &MPM) {
-  MPM.addPass(rv::createAutoMathWrapperPass());
+  MPM.addPass(rv::AutoMathWrapperPass());
 }
 
 void addWholeFunctionVectorizer(ModulePassManager &MPM) {
@@ -104,32 +98,6 @@ void addRVPasses(ModulePassManager &MPM) {
 
   // DCE, instcombine, ..
   addCleanupPasses(MPM);
-}
-
-static bool
-buildDefaultRVPipeline(StringRef, ModulePassManager &MPM,
-                       ArrayRef<PassBuilder::PipelineElement> Elems) {
-  abort(); // TODO implement properly
-
-  addRVPasses(MPM);
-#if 0
-
-  // normalize loops
-  MPM.addPass(wrapInModulePass([](auto &FPM) { addPreparatoryPasses(FPM); }));
-
-  // vectorize scalar functions that have VectorABI attributes
-  addWholeFunctionVectorizer(MPM);
-
-  // vectorize annotated loops
-  MPM.addPass(wrapInModulePass([](auto &FPM) { addOuterLoopVectorizer(FPM); }));
-
-  // DCE, instcombine, ..
-  addCleanupPasses(MPM);
-#endif
-}
-
-void registerRVPasses(PassBuilder &PB) {
-  PB.registerPipelineParsingCallback(buildDefaultRVPipeline);
 }
 
 } // namespace rv
