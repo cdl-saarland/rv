@@ -4,14 +4,14 @@
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-
+#include "rv/registerPasses.h"
 #include "rv/passes.h"
 
 using namespace llvm;
 
 llvm::PassPluginLibraryInfo getRVPLUGPluginInfo() {
   return {LLVM_PLUGIN_API_VERSION, "RV", LLVM_VERSION_STRING,
-          [](PassBuilder &PB) { rv::registerRVPasses(PB); }};
+          [](PassBuilder &PB) { rv::addConfiguredPasses(PB); }};
 }
 
 #ifndef LLVM_RVPLUG_LINK_INTO_TOOLS

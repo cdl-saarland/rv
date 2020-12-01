@@ -16,7 +16,8 @@
 #define RV_REGISTERPASSES_H
 
 namespace rv {
-  void addRVPasses(llvm::PassBuilder & PB);
+  // add passes to \p PB according to rv flags (cl::opts).
+  void addConfiguredPasses(llvm::PassBuilder & PB);
 }
 
 #endif // RV_REGISTERPASSES_H
