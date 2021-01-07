@@ -333,7 +333,7 @@ void
 replicateType(Type & type, TypeVec & oTypes) {
   auto * structTy = dyn_cast<StructType>(&type);
   auto * arrTy = dyn_cast<ArrayType>(&type);
-  auto * vecTy = dyn_cast<VectorType>(&type);
+  auto * vecTy = dyn_cast<FixedVectorType>(&type);
 
   if (structTy) {
     size_t numElems = structTy->getNumElements();
@@ -410,7 +410,7 @@ GetNumReplicates(const Type & type) {
 
   auto * structTy = dyn_cast<const StructType>(&type);
   auto * arrTy = dyn_cast<const ArrayType>(&type);
-  auto * vecTy = dyn_cast<const VectorType>(&type);
+  auto * vecTy = dyn_cast<const FixedVectorType>(&type);
 
 // check if this struct is composed entirely of int/bool or fp types
   int flatSize = 0;
@@ -512,7 +512,7 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
   IRBuilder<> builder(inst.getParent(), inst.getIterator());
   std::string oldInstName = inst.getName().str();
 
-  auto * vecTy = dyn_cast<VectorType>(inst.getType());
+  auto * vecTy = dyn_cast<FixedVectorType>(inst.getType());
 
 // phi replication logic (attach inputs later)
   if (phi) {
@@ -680,7 +680,7 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
 ValVec
 requestConstVectorReplicate(Constant & val) {
   ValVec res;
-  auto & vecTy = cast<VectorType>(*val.getType());
+  auto & vecTy = cast<FixedVectorType>(*val.getType());
   auto & elemTy = *vecTy.getElementType();
   const size_t width = vecTy.getNumElements();
 

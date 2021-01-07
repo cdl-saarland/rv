@@ -271,7 +271,7 @@ CreateVectorReduce(Config & config, IRBuilder<> & builder, RedKind redKind, Valu
 
 Value &
 CreateExtract(IRBuilder<> & builder, Value & vecVal, int laneOffset) {
-  auto * vecTy = dyn_cast<VectorType>(vecVal.getType());
+  auto * vecTy = dyn_cast<FixedVectorType>(vecVal.getType());
   if (!vecTy) {
     return vecVal; //uniform value
   }

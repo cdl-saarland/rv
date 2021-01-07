@@ -47,6 +47,7 @@
 
 #include "llvm/Analysis/LoopDependenceAnalysis.h"
 #include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/Support/CommandLine.h"
 
 #include "report.h"
 #include <map>
