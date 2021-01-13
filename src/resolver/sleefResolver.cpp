@@ -594,8 +594,8 @@ struct SleefVLAResolver : public FunctionResolver {
     vecFunc->copyAttributesFrom(&scaFunc);
     vecFunc->setDoesNotRecurse();
 
-    // TODO move prefered CC into (some) target descriptor class
-    if (vectorizer.getConfig().useVE) { vecFunc->setCallingConv(CallingConv::X86_RegCall); }
+    // Use fastest possible CC.
+    vecFunc->setCallingConv(CallingConv::Fast);
     vecFunc->setLinkage(GlobalValue::LinkOnceAnyLinkage);
 
     VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes, CallPredicateMode::SafeWithoutPredicate);
