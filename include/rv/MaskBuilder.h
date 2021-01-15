@@ -38,6 +38,7 @@ protected:
 public:
   // initialize for P-LLVM context.
   MaskBuilder() {}
+  virtual ~MaskBuilder() {}
 
   // Fold the ActiveVectorLength of M into its predicate.
   Mask FoldAVL(llvm::IRBuilder<> &Builder, Mask M, llvm::Twine Name = "");
