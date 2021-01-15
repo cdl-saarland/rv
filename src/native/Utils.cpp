@@ -110,7 +110,7 @@ bool isSupportedOperation(Instruction *const inst) {
     if (retType->isStructTy() || retType->isVectorTy())
       return false;
   }
-  return inst->isBinaryOp() || isa<LoadInst>(inst) || isa<StoreInst>(inst) || inst->isCast() || isa<ReturnInst>(inst) ||
+  return inst->isUnaryOp() || inst->isBinaryOp() || isa<LoadInst>(inst) || isa<StoreInst>(inst) || inst->isCast() || isa<ReturnInst>(inst) ||
          (!isa<ExtractElementInst>(inst) && !isa<ExtractValueInst>(inst) && !isa<InsertElementInst>(inst) &&
           !isa<InsertValueInst>(inst) && !isa<ShuffleVectorInst>(inst) &&
           (inst->getOpcode() >= Instruction::OtherOpsBegin && inst->getOpcode() <= Instruction::OtherOpsEnd));
