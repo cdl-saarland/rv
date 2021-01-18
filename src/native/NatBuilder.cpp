@@ -1453,11 +1453,13 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     }
   }
 
+  bool AlwaysRepl = getenv("NAT_REPLICATE");
+
 // Vectorize this function using a resolver provided vector function.
   auto scaMask = vecInfo.getMask(scaBlock);
   std::unique_ptr<FunctionResolver> funcResolver = nullptr;
   if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth(), hasCallPredicate);
-  if (funcResolver && !CheckFlag("RV_SPLIT")) {
+  if (!AlwaysRepl && funcResolver && !CheckFlag("RV_SPLIT")) {
     Function &simdFunc = funcResolver->requestVectorized();
     CopyTargetAttributes(simdFunc, vecInfo.getScalarFunction());
 
@@ -1498,7 +1500,7 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       funcResolver = platInfo.getResolver(calleeName, *calledFunction->getFunctionType(), callArgShapes, vecWidth, hasCallPredicate);
       if (funcResolver) break;
     }
-    bool replicate = !funcResolver;
+    bool replicate = AlwaysRepl || !funcResolver;
 
     if (!replicate) {
       unsigned replicationFactor = vectorWidth() / vecWidth;
