@@ -580,8 +580,10 @@ GetCommonLoop(LoopInfo & li, SuperBlockVec & blocks) {
 }
 
 /// \brief create a super input value for this phi node
-Value *
-Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
+BasicBlock *
+Linearizer::requestBlendBlock(PHINode & phi, SuperInput & superInput) {
+  if (superInput.blendBlock)
+    return superInput.blendBlock;
   auto & blocks = superInput.inBlocks;
 
 // fetch the shadow input as default value (if any)
@@ -594,8 +596,11 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     defaultValue = superInput.getFrequentIncomingValue(phi);
   }
 
-  // early exit: there is only one predecessor: no phis, no blend blocks -> return that value right away
-  if (blocks.size() <= 1) return defaultValue; // FIXME we still need a dominating definition
+  // early exit: there is only one predecessor: no phis, no shadow -> no blends
+  // -> return the singular value.
+  if (!shadowValue && (blocks.size() <= 1)) {
+    return nullptr; // No merging necessary.
+  }
 
 // we will need blending: create a block for that to take place
   if (!superInput.blendBlock) {
@@ -606,6 +611,25 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     if (blockLoop) {
       blockLoop->addBasicBlockToLoop(superInput.blendBlock, li);
     }
+  }
+  return superInput.blendBlock;
+}
+
+Value *
+Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
+  // TODO: De-duplicate (same code in requestBlendBlock)
+  auto * shadowValue = getShadowInput(phi);
+  auto * defaultValue = shadowValue;
+  if (!defaultValue) {
+    // just default to the first incoming value, otw
+    defaultValue = superInput.getFrequentIncomingValue(phi);
+  }
+
+  // early exit: there is only one predecessor: no phis, no shadow -> no blends
+  // -> return the singular value.
+  auto & blocks = superInput.inBlocks;
+  if (!shadowValue && (blocks.size() <= 1)) {
+    return defaultValue; // No merging necessary.
   }
 
   // make sure the default definition is dominating
@@ -643,8 +667,8 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
     Mask edgeMask = *getEdgeMask(*inBlock, phiBlock);
 
-  // make sure the mask predicate is available at this point
-    if (isa<Instruction>(edgeMask.getPred())) {
+  // make sure the mask predicate is available at this point.
+    if (edgeMask.getPred() && isa<Instruction>(edgeMask.getPred())) {
       // TODO create only one repair phi for this mask
       // TODO support AVL
       auto & maskFuture = createRepairPhi(*edgeMask.getPred(), *superInput.blendBlock);
@@ -832,13 +856,42 @@ Linearizer::foldPhis(BasicBlock & block) {
   // TODO can abort here if selectBlockMap.empty()
   assert(!selectBlockMap.empty());
 
-// phi -> select based on getEdgeMask(start, dest)
+// Create any required blend blocks.
+  IF_DEBUG_LIN { errs() << "== Creating blend blocks ==\n"; }
   auto itStart = block.begin(), itEnd = block.end();
   for (auto it = itStart; it != itEnd; ) {
     auto * phi = dyn_cast<PHINode>(&*it++);
     if (!phi) break;
     if (phi->getNumIncomingValues() == 1) continue; // LCSSA
     if (isRepairPhi(*phi)) continue; // only a placeholder for defered SSA repair
+
+    SmallPtrSet<const BasicBlock*, 4>  seenPreds;
+    for (auto * predBlock : predecessors(&block)) {
+      if (!seenPreds.insert(predBlock).second) continue;
+
+      auto itSuperInput = selectBlockMap.find(predBlock);
+
+      assert(itSuperInput != selectBlockMap.end());
+
+      // Check whether a merge block is required and create it.
+      const auto* BlendBlock = requestBlendBlock(*phi, itSuperInput->second);
+      (void) BlendBlock;
+      IF_DEBUG_LIN {
+        errs() << "Created blend block for " << predBlock->getName() << " -> "
+               << phi->getParent()->getName() << "\n";
+      }
+    }
+  }
+
+// phi -> select based on getEdgeMask(start, dest)
+  IF_DEBUG_LIN { errs() << "== Creating blends in blend blocks ==\n"; }
+  itStart = block.begin(), itEnd = block.end();
+  for (auto it = itStart; it != itEnd; ) {
+    auto * phi = dyn_cast<PHINode>(&*it++);
+    if (!phi) break;
+    if (phi->getNumIncomingValues() == 1) continue; // LCSSA
+    if (isRepairPhi(*phi)) continue; // only a placeholder for defered SSA repair
+    IF_DEBUG_LIN { errs() << "Converting " << *phi << "\n"; }
 
     ++numCDivPhis;
     numPreservedAssignments += selectBlockMap.size() - 1;
@@ -858,6 +911,7 @@ Linearizer::foldPhis(BasicBlock & block) {
       auto * superInVal = createSuperInput(*phi, itSuperInput->second);
       auto & superInput = itSuperInput->second;
 
+      // Select based on incoming block
       auto * selectBlock = superInput.blendBlock ? superInput.blendBlock : predBlock;
       flatPhi.addIncoming(superInVal, selectBlock);
     }

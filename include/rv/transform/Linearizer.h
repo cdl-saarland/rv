@@ -324,6 +324,10 @@ namespace rv {
     /// \brief promotes a definition from @defBlockId to @blockId (returns intermediate definitions on the interval between @defBlockId an @destBlockID
     llvm::Value & promoteDefinitionExt(llvm::SmallVector<llvm::Value*, 16> & defs, llvm::Value & inst, llvm::Value & defaultDef, int defBlockId, int destBlockId);
 
+    // Create a merge block (if required for this phi node). 
+    llvm::BasicBlock * requestBlendBlock(llvm::PHINode & phi, SuperInput & superInput);
+
+    // Materialize the merging code (after \p requestBlendBlock has created the merge block itself).
     llvm::Value * createSuperInput(llvm::PHINode & phi, SuperInput & superInput);
 
   // analysis structures
