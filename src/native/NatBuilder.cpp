@@ -1845,7 +1845,7 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *scaInst,
   vecValues ? ++numUniMaskedStores : ++numUniMaskedLoads;
 
   // emit a scalar memory acccess within a any-guarded section
-  bool needsGuard = false; // FIXME
+  bool needsGuard = true; // FIXME
   return &createAnyGuard(needsGuard, *scaInst->getParent(), isa<LoadInst>(scaInst),
       [=](IRBuilder<> & builder)
   {
