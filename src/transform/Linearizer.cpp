@@ -604,6 +604,7 @@ Linearizer::requestBlendBlock(PHINode & phi, SuperInput & superInput) {
 
 // we will need blending: create a block for that to take place
   if (!superInput.blendBlock) {
+    assert(phi.getParent());
     auto & joinBlock = *phi.getParent();
     std::string superBlockName = (joinBlock.getName() + ".s").str();
     superInput.blendBlock = BasicBlock::Create(phi.getContext(), superBlockName, phi.getParent()->getParent(), phi.getParent());
@@ -858,12 +859,10 @@ Linearizer::foldPhis(BasicBlock & block) {
 
 // Create any required blend blocks.
   IF_DEBUG_LIN { errs() << "== Creating blend blocks ==\n"; }
-  auto itStart = block.begin(), itEnd = block.end();
-  for (auto it = itStart; it != itEnd; ) {
-    auto * phi = dyn_cast<PHINode>(&*it++);
-    if (!phi) break;
-    if (phi->getNumIncomingValues() == 1) continue; // LCSSA
-    if (isRepairPhi(*phi)) continue; // only a placeholder for defered SSA repair
+  std::vector<PHINode*> FoldPHIs;
+  for (PHINode & phi : block.phis()) {
+    if (phi.getNumIncomingValues() == 1) continue; // LCSSA
+    if (isRepairPhi(phi)) continue; // only a placeholder for defered SSA repair
 
     SmallPtrSet<const BasicBlock*, 4>  seenPreds;
     for (auto * predBlock : predecessors(&block)) {
@@ -874,31 +873,27 @@ Linearizer::foldPhis(BasicBlock & block) {
       assert(itSuperInput != selectBlockMap.end());
 
       // Check whether a merge block is required and create it.
-      const auto* BlendBlock = requestBlendBlock(*phi, itSuperInput->second);
+      const auto* BlendBlock = requestBlendBlock(phi, itSuperInput->second);
       (void) BlendBlock;
       IF_DEBUG_LIN {
         errs() << "Created blend block for " << predBlock->getName() << " -> "
-               << phi->getParent()->getName() << "\n";
+               << phi.getParent()->getName() << "\n";
       }
+      FoldPHIs.push_back(&phi);
     }
   }
 
 // phi -> select based on getEdgeMask(start, dest)
   IF_DEBUG_LIN { errs() << "== Creating blends in blend blocks ==\n"; }
-  itStart = block.begin(), itEnd = block.end();
-  for (auto it = itStart; it != itEnd; ) {
-    auto * phi = dyn_cast<PHINode>(&*it++);
-    if (!phi) break;
-    if (phi->getNumIncomingValues() == 1) continue; // LCSSA
-    if (isRepairPhi(*phi)) continue; // only a placeholder for defered SSA repair
-    IF_DEBUG_LIN { errs() << "Converting " << *phi << "\n"; }
+  for (auto * UnfoldedPhi : FoldPHIs) {
+    IF_DEBUG_LIN { errs() << "Converting " << *UnfoldedPhi << "\n"; }
 
     ++numCDivPhis;
     numPreservedAssignments += selectBlockMap.size() - 1;
 
   // materialize blended inputs
-    auto phiShape = vecInfo.getVectorShape(*phi);
-    auto & flatPhi = *PHINode::Create(phi->getType(), 6, phi->getName(), phi);
+    auto phiShape = vecInfo.getVectorShape(*UnfoldedPhi);
+    auto & flatPhi = *PHINode::Create(UnfoldedPhi->getType(), 6, UnfoldedPhi->getName(), UnfoldedPhi);
     SmallPtrSet<const BasicBlock*, 4>  seenPreds;
     for (auto * predBlock : predecessors(&block)) {
       if (!seenPreds.insert(predBlock).second) continue;
@@ -908,7 +903,7 @@ Linearizer::foldPhis(BasicBlock & block) {
       assert(itSuperInput != selectBlockMap.end());
 
       // folded iput
-      auto * superInVal = createSuperInput(*phi, itSuperInput->second);
+      auto * superInVal = createSuperInput(*UnfoldedPhi, itSuperInput->second);
       auto & superInput = itSuperInput->second;
 
       // Select based on incoming block
@@ -927,8 +922,8 @@ Linearizer::foldPhis(BasicBlock & block) {
     }
 
   // remove the old phi node
-    phi->replaceAllUsesWith(replacement);
-    phi->eraseFromParent();
+    UnfoldedPhi->replaceAllUsesWith(replacement);
+    UnfoldedPhi->eraseFromParent();
   }
 
 // embed future blend blocks into control
