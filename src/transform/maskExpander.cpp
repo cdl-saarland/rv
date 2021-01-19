@@ -259,14 +259,15 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
 
   // check if we post-dominate our idom (optimization)
   auto &DT = FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
-  auto &PDT = FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
+  auto &PDT = FAM.getResult<PostDominatorTreeAnalysis>(vecInfo.getScalarFunction());
   auto * domNode = DT.getNode(&BB);
   auto &idomBlock = *domNode->getIDom()->getBlock();
 
 // try to re-use the SESE entry mask
-  if (vecInfo.inRegion(idomBlock) && PDT.dominates(&BB, &idomBlock)) {
+  bool ClosesRegion = PDT.dominates(&BB, &idomBlock);
+  if (vecInfo.inRegion(idomBlock) && ClosesRegion) {
     auto & idomMask = requestBlockMask(idomBlock);
-    IF_DEBUG_ME { errs() << " -> SESE entry mask re-use profitable.\n"; }
+    IF_DEBUG_ME { errs() << " -> Re-use SESE entry mask.\n"; }
 
     return setBlockMask(BB, idomMask);
   }
