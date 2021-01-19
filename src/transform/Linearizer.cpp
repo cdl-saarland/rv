@@ -605,7 +605,7 @@ Linearizer::requestBlendBlock(PHINode & phi, SuperInput & superInput) {
 // we will need blending: create a block for that to take place
   if (!superInput.blendBlock) {
     auto & joinBlock = *phi.getParent();
-    auto superBlockName = joinBlock.getName() + ".s";
+    std::string superBlockName = (joinBlock.getName() + ".s").str();
     superInput.blendBlock = BasicBlock::Create(phi.getContext(), superBlockName, phi.getParent()->getParent(), phi.getParent());
     auto * blockLoop = GetCommonLoop(li, blocks); // FIXME this does not apply to loop header inputs..
     if (blockLoop) {
@@ -692,7 +692,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
 
     ++numBlends; // statistics
 
-    std::string name = inVal->getName().str() + ".b";
+    std::string name = (inVal->getName() + ".b").str();
     blendedVal = MBuilder.CreateSelect(builder, edgeMask, inVal, blendedVal, JoinMsk.getAVL(), name);
     vecInfo.setVectorShape(*blendedVal, phiShape);
   }
