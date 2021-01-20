@@ -45,6 +45,8 @@
 #define IF_DEBUG_NAT IF_DEBUG
 #endif
 
+const static bool EnableUnsafeOptimizations = true;
+
 using namespace llvm;
 
 unsigned
@@ -1845,7 +1847,7 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *scaInst,
   vecValues ? ++numUniMaskedStores : ++numUniMaskedLoads;
 
   // emit a scalar memory acccess within a any-guarded section
-  bool needsGuard = true; // FIXME
+  bool needsGuard = !EnableUnsafeOptimizations; // FIXME
   return &createAnyGuard(needsGuard, *scaInst->getParent(), isa<LoadInst>(scaInst),
       [=](IRBuilder<> & builder)
   {
