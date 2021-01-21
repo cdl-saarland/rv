@@ -304,34 +304,49 @@ InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleW
           {"drand48", "vrand_extra_vla", 2},
           {"frand48", "vrand_extra_vla", 4}
 #endif
-            {"sinf", "xsinf", floatWidth},
-            {"cosf", "xcosf", floatWidth},
-            {"tanf", "xtanf", floatWidth},
-            {"asinf", "xasinf", floatWidth},
-            {"acosf", "xacosf", floatWidth},
-            {"atanf", "xatanf", floatWidth},
-            {"atan2f", "xatan2f", floatWidth},
-            {"logf", "xlogf", floatWidth},
-            {"cbrtf", "xcbrtf", floatWidth},
-            {"expf", "xexpf", floatWidth},
-            {"powf", "xpowf", floatWidth},
-            {"sinhf", "xsinhf", floatWidth},
-            {"coshf", "xcoshf", floatWidth},
-            {"tanhf", "xtanhf", floatWidth},
-            {"asinhf", "xasinhf", floatWidth},
-            {"acoshf", "xacoshf", floatWidth},
-            {"atanhf", "xatanhf", floatWidth},
-            {"exp2f", "xexp2f", floatWidth},
-            {"exp10f", "xexp10f", floatWidth},
-            {"expm1f", "xexpm1f", floatWidth},
-            {"log10f", "xlog10f", floatWidth},
-            {"log1pf", "xlog1pf", floatWidth},
-            {"sqrtf", "xsqrtf", floatWidth},
-            {"hypotf", "xhypotf",  floatWidth},
-            {"lgammaf", "xlgammaf", floatWidth},
-            {"tgammaf", "xtgammaf", floatWidth},
-            {"erff", "xerff",       floatWidth},
-            {"erfcf", "xerfcf",    floatWidth},
+#define ALSO_FINITE(IRNAME, SLEEFNAME, WIDTH) \
+            {#IRNAME, #SLEEFNAME, WIDTH}, \
+            {"__" #IRNAME "_finite", #SLEEFNAME, floatWidth}
+#define ALSO_FINITE_ULP(IRNAME, ULP, SLEEFNAME, WIDTH) \
+            {#IRNAME, #SLEEFNAME, WIDTH}, \
+            {"__" #IRNAME "_" #ULP "_finite", #SLEEFNAME, floatWidth}
+//            EXPORT CONST vfloat __atan2f_finite    (vfloat, vfloat) __attribute__((weak, alias(str_xatan2f_u1 )));
+//            EXPORT CONST vfloat __fmodf_finite     (vfloat, vfloat) __attribute__((weak, alias(str_xfmodf     )));
+//            EXPORT CONST vfloat __modff_finite      (vfloat, vfloat *) __attribute__((weak, alias(str_xmodff  )));
+//            EXPORT CONST vfloat __hypotf_u05_finite(vfloat, vfloat) __attribute__((weak, alias(str_xhypotf_u05)));
+
+            // TODO: Auto-generate this from some API header/description file.
+            ALSO_FINITE(acosf,xacosf, floatWidth),
+            ALSO_FINITE(acoshf,xacoshf, floatWidth),
+            ALSO_FINITE(acoshf,xacoshf,floatWidth),
+            ALSO_FINITE(asinf,xasinf, floatWidth),
+            ALSO_FINITE(asinhf, xasinhf, floatWidth),
+            ALSO_FINITE(atan2f,xatan2f, floatWidth),
+            ALSO_FINITE(atanf,xatanf, floatWidth),
+            ALSO_FINITE(atanhf,xatanhf,floatWidth),
+            ALSO_FINITE(cbrtf,xcbrtf, floatWidth),
+            ALSO_FINITE(cosf,xcosf, floatWidth),
+            ALSO_FINITE(coshf, xcoshf, floatWidth),
+            ALSO_FINITE(erfcf,xerfcf,    floatWidth),
+            ALSO_FINITE(erff,xerff,       floatWidth),
+            ALSO_FINITE(exp10f,xexp10f, floatWidth),
+            ALSO_FINITE(exp2f,xexp2f, floatWidth),
+            ALSO_FINITE(expf,xexpf,floatWidth),
+            ALSO_FINITE(expm1f,xexpm1f, floatWidth),
+            ALSO_FINITE(log10f,xlog10f,floatWidth),
+            ALSO_FINITE(log1pf,xlog1pf,floatWidth),
+            ALSO_FINITE(logf,xlogf, floatWidth),
+            ALSO_FINITE(powf,xpowf,floatWidth),
+            ALSO_FINITE(sinf,xsinf, floatWidth),
+            ALSO_FINITE(sinhf,xsinhf, floatWidth),
+            ALSO_FINITE(sqrtf,xsqrtf,floatWidth),
+            ALSO_FINITE(tanf,xtanf, floatWidth),
+            ALSO_FINITE(tanhf, xtanhf, floatWidth),
+            ALSO_FINITE_ULP(hypotf,u05,xhypotf,floatWidth),
+            ALSO_FINITE_ULP(lgammaf,u1,xlgammaf, floatWidth),
+            ALSO_FINITE_ULP(tgammaf,u1,xtgammaf, floatWidth),
+#undef ALSO_FINITE
+#undef ALSO_FINITE_ULP
 
             {"sin", "xsin",   doubleWidth},
             {"cos", "xcos",   doubleWidth},
