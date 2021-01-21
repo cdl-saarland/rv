@@ -78,7 +78,7 @@ static bool IsForVE(Function &F) {
 }
 
 static std::pair<Type *, unsigned> UnvectorizeType(Type *Ty) {
-  if (auto VecTy = dyn_cast<VectorType>(Ty)) {
+  if (auto VecTy = dyn_cast<FixedVectorType>(Ty)) {
     return std::make_pair<>(VecTy->getElementType(), VecTy->getNumElements());
   }
   if (auto FuncTy = dyn_cast<FunctionType>(Ty)) {
@@ -120,6 +120,28 @@ static std::pair<Type *, unsigned> UnvectorizeType(Type *Ty) {
   return std::make_pair<>(Ty, 1);
 }
 
+static bool IsArgumentKind(Intrinsic::IITDescriptor IT) {
+  using IIT = Intrinsic::IITDescriptor;
+      return (IT.Kind == IIT::Argument || IT.Kind == IIT::ExtendArgument ||
+             IT.Kind == IIT::TruncArgument || IT.Kind == IIT::HalfVecArgument ||
+             IT.Kind == IIT::SameVecWidthArgument || IT.Kind == IIT::PtrToArgument ||
+             IT.Kind == IIT::VecElementArgument || IT.Kind == IIT::Subdivide2Argument ||
+             IT.Kind == IIT::Subdivide4Argument || IT.Kind == IIT::VecOfBitcastsToInt);
+}
+
+static bool VerifyType(Intrinsic::IITDescriptor::IITDescriptorKind K,
+                       Type *ScaType) {
+  using IK = Intrinsic::IITDescriptor::IITDescriptorKind;
+  switch (K) {
+  case IK::VecOfAnyPtrsToElt:
+  case IK::Vector:
+    return isa<VectorType>(ScaType);
+
+  default:
+    return true;
+  }
+}
+
 static Function *DeclareIntrinsic(Module &M, Intrinsic::ID ID,
                                   FunctionType *DestFuncTy) {
   SmallVector<Intrinsic::IITDescriptor, 2> IITVec;
@@ -129,10 +151,17 @@ static Function *DeclareIntrinsic(Module &M, Intrinsic::ID ID,
   for (auto It : IITVec) {
     ++ArgPos;
     bool IsMatchArg =
+        IsArgumentKind(It) &&
         It.getArgumentKind() == Intrinsic::IITDescriptor::AK_MatchType;
     if (IsMatchArg)
       continue;
-    IntrinTypeVec.push_back(DestFuncTy->getParamType(ArgPos));
+
+    // Sanitize argument.
+    auto *ScaArgType = DestFuncTy->getParamType(ArgPos);
+    if (!VerifyType(It.Kind, ScaArgType))
+      return nullptr;
+
+    IntrinTypeVec.push_back(ScaArgType);
   }
 
   return Intrinsic::getDeclaration(&M, ID, IntrinTypeVec);
@@ -211,6 +240,11 @@ struct FuncSession {
     }
     auto IntrinID = C.getIntrinsicID();
     auto ScaIntrinFunc = DeclareIntrinsic(*F.getParent(), IntrinID, ScaFuncTy);
+
+    if (!ScaIntrinFunc) {
+      errs() << "\t Scalarized signature is incomaptible with intrinsic constraints!\n";
+      return false;
+    }
 
     IF_DEBUG_AM { errs() << "Scalar intrinsic : " << *ScaIntrinFunc << "\n"; }
 
