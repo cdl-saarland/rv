@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "rv/transform/AutoMathPass.h"
 #include "rv/LinkAllPasses.h"
+#include "rv/transform/AutoMathPass.h"
 
 #include "rv/analysis/costModel.h"
 #include "rv/analysis/reductionAnalysis.h"
@@ -122,11 +122,13 @@ static std::pair<Type *, unsigned> UnvectorizeType(Type *Ty) {
 
 static bool IsArgumentKind(Intrinsic::IITDescriptor IT) {
   using IIT = Intrinsic::IITDescriptor;
-      return (IT.Kind == IIT::Argument || IT.Kind == IIT::ExtendArgument ||
-             IT.Kind == IIT::TruncArgument || IT.Kind == IIT::HalfVecArgument ||
-             IT.Kind == IIT::SameVecWidthArgument || IT.Kind == IIT::PtrToArgument ||
-             IT.Kind == IIT::VecElementArgument || IT.Kind == IIT::Subdivide2Argument ||
-             IT.Kind == IIT::Subdivide4Argument || IT.Kind == IIT::VecOfBitcastsToInt);
+  return (IT.Kind == IIT::Argument || IT.Kind == IIT::ExtendArgument ||
+          IT.Kind == IIT::TruncArgument || IT.Kind == IIT::HalfVecArgument ||
+          IT.Kind == IIT::SameVecWidthArgument ||
+          IT.Kind == IIT::PtrToArgument || IT.Kind == IIT::VecElementArgument ||
+          IT.Kind == IIT::Subdivide2Argument ||
+          IT.Kind == IIT::Subdivide4Argument ||
+          IT.Kind == IIT::VecOfBitcastsToInt);
 }
 
 static bool VerifyType(Intrinsic::IITDescriptor::IITDescriptorKind K,
@@ -242,7 +244,10 @@ struct FuncSession {
     auto ScaIntrinFunc = DeclareIntrinsic(*F.getParent(), IntrinID, ScaFuncTy);
 
     if (!ScaIntrinFunc) {
-      errs() << "\t Scalarized signature is incomaptible with intrinsic constraints!\n";
+      IF_DEBUG_AM {
+        errs() << "\t Scalarized signature is incomaptible with intrinsic "
+                  "constraints!\n";
+      }
       return false;
     }
 
