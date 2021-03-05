@@ -13,6 +13,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/Target/TargetMachine.h>
 
+#include <cstdlib>
 #include <sstream>
 
 using namespace llvm;
@@ -75,7 +76,14 @@ Config::Config()
 
 // codegen flags
 , useAVL(CheckFlag("RV_FORCE_AVL")) 
-{}
+{
+  const char *ULP = getenv("RV_ACCURACY");
+  if (ULP) {
+    int CustomBound = atoi(ULP);
+    if (CustomBound > 0) maxULPErrorBound = CustomBound;
+    else Report() << "ERROR: Expected an > 0 integer for RV_ACCURACY\n";
+  }
+}
 
 Config
 Config::createDefaultConfig() {
