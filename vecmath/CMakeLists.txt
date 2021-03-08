@@ -30,6 +30,10 @@ ELSE()
   SET( VECMATH_GENBC_DIR ${RV_SOURCE_DIR}/vecmath/prebuilt_genbc )
 ENDIF()
 
+## Shared constant array
+SET ( SLEEF_BC_REMPITAB "${VECMATH_LIB_DIR}/rempitab.bc" )
+SET ( SLEEF_GENBC_REMPITAB "${VECMATH_GENBC_DIR}/rempitab.gen.cpp" )
+
 ## X86 ##
 SET ( SLEEF_BC_AVX512_SP "${VECMATH_LIB_DIR}/avx512_sleef_sp.bc" )
 SET ( SLEEF_GENBC_AVX512_SP "${VECMATH_GENBC_DIR}/avx512_sleef_sp.gen.cpp" )
@@ -85,6 +89,10 @@ SET ( CRT_GENBC "${VECMATH_GENBC_DIR}/crt.gen.cpp" )
 ### SLEEF Build rules ###
 
 IF (RV_ENABLE_SLEEF)
+   # Shared
+   SET (RV_GENBC_SOURCES ${SLEEF_GENBC_REMPITAB})
+   SET (SLEEF_BC_LIBS ${SLEEF_BC_REMPITAB})
+
   ## X86 ##
   IF (RV_ENABLE_X86)
     Message("-- rv: SLEEF with x86 support.")
@@ -126,8 +134,6 @@ IF (RV_ENABLE_SLEEF)
   MESSAGE("-- rv: Building with SLEEF")
 
   IF (RV_REBUILD_GENBC)
-
-    MESSAGE("-- rv: Re-building SLEEF bitcode from source")
     IF(TARGET clang)
       SET(LLVM_TOOL_CLANG clang)
     ELSE(TARGET clang)
@@ -140,153 +146,161 @@ IF (RV_ENABLE_SLEEF)
     # common build option for BC libraries from SLEEF sources
     SET( RVLIB_BUILD_OPTS -DNDEBUG -O3 -fno-vectorize -ffp-contract=fast -I${RV_LIB_SLEEF_DIR}/../arch -I${RV_LIB_SLEEF_DIR}/../common)
     # extra libs
-    # Sleef single precision
+
+    ## Shared constant table
+    ADD_CUSTOM_COMMAND (
+      OUTPUT ${SLEEF_GENBC_REMPITAB}
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/rempitab.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_VLA} -o ${SLEEF_BC_REMPITAB}
+      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_REMPITAB} \"rempitab\" ${SLEEF_BC_REMPITAB}
+      DEPENDS ${RV_LIB_SLEEF_DIR}/rempitab.c ${LLVM_TOOL_CLANG}
+    )
   
-  ### ADVSIMD
-  IF (RV_ENABLE_ADVSIMD)
-    ADD_CUSTOM_COMMAND (
-      OUTPUT ${SLEEF_GENBC_ADVSIMD_DP}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_ADVSIMD} -o ${SLEEF_BC_ADVSIMD_DP}
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_ADVSIMD_DP} \"advsimd_dp\" ${SLEEF_BC_ADVSIMD_DP}
-      DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
-    )
-    ADD_CUSTOM_COMMAND (
-      OUTPUT ${SLEEF_GENBC_ADVSIMD_SP}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_ADVSIMD} -o ${SLEEF_BC_ADVSIMD_SP}
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_ADVSIMD_SP} \"advsimd_sp\" ${SLEEF_BC_ADVSIMD_SP}
-      DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c ${LLVM_TOOL_CLANG}
-    )
-    ADD_CUSTOM_COMMAND (
-      OUTPUT ${EXTRAS_ADVSIMD_GENBC}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRAS_DIR}/vrand_advsimd.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_ADVSIMD} -o ${EXTRAS_ADVSIMD_BC}
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${EXTRAS_ADVSIMD_GENBC} \"advsimd_extras\" ${EXTRAS_ADVSIMD_BC}
-      DEPENDS ${RV_LIB_EXTRAS_DIR}/vrand_advsimd.c ${LLVM_TOOL_CLANG}
-    )
-  ENDIF()  # !RV_ENABLE_ADVSIMD
+    ### ADVSIMD
+    IF (RV_ENABLE_ADVSIMD)
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${SLEEF_GENBC_ADVSIMD_DP}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_ADVSIMD} -o ${SLEEF_BC_ADVSIMD_DP}
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_ADVSIMD_DP} \"advsimd_dp\" ${SLEEF_BC_ADVSIMD_DP}
+        DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
+      )
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${SLEEF_GENBC_ADVSIMD_SP}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_ADVSIMD} -o ${SLEEF_BC_ADVSIMD_SP}
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_ADVSIMD_SP} \"advsimd_sp\" ${SLEEF_BC_ADVSIMD_SP}
+        DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c ${LLVM_TOOL_CLANG}
+      )
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${EXTRAS_ADVSIMD_GENBC}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRAS_DIR}/vrand_advsimd.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_ADVSIMD} -o ${EXTRAS_ADVSIMD_BC}
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${EXTRAS_ADVSIMD_GENBC} \"advsimd_extras\" ${EXTRAS_ADVSIMD_BC}
+        DEPENDS ${RV_LIB_EXTRAS_DIR}/vrand_advsimd.c ${LLVM_TOOL_CLANG}
+      )
+    ENDIF()  # !RV_ENABLE_ADVSIMD
   
-  if (RV_ENABLE_X86)
-  ### AVX512
+    if (RV_ENABLE_X86)
+    ### AVX512
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${SLEEF_GENBC_AVX512_SP}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX512} -o ${SLEEF_BC_AVX512_SP}
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_AVX512_SP} \"avx512_sp\" ${SLEEF_BC_AVX512_SP}
+        DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
+      )
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${SLEEF_GENBC_AVX512_DP}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX512} -o ${SLEEF_BC_AVX512_DP}
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_AVX512_DP} \"avx512_dp\" ${SLEEF_BC_AVX512_DP}
+        DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
+      )
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${EXTRAS_AVX512_GENBC}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRAS_DIR}/vrand_avx512.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX512} -o ${EXTRAS_AVX512_BC}
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${EXTRAS_AVX512_GENBC} \"avx512_extras\" ${EXTRAS_AVX512_BC}
+        DEPENDS ${RV_LIB_EXTRAS_DIR}/vrand_avx512.c ${LLVM_TOOL_CLANG}
+      )
+    ### AVX2
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${SLEEF_GENBC_AVX2_DP}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX2} -o ${SLEEF_BC_AVX2_DP}
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_AVX2_DP} \"avx2_dp\" ${SLEEF_BC_AVX2_DP}
+        DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
+      )
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${SLEEF_GENBC_AVX2_SP}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX2} -o ${SLEEF_BC_AVX2_SP}
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_AVX2_SP} \"avx2_sp\" ${SLEEF_BC_AVX2_SP}
+        DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c ${LLVM_TOOL_CLANG}
+      )
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${EXTRAS_AVX2_GENBC}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRAS_DIR}/vrand_avx2.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX2} -o ${EXTRAS_AVX2_BC}
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${EXTRAS_AVX2_GENBC} \"avx2_extras\" ${EXTRAS_AVX2_BC}
+        DEPENDS ${RV_LIB_EXTRAS_DIR}/vrand_avx2.c ${LLVM_TOOL_CLANG}
+      )
+    ### AVX
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${SLEEF_GENBC_AVX_DP}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX} -o ${SLEEF_BC_AVX_DP}#.tmp
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_AVX_DP} \"avx_dp\" ${SLEEF_BC_AVX_DP}
+        DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
+      )
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${SLEEF_GENBC_AVX_SP}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX} -o ${SLEEF_BC_AVX_SP}#.tmp
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_AVX_SP} \"avx_sp\" ${SLEEF_BC_AVX_SP}
+        DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c ${LLVM_TOOL_CLANG}
+      )
+    ### SSE
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${SLEEF_GENBC_SSE_SP}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_SSE} -o ${SLEEF_BC_SSE_SP}#.tmp
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_SP} \"sse_sp\" ${SLEEF_BC_SSE_SP}
+        DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c ${LLVM_TOOL_CLANG}
+      )
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${SLEEF_GENBC_SSE_DP}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_SSE} -o ${SLEEF_BC_SSE_DP}#.tmp
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_DP} \"sse_dp\" ${SLEEF_BC_SSE_DP}
+        DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
+      )
+    ENDIF() # !RV_ENABLE_X86
+    
+    ### vector-length agnostic
     ADD_CUSTOM_COMMAND (
-      OUTPUT ${SLEEF_GENBC_AVX512_SP}
+      OUTPUT ${SLEEF_GENBC_VLA_SP}
       COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX512} -o ${SLEEF_BC_AVX512_SP}
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_AVX512_SP} \"avx512_sp\" ${SLEEF_BC_AVX512_SP}
-      DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
+      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsp.c -O3 -fno-vectorize -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_VLA} -o ${SLEEF_BC_VLA_SP}
+      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_VLA_SP} \"vla_sp\" ${SLEEF_BC_VLA_SP}
+      DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsp.c ${LLVM_TOOL_CLANG}
     )
     ADD_CUSTOM_COMMAND (
-      OUTPUT ${SLEEF_GENBC_AVX512_DP}
+      OUTPUT ${SLEEF_GENBC_VLA_DP}
       COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX512} -o ${SLEEF_BC_AVX512_DP}
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_AVX512_DP} \"avx512_dp\" ${SLEEF_BC_AVX512_DP}
-      DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
+      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefdp.c -O3 -fno-vectorize -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_VLA} -o ${SLEEF_BC_VLA_DP}
+      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_VLA_DP} \"vla_dp\" ${SLEEF_BC_VLA_DP}
+      DEPENDS ${RV_LIB_SLEEF_DIR}/sleefdp.c ${LLVM_TOOL_CLANG}
     )
-    ADD_CUSTOM_COMMAND (
-      OUTPUT ${EXTRAS_AVX512_GENBC}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRAS_DIR}/vrand_avx512.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX512} -o ${EXTRAS_AVX512_BC}
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${EXTRAS_AVX512_GENBC} \"avx512_extras\" ${EXTRAS_AVX512_BC}
-      DEPENDS ${RV_LIB_EXTRAS_DIR}/vrand_avx512.c ${LLVM_TOOL_CLANG}
-    )
-  ### AVX2
-    ADD_CUSTOM_COMMAND (
-      OUTPUT ${SLEEF_GENBC_AVX2_DP}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX2} -o ${SLEEF_BC_AVX2_DP}
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_AVX2_DP} \"avx2_dp\" ${SLEEF_BC_AVX2_DP}
-      DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
-    )
-    ADD_CUSTOM_COMMAND (
-      OUTPUT ${SLEEF_GENBC_AVX2_SP}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX2} -o ${SLEEF_BC_AVX2_SP}
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_AVX2_SP} \"avx2_sp\" ${SLEEF_BC_AVX2_SP}
-      DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c ${LLVM_TOOL_CLANG}
-    )
-    ADD_CUSTOM_COMMAND (
-      OUTPUT ${EXTRAS_AVX2_GENBC}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_EXTRAS_DIR}/vrand_avx2.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX2} -o ${EXTRAS_AVX2_BC}
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${EXTRAS_AVX2_GENBC} \"avx2_extras\" ${EXTRAS_AVX2_BC}
-      DEPENDS ${RV_LIB_EXTRAS_DIR}/vrand_avx2.c ${LLVM_TOOL_CLANG}
-    )
-  ### AVX
-    ADD_CUSTOM_COMMAND (
-      OUTPUT ${SLEEF_GENBC_AVX_DP}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX} -o ${SLEEF_BC_AVX_DP}#.tmp
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_AVX_DP} \"avx_dp\" ${SLEEF_BC_AVX_DP}
-      DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
-    )
-    ADD_CUSTOM_COMMAND (
-      OUTPUT ${SLEEF_GENBC_AVX_SP}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_AVX} -o ${SLEEF_BC_AVX_SP}#.tmp
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_AVX_SP} \"avx_sp\" ${SLEEF_BC_AVX_SP}
-      DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c ${LLVM_TOOL_CLANG}
-    )
-  ### SSE
-    ADD_CUSTOM_COMMAND (
-      OUTPUT ${SLEEF_GENBC_SSE_SP}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_SSE} -o ${SLEEF_BC_SSE_SP}#.tmp
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_SP} \"sse_sp\" ${SLEEF_BC_SSE_SP}
-      DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimdsp.c ${LLVM_TOOL_CLANG}
-    )
-    ADD_CUSTOM_COMMAND (
-      OUTPUT ${SLEEF_GENBC_SSE_DP}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsimddp.c -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_SSE} -o ${SLEEF_BC_SSE_DP}#.tmp
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_SSE_DP} \"sse_dp\" ${SLEEF_BC_SSE_DP}
-      DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsimddp.c ${LLVM_TOOL_CLANG}
-    )
-  ENDIF() # !RV_ENABLE_X86
-  
-  ### vector-length agnostic
-  ADD_CUSTOM_COMMAND (
-    OUTPUT ${SLEEF_GENBC_VLA_SP}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefsp.c -O3 -fno-vectorize -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_VLA} -o ${SLEEF_BC_VLA_SP}
-    COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_VLA_SP} \"vla_sp\" ${SLEEF_BC_VLA_SP}
-    DEPENDS ${RV_LIB_SLEEF_DIR}/sleefsp.c ${LLVM_TOOL_CLANG}
-  )
-  ADD_CUSTOM_COMMAND (
-    OUTPUT ${SLEEF_GENBC_VLA_DP}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-    COMMAND ${LLVM_TOOL_CLANG} ${RV_LIB_SLEEF_DIR}/sleefdp.c -O3 -fno-vectorize -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} ${FLAGS_VLA} -o ${SLEEF_BC_VLA_DP}
-    COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${SLEEF_GENBC_VLA_DP} \"vla_dp\" ${SLEEF_BC_VLA_DP}
-    DEPENDS ${RV_LIB_SLEEF_DIR}/sleefdp.c ${LLVM_TOOL_CLANG}
-  )
-  
-  IF (RV_ENABLE_CRT) 
-    # look for compiler-rt source folder
-    get_compiler_rt_path(CRT_SOURCES)
-  
-    Message("-- rv: Building compiler-rt BC libs using ${CRT_SOURCES}.")
-  
-    SET ( CRT_INC "${CRT_SOURCES}/lib/builtins" )
-    IF (NOT (IS_DIRECTORY ${CRT_INC}))
-      message(FATAL_ERROR "--rv: RV_ENABLE_CRT options requires compiler-rt sources to be available!")
+    
+    IF (RV_ENABLE_CRT) 
+      # look for compiler-rt source folder
+      get_compiler_rt_path(CRT_SOURCES)
+    
+      Message("-- rv: Building compiler-rt BC libs using ${CRT_SOURCES}.")
+    
+      SET ( CRT_INC "${CRT_SOURCES}/lib/builtins" )
+      IF (NOT (IS_DIRECTORY ${CRT_INC}))
+        message(FATAL_ERROR "--rv: RV_ENABLE_CRT options requires compiler-rt sources to be available!")
+      ENDIF()
+    
+      # compiler-rt runtime library
+      ADD_CUSTOM_COMMAND (
+        OUTPUT ${CRT_GENBC}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
+        COMMAND ${LLVM_TOOL_CLANG} ${RV_SOURCE_DIR}/vecmath/crt.c -I${CRT_INC} -m64 -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -o ${CRT_BC}
+        COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${CRT_GENBC} \"crt\" ${CRT_BC}
+        DEPENDS ${RV_SOURCE_DIR}/vecmath/crt.c ${LLVM_TOOL_CLANG}
+      )
+    ELSE()  # !RV_ENABLE_CRT
+      Message("-- rv: Building without compiler-rt BC libs.")
     ENDIF()
+
+  ENDIF() # RV_REBUILD_GENBC
   
-    # compiler-rt runtime library
-    ADD_CUSTOM_COMMAND (
-      OUTPUT ${CRT_GENBC}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${RV_LIB_SLEEF_OUT_DIR}
-      COMMAND ${LLVM_TOOL_CLANG} ${RV_SOURCE_DIR}/vecmath/crt.c -I${CRT_INC} -m64 -emit-llvm -c -Wall -Wno-unused ${RVLIB_BUILD_OPTS} -o ${CRT_BC}
-      COMMAND ${PYTHON_EXECUTABLE} ${GENCPP_TOOL} ${CRT_GENBC} \"crt\" ${CRT_BC}
-      DEPENDS ${RV_SOURCE_DIR}/vecmath/crt.c ${LLVM_TOOL_CLANG}
-    )
-  ELSE()  # !RV_ENABLE_CRT
-    Message("-- rv: Building without compiler-rt BC libs.")
-  ENDIF()
-
-ENDIF() # RV_REBUILD_GENBC
-
-add_custom_target(sleef_genbc DEPENDS ${RV_GENBC_SOURCES})
-SET(RV_SLEEF_OBJECTS ${RV_GENBC_SOURCES} PARENT_SCOPE)
+  add_custom_target(sleef_genbc DEPENDS ${RV_GENBC_SOURCES})
+  SET(RV_SLEEF_OBJECTS ${RV_GENBC_SOURCES} PARENT_SCOPE)
 
 ELSE() # !RV_ENABLE_SLEEF
     Message("-- rv: Buildling without SLEEF.")
