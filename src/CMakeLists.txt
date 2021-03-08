@@ -28,6 +28,10 @@ if (RV_DEBUG)
   add_definitions( "-DRV_DEBUG" )
 endif()
 
+IF (RV_REBUILD_GENBC)
+  set_source_files_properties(${RV_SLEEF_OBJECTS} PROPERTIES GENERATED On)
+endif()
+
 add_rv_library(RV
   ./Mask.cpp
   ./MaskBuilder.cpp
@@ -101,6 +105,11 @@ add_rv_library(RV
   ${RV_HEADER_FILES}
   ${RV_SLEEF_OBJECTS}
 )
+
+# Make sure BC buffer cpp files are available before linking libRV
+IF (RV_REBUILD_GENBC)
+  add_dependencies(RV sleef_genbc)
+endif()
 
 if (BUILD_SHARED_LIBS)
   target_link_libraries(RV PUBLIC
