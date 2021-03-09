@@ -944,8 +944,11 @@ void Linearizer::foldPhis(BasicBlock &block) {
 
   // Create any required blend blocks.
   IF_DEBUG_LIN { errs() << "== Creating blend blocks ==\n"; }
-  std::vector<PHINode *> FoldPHIs;
+  std::set<PHINode *> FoldPHIs;
   for (PHINode &phi : block.phis()) {
+    // FIXME: There really should not be duplicates here! (this is a workaround)
+    if (FoldPHIs.count(&phi))
+      continue;
     if (phi.getNumIncomingValues() == 1)
       continue; // LCSSA
     if (isRepairPhi(phi))
@@ -967,7 +970,7 @@ void Linearizer::foldPhis(BasicBlock &block) {
         errs() << "Created blend block for " << predBlock->getName() << " -> "
                << phi.getParent()->getName() << "\n";
       }
-      FoldPHIs.push_back(&phi);
+      FoldPHIs.insert(&phi);
     }
   }
 
@@ -981,8 +984,9 @@ void Linearizer::foldPhis(BasicBlock &block) {
 
     // materialize blended inputs
     auto phiShape = vecInfo.getVectorShape(*UnfoldedPhi);
-    auto &flatPhi = *PHINode::Create(UnfoldedPhi->getType(), 6,
-                                     UnfoldedPhi->getName(), UnfoldedPhi);
+    auto &flatPhi =
+        *PHINode::Create(UnfoldedPhi->getType(), 6, UnfoldedPhi->getName(),
+                         block.getFirstNonPHI());
     SmallPtrSet<const BasicBlock *, 4> seenPreds;
     for (auto *predBlock : predecessors(&block)) {
       if (!seenPreds.insert(predBlock).second)
@@ -1014,7 +1018,7 @@ void Linearizer::foldPhis(BasicBlock &block) {
 
     // remove the old phi node
     UnfoldedPhi->replaceAllUsesWith(replacement);
-    UnfoldedPhi->eraseFromParent();
+    // UnfoldedPhi->eraseFromParent();
   }
 
   // embed future blend blocks into control
@@ -1024,6 +1028,12 @@ void Linearizer::foldPhis(BasicBlock &block) {
       vecInfo.setVectorShape(*it.second.blendBlock->getTerminator(),
                              VectorShape::uni());
     }
+  }
+
+  // Erase junk phis
+  for (auto *UnfoldedPhi : FoldPHIs) {
+    IF_DEBUG_LIN { errs() << "Erasing some phi! " << UnfoldedPhi << "\n"; }
+    UnfoldedPhi->eraseFromParent();
   }
 
   // update idom
