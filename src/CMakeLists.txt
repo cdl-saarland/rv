@@ -78,6 +78,7 @@ add_rv_library(RV
   transform/CoherentIFTransform.cpp
   transform/Linearizer.cpp
   transform/LoopVectorizer.cpp
+  transform/OMPDeclutter.cpp
   transform/WFVPass.cpp
   transform/bosccTransform.cpp
   transform/crtLowering.cpp

@@ -26,6 +26,9 @@ llvm::ModulePass *createAutoMathPass();
 llvm::ModulePass *createWFVPass();
 llvm::FunctionPass *createIRPolisherWrapperPass(Config config = Config());
 
+// Clean up IR using domain knowledge of kmpc calls.
+llvm::FunctionPass *createOMPDeclutterPass();
+
 // Controlled Node Splitting (Irreducible loop normalization)
 llvm::FunctionPass *createLowerRVIntrinsicsPass();
 

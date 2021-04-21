@@ -28,6 +28,8 @@ using namespace llvm;
 namespace rv {
 
 void addPreparatoryPasses(legacy::PassManagerBase &PM) {
+  PM.add(createOMPDeclutterPass());
+  PM.add(createPromoteMemoryToRegisterPass());
   PM.add(createLoopSimplifyPass());
   PM.add(createLCSSAPass());
   PM.add(createLoopExitCanonicalizerPass()); // required for divLoopTrans

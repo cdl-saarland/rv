@@ -223,6 +223,13 @@ public:
   synthesize(int iterOffset, std::string suffix, IRBuilder<> & builder, std::set<Value*> * valueSet, std::function<IterValue (Instruction&)> embedFunc) {
     auto * origReduct = cast<Instruction>(cmp.getOperand(cmpReductIdx));
 
+    // Step through cast (if any).
+    Instruction* IterCastOp = nullptr;
+    if (origReduct->isCast()) {
+      IterCastOp = origReduct;
+      origReduct = cast<Instruction>(origReduct->getOperand(0));
+    }
+
     // used to keep track
     bool tmpExitOnTrue = loopExitOnTrue;
 
@@ -267,6 +274,17 @@ public:
     }
 
     if (isa<Instruction>(adjusted)) if (valueSet) valueSet->insert(adjusted);
+
+    // Re-insert the cast (as necessary).
+    if (IterCastOp) {
+      bool IsSExt = IterCastOp->getOpcode() == Instruction::SExt;
+      if (IsSExt)
+        adjusted = builder.CreateSExtOrTrunc(adjusted, IterCastOp->getType());
+      else
+        adjusted = builder.CreateZExtOrTrunc(adjusted, IterCastOp->getType());
+    }
+
+    // Synthesize a new cmp.
     clonedCmp->setOperand(cmpReductIdx, adjusted);
     builder.Insert(clonedCmp, cmp.getName().str() + suffix);
 
@@ -669,16 +687,16 @@ struct LoopTransformer {
              // we are checking the header phi directly
              headerPhi = itHeaderPhi->second;
              offset = 0;
-           } else {
-             // we checking the reductor result on the header phi (next iteration value)
-             assert(reductors.find(&inst) != reductors.end() && "not testing a reductor");
-             auto * matchingHeaderPhi = reductors[&inst];
-             headerPhi = matchingHeaderPhi;
-             offset = -1; // phi is at iteration -1 relative to reductor
+             return IterValue(*headerPhi, offset);
            }
 
+           // The reductor itself.
+           assert (reductors.find(&inst) != reductors.end());
+           auto * matchingHeaderPhi = reductors[&inst];
+           headerPhi = matchingHeaderPhi;
+           offset = -1; // phi is at iteration -1 relative to reductor
            return IterValue(*headerPhi, offset);
-          }
+        }
     );
 
     // use forwarded exit condition

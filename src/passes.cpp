@@ -19,6 +19,7 @@
 #include "rv/transform/loopExitCanonicalizer.h"
 #include "rv/transform/lowerRVIntrinsics.h"
 #include "rv/transform/AutoMathPass.h"
+#include "rv/transform/OMPDeclutter.h"
 
 #include "llvm/Transforms/Scalar/ADCE.h"
 #include "llvm/Transforms/Utils/LCSSA.h"
@@ -32,7 +33,8 @@ void addPreparatoryPasses(FunctionPassManager &FPM) {
   FPM.addPass(LoopSimplifyPass());
   FPM.addPass(LCSSAPass());
   FPM.addPass(
-      rv::LoopExitCanonicalizerWrapperPass()); // required for divLoopTrans
+      LoopExitCanonicalizerWrapperPass()); // required for divLoopTrans
+  FPM.addPass(OMPDeclutterWrapperPass());
 }
 
 void addPreparatoryPasses(ModulePassManager &MPM) {

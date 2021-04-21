@@ -37,6 +37,11 @@ static cl::opt<bool> rvOnlyPolish("rv-polish",
                                   cl::init(false), cl::ZeroOrMore,
                                   cl::cat(rvCategory));
 
+static cl::opt<bool> rvPrep("rv-prep",
+                                  cl::desc("Run IR canonicalizations."),
+                                  cl::init(false), cl::ZeroOrMore,
+                                  cl::cat(rvCategory));
+
 static cl::opt<bool> rvVectorizeEnabled(
     "rv",
     cl::desc("Enable Whole-Function and Outer-Loop Vectorization with RV "
@@ -66,7 +71,7 @@ static void registerRVPasses(const llvm::PassManagerBuilder &Builder,
     return;
   }
 
-  if (mayVectorize()) {
+  if (rvPrep || mayVectorize()) {
     rv::addPreparatoryPasses(PM);
   }
 

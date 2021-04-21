@@ -81,10 +81,12 @@ static bool IsSupportedReduction(Loop &L, Reduction &red) {
       auto *userInst = dyn_cast<Instruction>(itUser);
       if (!userInst)
         return false; // unsupported
+#if 0
       if (L.contains(userInst->getParent()) && !red.elements.count(userInst)) {
         Report() << "Unsupported user of reduction: " << *userInst << "\n";
         return false;
       }
+#endif
     }
   }
 
@@ -178,9 +180,14 @@ bool LoopVectorizer::hasVectorizableLoopStructure(Loop &L) {
 }
 
 bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
+  if (enableDiagOutput) {
+    Report() << "loopVecPass::scopeLoop " << L.getName() << "\n";
+  }
+
   // Check we are technically capable of turning this loop into a lock-step loop
   // (cheap-ish)
   if (!hasVectorizableLoopStructure(L)) {
+    Report() << "x unfit loop structure\n";
     return false;
   }
 
@@ -204,6 +211,10 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
                  << mdAnnot.minDepDist.get() << "\n";
       }
     }
+  } else {
+    if (enableDiagOutput) {
+      Report() << "loopVecPass: querying LoopDepdendenceAnalysis\n";
+    }
   }
 
   if (enableDiagOutput) {
@@ -214,7 +225,7 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
   // only trigger on annotated loops
   if (!mdAnnot.vectorizeEnable.safeGet(false)) {
     if (enableDiagOutput)
-      Report() << "loopVecPass skip " << L.getName()
+      Report() << "x loopVecPass skip " << L.getName()
                << " . not explicitly triggered.\n";
     return false;
   }
@@ -223,7 +234,7 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
   if (mdAnnot.alreadyVectorized.safeGet(false)) {
     // too verbose
     if (enableDiagOutput)
-      Report() << "loopVecPass skip " << L.getName()
+      Report() << "x loopVecPass skip " << L.getName()
                << " . already vectorized.\n";
     return false;
   }
@@ -233,7 +244,7 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
   // skip if iteration dependence distance precludes vectorization
   if (LJ.DepDist <= 1) {
     if (enableDiagOutput)
-      Report() << "loopVecPass skip " << L.getName()
+      Report() << "x loopVecPass skip " << L.getName()
                << " . Min dependence distance was " << LJ.DepDist << "\n";
     return false;
   }
