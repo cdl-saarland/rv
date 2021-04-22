@@ -300,6 +300,13 @@ public:
   synthesizeEVL(int iterOffset, std::string suffix, IRBuilder<> & builder, std::set<Value*> * valueSet, std::function<IterValue (Instruction&)> embedFunc) {
     auto * origReduct = cast<Instruction>(cmp.getOperand(cmpReductIdx));
 
+    // Step through cast (if any).
+    Instruction* IterCastOp = nullptr;
+    if (origReduct->isCast()) {
+      IterCastOp = origReduct;
+      origReduct = cast<Instruction>(origReduct->getOperand(0));
+    }
+
     // used to keep track
     bool tmpExitOnTrue = loopExitOnTrue;
 
@@ -338,6 +345,15 @@ public:
       adjusted = builder.CreateAdd(&val, ConstantInt::get(val.getType(), offset), "", nswFlag, nuwFlag);
     } else {
       adjusted = &val;
+    }
+
+    // Re-insert the cast (as necessary).
+    if (IterCastOp) {
+      bool IsSExt = IterCastOp->getOpcode() == Instruction::SExt;
+      if (IsSExt)
+        adjusted = builder.CreateSExtOrTrunc(adjusted, IterCastOp->getType());
+      else
+        adjusted = builder.CreateZExtOrTrunc(adjusted, IterCastOp->getType());
     }
 
    // subtract the bound to obtain a lane offset.
