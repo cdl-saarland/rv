@@ -12,12 +12,13 @@
 #include <llvm/IR/Constants.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/PatternMatch.h>
 
 #include "rvConfig.h"
 #include "rv/shape/vectorShape.h"
 #include "rv/annotations.h"
 
-#if -1
+#if 0
 #define IF_DEBUG_RED IF_DEBUG
 #else
 #define IF_DEBUG_RED if (true)
@@ -30,6 +31,13 @@ namespace rv {
 // try to infer the reduction kind of the operator implemented by inst
 static RedKind
 InferRedKind(Instruction & inst, Reduction & red) {
+  using namespace llvm::PatternMatch;
+  if (m_OrdFMin(m_Value(), m_Value()).match(&inst)) {
+    return RedKind::FMin;
+  } else if (m_OrdFMax(m_Value(), m_Value()).match(&inst)) {
+    return RedKind::FMax;
+  }
+
   switch (inst.getOpcode()) {
   // actually operations folding a reduction input into the chian
     case Instruction::FAdd:
@@ -198,11 +206,10 @@ ReductionAnalysis::tryMatchStridePattern(PHINode & headerPhi) {
 
 // is the increment constant a valid stride?
   Constant * incConst = firstConst ? firstConst : secConst;
-  int64_t inc;
+  int64_t inc = 0;
   if (auto * intIncrement = dyn_cast<ConstantInt>(incConst)) {
-    inc =  sign * intIncrement->getSExtValue();
-  } else if (auto * fpInc = dyn_cast<ConstantFP>(incConst)) {
-    RV_UNUSED(fpInc);
+    inc = sign * intIncrement->getSExtValue();
+  } else if (isa<ConstantFP>(incConst)) {
     REASON("TODO implement floating point strides (fast math)")
     return nullptr; // TODO allow natural number fp increments in fast-math
   }
@@ -282,6 +289,24 @@ ReductionAnalysis::isHeaderPhi(Instruction & inst, Loop & loop) const {
 using InstInt = std::pair<Instruction*, int>;
 using NodeStack = std::vector<InstInt>;
 
+static void forOperands(Instruction& Inst, std::function<void(Value*)> Func) {
+  using namespace llvm::PatternMatch;
+   llvm::Value * LHS = nullptr, *RHS = nullptr;
+   if (m_OrdFMin(m_Value(LHS), m_Value(RHS)).match(&Inst)) {
+     Func(LHS);
+     Func(RHS);
+     return;
+   }
+   if (m_OrdFMax(m_Value(LHS), m_Value(RHS)).match(&Inst)) {
+     Func(LHS);
+     Func(RHS);
+     return;
+   }
+
+   for (size_t i = 0; i < Inst.getNumOperands(); ++i)
+     Func(Inst.getOperand(i));
+}
+
 static RedKind
 ClassifyReduction(Reduction & red) {
   RedKind kind = RedKind::Bot;
@@ -291,17 +316,17 @@ ClassifyReduction(Reduction & red) {
     if (nodeKind != RedKind::Bot) {
       // verify that there is exactly one incoming operand from the chain
       bool foundChainOperand = false;
-      for (size_t i = 0; i < inst->getNumOperands(); ++i) {
-        auto * opInst = dyn_cast<Instruction>(inst->getOperand(i));
+      forOperands(*inst, [&](Value* Op){
+        auto * opInst = dyn_cast<Instruction>(Op);
         if (opInst && red.elements.count(opInst)) {
           if (foundChainOperand) {
             nodeKind = RedKind::Top; // multiple chain inputs -> jump to top
-            break;
+            return;
           } else {
             foundChainOperand = true;
           }
         }
-      }
+      });
     }
 
     // TODO verify that reduction
@@ -370,34 +395,34 @@ ReductionAnalysis::analyze(Loop & hostLoop) {
 
       IF_DEBUG_RED { errs() << "inspecting: " << *inst << " ..\n\t"; }
 
-      for (Value * opVal : inst->operands()) {
+      forOperands(*inst, [&](Value *opVal) {
         // unsigned opIdx = itUse.getOperandNo();
         auto * opInst = dyn_cast<Instruction>(opVal);
         if (!opInst) {
           IF_DEBUG_RED { errs() << "\tnon-inst op: " << *opVal << "\n"; }
-          continue;
+          return;
         }
 
         // outside of relevant scope
         if (!hostLoop.contains(opInst->getParent())) {
           IF_DEBUG_RED { errs() << "\tnot carried by hostLoop: " << *opVal << "\n"; }
-          continue;
+          return;
         }
 
         // already part of some SCC
         if (getReductionInfo(*opInst) != nullptr) {
           IF_DEBUG_RED { errs() << "\talready part of an reduction: " << *opVal << "\n"; }
-          continue;
+          return;
         }
 
         // check whether this node has a stride pattern
         if (canReconstructInductively(*opInst)) {
           IF_DEBUG_RED { errs() << "\tinductive operand " << *opInst << ". skip.\n"; }
-          continue;
+          return;
         }
 
         if (elements.count(opInst)) {
-          IF_DEBUG_RED { errs() << "\tcycle!: " << *opInst << " ..\n\t"; }
+          IF_DEBUG_RED { errs() << "\tcycle!: " << *opInst << " ..\n"; }
           // add all instructions that are on this path to the SCC
           for (int p = instIdx; p > 0; ) {
             auto pathNode = nodeStack[p];
@@ -405,10 +430,11 @@ ReductionAnalysis::analyze(Loop & hostLoop) {
             p = pathNode.second;
           }
         } else {
+          IF_DEBUG_RED { errs() << "\t- push: " << *opInst << "\n"; }
           // descend further into operands
           nodeStack.emplace_back(opInst, instIdx);
         }
-      }
+      });
     }
 
     // convert the SEE into a reduction object

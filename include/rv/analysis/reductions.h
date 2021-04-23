@@ -32,8 +32,10 @@ enum class RedKind : int64_t {
   UMax = 6,
   SMin = 7,
   UMin = 8,
+  FMin = 9,
+  FMax = 10,
 
-  Enum_End = 9
+  Enum_End = 11
 };
 
 // join operator

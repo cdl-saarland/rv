@@ -47,10 +47,12 @@ CreateReductInst(IRBuilder<> & builder, RedKind redKind, Value & firstArg, Value
         return *cast<Instruction>(builder.CreateMul(&firstArg, &secondArg, secondArg.getName() + ".r"));
       }
 
+    case RedKind::FMax:
     case RedKind::UMax:
     case RedKind::SMax:
       return CreateMinMax(builder, firstArg, secondArg, false, redKind == RedKind::SMax);
 
+    case RedKind::FMin:
     case RedKind::UMin:
     case RedKind::SMin:
       return CreateMinMax(builder, firstArg, secondArg, true, redKind == RedKind::SMin);

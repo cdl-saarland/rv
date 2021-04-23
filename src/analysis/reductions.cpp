@@ -53,6 +53,8 @@ to_string(RedKind red) {
     case RedKind::UMax: return "UMax";
     case RedKind::SMin: return "SMin";
     case RedKind::UMin: return "UMin";
+    case RedKind::FMin: return "FMin";
+    case RedKind::FMax: return "FMax";
   }
 }
 
@@ -87,12 +89,10 @@ GetNeutralElement_fp(RedKind redKind, Type & chainTy) {
     case RedKind::Mul:
       return *ConstantFP::get(&chainTy, 1.0);
 
-    case RedKind::SMax:
-    case RedKind::UMax:
+    case RedKind::FMax:
       return *ConstantFP::get(&chainTy, isDouble ? minDouble : minFloat);
 
-    case RedKind::SMin:
-    case RedKind::UMin:
+    case RedKind::FMin:
       return *ConstantFP::get(&chainTy, isDouble ? maxDouble : maxFloat);
 
   }
