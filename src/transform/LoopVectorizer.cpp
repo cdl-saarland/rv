@@ -82,6 +82,7 @@ static bool IsSupportedReduction(Loop &L, Reduction &red) {
       if (!userInst)
         return false; // unsupported
 #if 0
+      // FIXME: This does not work with min/max reductions (the CmpInst is not an element of the reduction).
       if (L.contains(userInst->getParent()) && !red.elements.count(userInst)) {
         Report() << "Unsupported user of reduction: " << *userInst << "\n";
         return false;
