@@ -30,6 +30,7 @@
 #endif
 #include "rvConfig.h"
 
+#include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
@@ -48,6 +49,7 @@
 #include "llvm/Analysis/LoopDependenceAnalysis.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Support/CommandLine.h"
+#include <sstream>
 
 #include "report.h"
 #include <map>
@@ -92,6 +94,33 @@ static bool IsSupportedReduction(Loop &L, Reduction &red) {
   }
 
   return true;
+}
+
+#if 0
+static OptimizationRemark createLoopRemark(StringRef RemarkName, Loop *TheLoop,
+                                           Instruction *I) {
+  Value *CodeRegion = TheLoop->getHeader();
+  DebugLoc DL = TheLoop->getStartLoc();
+
+  if (I) {
+    CodeRegion = I->getParent();
+    // If there is no debug location attached to the instruction, revert back to
+    // using the loop's.
+    if (I->getDebugLoc())
+      DL = I->getDebugLoc();
+  }
+
+  return OptimizationRemark("rv-loopvec", RemarkName, DL, CodeRegion);
+}
+#endif
+
+void LoopVectorizer::remark(const StringRef OREMsg, const StringRef ORETag,
+    Loop &TheLoop) const {
+  Value *CodeRegion = TheLoop.getHeader();
+  DebugLoc DL = TheLoop.getStartLoc();
+
+  auto Remark = OptimizationRemark("rv-loopvec", ORETag, DL, CodeRegion);
+  ORE->emit(Remark << OREMsg);
 }
 
 int LoopVectorizer::getTripAlignment(Loop &L) {
@@ -500,6 +529,9 @@ bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
 
   // start vectorizing the prepared loop
   IF_DEBUG { errs() << "rv: Vectorizing loop " << L.getName() << "\n"; }
+  std::stringstream Str;
+  Str << "Loop vectorized (width " << LVJob.LJ.VectorWidth << ")";
+  remark(Str.str(), "SomeFancyTag", L);
 
   VectorMapping targetMapping(F, F, LVJob.LJ.VectorWidth,
                               CallPredicateMode::SafeWithoutPredicate);
@@ -642,6 +674,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
       getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F); // FIXME use FAM
   TargetLibraryInfo &PassTLI =
       getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(F); // FIXME use FAM
+  this->ORE = &getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE();
 
   // setup PlatformInfo
   PlatformInfo platInfo(*F.getParent(), &PassTTI, &PassTLI);
@@ -688,12 +721,15 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   // cleanup
   vectorizer.reset();
   this->F = nullptr;
+  this->PassSE = nullptr;
+  this->ORE = nullptr;
   return Changed;
 }
 
 void LoopVectorizer::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<TargetTransformInfoWrapperPass>();
   AU.addRequired<TargetLibraryInfoWrapperPass>();
+  AU.addRequired<OptimizationRemarkEmitterWrapperPass>();
 }
 
 char LoopVectorizer::ID = 0;
@@ -708,6 +744,7 @@ INITIALIZE_PASS_DEPENDENCY(MemoryDependenceWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(BranchProbabilityInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(OptimizationRemarkEmitterWrapperPass)
 // PlatformInfo
 INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)

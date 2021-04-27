@@ -22,6 +22,7 @@
 #include "rv/legacy/passes.h"
 
 namespace llvm {
+  class OptimizationRemarkEmitter;
   class Loop;
   class LoopInfo;
   class DominatorTree;
@@ -43,6 +44,7 @@ public:
   , config()
   , F(nullptr)
   , PassSE(nullptr)
+  , ORE(nullptr)
   , enableDiagOutput(false)
   , introduced(false)
   , vectorizer()
@@ -57,6 +59,7 @@ private:
   Config config;
   llvm::Function * F;
   llvm::ScalarEvolution * PassSE;
+  llvm::OptimizationRemarkEmitter *ORE;
 
   bool enableDiagOutput;
   bool introduced;
@@ -122,6 +125,10 @@ private:
 
   // vectorize all loops
   bool runLoopJobs();
+
+  // Emit an optimization remark
+  void remark(const llvm::StringRef OREMsg, const llvm::StringRef ORETag,
+              llvm::Loop &TheLoop) const;
 };
 
 struct LoopVectorizerWrapperPass : llvm::PassInfoMixin<LoopVectorizerWrapperPass> {
