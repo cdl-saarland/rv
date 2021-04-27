@@ -108,7 +108,7 @@ private:
   std::unique_ptr<VectorizerInterface> vectorizer;
 
   bool canVectorizeLoop(llvm::Loop &L);
-  bool hasVectorizableLoopStructure(llvm::Loop &L);
+  bool hasVectorizableLoopStructure(llvm::Loop &L, bool EmitRemarks);
 
   // convert L into a vectorizable loop
   // this will create a new scalar loop that can be vectorized directly with RV
@@ -128,7 +128,11 @@ private:
 
   // Emit an optimization remark
   void remark(const llvm::StringRef OREMsg, const llvm::StringRef ORETag,
-              llvm::Loop &TheLoop) const;
+              llvm::Loop &TheLoop, llvm::Instruction *I = nullptr) const;
+  void remarkMiss(const llvm::StringRef OREMsg, const llvm::StringRef ORETag,
+                  llvm::Loop &TheLoop, llvm::Instruction *I = nullptr) const;
+  //  void remarkAnalysis(const llvm::StringRef OREMsg, const llvm::StringRef ORETag,
+  //              llvm::Loop &TheLoop) const;
 };
 
 struct LoopVectorizerWrapperPass : llvm::PassInfoMixin<LoopVectorizerWrapperPass> {

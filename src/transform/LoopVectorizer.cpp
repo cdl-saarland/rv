@@ -96,6 +96,19 @@ static bool IsSupportedReduction(Loop &L, Reduction &red) {
   return true;
 }
 
+static void getRemarkLoc(Loop &L, Instruction *I, Value *&CodeRegion,
+                         DebugLoc &DL) {
+  CodeRegion = L.getHeader();
+  DL = L.getStartLoc();
+  if (I) {
+    CodeRegion = I->getParent();
+    // If there is no debug location attached to the instruction, revert back to
+    // using the loop's.
+    if (I->getDebugLoc())
+      DL = I->getDebugLoc();
+  }
+}
+
 #if 0
 static OptimizationRemark createLoopRemark(StringRef RemarkName, Loop *TheLoop,
                                            Instruction *I) {
@@ -115,9 +128,20 @@ static OptimizationRemark createLoopRemark(StringRef RemarkName, Loop *TheLoop,
 #endif
 
 void LoopVectorizer::remark(const StringRef OREMsg, const StringRef ORETag,
-    Loop &TheLoop) const {
-  Value *CodeRegion = TheLoop.getHeader();
-  DebugLoc DL = TheLoop.getStartLoc();
+                            Loop &TheLoop, llvm::Instruction *I) const {
+  Value *CodeRegion;
+  DebugLoc DL;
+  getRemarkLoc(TheLoop, I, CodeRegion, DL);
+
+  auto Remark = OptimizationRemark("rv-loopvec", ORETag, DL, CodeRegion);
+  ORE->emit(Remark << OREMsg);
+}
+
+void LoopVectorizer::remarkMiss(const StringRef OREMsg, const StringRef ORETag,
+                            Loop &TheLoop, Instruction *I) const {
+  Value *CodeRegion;
+  DebugLoc DL;
+  getRemarkLoc(TheLoop, I, CodeRegion, DL);
 
   auto Remark = OptimizationRemark("rv-loopvec", ORETag, DL, CodeRegion);
   ORE->emit(Remark << OREMsg);
@@ -151,7 +175,7 @@ int LoopVectorizer::getTripCount(Loop &L) {
   return BTCVal + 1;
 }
 
-bool LoopVectorizer::hasVectorizableLoopStructure(Loop &L) {
+bool LoopVectorizer::hasVectorizableLoopStructure(Loop &L, bool EmitRemarks) {
   ReductionAnalysis MyReda(*F, FAM);
   MyReda.analyze(L);
 
@@ -173,12 +197,16 @@ bool LoopVectorizer::hasVectorizableLoopStructure(Loop &L) {
 
     // failure to derive a reduction descriptor
     if (!redInfo) {
+      if (EmitRemarks)
+        remarkMiss("Unknown recurrence", "RVLoopVecNot", L, &Phi);
       Report() << "\n\tskip: unrecognized phi use in vector loop "
                << L.getName() << "\n";
       return false;
     }
 
     if (!IsSupportedReduction(L, *redInfo)) {
+      if (EmitRemarks)
+        remarkMiss("Invalid use of recurrence" , "RVLoopVecNot", L, &Phi);
       Report() << " unsupported reduction: ";
       redInfo->print(ReportContinue());
       ReportContinue() << "\n";
@@ -187,6 +215,8 @@ bool LoopVectorizer::hasVectorizableLoopStructure(Loop &L) {
 
     // unsupported reduction kind (operator in value SCC unrecognized)
     if (redInfo->kind == RedKind::Top) {
+      if (EmitRemarks)
+        remarkMiss("Unknown recurrence pattern", "RVLoopVecNot", L, &Phi);
       Report() << " can not vectorize this non-trivial SCC: ";
       redInfo->print(ReportContinue());
       ReportContinue() << "\n";
@@ -196,6 +226,8 @@ bool LoopVectorizer::hasVectorizableLoopStructure(Loop &L) {
     // Unsupported recurrence (definition and use in different loop
     // iterations)
     if (redInfo->kind == RedKind::Bot) {
+      if (EmitRemarks)
+        remarkMiss("Unsupported loop-carried variable", "RVLoopVecNot", L, &Phi);
       Report() << " can not vectorize this non-affine recurrence: ";
       redInfo->print(ReportContinue());
       ReportContinue() << "\n";
@@ -214,15 +246,18 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
     Report() << "loopVecPass::scopeLoop " << L.getName() << "\n";
   }
 
+  LoopMD mdAnnot = GetLoopAnnotation(L);
+  // Report reasons if this loop has a vectorization hint.
+  bool DoReportFail = mdAnnot.vectorizeEnable.safeGet(false);
+
   // Check we are technically capable of turning this loop into a lock-step loop
   // (cheap-ish)
-  if (!hasVectorizableLoopStructure(L)) {
+  if (!hasVectorizableLoopStructure(L, DoReportFail)) {
     Report() << "x unfit loop structure\n";
     return false;
   }
 
   // Check whether this loop is actually parallel (expensive)
-  LoopMD mdAnnot = GetLoopAnnotation(L);
   if (AutoDetectParallelLoops()) {
     // Auto-detect vectorizable loops with the LoopDependenceAnalysis
     auto &LDI = FAM.getResult<LoopDependenceAnalysis>(*F);
@@ -529,9 +564,6 @@ bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
 
   // start vectorizing the prepared loop
   IF_DEBUG { errs() << "rv: Vectorizing loop " << L.getName() << "\n"; }
-  std::stringstream Str;
-  Str << "Loop vectorized (width " << LVJob.LJ.VectorWidth << ")";
-  remark(Str.str(), "SomeFancyTag", L);
 
   VectorMapping targetMapping(F, F, LVJob.LJ.VectorWidth,
                               CallPredicateMode::SafeWithoutPredicate);
@@ -539,9 +571,15 @@ bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
   Region LoopRegion(LoopRegionImpl);
 
   VectorizationInfo vecInfo(*F, LVJob.LJ.VectorWidth, LoopRegion);
+  std::stringstream Str;
+  Str << "Loop vectorized (width " << LVJob.LJ.VectorWidth << ")";
   if (LVJob.EntryAVL) {
     vecInfo.setEntryAVL(LVJob.EntryAVL);
+    Str << " with dynamic VL";
+  } else {
+    Str << " with scalar remainder loop";
   }
+  remark(Str.str(), "RVLoopVectorized", L);
 
   // Check reduction patterns of vector loop phis
   // configure initial shape for induction variable
