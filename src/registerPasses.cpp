@@ -46,7 +46,7 @@ static cl::opt<bool> rvVectorizeEnabled(
     "rv",
     cl::desc("Enable Whole-Function and Outer-Loop Vectorization with RV "
              "(implies -rv-wfv and -rv-loopvec)."),
-    cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+    cl::init(true), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static cl::opt<bool>
     rvAutoVectorizeMath("rv-math",
