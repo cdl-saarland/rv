@@ -2909,6 +2909,99 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
 
 
 void
+NatBuilder::materializeVaryingReduction_AVL(Reduction & red, PHINode & scaPhi) {
+  assert((red.kind != RedKind::Top) && (red.kind != RedKind::Bot));
+
+  const auto vectorWidth = vecInfo.getVectorWidth();
+  auto * vecPhi = getVectorValueAs<PHINode>(scaPhi);
+  auto redShape = red.getShape(vectorWidth);
+  assert(redShape.isVarying()); (void) redShape;
+
+// construct new (vectorized) initial value
+  // TODO generalize to multi phi reductions
+  Value * vecNeutral = getSplat(&GetNeutralElement(red.kind, *scaPhi.getType()));
+
+  auto * inAtZero = dyn_cast<Instruction>(scaPhi.getIncomingValue(0));
+  int latchIdx = (inAtZero && vecInfo.inRegion(*inAtZero)) ? 0 : 1;
+  int initIdx = 1 - latchIdx;
+
+  BasicBlock * vecInitInputBlock = scaPhi.getIncomingBlock(initIdx);
+  BasicBlock * vecLoopInputBlock = getVectorBlock(*scaPhi.getIncomingBlock(latchIdx), true);
+
+// materialize initial input (insert init value into last lane)
+  Value * scaInitValue = scaPhi.getIncomingValue(initIdx);
+  IRBuilder<> phBuilder(vecInitInputBlock, vecInitInputBlock->getTerminator()->getIterator());
+  auto * intTy = Type::getInt32Ty(scaPhi.getContext());
+  auto * vecInitVal = phBuilder.CreateInsertElement(vecNeutral, scaInitValue, ConstantInt::get(intTy, vectorWidth - 1, false));
+
+// attach inputs (neutral elem and reduction inst)
+  vecPhi->addIncoming(vecInitVal, vecInitInputBlock);
+
+// add latch update
+  Instruction * scaLatchInst = cast<Instruction>(scaPhi.getIncomingValue(latchIdx));
+  auto * vecLatchInst = getVectorValueAs<Instruction>(*scaLatchInst);
+
+// AVL: Keep the existing incoming value in the tail
+  // TODO: As for the non-AVL path, we really should do this tranformation in
+  // P-LLVM using intrinsics (eg rv_select_avl, rv_reduce_avl) and strip all
+  // code paths that treat loop-vectorization and their reductions specially
+  // from the system.
+  auto ItInst = vecLatchInst->getIterator();
+  ++ItInst;
+  IRBuilder<> LatchBuilder(&*ItInst);
+  VPBuilder VecBuilder(LatchBuilder);
+  VecBuilder
+      .setStaticVL(vecInfo.getVectorWidth())
+      .setEVL(nullptr);
+
+  auto &VecAVL = *requestScalarValue(vecInfo.getEntryAVL());
+  auto &vecRedSelect = VecBuilder.createSelect(
+      *vecLatchInst, *vecPhi, *VecBuilder.getAllTrueMask(), VecAVL);
+
+  vecPhi->addIncoming(&vecRedSelect, vecLoopInputBlock);
+
+// reduce reduction phi for outside users
+  repairOutsideUses(*scaLatchInst,
+                    [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
+                      // otw, replace with reduced value
+                      auto * insertPt = userBlock.getFirstNonPHI();
+                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                      auto & reducedVector = CreateVectorReduce(config, builder, red.kind, vecRedSelect, nullptr);
+                      return reducedVector;
+                    }
+  );
+
+
+  // construct a 1...10 mask
+  std::vector<Constant*> selElems;
+  for (size_t i = 1; i < vectorWidth; ++i) {
+    selElems.push_back(ConstantInt::getTrue(vecPhi->getContext()));
+  }
+  selElems.push_back(ConstantInt::getFalse(vecPhi->getContext()));
+  auto * selMask = ConstantVector::get(selElems); // 1...10
+
+  // create reduced outside views for external users
+  for (auto * elem : red.elements) {
+    if (elem == scaLatchInst) continue; // already reduced that one
+    if (!vecInfo.inRegion(*cast<Instruction>(elem))) continue;
+
+    auto& vecElem = *getVectorValueAs<Instruction>(*elem);
+
+    // reduce outside uses on demand
+    repairOutsideUses(*elem,
+                      [&](Value & usedVal, BasicBlock& userBlock) ->Value& {
+                      auto * insertPt = userBlock.getFirstNonPHI();
+                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                      // reduce all end-of-iteration values and request value of last iteration
+                      auto & foldVec = *builder.CreateSelect(selMask, &vecRedSelect, &vecElem, ".red");
+                      auto & reducedVector = CreateVectorReduce(config, builder, red.kind, foldVec, nullptr);
+                      return reducedVector;
+                    }
+    );
+  }
+}
+
+void
 NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
   assert((red.kind != RedKind::Top) && (red.kind != RedKind::Bot));
 
@@ -3014,6 +3107,8 @@ void NatBuilder::addValuesToPHINodes() {
       IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
       if (CheckFlag("RV_RED_ORDER")) {
         materializeOrderedReduction(*red, *scalPhi);
+      } else if (vecInfo.getEntryAVL()) {
+        materializeVaryingReduction_AVL(*red, *scalPhi);
       } else {
         materializeVaryingReduction(*red, *scalPhi);
       }

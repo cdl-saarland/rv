@@ -74,6 +74,7 @@ namespace rv {
     void repairOutsideUses(llvm::Instruction & scaChainInst, std::function<llvm::Value& (llvm::Value &,llvm::BasicBlock &)> repairFunc);
 
     // generate reduction code (after all other instructions have been vectorized)
+    void materializeVaryingReduction_AVL(rv::Reduction & red, llvm::PHINode & scaPhi);
     void materializeVaryingReduction(rv::Reduction & red, llvm::PHINode & scaPhi);
     void materializeOrderedReduction(rv::Reduction & red, llvm::PHINode & scaPhi);
 
