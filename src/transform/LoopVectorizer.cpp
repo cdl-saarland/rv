@@ -70,7 +70,7 @@ cl::OptionCategory rvLoopVecCategory("RV LoopVectorizer Options", "Configure the
 static cl::opt<bool> rvAutoVec(
     "rv-autovec",
     cl::desc("Enable automatic outer-loop vectorization with RV "),
-    cl::init(true), cl::ZeroOrMore, cl::cat(rvLoopVecCategory));
+    cl::init(false), cl::ZeroOrMore, cl::cat(rvLoopVecCategory));
 
 // Whether LV should try to detect parallel loops
 static bool AutoDetectParallelLoops() { return rvAutoVec; }
