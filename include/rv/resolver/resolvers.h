@@ -13,9 +13,6 @@
 #include "rv/PlatformInfo.h"
 
 namespace rv {
-  // function resolver relying on TargetLibraryInfo.
-  void addTLIResolver(const Config & config, PlatformInfo & platInfo);
-
   // Use the SLEEF library to implement math functions.
   void addSleefResolver(const Config & config, PlatformInfo & platInfo);
 

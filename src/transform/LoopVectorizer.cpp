@@ -257,8 +257,14 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
     return false;
   }
 
-  // Check whether this loop is actually parallel (expensive)
-  if (AutoDetectParallelLoops()) {
+  // Trivial case.
+  if (L.isAnnotatedParallel()) {
+    mdAnnot.minDepDist = ParallelDistance;
+    mdAnnot.vectorizeEnable = true;
+
+    // Check whether this loop is actually parallel (expensive)
+  } else if (AutoDetectParallelLoops()) {
+
     // Auto-detect vectorizable loops with the LoopDependenceAnalysis
     auto &LDI = FAM.getResult<LoopDependenceAnalysis>(*F);
     auto DepInfo = LDI.getDependenceInfo(L);
@@ -275,10 +281,6 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
         Report() << "loopVecPass: LDI: loop " << L.getName() << " with dep dist"
                  << mdAnnot.minDepDist.get() << "\n";
       }
-    }
-  } else {
-    if (enableDiagOutput) {
-      Report() << "loopVecPass: querying LoopDepdendenceAnalysis\n";
     }
   }
 

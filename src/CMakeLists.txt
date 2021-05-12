@@ -67,7 +67,6 @@ add_rv_library(RV
   region/FunctionRegion.cpp
   region/LoopRegion.cpp
   region/Region.cpp
-  resolver/TLIResolver.cpp
   resolver/listResolver.cpp
   resolver/recResolver.cpp
   resolver/resolver.cpp
