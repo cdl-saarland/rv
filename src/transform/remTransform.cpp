@@ -213,6 +213,11 @@ public:
       adjustedPred = CmpInst::getSwappedPredicate(adjustedPred);
     }
 
+    // Cmp predicate tests before assumes that i is at index 0 and the 'n' at index 1.
+    // Swap the predicate again if this is not the case.
+    if (reductIdx != 0)
+      adjustedPred = CmpInst::getSwappedPredicate(adjustedPred);
+
     return new BranchCondition(loopExitOnTrue, exitWhenEqual, cmp, adjustedPred, reductIdx, *red, vectorWidth);
   }
 
