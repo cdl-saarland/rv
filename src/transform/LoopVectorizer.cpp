@@ -716,6 +716,8 @@ bool LoopVectorizer::runOnFunction(Function &F) {
       getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(F); // FIXME use FAM
   this->ORE = &getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE();
 
+  if (!this->config.useVE) return false;
+
   // setup PlatformInfo
   PlatformInfo platInfo(*F.getParent(), &PassTTI, &PassTLI);
 
