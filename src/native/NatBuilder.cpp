@@ -923,10 +923,10 @@ void NatBuilder::vectorizeAtomicRMW(AtomicRMWInst *const atomicrmw) {
         case AtomicRMWInst::Sub:  itervar = builder.CreateSub(itervar, update); break;
         case AtomicRMWInst::And:  itervar = builder.CreateAnd(itervar, update); break;
         case AtomicRMWInst::Or:   itervar = builder.CreateOr(itervar, update); break;
-        case AtomicRMWInst::Max:  itervar = createMinMaxOp(builder, RecurrenceDescriptor::MRK_SIntMax, itervar, update); break;
-        case AtomicRMWInst::UMax: itervar = createMinMaxOp(builder, RecurrenceDescriptor::MRK_UIntMax, itervar, update); break;
-        case AtomicRMWInst::Min:  itervar = createMinMaxOp(builder, RecurrenceDescriptor::MRK_SIntMin, itervar, update); break;
-        case AtomicRMWInst::UMin: itervar = createMinMaxOp(builder, RecurrenceDescriptor::MRK_UIntMin, itervar, update); break;
+        case AtomicRMWInst::Max:  itervar = createMinMaxOp(builder, RecurKind::SMax, itervar, update); break;
+        case AtomicRMWInst::UMax: itervar = createMinMaxOp(builder, RecurKind::UMax, itervar, update); break;
+        case AtomicRMWInst::Min:  itervar = createMinMaxOp(builder, RecurKind::SMin, itervar, update); break;
+        case AtomicRMWInst::UMin: itervar = createMinMaxOp(builder, RecurKind::UMin, itervar, update); break;
         default:
           llvm_unreachable("case missing");
         }
