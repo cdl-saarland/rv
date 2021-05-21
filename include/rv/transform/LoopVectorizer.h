@@ -66,10 +66,12 @@ private:
 
   // cost estimation
   struct LoopScore {
-    LoopScore() : Score(0) {}
+    LoopScore(bool HasSIMDAnnotation = false)
+        : Score(0), HasSIMDAnnotation(HasSIMDAnnotation) {}
     unsigned Score;
+    bool HasSIMDAnnotation;
   };
-  
+
   struct LoopJob {
     LoopJob()
     : Header(nullptr)

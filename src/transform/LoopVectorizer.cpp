@@ -47,8 +47,8 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 
 #include "llvm/Analysis/LoopDependenceAnalysis.h"
-#include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Transforms/Utils/Cloning.h"
 #include <sstream>
 
 #include "report.h"
@@ -65,12 +65,14 @@ using namespace llvm;
 #define IF_DEBUG_LV if (true)
 #endif
 
-cl::OptionCategory rvLoopVecCategory("RV LoopVectorizer Options", "Configure the Outer-Loop Vectorizer of RV");
+cl::OptionCategory
+    rvLoopVecCategory("RV LoopVectorizer Options",
+                      "Configure the Outer-Loop Vectorizer of RV");
 
-static cl::opt<bool> rvAutoVec(
-    "rv-autovec",
-    cl::desc("Enable automatic outer-loop vectorization with RV "),
-    cl::init(false), cl::ZeroOrMore, cl::cat(rvLoopVecCategory));
+static cl::opt<bool>
+    rvAutoVec("rv-autovec",
+              cl::desc("Enable automatic outer-loop vectorization with RV "),
+              cl::init(false), cl::ZeroOrMore, cl::cat(rvLoopVecCategory));
 
 // Whether LV should try to detect parallel loops
 static bool AutoDetectParallelLoops() { return rvAutoVec; }
@@ -138,7 +140,7 @@ void LoopVectorizer::remark(const StringRef OREMsg, const StringRef ORETag,
 }
 
 void LoopVectorizer::remarkMiss(const StringRef OREMsg, const StringRef ORETag,
-                            Loop &TheLoop, Instruction *I) const {
+                                Loop &TheLoop, Instruction *I) const {
   Value *CodeRegion;
   DebugLoc DL;
   getRemarkLoc(TheLoop, I, CodeRegion, DL);
@@ -206,7 +208,7 @@ bool LoopVectorizer::hasVectorizableLoopStructure(Loop &L, bool EmitRemarks) {
 
     if (!IsSupportedReduction(L, *redInfo)) {
       if (EmitRemarks)
-        remarkMiss("Invalid use of recurrence" , "RVLoopVecNot", L, &Phi);
+        remarkMiss("Invalid use of recurrence", "RVLoopVecNot", L, &Phi);
       Report() << " unsupported reduction: ";
       redInfo->print(ReportContinue());
       ReportContinue() << "\n";
@@ -227,7 +229,8 @@ bool LoopVectorizer::hasVectorizableLoopStructure(Loop &L, bool EmitRemarks) {
     // iterations)
     if (redInfo->kind == RedKind::Bot) {
       if (EmitRemarks)
-        remarkMiss("Unsupported loop-carried variable", "RVLoopVecNot", L, &Phi);
+        remarkMiss("Unsupported loop-carried variable", "RVLoopVecNot", L,
+                   &Phi);
       Report() << " can not vectorize this non-affine recurrence: ";
       redInfo->print(ReportContinue());
       ReportContinue() << "\n";
@@ -247,6 +250,16 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
   }
 
   LoopMD mdAnnot = GetLoopAnnotation(L);
+
+  if (mdAnnot.alreadyVectorized.safeGet(false)) {
+    Report() << "x already vectorized\n";
+    return false;
+  }
+
+  // Preserve user intent.
+  if (mdAnnot.vectorizeEnable.safeGet(false))
+    LS.HasSIMDAnnotation = true;
+
   // Report reasons if this loop has a vectorization hint.
   bool DoReportFail = mdAnnot.vectorizeEnable.safeGet(false);
 
@@ -335,10 +348,11 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
   // Narrow VectorWidth to constant trip count (where applicable).
   int KnownTripCount = getTripCount(L);
   if (KnownTripCount > 1) {
-    if (LJ.VectorWidth > (size_t) KnownTripCount) {
+    if (LJ.VectorWidth > (size_t)KnownTripCount) {
       LJ.VectorWidth = KnownTripCount;
       if (enableDiagOutput) {
-        Report() << "loopVecPass, costModel: narrowing to known trip count: " << KnownTripCount << "\n";
+        Report() << "loopVecPass, costModel: narrowing to known trip count: "
+                 << KnownTripCount << "\n";
       }
     }
   }
@@ -374,25 +388,27 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
 
   static int GlobalLoopCount = 0;
 
-  const char * SelLoopTxt = getenv("RV_SELECT_LOOP");
+  const char *SelLoopTxt = getenv("RV_SELECT_LOOP");
   if (SelLoopTxt) {
     int SelLoop = atoi(SelLoopTxt);
     GlobalLoopCount++;
 
     if (SelLoop != GlobalLoopCount) {
-      Report() << "loopVecPass, RV_SELECT_LOOP != " << GlobalLoopCount << ". not vectorizing!\n";
+      Report() << "loopVecPass, RV_SELECT_LOOP != " << GlobalLoopCount
+               << ". not vectorizing!\n";
       return false;
     }
   }
 
-  const char* SelName = getenv("RV_SELECT_NAME") ;
+  const char *SelName = getenv("RV_SELECT_NAME");
   if (SelName) {
     std::string NameLoopTxt = SelName;
 
     bool SelectByName = L.getHeader()->getName().startswith(NameLoopTxt);
 
     if (!SelectByName) {
-      Report() << "loopVecPass, RV_SELECT_NAME != " << NameLoopTxt << ". not vectorizing!\n";
+      Report() << "loopVecPass, RV_SELECT_NAME != " << NameLoopTxt
+               << ". not vectorizing!\n";
       return false;
     }
   }
@@ -408,27 +424,44 @@ enum ForLoopsControl {
   SkipChildren = 1 // do not descend into child loops
 };
 
+static void for_loops(Loop &L,
+                      std::function<ForLoopsControl(Loop &)> BodyFunc) {
+  if (BodyFunc(L) == SkipChildren)
+    return;
+  for (auto *ChildL : L) {
+    for_loops(*ChildL, BodyFunc);
+  }
+}
+
 static void for_loops(LoopInfo &LI,
                       std::function<ForLoopsControl(Loop &)> BodyFunc) {
   std::vector<Loop *> LoopVec;
   for (auto *L : LI) {
-    LoopVec.push_back(L);
-  }
-
-  while (!LoopVec.empty()) {
-    auto *L = LoopVec.back();
-    LoopVec.pop_back();
-    ForLoopsControl Next = BodyFunc(*L);
-    if (Next == SkipChildren)
-      continue;
-    assert(Next == Descend);
-    for (auto *ChildL : *L) {
-      LoopVec.push_back(ChildL);
-    }
+    for_loops(*L, BodyFunc);
   }
 }
+#if 0
+static bool for_loops_post(Loop &L, std::function<bool(Loop &)> BodyFunc) {
+  bool Stop = false;
+  for (auto *ChildL : L) {
+    Stop |= for_loops_post(*ChildL, BodyFunc);
+  }
+  if (Stop)
+    return true;
+  return BodyFunc(L);
+}
 
-bool LoopVectorizer::collectLoopJobs(LoopInfo & LI) {
+static void for_loops_post(LoopInfo &LI, std::function<bool(Loop &)> BodyFunc) {
+  std::vector<Loop *> LoopVec;
+  for (auto *L : LI) {
+    for_loops_post(*L, BodyFunc);
+  }
+}
+#endif
+
+bool LoopVectorizer::collectLoopJobs(LoopInfo &LI) {
+#if 0
+  // Outer-loop preference (ignores nested 'pragma omp simd' loops).
   // TODO consider loops inside legal loops for vectorization on cost grounds.
   for_loops(LI, [&](Loop &L) {
     LoopJob LJ;
@@ -439,9 +472,56 @@ bool LoopVectorizer::collectLoopJobs(LoopInfo & LI) {
     if (!Legal)
       return Descend;
 
+    // TODO: Check whether there is any child loop with an explicit SIMD
+    // annotation.
+
     LoopsToPrepare.emplace_back(LJ);
     return SkipChildren;
   });
+
+#else
+  // OpenMP mode (vectorize 'parallel for' loops unless there is a nested
+  // 'pragma omp simd' loop). Outer-loop preference (ignores nested 'pragma omp
+  // simd' loops).
+  // TODO consider loops inside legal loops for vectorization on cost grounds.
+  for_loops(LI, [&](Loop &L) {
+    LoopJob LJ;
+    LoopScore LS;
+
+    // cost & legality
+    bool Legal = scoreLoop(LJ, LS, L);
+    if (!Legal)
+      return Descend;
+
+    // Check whether there is a legal inner loop with a vectorization pragma.
+    bool FoundSIMDLoop = false;
+    for_loops(L, [&](Loop &InnerL) {
+      // Skip parent scope.
+      if (&InnerL == &L)
+        return Descend;
+
+      LoopJob InnerLJ;
+      LoopScore InnerLS;
+
+      // cost & legality
+      bool InnerLegal = scoreLoop(InnerLJ, InnerLS, InnerL);
+      if (!InnerLegal)
+        return Descend;
+
+      if (InnerLS.HasSIMDAnnotation) {
+        FoundSIMDLoop = true;
+        LoopsToPrepare.emplace_back(InnerLJ);
+        return SkipChildren;
+      }
+      return Descend;
+    });
+
+    if (!FoundSIMDLoop)
+      LoopsToPrepare.emplace_back(LJ);
+
+    return SkipChildren;
+  });
+#endif
 
   return !LoopsToPrepare.empty();
 }
@@ -463,7 +543,7 @@ PreparedLoop LoopVectorizer::transformToVectorizableLoop(
 }
 
 bool LoopVectorizer::prepareLoopVectorization() {
-  auto & LI = *FAM.getCachedResult<LoopAnalysis>(*F);
+  auto &LI = *FAM.getCachedResult<LoopAnalysis>(*F);
   for (LoopJob &LJ : LoopsToPrepare) {
     auto &L = *LI.getLoopFor(LJ.Header);
 
@@ -497,32 +577,33 @@ bool LoopVectorizer::prepareLoopVectorization() {
 #endif
 
     // Make sure that there is a preheader in any case
-    BasicBlock * UniquePred = nullptr;
+    BasicBlock *UniquePred = nullptr;
     if (!LoopPrep.TheLoop->getLoopPreheader()) {
       auto *Head = LoopPrep.TheLoop->getHeader();
-      for (auto * InB : predecessors(Head)) {
-        if (LoopPrep.TheLoop->contains(InB)) continue;
-  
+      for (auto *InB : predecessors(Head)) {
+        if (LoopPrep.TheLoop->contains(InB))
+          continue;
+
         if (!UniquePred) {
           UniquePred = InB;
         } else {
           abort(); // Multiple edges to the loop header!!!
         }
       }
-  
+
       // break the edge
       std::string PHName = Head->getName().str() + ".ph";
       auto *PH = BasicBlock::Create(F->getContext(), PHName, F, Head);
       UniquePred->getTerminator()->replaceUsesOfWith(Head, PH);
       BranchInst::Create(Head, PH);
-      for (auto & phi : Head->phis()) {
+      for (auto &phi : Head->phis()) {
         for (unsigned i = 0; i < phi.getNumIncomingValues(); ++i) {
           if (phi.getIncomingBlock(i) == UniquePred) {
             phi.setIncomingBlock(i, PH);
           }
         }
       }
-  
+
       auto *PHLoop = LI.getLoopFor(UniquePred);
       if (PHLoop) {
         PHLoop->addBasicBlockToLoop(PH, LI);
@@ -601,11 +682,11 @@ bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
       assert(redInfo);
       assert(IsSupportedReduction(L, *redInfo));
       // unsupported reduction kind (operator in value SCC unrecognized)
-      assert (redInfo->kind != RedKind::Top);
+      assert(redInfo->kind != RedKind::Top);
 
       // Unsupported recurrence (definition and use in different loop
       // iterations)
-      assert (redInfo->kind != RedKind::Bot);
+      assert(redInfo->kind != RedKind::Bot);
 
       // Otw, this is a privatizable reduction pattern
       IF_DEBUG { redInfo->dump(); }
@@ -716,7 +797,8 @@ bool LoopVectorizer::runOnFunction(Function &F) {
       getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(F); // FIXME use FAM
   this->ORE = &getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE();
 
-  if (!this->config.useVE) return false;
+  if (!this->config.useVE)
+    return false;
 
   // setup PlatformInfo
   PlatformInfo platInfo(*F.getParent(), &PassTTI, &PassTLI);
@@ -739,7 +821,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   }
 
   // Step 1: cost, legal, collect loopb jobs
-  auto & LI = FAM.getResult<LoopAnalysis>(F);
+  auto &LI = FAM.getResult<LoopAnalysis>(F);
   bool FoundAnyLoops = collectLoopJobs(LI);
   if (!FoundAnyLoops)
     return false;
