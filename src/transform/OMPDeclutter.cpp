@@ -46,6 +46,7 @@ using namespace rv;
 
 // kmpc function names.:
 const char *kmpc_reduce_nowait_Name = "__kmpc_reduce_nowait";
+const char *kmpc_fork_call_Name = "__kmpc_fork_call";
 
 static bool
 subscriptsAlloca(Value *Ptr, AllocaInst *Alloc) {
@@ -195,9 +196,28 @@ struct OMPDeclutterSession {
     }
   }
 
+  bool callsFork() {
+    auto KMPForkFunc = F.getParent()->getFunction(kmpc_fork_call_Name);
+    if (!KMPForkFunc)
+      return false;
+    // Scan for ' __kmpc_fork_call' call.
+    for (auto &I : instructions(F)) {
+      auto *CI = dyn_cast<CallInst>(&I);
+      if (!CI)
+        continue;
+      if (CI->getCalledFunction() == KMPForkFunc)
+        return true;
+    }
+    return false;
+  }
+
   bool run() {
     auto KMPReduceFunc = F.getParent()->getFunction(kmpc_reduce_nowait_Name);
     if (!KMPReduceFunc)
+      return false;
+
+    // Only transform inner-most (non forking) outlined functions to enable vectorization.
+    if (callsFork())
       return false;
 
     bool Changed = false;
