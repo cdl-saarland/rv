@@ -71,7 +71,10 @@ Value*
 CreateScalarBroadcast(IRBuilder<> & builder, Value & scaValue, int elemCount) {
   auto * vecTy = FixedVectorType::get(scaValue.getType(), elemCount);
   auto * udVal = UndefValue::get(vecTy);
-  auto & firstLaneVec = *builder.CreateInsertElement(udVal, &scaValue, (uint64_t) 0, scaValue.getName() + ".infirst");
+  std::string Name;
+  if (scaValue.hasName())
+    Name = (scaValue.getName() + ".infirst").str();
+  auto & firstLaneVec = *builder.CreateInsertElement(udVal, &scaValue, (uint64_t) 0, Name);
   return CreateBroadcast(builder, firstLaneVec, 0);
 }
 
@@ -705,13 +708,16 @@ void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
   Type *scalType = scalPhi->getType();
   Type *type = !shape.isVarying() || scalType->isVectorTy() || scalType->isStructTy() ?
                scalType : getVectorType(scalPhi->getType(), vectorWidth());
-  auto name = !shape.isVarying() || scalType->isVectorTy() || scalType->isStructTy() ?
-              scalPhi->getName() : scalPhi->getName() + "_SIMD";
+  std::string Name;
+  if (scalPhi->hasName()) {
+    Name = !shape.isVarying() || scalType->isVectorTy() || scalType->isStructTy() ?
+              scalPhi->getName().str() : (scalPhi->getName() + "_SIMD").str();
+  }
 
   // replicate phi <vector_width> times if type is not vectorizable
   unsigned loopEnd = shape.isVarying() && (scalType->isVectorTy() || scalType->isStructTy()) ? vectorWidth() : 1;
   for (unsigned lane = 0; lane < loopEnd; ++lane) {
-    PHINode *phi = builder.CreatePHI(type, scalPhi->getNumIncomingValues(), name);
+    PHINode *phi = builder.CreatePHI(type, scalPhi->getNumIncomingValues(), Name);
     if (loopEnd == 1 && shape.isVarying())
       mapVectorValue(scalPhi, phi);
     else
