@@ -250,14 +250,19 @@ static unsigned getOnlyLine() {
   return atoi(OnlyLine);
 }
 
-bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
-  if (enableDiagOutput) {
-    Report() << "loopVecPass::scopeLoop " << L.getName() << "\n";
-  }
+static std::string
+getTag(DebugLoc DL) {
+  std::stringstream ss;
+  ss << DL->getFilename().str() << ":" << DL->getLine();
+  return ss.str();
+}
 
+bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
   Value *CodeRegion;
   DebugLoc DL;
   getRemarkLoc(L, &*L.getHeader()->phis().begin(), CodeRegion, DL);
+
+  Report() << "loopVecPass::scopeLoop " << getTag(DL) << "\n";
 
   if (unsigned OnlyLine = getOnlyLine()) {
     if (DL.getLine() != OnlyLine)

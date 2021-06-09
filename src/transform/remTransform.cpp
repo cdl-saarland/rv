@@ -104,7 +104,8 @@ public:
 
     auto * testCmp = dyn_cast<ICmpInst>(loopExitBr.getOperand(0));
     if (!testCmp) {
-      Report() << "loopExitCond: not an ICmpInst loop exit!\n";
+      Report() << "loopExitCond: not an ICmpInst loop exit:\n\t";
+      loopExitBr.print(Report(), true);
       return nullptr;
     }
     ICmpInst & cmp = *testCmp;
@@ -1028,9 +1029,11 @@ BranchCondition*
 RemainderTransform::analyzeExitCondition(llvm::Loop & L, int vectorWidth) {
   auto * loopExiting = L.getExitingBlock();
 
-
   // loop exit conditions constraints
   auto * exitingBr = dyn_cast<BranchInst>(loopExiting->getTerminator());
+  Report() << "Analyzing loop exiting block: " << loopExiting->getName()
+           << "\n";
+
   if (!exitingBr) {
     Report() << "remTrans: exiting terminator is not a branch: " << *loopExiting->getTerminator() << "\n";
     return nullptr;
