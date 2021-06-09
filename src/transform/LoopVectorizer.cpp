@@ -262,7 +262,9 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
   DebugLoc DL;
   getRemarkLoc(L, &*L.getHeader()->phis().begin(), CodeRegion, DL);
 
-  Report() << "loopVecPass::scopeLoop " << getTag(DL) << "\n";
+  Report() << "loopVecPass::scopeLoop ";
+  L.getHeader()->phis().begin()->print(Report(), true);
+  Report() << " at " << getTag(DL) << "\n";
 
   if (unsigned OnlyLine = getOnlyLine()) {
     if (DL.getLine() != OnlyLine)
@@ -792,8 +794,8 @@ bool LoopVectorizer::runOnFunction(Function &F) {
     return false;
 
   if (CheckFlag("RV_PRINT_FUNCTION")) {
-    errs() << "-- RV::LoopVectorizer::runOnFunction(F) --\n";
-    F.print(errs());
+    Report() << "-- RV::LoopVectorizer::runOnFunction(F) --\n";
+    F.print(Report());
   }
 
   IF_DEBUG {

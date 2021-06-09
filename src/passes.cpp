@@ -25,6 +25,8 @@
 #include "llvm/Transforms/Utils/LCSSA.h"
 #include "llvm/Transforms/Utils/LoopSimplify.h"
 
+#include "report.h"
+
 using namespace llvm;
 
 namespace rv {
@@ -34,7 +36,7 @@ void addPreparatoryPasses(FunctionPassManager &FPM) {
   FPM.addPass(LCSSAPass());
   FPM.addPass(
       LoopExitCanonicalizerWrapperPass()); // required for divLoopTrans
-  FPM.addPass(OMPDeclutterWrapperPass());
+  if (!CheckFlag("RV_NO_DECLUTTER")) FPM.addPass(OMPDeclutterWrapperPass());
 }
 
 void addPreparatoryPasses(ModulePassManager &MPM) {

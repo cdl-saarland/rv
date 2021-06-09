@@ -23,12 +23,14 @@
 #include "llvm/Transforms/Utils/LCSSA.h"
 #include "llvm/Transforms/Utils/LoopSimplify.h"
 
+#include "report.h"
+
 using namespace llvm;
 
 namespace rv {
 
 void addPreparatoryPasses(legacy::PassManagerBase &PM) {
-  PM.add(createOMPDeclutterPass());
+  if (!CheckFlag("RV_NO_DECLUTTER")) PM.add(createOMPDeclutterPass());
   PM.add(createPromoteMemoryToRegisterPass());
   PM.add(createLoopSimplifyPass());
   PM.add(createLCSSAPass());
