@@ -860,7 +860,7 @@ bool LoopVectorizer::runOnFunction(Function &F) {
   // Step :3 Vectorize the prepare loops
   Changed |= vectorizeLoopRegions();
 
-  IF_DEBUG_LV if (CheckFlag("RV_PRINT_FUNCTION")) {
+  if (CheckFlag("RV_PRINT_FUNCTION")) {
     errs() << " -- module after RV --\n";
     Dump(*F.getParent());
   }

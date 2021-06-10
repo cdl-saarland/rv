@@ -446,20 +446,20 @@ bool OMPDeclutter::runOnFunction(Function &F) {
   }
 #endif
 
-#if 0
-  errs() << "PRE!\n";
-  Dump(F);
-#endif
+  IF_DEBUG_DEC {
+    errs() << "PRE!\n";
+    Dump(F);
+  }
 
   auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   OMPDeclutterSession Session(F, DT, LI);
   bool Res = Session.run();
 
-#if 1
-  errs() << "POST!\n";
-  Dump(F);
-#endif
+  IF_DEBUG_DEC {
+    errs() << "POST!\n";
+    Dump(F);
+  }
 
   return Res;
 }
