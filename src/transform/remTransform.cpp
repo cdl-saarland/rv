@@ -757,7 +757,9 @@ struct LoopTransformer {
     // Min number of loop iterations for vector instructions
     // FIXME: make this configurable / cost model dependent
     if (useTailPredication) {
-      vecGuardBr.setCondition(builder.getFalse());
+      vecGuardBr.setCondition(exitConditionBuilder.exitsOnTrue()
+                                  ? builder.getFalse()
+                                  : builder.getTrue());
       return;
     }
     const unsigned VectorLoopThreshold = vectorWidth; // std::min(vectorWidth, 8);
