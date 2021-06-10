@@ -248,11 +248,99 @@ struct OMPDeclutterSession {
       Changed = true;
     }
 
-    IF_DEBUG_DEC {
-      errs() << "Function after OMP Declutter:\n";
-      Dump(F);
-    }
     return Changed;
+  }
+
+  void simplifyDataFlow(Value &V) {
+    BasicBlock * DomBlock = nullptr;
+    if (auto *I = dyn_cast<Instruction>(&V)) 
+      DomBlock = I->getParent();
+
+    std::vector<Instruction*> VisitUser;
+    for (auto U : V.users())
+      if (auto *UI = dyn_cast<PHINode>(U))
+        VisitUser.push_back(UI);
+
+    std::set<PHINode*> PossiblyRedundantPhis;
+
+    // Collect all cyclic phi nodes in the users.
+    std::set<Value*> Seen;
+    while (!VisitUser.empty()) {
+      auto *UI = VisitUser.back();
+      VisitUser.pop_back();
+      if (!Seen.insert(UI).second)
+        continue;
+
+      // Cannot replace -> non-dominating
+      if (DomBlock && !DT.properlyDominates(DomBlock, UI->getParent()))
+        continue;
+
+      auto *Phi = dyn_cast<PHINode>(UI);
+      if (!Phi)
+        continue;
+
+      // Check whether this phi node has only phi nodes as incoming values.
+      // Descend into phi incoming values (no need to go for users -> we are
+      // expecting dataflow cycles here).
+      bool Redundant = true;
+      std::set<PHINode*> IncomingPhis;
+      for (int i = 0; i < (int)Phi->getNumIncomingValues(); ++i) {
+        auto *InVal = Phi->getIncomingValue(i);
+        if (InVal == Phi)
+          continue;
+        if (InVal == &V)
+          continue;
+
+        auto *InPhi = dyn_cast<PHINode>(InVal);
+        if (!InPhi) {
+          Redundant = false;
+          break;
+        }
+
+        IncomingPhis.insert(InPhi);
+      }
+
+      if (!Redundant)
+        continue;
+
+      for (auto *InPhi: IncomingPhis)
+        VisitUser.push_back(InPhi);
+      PossiblyRedundantPhis.insert(Phi);
+    }
+
+    // Check whether the phi nodes are really redundant - rinse and repeat.
+    bool Changed = true;
+    while (Changed) {
+      Changed = false;
+
+      for (auto *Phi : std::set<PHINode *>(PossiblyRedundantPhis)) {
+        bool ReallyRedundant = true;
+        for (int i = 0; i < (int)Phi->getNumIncomingValues(); ++i) {
+          auto *InVal = Phi->getIncomingValue(i);
+          if (InVal == Phi)
+            continue;
+          if (InVal == &V)
+            continue;
+          ReallyRedundant &= PossiblyRedundantPhis.count(cast<PHINode>(InVal));
+        }
+
+        if (ReallyRedundant)
+          continue;
+
+        Changed = true;
+        auto ItPos = PossiblyRedundantPhis.find(Phi);
+        PossiblyRedundantPhis.erase(ItPos);
+      }
+
+      // Replace all remaining phi nodes.
+      for (auto *Phi : PossiblyRedundantPhis) {
+        IF_DEBUG_DEC {
+          errs() << "\tReplacing redundant " << *Phi << " with " << V << "\n";
+        }
+        Phi->replaceAllUsesWith(&V);
+        Phi->eraseFromParent();
+      }
+    }
   }
 
   bool privatizeIterationBounds() {
@@ -261,6 +349,7 @@ struct OMPDeclutterSession {
       return false;
 
     std::set<Instruction*> DeadLoads;
+    std::set<Value*> SimplifyDataFlow;
 
     // Scan for ' __kmpc_reduce_nowait' call.
     for (auto &I : instructions(F)) {
@@ -286,6 +375,9 @@ struct OMPDeclutterSession {
         UpperBoundValue = Store->getValueOperand();
       }
       IF_DEBUG_DEC { errs() << "Found upper bound value:" << *UpperBoundValue << "\n"; }
+
+      // Remove redundant phi nodes.
+      SimplifyDataFlow.insert(UpperBoundValue);
 
       for (auto &Use : UpperBoundSlot->uses()) {
         auto Reload = dyn_cast<LoadInst>(Use.getUser());
@@ -314,6 +406,9 @@ struct OMPDeclutterSession {
     for (auto *Load : DeadLoads) {
       Load->eraseFromParent();
     }
+
+    for (auto *V : SimplifyDataFlow)
+      simplifyDataFlow(*V);
 
     return false;
   }
@@ -361,7 +456,7 @@ bool OMPDeclutter::runOnFunction(Function &F) {
   OMPDeclutterSession Session(F, DT, LI);
   bool Res = Session.run();
 
-#if 0
+#if 1
   errs() << "POST!\n";
   Dump(F);
 #endif

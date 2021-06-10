@@ -31,6 +31,7 @@ namespace rv {
 
 void addPreparatoryPasses(legacy::PassManagerBase &PM) {
   if (!CheckFlag("RV_NO_DECLUTTER")) PM.add(createOMPDeclutterPass());
+  PM.add(createLICMPass());
   PM.add(createPromoteMemoryToRegisterPass());
   PM.add(createLoopSimplifyPass());
   PM.add(createLCSSAPass());
