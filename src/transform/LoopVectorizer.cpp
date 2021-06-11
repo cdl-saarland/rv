@@ -264,7 +264,6 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
   getRemarkLoc(L, &*L.getHeader()->phis().begin(), CodeRegion, DL);
 
   Report() << "loopVecPass::scopeLoop ";
-  L.getHeader()->phis().begin()->print(Report(), true);
   Report() << " at " << getTag(DL) << "\n";
 
   if (unsigned OnlyLine = getOnlyLine()) {
