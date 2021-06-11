@@ -250,8 +250,9 @@ static unsigned getOnlyLine() {
   return atoi(OnlyLine);
 }
 
-static std::string
-getTag(DebugLoc DL) {
+static std::string getTag(DebugLoc DL) {
+  if (!DL)
+    return "";
   std::stringstream ss;
   ss << DL->getFilename().str() << ":" << DL->getLine();
   return ss.str();
