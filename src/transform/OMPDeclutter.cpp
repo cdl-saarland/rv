@@ -413,6 +413,66 @@ struct OMPDeclutterSession {
     return false;
   }
 
+  static bool IsPtrPtr(Type *T) {
+    if (auto *P = dyn_cast<PointerType>(T))
+      return (isa<PointerType>(P->getPointerElementType()));
+    return false;
+  }
+
+  static bool AllUsesAreLoads(Value &P) {
+    for (auto *U : P.users())
+      if (!isa<LoadInst>(U))
+        return false;
+    return true;
+  }
+
+  // FIXME: 
+  bool foldRedundantBufferLoads() {
+    bool Changed = false;
+
+    std::set<LoadInst*> RemainingLoads;
+    for (auto &A : F.args()) {
+      if (!IsPtrPtr(A.getType()))
+        continue;
+      if (!AllUsesAreLoads(A))
+        continue;
+
+      std::set<LoadInst*> Loads;
+      for (auto *U : A.users()) {
+        Loads.insert(cast<LoadInst>(U));
+      }
+
+      std::set<LoadInst*> KilledLoads;
+      for (auto OuterL : Loads) {
+        // Was removed as an InnerL.
+        if (KilledLoads.count(OuterL))
+          continue;
+
+        for (auto InnerL : Loads) {
+          if (!DT.properlyDominates(OuterL->getParent(), InnerL->getParent()))
+            continue;
+
+          // Replace InnerL -> OuterL
+          KilledLoads.insert(InnerL);
+          InnerL->replaceAllUsesWith(OuterL);
+          Changed = true;
+        }
+      }
+
+      for (auto Load : Loads) {
+        if (KilledLoads.count(Load))
+          continue;
+        RemainingLoads.insert(Load);
+      }
+    }
+
+    for (auto Load : RemainingLoads)
+      simplifyDataFlow(*Load);
+
+    // TODO simplity phis
+    return Changed;
+  }
+
   bool run() {
     // Only transform inner-most (non forking) outlined functions to enable vectorization.
     if (callsFork())
@@ -426,6 +486,9 @@ struct OMPDeclutterSession {
     // Create internal 'allocas' for the lower and upper iteration bounds to get
     // parallel loop exit conditions into SSA form.
     Changed |= privatizeIterationBounds();
+
+    // Fold redundant loads to buffer pointers.
+    Changed |= foldRedundantBufferLoads();
     return Changed;
   }
 };
