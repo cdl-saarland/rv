@@ -15,9 +15,9 @@ namespace rv {
   using LinkerCallback = std::function<llvm::Value*(llvm::GlobalValue&, llvm::Module&)>;
 
   // Copy into module - return reference to existing GlobalValue if there is one.
-  llvm::Value & cloneConstant(llvm::Constant& constVal, llvm::Module & cloneInto, LinkerCallback LCB = nullptr);
-  llvm::GlobalValue & cloneGlobalIntoModule(llvm::GlobalValue &gv, llvm::Module &cloneInto, LinkerCallback LCB = nullptr);
-  llvm::Function &cloneFunctionIntoModule(llvm::Function &func, llvm::Module &cloneInto, llvm::StringRef name, LinkerCallback LCB = nullptr);
+  llvm::Value & cloneConstant(llvm::Constant& constVal, llvm::Module & cloneInto, LinkerCallback LCB);
+  llvm::GlobalValue & cloneGlobalIntoModule(llvm::GlobalValue &gv, llvm::Module &cloneInto, LinkerCallback LCB);
+  llvm::Function &cloneFunctionIntoModule(llvm::Function &func, llvm::Module &cloneInto, llvm::StringRef name, LinkerCallback LCB);
 }
 
 #endif // RV_RVLINKING_H

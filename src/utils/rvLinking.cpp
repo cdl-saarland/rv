@@ -8,8 +8,13 @@
 #include <llvm/IR/InstIterator.h>
 #include <llvm/Transforms/Utils/ValueMapper.h>
 #include <llvm/Transforms/Utils/Cloning.h>
+#include "rvConfig.h"
 
-#define IF_DEBUG_LINK if (false)
+#if 0
+#define IF_DEBUG_LINK if (true)
+#else
+#define IF_DEBUG_LINK IF_DEBUG
+#endif
 
 using namespace llvm;
 
@@ -17,9 +22,9 @@ namespace rv {
 
 // TODO move into separate file
 Value & cloneConstant(Constant& ConstVal, Module & cloneInto, LinkerCallback LCB) {
-  IF_DEBUG_LINK errs() << "cloneConst: " << ConstVal << "\n";
+  IF_DEBUG_LINK errs() << "cloneConst: " << ConstVal << "LCB: " << (bool) LCB << "\n";
   if (isa<GlobalValue>(ConstVal)) {
-    Value *UserGV = cast<GlobalValue>(&ConstVal);
+    Value *UserGV = nullptr;
     if (LCB)
       UserGV = LCB(cast<GlobalValue>(ConstVal), cloneInto);
     if (UserGV && (UserGV != &ConstVal))
@@ -92,6 +97,16 @@ Function &cloneFunctionIntoModule(Function &func, Module &cloneInto, StringRef n
   auto * existingFn = cloneInto.getFunction(name);
   if (existingFn && (func.isDeclaration() == existingFn->isDeclaration()))
     return *existingFn;
+
+#if 0
+  // FIXME: Don't try to re-clone the top-level function we are cloning.
+  // Check Callback
+  if (LCB) {
+    auto *V = LCB(func, cloneInto);
+    if (V)
+      return cast<Function>(*V);
+  }
+#endif
 
   // create function in new module, create the argument mapping, clone function into new function body, return
   Function & clonedFn = *Function::Create(func.getFunctionType(), Function::LinkageTypes::ExternalLinkage,

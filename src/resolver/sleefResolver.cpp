@@ -210,6 +210,10 @@ static Module &requestSharedModule(LLVMContext &Ctx) {
 }
 
 const LinkerCallback SharedModuleLookup = [](GlobalValue& GV, Module& M) -> Value * {
+  IF_DEBUG_SLEEF {
+    errs() << "SharedModuleLookup: " << GV.getName() << "\n";
+  }
+
   // Definition available
   if (!GV.isDeclaration())
     return &GV;
@@ -228,7 +232,8 @@ const LinkerCallback SharedModuleLookup = [](GlobalValue& GV, Module& M) -> Valu
   IF_DEBUG_SLEEF {
     errs() << "Pulling shared global: " << SharedGV->getName() << "\n";
   }
-  GlobalVariable * ClonedGV = cast<GlobalVariable>(&cloneGlobalIntoModule(*SharedGV, M));
+  // Don't recurse into lookup
+  GlobalVariable * ClonedGV = cast<GlobalVariable>(&cloneGlobalIntoModule(*SharedGV, M, nullptr));
   // Uniquify the 'rempitab' constant globals.
   ClonedGV->setLinkage(GlobalVariable::LinkOnceODRLinkage);
   return ClonedGV;
@@ -586,7 +591,8 @@ struct SleefVLAResolver : public FunctionResolver {
     requestResultShape();
 
     // prepare scalar copy for transforming
-    clonedFunc = &cloneFunctionIntoModule(scaFunc, targetModule, vecFuncName + ".tmp");
+    clonedFunc = &cloneFunctionIntoModule(
+        scaFunc, targetModule, vecFuncName + ".tmp", SharedModuleLookup);
     assert(clonedFunc);
 
     // create SIMD declaration
