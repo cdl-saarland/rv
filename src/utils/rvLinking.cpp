@@ -19,7 +19,9 @@ namespace rv {
 Value & cloneConstant(Constant& ConstVal, Module & cloneInto, LinkerCallback LCB) {
   IF_DEBUG_LINK errs() << "cloneConst: " << ConstVal << "\n";
   if (isa<GlobalValue>(ConstVal)) {
-    auto *UserGV = LCB(cast<GlobalValue>(ConstVal), cloneInto);
+    Value *UserGV = cast<GlobalValue>(&ConstVal);
+    if (LCB)
+      UserGV = LCB(cast<GlobalValue>(ConstVal), cloneInto);
     if (UserGV && (UserGV != &ConstVal))
       return *UserGV;
     return cloneGlobalIntoModule(cast<GlobalValue>(ConstVal), cloneInto, LCB);
@@ -122,7 +124,9 @@ Function &cloneFunctionIntoModule(Function &func, Module &cloneInto, StringRef n
         continue;
 
       if (LCB && UsedGlobal) {
-        auto *clonedGlobal = LCB(*UsedGlobal, cloneInto);
+        Value *clonedGlobal = UsedGlobal;
+        if (LCB)
+          clonedGlobal = LCB(*UsedGlobal, cloneInto);
         if (clonedGlobal && (clonedGlobal != UsedGlobal))
           VMap[UsedGlobal] = clonedGlobal;
       }
