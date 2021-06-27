@@ -93,6 +93,8 @@ add_rv_library(RV
   ${RV_SLEEF_OBJECTS}
 )
 
+target_include_directories(RV PUBLIC ${RV_SOURCE_DIR}/include)
+
 if (BUILD_SHARED_LIBS)
   target_link_libraries(RV PUBLIC
     LLVMSupport
