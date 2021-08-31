@@ -100,6 +100,7 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
   if (I.isCast()) return computeShapeForCastInst(cast<const CastInst>(I));
   if (isa<PHINode>(I)) return computeShapeForPHINode(cast<const PHINode>(I));
   if (isa<AtomicRMWInst>(I)) return computeShapeForAtomicRMWInst(cast<const AtomicRMWInst>(I));
+  if (isa<AtomicCmpXchgInst>(I)) return VectorShape::varying();
 
   const DataLayout & layout = vecInfo.getDataLayout();
   const BasicBlock & BB = *I.getParent();
