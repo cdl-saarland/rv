@@ -13,6 +13,8 @@
 #include "llvm/Transforms/Utils/SSAUpdater.h"
 #include "llvm/IR/Verifier.h"
 #include <llvm/IR/PatternMatch.h>
+#include <llvm/Passes/PassBuilder.h>
+#include <llvm/Analysis/InstructionSimplify.h>
 
 #include <cassert>
 
@@ -483,6 +485,27 @@ MaskExpander::expandRegionMasks() {
 
     auto & blockMask = requestBlockMask(BB);
     vecInfo.setPredicate(BB, blockMask);
+  }
+
+  // simplify constructed predicates, if possible.
+  PassBuilder PB;
+  FunctionAnalysisManager FAM;
+  PB.registerFunctionAnalyses(FAM);
+
+  const SimplifyQuery Q = getBestSimplifyQuery(FAM, vecInfo.getScalarFunction());
+  for (auto & BB : vecInfo.getScalarFunction()) {
+    auto blockMask = vecInfo.getPredicate(BB);
+    if (blockMask && isa<Instruction>(blockMask)) {
+      auto simplMask = SimplifyInstruction(cast<Instruction>(blockMask), Q);
+      if (simplMask) {
+        vecInfo.setPredicate(BB, *simplMask);
+
+        VectorShape maskShape = vecInfo.getVectorShape(*blockMask);
+        VectorShape simplShape = vecInfo.getVectorShape(*simplMask);
+        if (maskShape.morePreciseThan(simplShape))
+          vecInfo.setVectorShape(*simplMask, maskShape);
+      }
+    }
   }
 
   // finalize loop live masks by adding masks on loop entry
