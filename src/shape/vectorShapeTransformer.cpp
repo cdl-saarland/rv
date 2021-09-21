@@ -322,6 +322,11 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
       return VectorShape::join(sel1Shape, sel2Shape);
     }
 
+    case Instruction::Fence:
+    {
+      return VectorShape::uni();
+    }
+
       // use the generic transfer
     default:
       break;
