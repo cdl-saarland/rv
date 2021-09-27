@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 //
 
-#include "rv/transform/WFVPass.h"
-#include "rv/LinkAllPasses.h"
+#include "rv/passes/WFVPass.h"
+#include "rv/legacy/LinkAllPasses.h"
 
 #include "rv/rv.h"
 #include "rv/vectorMapping.h"
@@ -51,18 +51,18 @@
 using namespace rv;
 using namespace llvm;
 
-/// Register all analyses and transformation required.
-void
-WFVPass::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.addRequired<DominatorTreeWrapperPass>();
-  AU.addRequired<PostDominatorTreeWrapperPass>();
-  AU.addRequired<LoopInfoWrapperPass>();
-  AU.addRequired<TargetTransformInfoWrapperPass>();
-  AU.addRequired<TargetLibraryInfoWrapperPass>();
+
+///// Pass Implementation /////
+
+WFV::WFV() {
+  // Prepare Analyses
+  PassBuilder PB;
+  PB.registerFunctionAnalyses(FAM);
 }
 
+
 void
-WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob) {
+WFV::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob) {
   // clone scalar function
   ValueToValueMapTy cloneMap;
   Function* scalarCopy = CloneFunction(wfvJob.scalarFn, cloneMap, nullptr);
@@ -78,11 +78,6 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
 
   // unify returns as necessary
   SingleReturnTrans::run(funcRegionWrapper);
-
-  // prepare analyses
-  PassBuilder PB;
-  FunctionAnalysisManager FAM;
-  PB.registerFunctionAnalyses(FAM);
 
 // early math func lowering
   // vectorizer.lowerRuntimeCalls(vecInfo, LI);
@@ -127,7 +122,7 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
 }
 
 bool
-WFVPass::isSaneMapping(VectorMapping & wfvJob) const {
+WFV::isSaneMapping(VectorMapping & wfvJob) const {
   DataLayout DL(wfvJob.scalarFn->getParent());
 
   auto & scaFuncTy = *wfvJob.scalarFn->getFunctionType();
@@ -152,7 +147,7 @@ WFVPass::isSaneMapping(VectorMapping & wfvJob) const {
 }
 
 void
-WFVPass::collectJobs(Function & F) {
+WFV::collectJobs(Function & F) {
   auto attribSet = F.getAttributes().getFnAttributes();
 
   // parse SIMD signatures
@@ -168,54 +163,63 @@ WFVPass::collectJobs(Function & F) {
   }
 }
 
-bool
-WFVPass::runOnModule(Module & M) {
+bool WFV::run(Module &M) {
   enableDiagOutput = CheckFlag("WFV_DIAG");
 
   // collect WFV jobs
-  for (auto & func : M) {
-    if (func.isDeclaration()) continue;
+  for (auto &func : M) {
+    if (func.isDeclaration())
+      continue;
 
     collectJobs(func);
   }
 
   // no annotated functions found (pragma omp declare simd)
-  if (wfvJobs.empty()) return false;
- 
-  auto & protoFunc = *wfvJobs[0].scalarFn;
+  if (wfvJobs.empty())
+    return false;
 
-  // configure platform info
-  auto & TLI = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(protoFunc);
+  auto &protoFunc = *wfvJobs[0].scalarFn;
 
-  // FIXME this assumes that all functions were compiled for the same target
-  auto & TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(protoFunc);
   Config rvConfig = Config::createForFunction(protoFunc);
+
+  auto &TTI = FAM.getResult<TargetIRAnalysis>(protoFunc);
+  auto &TLI = FAM.getResult<TargetLibraryAnalysis>(protoFunc);
 
   // configure platInfo
   PlatformInfo platInfo(M, &TTI, &TLI);
   addSleefResolver(rvConfig, platInfo);
 
   // add mappings for recursive vectorization
-  for (auto & job : wfvJobs) {
+  for (auto &job : wfvJobs) {
     platInfo.addMapping(job);
   }
 
   // vectorize jobs
   VectorizerInterface vectorizer(platInfo, rvConfig);
-  for (auto & job : wfvJobs) {
+  for (auto &job : wfvJobs) {
     vectorizeFunction(vectorizer, job);
   }
 
   return true;
 }
 
+///// Legacy PM Wrapper /////
 
+bool WFVLegacyPass::runOnModule(Module &M) {
+  WFV WFVImpl;
+  return WFVImpl.run(M);
+}
 
-char WFVPass::ID = 0;
+/// Register all analyses and transformation required.
+void
+WFVLegacyPass::getAnalysisUsage(AnalysisUsage &AU) const {
+}
 
-ModulePass *rv::createWFVPass() { return new WFVPass(); }
+char WFVLegacyPass::ID = 0;
 
-INITIALIZE_PASS_BEGIN(WFVPass, "rv-function-vectorize",
+ModulePass *rv::createWFVLegacyPass() { return new WFVLegacyPass(); }
+
+INITIALIZE_PASS_BEGIN(WFVLegacyPass, "rv-function-vectorize",
                       "RV - Vectorize functions", false, false)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
@@ -226,6 +230,18 @@ INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
 // PlatformInfo
 INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
-INITIALIZE_PASS_END(WFVPass, "rv-function-vectorize", "RV - Vectorize functions",
+INITIALIZE_PASS_END(WFVLegacyPass, "rv-function-vectorize", "RV - Vectorize functions",
                     false, false)
 
+///// New PM Pass /////
+
+WFVWrapperPass::WFVWrapperPass() {}
+
+llvm::PreservedAnalyses WFVWrapperPass::run(llvm::Module &M,
+                                            llvm::ModuleAnalysisManager &MAM) {
+  WFV WFVImpl;
+  if (WFVImpl.run(M))
+    return llvm::PreservedAnalyses::none();
+  else
+    return llvm::PreservedAnalyses::all();
+}

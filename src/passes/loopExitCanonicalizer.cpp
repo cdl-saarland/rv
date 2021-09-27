@@ -8,68 +8,59 @@
 //===----------------------------------------------------------------------===//
 //
 
-#include "rv/transform/loopExitCanonicalizer.h"
+#include "rv/passes/loopExitCanonicalizer.h"
 
 #include <stdexcept>
 
-#include "llvm/InitializePasses.h"
+#include "rv/legacy/passes.h"
+#include "rv/legacy/LinkAllPasses.h"
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/Instructions.h>
+#include "llvm/InitializePasses.h"
 
 #include "rvConfig.h"
 #include "utils/rvTools.h"
 
 using namespace llvm;
+using namespace rv;
 
-char LoopExitCanonicalizerWrapper::ID = 0;
-// NOTE: The order of initialized dependencies is important
-//       to prevent 'Unable to schedule' errors!
-INITIALIZE_PASS_BEGIN(LoopExitCanonicalizerWrapper, "loop-exit-canonicalizer",
-                      "LoopExitCanonicalizer", false, false)
-INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
-INITIALIZE_PASS_END(LoopExitCanonicalizerWrapper, "loop-exit-canonicalizer",
-                    "LoopExitCanonicalizer", false, false)
-
-// Public interface to the LoopExitCanonicalizer pass
-FunctionPass *llvm::createLoopExitCanonicalizerPass() {
-  return new LoopExitCanonicalizerWrapper();
-}
+///// Old PM Pass /////
 
 LoopExitCanonicalizer::LoopExitCanonicalizer(LoopInfo &loopInfo)
     : mLoopInfo(loopInfo) {}
 
-LoopExitCanonicalizerWrapper::LoopExitCanonicalizerWrapper()
-    : FunctionPass(ID) {
-  initializeLoopExitCanonicalizerWrapperPass(*PassRegistry::getPassRegistry());
+char LoopExitCanonicalizerLegacyPass::ID = 0;
+// NOTE: The order of initialized dependencies is important
+//       to prevent 'Unable to schedule' errors!
+INITIALIZE_PASS_BEGIN(LoopExitCanonicalizerLegacyPass,
+                      "loop-exit-canonicalizer", "LoopExitCanonicalizer", false,
+                      false)
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
+INITIALIZE_PASS_END(LoopExitCanonicalizerLegacyPass, "loop-exit-canonicalizer",
+                    "LoopExitCanonicalizer", false, false)
+
+// Public interface to the LoopExitCanonicalizer pass
+FunctionPass *rv::createLoopExitCanonicalizerLegacyPass() {
+  return new LoopExitCanonicalizerLegacyPass();
 }
 
-LoopExitCanonicalizer::~LoopExitCanonicalizer() {}
+LoopExitCanonicalizerLegacyPass::LoopExitCanonicalizerLegacyPass()
+    : FunctionPass(ID) {}
 
-void LoopExitCanonicalizerWrapper::releaseMemory() {}
-
-void LoopExitCanonicalizerWrapper::getAnalysisUsage(AnalysisUsage &AU) const {
+void LoopExitCanonicalizerLegacyPass::getAnalysisUsage(
+    AnalysisUsage &AU) const {
   AU.addRequired<LoopInfoWrapperPass>();
   AU.addPreserved<LoopInfoWrapperPass>();
 }
 
-bool LoopExitCanonicalizerWrapper::doInitialization(Module &M) {
-  // The return value presumably signals whether the module was changed or not.
-  // There is no documentation on this in LLVM.
-  return false;
-}
-
-bool LoopExitCanonicalizerWrapper::doFinalization(Module &M) {
-  // The return value presumably signals whether the module was changed or not.
-  // There is no documentation on this in LLVM.
-  return false;
-}
-
-bool LoopExitCanonicalizerWrapper::runOnFunction(Function &F) {
+bool LoopExitCanonicalizerLegacyPass::runOnFunction(Function &F) {
   LoopInfo &loopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 
   LoopExitCanonicalizer canonicalizer(loopInfo);
   return canonicalizer.canonicalize(F);
 }
+
+///// New PM Pass /////
 
 llvm::PreservedAnalyses rv::LoopExitCanonicalizerWrapperPass::run(Function &F, FunctionAnalysisManager &FAM) {
   LoopInfo &loopInfo = FAM.getResult<LoopAnalysis>(F);
@@ -80,9 +71,6 @@ llvm::PreservedAnalyses rv::LoopExitCanonicalizerWrapperPass::run(Function &F, F
   else
     return llvm::PreservedAnalyses::all();
 }
-
-void LoopExitCanonicalizerWrapper::print(raw_ostream &O,
-                                         const Module *M) const {}
 
 bool LoopExitCanonicalizer::canonicalize(Function &F) {
 

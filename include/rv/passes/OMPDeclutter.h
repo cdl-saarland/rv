@@ -1,4 +1,4 @@
-//===- rv/transform/OMPDeclutter.h - Remove clutter in the IR --*- C++ -*-===//
+//===- rv/passes/OMPDeclutter.h - Remove clutter in the IR --*- C++ -*-===//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -22,13 +22,14 @@ class RVInfo;
 struct OMPDeclutterWrapperPass : llvm::PassInfoMixin<OMPDeclutterWrapperPass> {
 public:
   OMPDeclutterWrapperPass();
+  static llvm::StringRef name() { return "rv::OMPDeclutterWrapperPass"; }
   llvm::PreservedAnalyses run(llvm::Function &F, llvm::FunctionAnalysisManager &FAM);
 };
 
-class OMPDeclutter : public llvm::FunctionPass {
+class OMPDeclutterLegacyPass : public llvm::FunctionPass {
 public:
   static char ID;
-  OMPDeclutter();
+  OMPDeclutterLegacyPass();
 
   bool runOnFunction(llvm::Function &F) override;
 

@@ -1,4 +1,4 @@
-//===- rv/transform/loopExitCanonicalizer.h - exit : exiting == 1:1  --*- C++
+//===- rv/passes/loopExitCanonicalizer.h - exit : exiting == 1:1  --*- C++
 //-*-===//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -32,25 +32,19 @@ public:
 
 // namespace {
 
-class LoopExitCanonicalizerWrapper : public llvm::FunctionPass {
+class LoopExitCanonicalizerLegacyPass : public llvm::FunctionPass {
 public:
   static char ID; // Pass identification, replacement for typeid.
 
-  LoopExitCanonicalizerWrapper();
+  LoopExitCanonicalizerLegacyPass();
 
-  void releaseMemory() override;
   void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
-  bool doInitialization(llvm::Module &M) override;
-  bool doFinalization(llvm::Module &M) override;
   bool runOnFunction(llvm::Function &F) override;
-  void print(llvm::raw_ostream &O, const llvm::Module *M) const override;
 };
 
 class LoopExitCanonicalizer {
 public:
   LoopExitCanonicalizer(llvm::LoopInfo &loopInfo);
-  ~LoopExitCanonicalizer();
-
   bool canonicalize(llvm::Function &F);
 
 private:
@@ -66,11 +60,5 @@ private:
 };
 
 //} // unnamed namespace
-
-// Forward declaration of initializer and public interface.
-namespace llvm {
-void initializeLoopExitCanonicalizerWrapperPass(PassRegistry &);
-FunctionPass *createLoopExitCanonicalizerPass();
-} // namespace llvm
 
 #endif /* _LOOPEXITCANONICALIZER_H */

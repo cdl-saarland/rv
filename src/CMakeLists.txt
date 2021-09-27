@@ -38,9 +38,9 @@ set (RV_LIBRARY_OBJECTS
   ./PlatformInfo.cpp
   ./annotations.cpp
   ./config.cpp
-  ./init.cpp
   ./intrinsics.cpp
-  ./legact/passes.cpp
+  ./legacy/init.cpp
+  ./legacy/passes.cpp
   ./passes.cpp
   ./registerPasses.cpp
   ./report.cpp
@@ -64,6 +64,13 @@ set (RV_LIBRARY_OBJECTS
   native/NatBuilder.cpp
   native/ShuffleBuilder.cpp
   native/Utils.cpp
+  passes/AutoMathPass.cpp
+  passes/LoopVectorizer.cpp
+  passes/OMPDeclutter.cpp
+  passes/WFVPass.cpp
+  passes/irPolisher.cpp
+  passes/loopExitCanonicalizer.cpp
+  passes/lowerRVIntrinsics.cpp
   region/FunctionRegion.cpp
   region/LoopRegion.cpp
   region/Region.cpp
@@ -73,20 +80,13 @@ set (RV_LIBRARY_OBJECTS
   resolver/sleefResolver.cpp
   shape/vectorShape.cpp
   shape/vectorShapeTransformer.cpp
-  transform/AutoMathPass.cpp
   transform/CoherentIFTransform.cpp
   transform/Linearizer.cpp
-  transform/LoopVectorizer.cpp
-  transform/OMPDeclutter.cpp
-  transform/WFVPass.cpp
   transform/bosccTransform.cpp
   transform/crtLowering.cpp
   transform/guardedDivLoopTrans.cpp
-  transform/irPolisher.cpp
   transform/loopCloner.cpp
-  transform/loopExitCanonicalizer.cpp
   transform/lowerDivergentSwitches.cpp
-  transform/lowerRVIntrinsics.cpp
   transform/maskExpander.cpp
   transform/memCopyElision.cpp
   transform/redOpt.cpp

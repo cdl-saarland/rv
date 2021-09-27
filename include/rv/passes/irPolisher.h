@@ -1,4 +1,4 @@
-//===- rv/transform/irPolisher.h - IR-level intrinsic selection --*- C++ -*-===//
+//===- rv/passes/irPolisher.h - IR-level intrinsic selection --*- C++ -*-===//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -17,9 +17,9 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/Pass.h"
 
 #include "rv/config.h"
-#include "rv/legacy/passes.h"
 
 namespace rv {
 
@@ -32,7 +32,7 @@ namespace rv {
 class IRPolisher {
   llvm::Function &F;
   llvm::Type* boolVector;
-  rv::Config config;
+  rv::Config RVConfig;
 
   struct ExtInst {
     llvm::Instruction* inst;
@@ -77,23 +77,16 @@ class IRPolisher {
   llvm::Value *getConditionFromMask(llvm::IRBuilder<>&, llvm::Value*);
 
 public:
-  IRPolisher(llvm::Function &f, Config _config) : F(f), config(_config) {}
-
+  IRPolisher(llvm::Function &f);
   bool polish();
 };
 
 struct IRPolisherWrapperPass : llvm::PassInfoMixin<IRPolisherWrapperPass> {
-  private:
-    std::shared_ptr<llvm::FunctionPass> irpolisher;
-  public:
-    IRPolisherWrapperPass() : irpolisher(rv::createIRPolisherWrapperPass()) {};
+public:
+  IRPolisherWrapperPass();
 
-    llvm::PreservedAnalyses run (llvm::Function &F, llvm::FunctionAnalysisManager &FAM) {
-      if (irpolisher->runOnFunction(F))
-        return llvm::PreservedAnalyses::none();
-      else
-        return llvm::PreservedAnalyses::all();
-    }
+  llvm::PreservedAnalyses run(llvm::Function &F,
+                              llvm::FunctionAnalysisManager &FAM);
 };
 
 }

@@ -8,18 +8,17 @@
 
 #include "rv/passes.h"
 
-#include "rv/transform/loopExitCanonicalizer.h"
 #include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils.h"
 
-#include "rv/transform/LoopVectorizer.h"
-#include "rv/transform/WFVPass.h"
-#include "rv/transform/loopExitCanonicalizer.h"
-#include "rv/transform/lowerRVIntrinsics.h"
-#include "rv/transform/AutoMathPass.h"
-#include "rv/transform/OMPDeclutter.h"
+#include "rv/passes/AutoMathPass.h"
+#include "rv/passes/LoopVectorizer.h"
+#include "rv/passes/OMPDeclutter.h"
+#include "rv/passes/WFVPass.h"
+#include "rv/passes/loopExitCanonicalizer.h"
+#include "rv/passes/lowerRVIntrinsics.h"
 
 #include "llvm/Transforms/Scalar/ADCE.h"
 #include "llvm/Transforms/Utils/LCSSA.h"
@@ -62,46 +61,20 @@ void addCleanupPasses(ModulePassManager &MPM) {
   MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
 }
 
-void addOuterLoopVectorizer(FunctionPassManager &FPM) {
-  FPM.addPass(rv::LoopVectorizerWrapperPass());
-}
-
-void addOuterLoopVectorizer(ModulePassManager &MPM) {
-  llvm::FunctionPassManager FPM;
-  addOuterLoopVectorizer(FPM);
-  MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
-}
-
-void addAutoMathPass(llvm::ModulePassManager &MPM) {
-  MPM.addPass(rv::AutoMathWrapperPass());
-}
-
-void addWholeFunctionVectorizer(ModulePassManager &MPM) {
-  MPM.addPass(rv::WFVWrapperPass());
-}
-
-void addLowerBuiltinsPass(FunctionPassManager &FPM) {
-  FPM.addPass(rv::LowerRVIntrinsicsWrapperPass());
-}
-
-void addLowerBuiltinsPass(ModulePassManager &MPM) {
-  llvm::FunctionPassManager FPM;
-  addLowerBuiltinsPass(FPM);
-  MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
-}
-
 void addRVPasses(ModulePassManager &MPM) {
   // normalize loops
   addPreparatoryPasses(MPM);
 
   // supplement vector math functions for select targets using RV's resolver API
-  addAutoMathPass(MPM);
+  MPM.addPass(AutoMathWrapperPass());
 
   // vectorize scalar functions that have VectorABI attributes
-  addWholeFunctionVectorizer(MPM);
+  MPM.addPass(WFVWrapperPass());
 
   // vectorize annotated loops
-  addOuterLoopVectorizer(MPM);
+  llvm::FunctionPassManager FPM;
+  FPM.addPass(LoopVectorizerWrapperPass());
+  MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
 
   // DCE, instcombine, ..
   addCleanupPasses(MPM);

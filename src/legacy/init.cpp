@@ -7,8 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 
-#include "rv/LinkAllPasses.h"
-
+#include "rv/legacy/LinkAllPasses.h"
 #include "llvm/IR/LegacyPassManager.h"
 
 namespace {
@@ -22,10 +21,11 @@ class StaticInitializer {
 public:
   StaticInitializer() {
     llvm::PassRegistry &Registry = *llvm::PassRegistry::getPassRegistry();
-    llvm::initializeLoopVectorizerPass(Registry);
-    llvm::initializeIRPolisherWrapperPass(Registry);
-    llvm::initializeAutoMathPassPass(Registry);
-    llvm::initializeWFVPassPass(Registry);
+    llvm::initializeLoopVectorizerLegacyPassPass(Registry);
+    llvm::initializeIRPolisherLegacyPassPass(Registry);
+    llvm::initializeAutoMathLegacyPassPass(Registry);
+    llvm::initializeWFVLegacyPassPass(Registry);
+    llvm::initializeLoopExitCanonicalizerLegacyPassPass(Registry);
   }
 };
 static StaticInitializer InitializeEverything;

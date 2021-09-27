@@ -35,7 +35,7 @@
 #include "utils/rvTools.h"
 #include "rv/region/FunctionRegion.h"
 #include "rv/transform/singleReturnTrans.h"
-#include "rv/transform/loopExitCanonicalizer.h"
+#include "rv/passes/loopExitCanonicalizer.h"
 #include "report.h"
 
 using namespace llvm;

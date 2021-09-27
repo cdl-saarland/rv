@@ -23,10 +23,10 @@
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/Passes/PassBuilder.h"
 
-#include "rv/transform/irPolisher.h"
+#include "rv/passes/irPolisher.h"
 #include "report.h"
 
-#include "rv/LinkAllPasses.h"
+#include "rv/legacy/LinkAllPasses.h"
 #include "rv/passes.h"
 #include "rv/config.h"
 
@@ -547,8 +547,11 @@ llvm::Value *IRPolisher::getConditionFromMask(IRBuilder<> &builder, llvm::Value*
   return builder.CreateICmpNE(value, Constant::getNullValue(value->getType()));
 }
 
+IRPolisher::IRPolisher(Function &F)
+    : F(F), RVConfig(rv::Config::createForFunction(F)) {}
+
 bool IRPolisher::polish() {
-  if (!(config.useAVX || config.useAVX2)) {
+  if (!(RVConfig.useAVX || RVConfig.useAVX2)) {
     return false; // requires >= AVX
   }
 
@@ -628,42 +631,39 @@ bool IRPolisher::polish() {
   return visitedInsts.size() > 0;
 }
 
-
-
-
-
+///// Old PM Pass /////
 namespace {
-
-class IRPolisherWrapper : public FunctionPass {
-  rv::Config config;
-
+class IRPolisherLegacyPass : public FunctionPass {
 public:
   static char ID;
-  IRPolisherWrapper()
-  : FunctionPass(ID)
-  {}
+  IRPolisherLegacyPass() : FunctionPass(ID) {}
 
-  IRPolisherWrapper(const Config & _config)
-  : FunctionPass(ID)
-  , config(_config)
-  {}
-
-  bool runOnFunction(Function & F) override {
-    rv::IRPolisher polisher(F, config);
-    bool changed = polisher.polish();
-    return changed;
+  bool runOnFunction(Function &F) override {
+    IRPolisher IRPolisherImpl(F);
+    return IRPolisherImpl.polish();
   }
 };
+} // namespace
 
-}
+char IRPolisherLegacyPass::ID = 0;
 
+FunctionPass *rv::createIRPolisherLegacyPass() { return new IRPolisherLegacyPass(); }
 
-
-char IRPolisherWrapper::ID = 0;
-
-FunctionPass *rv::createIRPolisherWrapperPass(rv::Config config) { return new IRPolisherWrapper(config); }
-
-INITIALIZE_PASS_BEGIN(IRPolisherWrapper, "rv-irpolish",
+INITIALIZE_PASS_BEGIN(IRPolisherLegacyPass, "rv-irpolish",
                       "RV - Polish Vector IR", false, false)
-INITIALIZE_PASS_END(IRPolisherWrapper, "rv-irpolish", "RV - Polish Vector IR",
+INITIALIZE_PASS_END(IRPolisherLegacyPass, "rv-irpolish", "RV - Polish Vector IR",
                     false, false)
+
+///// New PM Pass /////
+
+IRPolisherWrapperPass::IRPolisherWrapperPass() {}
+
+llvm::PreservedAnalyses
+IRPolisherWrapperPass::run(llvm::Function &F,
+                               llvm::FunctionAnalysisManager &FAM) {
+  IRPolisher IRPolisherImpl(F);
+  if (IRPolisherImpl.polish())
+    return llvm::PreservedAnalyses::none();
+  else
+    return llvm::PreservedAnalyses::all();
+}

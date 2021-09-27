@@ -32,6 +32,8 @@ namespace llvm {
   class PostDominatorTree;
   class MemoryDependenceResults;
   class BranchProbabilityInfo;
+  class TargetLibraryInfo;
+  class TargetTransformInfo;
 }
 
 
@@ -40,42 +42,43 @@ namespace rv {
 struct VectorMapping;
 class VectorizerInterface;
 
-class WFVPass : public llvm::ModulePass {
+class WFV {
+  llvm::FunctionAnalysisManager FAM;
+
   bool enableDiagOutput; // WFV_DIAG
 
   std::vector<VectorMapping> wfvJobs;
 
   /// collect all stray Vector Function ABI strings in the attributes of \p F.
-  void collectJobs(llvm::Function & F);
+  void collectJobs(llvm::Function &F);
 
   /// check that \p wfvJob is a sane function mapping.
-  bool isSaneMapping(VectorMapping & wfvJob) const;
+  bool isSaneMapping(VectorMapping &wfvJob) const;
 
   /// generate the Vector Function ABI variant encoded in \p wfvJob.
-  void vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob);
+  void vectorizeFunction(VectorizerInterface &vectorizer,
+                         VectorMapping &wfvJob);
+
+public:
+  WFV();
+  bool run(llvm::Module &);
+};
+
+class WFVLegacyPass : public llvm::ModulePass {
 public:
   static char ID;
 
-  WFVPass()
-  : ModulePass(ID)
-  {}
+  WFVLegacyPass() : ModulePass(ID) {}
 
   void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
-  bool runOnModule(llvm::Module & M) override;
+  bool runOnModule(llvm::Module &M) override;
 };
 
 struct WFVWrapperPass : llvm::PassInfoMixin<WFVWrapperPass> {
-  private:
-    std::shared_ptr<llvm::ModulePass> wfv;
-  public:
-    WFVWrapperPass() : wfv(rv::createWFVPass()) {};
-
-    llvm::PreservedAnalyses run (llvm::Module &M, llvm::ModuleAnalysisManager &MAM) {
-      if (wfv->runOnModule(M))
-        return llvm::PreservedAnalyses::none();
-      else
-        return llvm::PreservedAnalyses::all();
-    }
+public:
+  WFVWrapperPass();
+  llvm::PreservedAnalyses run(llvm::Module &M,
+                              llvm::ModuleAnalysisManager &MAM);
 };
 
 } // namespace rv

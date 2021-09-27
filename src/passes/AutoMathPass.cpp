@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "rv/LinkAllPasses.h"
-#include "rv/transform/AutoMathPass.h"
+#include "rv/legacy/LinkAllPasses.h"
+#include "rv/passes/AutoMathPass.h"
 
 #include "rv/analysis/costModel.h"
 #include "rv/analysis/reductionAnalysis.h"
@@ -62,15 +62,6 @@ using namespace llvm;
 #else
 #define IF_DEBUG_AM IF_DEBUG
 #endif
-
-/// Register all analyses and transformation required.
-void AutoMathPass::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.addRequired<DominatorTreeWrapperPass>();
-  AU.addRequired<PostDominatorTreeWrapperPass>();
-  AU.addRequired<LoopInfoWrapperPass>();
-  AU.addRequired<TargetTransformInfoWrapperPass>();
-  AU.addRequired<TargetLibraryInfoWrapperPass>();
-}
 
 static bool IsForVE(Function &F) {
   Triple Triple(F.getParent()->getTargetTriple());
@@ -310,45 +301,62 @@ struct FuncSession {
   }
 };
 
-bool AutoMathPass::runOnFunction(Function &F) {
+AutoMathPass::AutoMathPass() {
+  // Prepare Analyses
+  PassBuilder PB;
+  PB.registerFunctionAnalyses(FAM);
+}
+
+bool AutoMathPass::run(Function &F) {
   // Should we vectorize math here?
   if (!IsForVE(F))
     return false;
 
   // Setup the vectorizer
-  auto &TLI = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(F);
-  auto &TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
+  auto &TLI = FAM.getResult<TargetLibraryAnalysis>(F);
+  auto &TTI = FAM.getResult<TargetIRAnalysis>(F);
   FuncSession FuncSession(F, TTI, TLI);
   return FuncSession.run();
 }
 
-bool AutoMathPass::runOnModule(Module &M) {
+bool AutoMathPass::run(Module &M) {
   bool Changed = false;
   // analyze math function usage in all VE functions
   for (auto &func : M) {
     if (func.isDeclaration())
       continue;
 
-    Changed |= runOnFunction(func);
+    Changed |= run(func);
   }
 
   return Changed;
 }
 
-char AutoMathPass::ID = 0;
+///// New PM Pass /////
 
-ModulePass *rv::createAutoMathPass() { return new AutoMathPass(); }
+AutoMathWrapperPass::AutoMathWrapperPass() {}
 
-INITIALIZE_PASS_BEGIN(AutoMathPass, "rv-automath",
+llvm::PreservedAnalyses
+AutoMathWrapperPass::run(llvm::Module &M, llvm::ModuleAnalysisManager &MAM) {
+  AutoMathPass AMP;
+  if (AMP.run(M))
+    return PreservedAnalyses::none();
+  else
+    return PreservedAnalyses::all();
+}
+
+///// Old PM Pass /////
+void AutoMathLegacyPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {}
+bool AutoMathLegacyPass::runOnModule(llvm::Module &M) {
+  AutoMathPass AMP;
+  return AMP.run(M);
+}
+
+char AutoMathLegacyPass::ID = 0;
+
+ModulePass *rv::createAutoMathLegacyPass() { return new AutoMathLegacyPass(); }
+
+INITIALIZE_PASS_BEGIN(AutoMathLegacyPass, "rv-automath",
                       "RV - Auto-vectorize math functions", false, false)
-INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(MemoryDependenceWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(BranchProbabilityInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
-// PlatformInfo
-INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
-INITIALIZE_PASS_END(AutoMathPass, "rv-automath",
+INITIALIZE_PASS_END(AutoMathLegacyPass, "rv-automath",
                     "RV - Auto-vectorize math functions", false, false)

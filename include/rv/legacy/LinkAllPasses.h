@@ -19,12 +19,13 @@ namespace llvm {
 class Pass;
 class PassRegistry;
 
-void initializeAutoMathPassPass(PassRegistry&);
-void initializeIRPolisherWrapperPass(PassRegistry&);
-void initializeLoopVectorizerPass(PassRegistry&);
-void initializeLowerRVIntrinsicsPass(PassRegistry&);
-void initializeWFVPassPass(PassRegistry&);
-void initializeOMPDeclutterPass(PassRegistry&);
+void initializeAutoMathLegacyPassPass(PassRegistry&);
+void initializeIRPolisherLegacyPassPass(PassRegistry&);
+void initializeLoopVectorizerLegacyPassPass(PassRegistry&);
+void initializeLowerRVIntrinsicsLegacyPassPass(PassRegistry&);
+void initializeWFVLegacyPassPass(PassRegistry&);
+void initializeOMPDeclutterLegacyPassPass(PassRegistry&);
+void initializeLoopExitCanonicalizerLegacyPassPass(PassRegistry&);
 } // namespace llvm
 
 namespace {
@@ -37,12 +38,13 @@ struct RVForcePassLinking {
     if (std::getenv("bar") != (char *)-1)
       return;
 
-    rv::createAutoMathPass();
-    rv::createIRPolisherWrapperPass();
-    rv::createLoopVectorizerPass();
-    rv::createLowerRVIntrinsicsPass();
-    rv::createWFVPass();
-    rv::createOMPDeclutterPass();
+    rv::createAutoMathLegacyPass();
+    rv::createIRPolisherLegacyPass();
+    rv::createLoopVectorizerLegacyPass();
+    rv::createLowerRVIntrinsicsLegacyPass();
+    rv::createWFVLegacyPass();
+    rv::createOMPDeclutterLegacyPass();
+    rv::createLoopExitCanonicalizerLegacyPass();
   }
 } RVForcePassLinking; // Force link by creating a global definition.
 

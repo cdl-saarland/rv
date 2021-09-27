@@ -10,14 +10,16 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
+#include "llvm/Pass.h"
 
 #ifndef RV_REGISTERPASSES_H
 #define RV_REGISTERPASSES_H
 
 namespace rv {
-  // add passes to \p PB according to rv flags (cl::opts).
-  void addConfiguredPasses(llvm::PassBuilder & PB);
+// add passes to \p PB according to rv flags (cl::opts).
+void addConfiguredRVPasses(llvm::PassBuilder &PB);
 }
 
 #endif // RV_REGISTERPASSES_H

@@ -1,4 +1,4 @@
-//===- rv/transform/AutoMathPass.h - auto-vectorize math  --*- C++ -*-===//
+//===- rv/passes/AutoMathPass.h - auto-vectorize math  --*- C++ -*-===//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -43,7 +43,9 @@ class VectorizationInfo;
 class VectorizerInterface;
 class PlatformInfo;
 
-class AutoMathPass : public llvm::ModulePass {
+class AutoMathPass {
+  llvm::FunctionAnalysisManager FAM;
+
   // Functions we are required to vectorized
   std::map<llvm::Function*, llvm::SmallSet<unsigned,2>> MathFuncsToWidth;
 
@@ -54,39 +56,38 @@ class AutoMathPass : public llvm::ModulePass {
   // with an RV resolver.
   bool addMathFuncJob(llvm::Function *F, unsigned VecWidth);
 
-  /// check whether F is eligible for auto-math and if so collect all function
-  /// calls to vector math declarations.
-  bool runOnFunction(llvm::Function & F);
-
   bool inspectCallSite(llvm::CallInst &C);
 
   /// generate the Vector Function ABI variant encoded in \p wfvJob.
   void vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob);
+
+  /// check whether F is eligible for auto-math and if so collect all function
+  /// calls to vector math declarations.
+  bool run(llvm::Function &);
+
+public:
+  AutoMathPass();
+  bool run(llvm::Module & M);
+};
+
+class AutoMathLegacyPass : public llvm::ModulePass {
 public:
   static char ID;
 
-  AutoMathPass()
-  : ModulePass(ID)
-  {}
+  AutoMathLegacyPass() : ModulePass(ID) {}
 
   void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
-  bool runOnModule(llvm::Module & M) override;
+  bool runOnModule(llvm::Module &M) override;
 };
 
-struct AutoMathWrapperPass : llvm::PassInfoMixin<AutoMathWrapperPass> {
-  private:
-    std::shared_ptr<llvm::ModulePass> autoMath;
-  public:
-    AutoMathWrapperPass() : autoMath(rv::createAutoMathPass()) {};
+class AutoMathWrapperPass : public llvm::PassInfoMixin<AutoMathWrapperPass> {
+public:
+  AutoMathWrapperPass();
 
-    llvm::PreservedAnalyses run (llvm::Module &M, llvm::ModuleAnalysisManager &MAM) {
-      if (autoMath->runOnModule(M))
-        return llvm::PreservedAnalyses::none();
-      else
-        return llvm::PreservedAnalyses::all();
-    }
+  static llvm::StringRef name() { return "rv::AutoMathWrapperPass"; }
+  llvm::PreservedAnalyses run(llvm::Module &M,
+                              llvm::ModuleAnalysisManager &MAM);
 };
-
 
 } // namespace rv
 #endif // RV_TRANSFORM_AUTOMATHPASS_H

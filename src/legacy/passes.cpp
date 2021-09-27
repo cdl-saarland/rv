@@ -8,16 +8,16 @@
 
 #include "rv/legacy/passes.h"
 
-#include "rv/transform/loopExitCanonicalizer.h"
 #include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils.h"
 
-#include "rv/transform/LoopVectorizer.h"
-#include "rv/transform/WFVPass.h"
-#include "rv/transform/loopExitCanonicalizer.h"
-#include "rv/transform/lowerRVIntrinsics.h"
+#include "rv/passes/loopExitCanonicalizer.h"
+#include "rv/passes/LoopVectorizer.h"
+#include "rv/passes/WFVPass.h"
+#include "rv/passes/loopExitCanonicalizer.h"
+#include "rv/passes/lowerRVIntrinsics.h"
 
 #include "llvm/Transforms/Scalar/ADCE.h"
 #include "llvm/Transforms/Utils/LCSSA.h"
@@ -29,53 +29,37 @@ using namespace llvm;
 
 namespace rv {
 
-void addPreparatoryPasses(legacy::PassManagerBase &PM) {
-  if (!CheckFlag("RV_NO_DECLUTTER")) PM.add(createOMPDeclutterPass());
+void addPreparatoryLegacyPasses(legacy::PassManagerBase &PM) {
+  if (!CheckFlag("RV_NO_DECLUTTER")) PM.add(createOMPDeclutterLegacyPass());
   PM.add(createLICMPass());
   PM.add(createPromoteMemoryToRegisterPass());
   PM.add(createLoopSimplifyPass());
   PM.add(createLCSSAPass());
-  PM.add(createLoopExitCanonicalizerPass()); // required for divLoopTrans
+  PM.add(createLoopExitCanonicalizerLegacyPass()); // required for divLoopTrans
 }
 
-void addCleanupPasses(legacy::PassManagerBase &PM) {
+void addCleanupLegacyPasses(legacy::PassManagerBase &PM) {
   // post rv cleanup
   PM.add(createAlwaysInlinerLegacyPass());
   PM.add(createAggressiveInstCombinerPass());
   PM.add(createAggressiveDCEPass());
 }
 
-void addOuterLoopVectorizer(legacy::PassManagerBase &PM) {
-  PM.add(rv::createLoopVectorizerPass());
-}
-
-void addAutoMathPass(llvm::legacy::PassManagerBase &PM) {
-  PM.add(rv::createAutoMathPass());
-}
-
-void addWholeFunctionVectorizer(llvm::legacy::PassManagerBase &PM) {
-  PM.add(rv::createWFVPass());
-}
-
-void addLowerBuiltinsPass(legacy::PassManagerBase &PM) {
-  PM.add(rv::createLowerRVIntrinsicsPass());
-}
-
-void addRVPasses(llvm::legacy::PassManagerBase &PM) {
+void addRVLegacyPasses(legacy::PassManagerBase &PM) {
   // normalize loops
-  addPreparatoryPasses(PM);
+  addPreparatoryLegacyPasses(PM);
 
   // supplement vector math functions for select targets using RV's resolver API
-  addAutoMathPass(PM);
+  PM.add(createAutoMathLegacyPass());
 
   // vectorize scalar functions that have VectorABI attributes
-  addWholeFunctionVectorizer(PM);
+  PM.add(createWFVLegacyPass());
 
   // vectorize annotated loops
-  addOuterLoopVectorizer(PM);
+  PM.add(createLoopVectorizerLegacyPass());
 
   // DCE, instcombine, ..
-  addCleanupPasses(PM);
+  addCleanupLegacyPasses(PM);
 }
 
 } // namespace rv

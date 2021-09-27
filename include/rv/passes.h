@@ -16,25 +16,16 @@
 
 namespace rv {
 
-void addRVPasses(llvm::PassBuilder &PB);
-
-// Auto-vectorization of math functions.
-void addAutoMathPass(llvm::ModulePassManager &MPM);
-
 // add normalization passes required by RV (BEFORE)
 void addPreparatoryPasses(llvm::ModulePassManager &MPM);
 
 // add cleanup passes to run after RV (AFTER)
 void addCleanupPasses(llvm::ModulePassManager &FPM);
 
-// add RV's outer loop vectorizer and required passes.
-void addOuterLoopVectorizer(llvm::FunctionPassManager &FPM);
-
-// add RV's whole function and required passes.
-void addWholeFunctionVectorizer(llvm::ModulePassManager &MPM);
-
 // insert a pass that
 void addLowerBuiltinsPass(llvm::FunctionPassManager &FPM);
+
+
 
 } // namespace rv
 

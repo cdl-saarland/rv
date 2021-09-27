@@ -9,8 +9,8 @@
 
 #include "rv/rvDebug.h"
 #include "rv/legacy/passes.h"
-#include "rv/LinkAllPasses.h"
-#include "rv/transform/OMPDeclutter.h"
+#include "rv/legacy/LinkAllPasses.h"
+#include "rv/passes/OMPDeclutter.h"
 #include "rvConfig.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
@@ -494,9 +494,9 @@ struct OMPDeclutterSession {
 };
 
 
-OMPDeclutter::OMPDeclutter() : FunctionPass(ID) {}
+OMPDeclutterLegacyPass::OMPDeclutterLegacyPass() : FunctionPass(ID) {}
 
-bool OMPDeclutter::runOnFunction(Function &F) {
+bool OMPDeclutterLegacyPass::runOnFunction(Function &F) {
 #if 0
   static bool Dumped = false;
   if (!Dumped) {
@@ -527,7 +527,7 @@ bool OMPDeclutter::runOnFunction(Function &F) {
   return Res;
 }
 
-/// new pm plumbing.
+///// New PM Pass /////
 
 OMPDeclutterWrapperPass::OMPDeclutterWrapperPass() {
 }
@@ -544,20 +544,20 @@ llvm::PreservedAnalyses rv::OMPDeclutterWrapperPass::run(Function &F, FunctionAn
 }
 
 
-/// legacy pm plumbing.
+///// Legacy PM Pass /////
 
-char OMPDeclutter::ID = 0;
+char OMPDeclutterLegacyPass::ID = 0;
 
-void OMPDeclutter::getAnalysisUsage(AnalysisUsage &AU) const {
+void OMPDeclutterLegacyPass::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<TargetTransformInfoWrapperPass>();
   AU.addRequired<TargetLibraryInfoWrapperPass>();
   AU.addRequired<LoopInfoWrapperPass>();
   AU.addRequired<DominatorTreeWrapperPass>();
 }
 
-FunctionPass *rv::createOMPDeclutterPass() { return new OMPDeclutter(); }
+FunctionPass *rv::createOMPDeclutterLegacyPass() { return new OMPDeclutterLegacyPass(); }
 
-INITIALIZE_PASS_BEGIN(OMPDeclutter, "rv-omp-declutter",
+INITIALIZE_PASS_BEGIN(OMPDeclutterLegacyPass, "rv-omp-declutter",
                       "RV - OMP Declutter", false, false)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
@@ -568,5 +568,5 @@ INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
 // PlatformInfo
 INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
-INITIALIZE_PASS_END(OMPDeclutter, "rv-omp-declutter", "RV - OMP Declutter",
+INITIALIZE_PASS_END(OMPDeclutterLegacyPass, "rv-omp-declutter", "RV - OMP Declutter",
                     false, false)

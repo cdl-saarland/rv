@@ -11,7 +11,7 @@ using namespace llvm;
 
 llvm::PassPluginLibraryInfo getRVPLUGPluginInfo() {
   return {LLVM_PLUGIN_API_VERSION, "RV", LLVM_VERSION_STRING,
-          [](PassBuilder &PB) { rv::addConfiguredPasses(PB); }};
+          [](PassBuilder &PB) { rv::addConfiguredRVPasses(PB); }};
 }
 
 #ifndef LLVM_RVPLUG_LINK_INTO_TOOLS
