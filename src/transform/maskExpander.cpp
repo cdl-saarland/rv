@@ -412,6 +412,9 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
     }
 
     orVec.push_back(edgeMask);
+    uniPhi->addIncoming(falseConst, predBlock);
+    redundantUniPhi &= (lastUniIn == nullptr) || (lastUniIn == falseConst);
+    lastUniIn = falseConst;
   }
 
 // start constructing the block mask
