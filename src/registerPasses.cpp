@@ -121,6 +121,8 @@ void rv::addConfiguredRVPasses(PassBuilder &PB) {
   PB.registerPipelineStartEPCallback(
       [&](llvm::ModulePassManager &MPM,
           llvm::PassBuilder::OptimizationLevel Level) {
+        if (Level.getSpeedupLevel() < 3)
+          return;
         if (rvPrep || mayVectorize())
           rv::addPreparatoryPasses(MPM);
       });
@@ -128,6 +130,8 @@ void rv::addConfiguredRVPasses(PassBuilder &PB) {
   PB.registerVectorizerStartEPCallback(
       [&](llvm::FunctionPassManager &FPM,
           llvm::PassBuilder::OptimizationLevel Level) {
+        if (Level.getSpeedupLevel() < 3)
+          return;
         if (rvOnlyPolish) {
           FPM.addPass(rv::IRPolisherWrapperPass());
           return;
@@ -140,7 +144,9 @@ void rv::addConfiguredRVPasses(PassBuilder &PB) {
 
   PB.registerOptimizerLastEPCallback(
       [&](llvm::ModulePassManager &MPM,
-          llvm::PassBuilder::OptimizationLevel Legel) {
+          llvm::PassBuilder::OptimizationLevel Level) {
+        if (Level.getSpeedupLevel() < 3)
+          return;
         if (shouldRunWFVPass())
           MPM.addPass(rv::WFVWrapperPass());
         if (mayVectorize())
