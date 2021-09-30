@@ -8,7 +8,7 @@ ADD_EXECUTABLE ( ${RVTOOL_NAME} ${RVTOOL_SOURCE_FILES} )
 
 # link with libRV in any case
 target_link_libraries(${RVTOOL_NAME}
-  RV
+  ${RV_LIBRARY_NAME}
   LLVMSupport
   LLVMCore
   LLVMScalarOpts
