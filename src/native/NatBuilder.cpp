@@ -1583,8 +1583,8 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       // replicate vector call
       for (unsigned i = 0; i < replicationFactor; ++i) {
         CallInst *call = cast<CallInst>(scalCall->clone());
-        call->setCalledFunction(&simdFunc);
         call->mutateType(simdFunc.getReturnType());
+        call->setCalledFunction(&simdFunc);
 
         // insert arguments into call
         for (unsigned j = 0; j < scalCall->getNumArgOperands(); ++j) {
