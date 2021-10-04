@@ -27,21 +27,20 @@ class MaskBuilder {
                                   llvm::Value &rhs,
                                   const llvm::Twine &name = "");
 
+protected:
+  virtual llvm::Value &AddMaskVal(llvm::Value &Op) = 0;
+
   // implementation aide
   template <typename T> T &AddMaskOp(T &I) {
     return llvm::cast<T>(AddMaskVal(llvm::cast<llvm::Value>(I)));
   }
-
-protected:
-  virtual llvm::Value &AddMaskVal(llvm::Value &Op) = 0;
-
 public:
   // initialize for P-LLVM context.
   MaskBuilder() {}
   virtual ~MaskBuilder() {}
 
   // Fold the ActiveVectorLength of M into its predicate.
-  Mask FoldAVL(llvm::IRBuilder<> &Builder, Mask M, llvm::Twine Name = "");
+  virtual Mask FoldAVL(llvm::IRBuilder<> &Builder, Mask M, llvm::Twine Name);
 
   // Perform logic operation on the input masks.
   Mask CreateOr(llvm::IRBuilder<> &Builder, Mask A, Mask B,
@@ -72,14 +71,20 @@ protected:
 public:
   ScalarMaskBuilder(VectorizationInfo &VecInfo)
       : MaskBuilder(), VecInfo(VecInfo) {}
+
+  Mask FoldAVL(llvm::IRBuilder<> &Builder, Mask M, llvm::Twine Name = "") override;
 };
 
 class VectorMaskBuilder final : public MaskBuilder {
+  // TODO: Support SVE.
+  unsigned VectorWidth;
 protected:
   llvm::Value &AddMaskVal(llvm::Value &Op) override { return Op; }
 
 public:
-  VectorMaskBuilder() : MaskBuilder() {}
+  VectorMaskBuilder(unsigned VectorWidth) : MaskBuilder(), VectorWidth(VectorWidth) {}
+
+  Mask FoldAVL(llvm::IRBuilder<> &Builder, Mask M, llvm::Twine Name = "") override;
 };
 
 } // namespace rv

@@ -61,7 +61,7 @@ parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & 
   bool needsMask = attribText[5] == 'M';
 
   // parse vectorization factor
-  char * pos; // = attribText.begin() + 6; // "_ZGV<api><vecbits>"
+  char * pos; // = attribText.begin() + 6; // "_ZGV<API><NeedsMask><VectorWidth>"
   unsigned vectorWidth = strtol(attribText.begin() + 6, &pos, 10);
 
   // process arument shapes

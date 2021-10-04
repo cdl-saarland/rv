@@ -652,18 +652,22 @@ NatBuilder::requestVectorCallArgs(CallInst & scaCall, Function & vecFunc, int ma
 
     if (vecIdx == maskPos) {
       Mask vecMask = requestVectorMask(*scaCall.getParent());
-      if (vecMask.getAVL()) {
+      if (getenv("RV_FOLD_AVL")) {
+        VectorMaskBuilder MBuilder(vectorWidth());
+        vecMask = MBuilder.FoldAVL(builder, vecMask);
+      } else {
         Report() << "Ignoring AVL in call!\n";
       }
-      vectorArgs.push_back(vecMask.getPred());
-      // the mask argument does not exist in the scalar function
-    } else {
-      Value *op = scaCall.getArgOperand(scaIdx);
-      bool vecTypeArg = itVecArg->getType()->isVectorTy();
-      Value *mappedArg = vecTypeArg ? requestVectorValue(op) : requestScalarValue(op);
-      vectorArgs.push_back(mappedArg);
-      ++scaIdx; // actually consuming a scalar argument
+      auto &VecMaskVal =
+          vecMask.requestPredAsValue(vecFunc.getContext(), vectorWidth());
+      vectorArgs.push_back(&VecMaskVal);
+      continue;
     }
+    Value *op = scaCall.getArgOperand(scaIdx);
+    bool vecTypeArg = itVecArg->getType()->isVectorTy();
+    Value *mappedArg = vecTypeArg ? requestVectorValue(op) : requestScalarValue(op);
+    vectorArgs.push_back(mappedArg);
+    ++scaIdx; // actually consuming a scalar argument
   }
 }
 
@@ -2646,7 +2650,7 @@ NatBuilder::maskInactiveLanes(Value &ScaValue, const BasicBlock &Block, bool Neg
   Mask VecBlockMask = requestVectorMask(Block);
   auto VecArgMask = requestVectorized(Mask::inferFromPredicate(ScaValue));
 
-  VectorMaskBuilder MBuilder;
+  VectorMaskBuilder MBuilder(vectorWidth());
   if (NegateArg) {
     return MBuilder.CreateAnd(builder, MBuilder.CreateNot(builder, VecArgMask), VecBlockMask);
   } else {

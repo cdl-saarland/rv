@@ -1,6 +1,8 @@
 #include "rv/MaskBuilder.h"
 
+#include "rv/intrinsics.h"
 #include "utils/rvTools.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/PatternMatch.h"
 #include <cassert>
 
@@ -178,6 +180,50 @@ llvm::Value *MaskBuilder::CreateSelect(llvm::IRBuilder<> &Builder,
          "TODO implement composition with AVL");
   return &AddMaskOp<>(
       *Builder.CreateSelect(CondMask.getPred(), OnTrueVal, OnFalseVal, Name));
+}
+
+// Fold the ActiveVectorLength of M into its predicate.
+Mask VectorMaskBuilder::FoldAVL(llvm::IRBuilder<> &Builder, Mask M,
+                                llvm::Twine Name) {
+  auto Mod = Builder.GetInsertBlock()->getModule();
+  auto *VectorWidthVal = Builder.getInt32(VectorWidth);
+  auto *PredTy = FixedVectorType::get(Builder.getInt1Ty(), VectorWidth);
+  // Vector impl.
+  auto ActiveLaneFunc = Intrinsic::getDeclaration(
+      Mod, Intrinsic::get_active_lane_mask, {PredTy, Builder.getInt32Ty()});
+
+  auto ConvertedPred = Builder.CreateCall(
+      ActiveLaneFunc, {M.getAVL(), VectorWidthVal}, "avl_to_pred");
+
+  Mask FoldedPred;
+  FoldedPred.setPred(ConvertedPred);
+  M.setAVL(nullptr);
+  return CreateAnd(Builder, M, FoldedPred);
+}
+
+// Fold the ActiveVectorLength of M into its predicate.
+Mask ScalarMaskBuilder::FoldAVL(llvm::IRBuilder<> &Builder, Mask M,
+                                llvm::Twine Name) {
+  auto Mod = Builder.GetInsertBlock()->getModule();
+
+  // rv_num_lanes()
+  auto &NumLaneFunc =
+      DeclareIntrinsic(RVIntrinsic::NumLanes, *Mod, Builder.getInt32Ty());
+  auto *NumLanes =
+      &AddMaskOp<Value>(*Builder.CreateCall(&NumLaneFunc, {}, "rv_num_lanes"));
+
+  // rv_lane_id()
+  auto &LaneIDFunc =
+      DeclareIntrinsic(RVIntrinsic::LaneID, *Mod, Builder.getInt32Ty());
+  auto *LaneID =
+      &AddMaskOp<Value>(*Builder.CreateCall(&LaneIDFunc, {}, "lane_id"));
+
+  Value *AVLAsMask = &AddMaskOp<Value>(
+      *Builder.CreateICmp(CmpInst::ICMP_ULT, LaneID, NumLanes));
+  Mask FoldedPred;
+  FoldedPred.setPred(AVLAsMask);
+  M.setAVL(nullptr);
+  return CreateAnd(Builder, M, FoldedPred);
 }
 
 } // namespace rv
