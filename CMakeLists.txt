@@ -196,6 +196,9 @@ add_subdirectory(vecmath)
 # links RV_SLEEF_OBJECTS into libRV
 add_subdirectory(src)
 
+# RV integrated tests
+add_subdirectory(test)
+
 # rvTool, ..
 add_subdirectory(tools)
 
