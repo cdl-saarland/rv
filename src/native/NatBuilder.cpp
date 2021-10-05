@@ -2377,7 +2377,10 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
         Function *insertFunction = mappedArg->getParent();
         BasicBlock &insertBlock = insertFunction->getEntryBlock();
         Instruction *firstInst = insertBlock.getFirstNonPHIOrDbg();
-        builder.SetInsertPoint(firstInst);
+        if (firstInst)
+          builder.SetInsertPoint(firstInst);
+        else
+          builder.SetInsertPoint(&insertBlock);
       }
 
       Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())
@@ -2406,7 +2409,10 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
       Function *insertFunction = mappedArg->getParent();
       BasicBlock &insertBlock = insertFunction->getEntryBlock();
       Instruction *firstInst = insertBlock.getFirstNonPHIOrDbg();
-      builder.SetInsertPoint(firstInst);
+      if (firstInst)
+        builder.SetInsertPoint(firstInst);
+      else
+        builder.SetInsertPoint(&insertBlock);
     }
     IF_DEBUG {
       errs() << "Extracting a scalar value from a vector:\n";
