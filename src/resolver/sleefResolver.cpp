@@ -243,9 +243,6 @@ static const unsigned char** extraModuleBuffers[] = {
 
 
 
-static Module *sleefModules[SLEEF_Enum_Entries * 2];
-static Module *extraModules[SLEEF_Enum_Entries * 2];
-
 static
 void
 InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleWidth) {
@@ -405,6 +402,9 @@ class SleefResolverService : public ResolverService {
   std::vector<ArchFunctionList*> archLists;
 
   Config config;
+
+  Module *sleefModules[SLEEF_Enum_Entries * 2] = {};
+  Module *extraModules[SLEEF_Enum_Entries * 2] = {};
 
 
 public:
