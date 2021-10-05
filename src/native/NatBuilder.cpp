@@ -2370,8 +2370,14 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
       auto oldIP = builder.GetInsertPoint();
       auto oldIB = builder.GetInsertBlock();
       Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
-      if (mappedInst){
+      Argument *mappedArg = dyn_cast<Argument>(mappedVal);
+      if (mappedInst) {
         SetInsertPointAfterMappedInst(builder, mappedInst);
+      } else if (mappedArg) {
+        Function *insertFunction = mappedArg->getParent();
+        BasicBlock &insertBlock = insertFunction->getEntryBlock();
+        Instruction *firstInst = insertBlock.getFirstNonPHIOrDbg();
+        builder.SetInsertPoint(firstInst);
       }
 
       Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())
@@ -2380,7 +2386,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
                                                               value->getName() + "lane" + std::to_string(laneIdx))
                                          : builder.CreateAdd(mappedVal, laneInt,
                                                              value->getName() + "_lane" + std::to_string(laneIdx));
-      if (mappedInst)
+      if (mappedInst || mappedArg)
         builder.SetInsertPoint(oldIB, oldIP);
     }
   }
@@ -2391,10 +2397,16 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     skipMapping = true;
     mappedVal = getVectorValue(*value);
     Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
+    Argument *mappedArg = dyn_cast<Argument>(mappedVal);
     auto oldIP = builder.GetInsertPoint();
     auto oldIB = builder.GetInsertBlock();
     if (mappedInst) {
       SetInsertPointAfterMappedInst(builder, mappedInst);
+    } else if (mappedArg) {
+      Function *insertFunction = mappedArg->getParent();
+      BasicBlock &insertBlock = insertFunction->getEntryBlock();
+      Instruction *firstInst = insertBlock.getFirstNonPHIOrDbg();
+      builder.SetInsertPoint(firstInst);
     }
     IF_DEBUG {
       errs() << "Extracting a scalar value from a vector:\n";
@@ -2423,7 +2435,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
       reqVal = builder.CreateBitCast(reqVal, value->getType(), "bc");
     }
 
-    if (mappedInst)
+    if (mappedInst || mappedArg)
       builder.SetInsertPoint(oldIB, oldIP);
   }
 
