@@ -358,7 +358,7 @@ printRule()
 
 
 # run stuff
-
+AllPassed = True
 
 for pattern in patterns:
   tests = [testCase for testCase in glob(pattern)]
@@ -399,6 +399,7 @@ for pattern in patterns:
         print("passed" if success else "failed! <-")
 
     except TestFailure as testFail:
+      AllPassed = False
       print("failed! {}".format(testFail))
 
 # flush out results numbers
@@ -409,3 +410,7 @@ if profileMode:
 
 # Goodbye
 printRule()
+if AllPassed:
+  raise SystemExit(0)
+else:
+  raise SystemExit(1)
