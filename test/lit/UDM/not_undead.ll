@@ -1,11 +1,14 @@
-; RUN: rvTool -wfv -lower -i %s -k implied_undead_or -s T_T_U_U -w 8  | FileCheck %s
+; RUN: rvTool -wfv -analyze udm -i %s -k implied_undead_or -s T_T_U_U -w 8  | FileCheck %s
 
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-linux-gnu"
 
 declare dso_local zeroext i1 @rv_any(i1 zeroext) local_unnamed_addr #2
 
-; CHECK: mem_block:
+; CHECK:      UDM {
+; CHECK-NEXT: onAnyEither:  undead
+; CHECK-NEXT: }
+
 define void @implied_undead_or(i1 %mask, i1 %distraction, i32* %uniPtr, i32 %uniVal) {
 entry:
   %orMask = or i1 %mask, %distraction

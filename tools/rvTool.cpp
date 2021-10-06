@@ -51,6 +51,7 @@
 #include "rv/region/Region.h"
 #include "rv/vectorizationInfo.h"
 
+#include "rv/analysis/UndeadMaskAnalysis.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/passes/loopExitCanonicalizer.h"
 #include "rv/transform/remTransform.h"
@@ -58,7 +59,17 @@
 
 using namespace llvm;
 
-static bool OnlyAnalyze = false;
+#define ValidAnalysisString "da|udm"
+static std::string PrintAnalysis = "";
+
+static bool AnalyzeOnly() { return !PrintAnalysis.empty(); }
+
+static bool PrintOnlyDA() { return PrintAnalysis == "da"; }
+static bool PrintOnlyUDM() { return PrintAnalysis == "udm"; }
+
+static bool HasValidAnalysisSetting() {
+  return !AnalyzeOnly() || PrintOnlyDA() | PrintOnlyUDM();
+}
 
 static const char LISTSEPERATOR = '_';
 static const char RETURNSHAPESEPERATOR = 'r';
@@ -93,18 +104,15 @@ Module *createModuleFromFile(const std::string &fileName,
   return modPtr.release();
 }
 
-void
-writeModuleToFile(Module* mod, const std::string& fileName)
-{
-    assert (mod);
-    std::error_code EC;
-    raw_fd_ostream file(fileName, EC, sys::fs::OpenFlags::OF_None);
-    mod->print(file, nullptr);
-    if (EC)
-    {
-        fail("ERROR: printing module to file failed: ", EC.message());
-    }
-    file.close();
+void writeModuleToFile(Module *mod, const std::string &fileName) {
+  assert(mod);
+  std::error_code EC;
+  raw_fd_ostream file(fileName, EC, sys::fs::OpenFlags::OF_None);
+  mod->print(file, nullptr);
+  if (EC) {
+    fail("ERROR: printing module to file failed: ", EC.message());
+  }
+  file.close();
 }
 
 void normalizeFunction(Function &F) {
@@ -217,17 +225,28 @@ void vectorizeLoop(Function &parentFn, Loop &TheLoop, unsigned vectorWidth,
   vectorizer.lowerRuntimeCalls(vecInfo, FAM);
 
   IF_VERBOSE {
-    auto & LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
-    auto & DT = FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
-    LI.print(errs()); 
+    auto &LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
+    auto &DT =
+        FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
+    LI.print(errs());
     LI.verify(DT);
   }
 
   // vectorizationAnalysis
   vectorizer.analyze(vecInfo, FAM);
 
-  if (OnlyAnalyze) {
+  if (PrintOnlyDA()) {
     vecInfo.print(outs());
+    return;
+  }
+
+  if (PrintOnlyUDM()) {
+    // Expand all block masks and show which block masks are considered 'undead'
+    // (never all false).
+    rv::UndeadMaskAnalysis UDM(vecInfo, FAM);
+    rv::MaskExpander maskEx(vecInfo, FAM);
+    maskEx.expandRegionMasks();
+    UDM.print(outs());
     return;
   }
 
@@ -239,8 +258,7 @@ void vectorizeLoop(Function &parentFn, Loop &TheLoop, unsigned vectorWidth,
       *vecInfo.getMapping()
            .scalarFn); // Control conversion does not preserve the domTree so we
                        // have to rebuild it for now
-  bool vectorizeOk =
-      vectorizer.vectorize(vecInfo, FAM, nullptr);
+  bool vectorizeOk = vectorizer.vectorize(vecInfo, FAM, nullptr);
   if (!vectorizeOk)
     fail("vector code generation failed");
 
@@ -249,7 +267,8 @@ void vectorizeLoop(Function &parentFn, Loop &TheLoop, unsigned vectorWidth,
 }
 
 // Use case: Outer-loop Vectorizer
-void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth, int ulpErrorBound) {
+void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth,
+                        int ulpErrorBound) {
   // normalize
   normalizeFunction(parentFn);
 
@@ -271,7 +290,7 @@ void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth, int ulpErrorBo
   // ScalarEvolution SE = seAnalysis.run(parentFn, FAM);
 
   // compute actual analysis structures
-  auto & LI = FAM.getResult<LoopAnalysis>(parentFn);
+  auto &LI = FAM.getResult<LoopAnalysis>(parentFn);
 
   if (LI.begin() == LI.end()) {
     return;
@@ -300,7 +319,8 @@ void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth, int ulpErrorBo
 using ShapeMap = std::map<std::string, rv::VectorShape>;
 
 // Use case: Whole-Function Vectorizer
-void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, bool generateVectorName, int ulpErrorBound) {
+void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes,
+                       bool generateVectorName, int ulpErrorBound) {
   Function *scalarFn = vectorizerJob.scalarFn;
   Module &mod = *scalarFn->getParent();
 
@@ -320,7 +340,9 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   // assign a proper vector function name
   if (generateVectorName) {
     auto scaName = scalarFn->getName();
-    auto mangledVectorName = platInfo.createMangledVectorName(scaName, vectorizerJob.argShapes, vectorizerJob.vectorWidth, vectorizerJob.maskPos);
+    auto mangledVectorName = platInfo.createMangledVectorName(
+        scaName, vectorizerJob.argShapes, vectorizerJob.vectorWidth,
+        vectorizerJob.maskPos);
     vectorizerJob.vectorFn->setName(mangledVectorName);
   }
 
@@ -335,7 +357,6 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
     LoopExitCanonicalizer canonicalizer(loopInfo);
     canonicalizer.canonicalize(*scalarCopy);
   }
-
 
   // emit a rv_entry_mask call to get a hold off the "future" function entry
   // mask (which will ultimately be available as a function argument in the
@@ -383,7 +404,8 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
 
     if (vecFun) {
       // interpret <shape> as result shape
-      rv::VectorMapping vecFuncMap(vecFun, vecFun, 0, rv::CallPredicateMode::SafeWithoutPredicate);
+      rv::VectorMapping vecFuncMap(vecFun, vecFun, 0,
+                                   rv::CallPredicateMode::SafeWithoutPredicate);
       vecFuncMap.resultShape = shape;
       platInfo.addMapping(vecFuncMap);
       outs() << "rvTool func mapping: ";
@@ -406,8 +428,18 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
 
   // vectorizationAnalysis
   vectorizer.analyze(vecInfo, FAM);
-  if (OnlyAnalyze) {
+  if (PrintOnlyDA()) {
     vecInfo.print(outs());
+    return;
+  }
+
+  if (PrintOnlyUDM()) {
+    // Expand all block masks and show which block masks are considered 'undead'
+    // (never all false).
+    rv::UndeadMaskAnalysis UDM(vecInfo, FAM);
+    rv::MaskExpander maskEx(vecInfo, FAM);
+    maskEx.expandRegionMasks();
+    UDM.print(outs());
     return;
   }
 
@@ -418,8 +450,7 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   // Control conversion does not preserve the domTree so we have to rebuild it
   // for now
   DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn);
-  bool vectorizeOk =
-      vectorizer.vectorize(vecInfo, FAM, nullptr);
+  bool vectorizeOk = vectorizer.vectorize(vecInfo, FAM, nullptr);
   if (!vectorizeOk)
     fail("vector code generation failed.");
 
@@ -496,32 +527,34 @@ rv::VectorShape decodeShape(std::stringstream &shapestream) {
 }
 
 static void PrintHelp() {
-  std::cerr << "RV command line tool (rvTool)\n"
-            << "No command specified!\n"
-            << "-i MODULE [-k KERNELNAME] [-t TARGET_DECL] [-normalize] ..."
-               "[-lower] [-v] "
-            << "[-o OUTPUT_LL] [-w 8] [-s SHAPES] [-x GV_SHAPES]\n"
-            << "\nCommands:\n"
-            << "-wfv/-loopvec      : vectorize a whole-function or an outer loop\n"
-            << "-analyze           : normalize, print vectorization analysis "
-               "results and exit.\n"
-            << "-lower-func        : lower predicate intrinsics in scalar kernel.\n"
-            << "-lower             : lower predicate intrinsics in entire module.\n"
-            << "-normalize         : normalize kernel and quit.\n"
-            << "\nOptions:\n"
-            << "-i MODULE          : LLVM input module.\n"
-            << "-o MODULE          : LLVM output module.\n"
-            << "-k KERNEL          : name of the function to vectorize/function "
-               "with loop to vectorize.\n"
-            << "-t DECL            : target SIMD declaration (WFV mode only, will "
-               "be auto generated if missing).\n"
-            << "-s SHAPES          : WFV argument shapes.\n"
-            << "-m MaskPos         : (wfv only) mask argument position.\n"
-            << "--math-prec <ulp>  : ULP error bound on math functions (n/10).\n"
-            << "-x GVSHAPES        : comma-separated list of global value and "
-               "function-return shapes, e.g. \"gvar=C,func=S4\".\n"
-            << "-w WIDTH           : vectorization factor.\n"
-            << "-v                 : enable verbose output (rvTool level output).\n";
+  std::cerr
+      << "RV command line tool (rvTool)\n"
+      << "No command specified!\n"
+      << "-i MODULE [-k KERNELNAME] [-t TARGET_DECL] [-normalize] ..."
+         "[-lower] [-v] "
+      << "[-o OUTPUT_LL] [-w 8] [-s SHAPES] [-x GV_SHAPES]\n"
+      << "\nCommands:\n"
+      << "-wfv/-loopvec      : vectorize a whole-function or an outer loop\n"
+      << "-analyze=" ValidAnalysisString
+         "    : print analysis results (may imply "
+         "transformations up to that point in the pipeline.\n"
+      << "-lower-func        : lower predicate intrinsics in scalar kernel.\n"
+      << "-lower             : lower predicate intrinsics in entire module.\n"
+      << "-normalize         : normalize kernel and quit.\n"
+      << "\nOptions:\n"
+      << "-i MODULE          : LLVM input module.\n"
+      << "-o MODULE          : LLVM output module.\n"
+      << "-k KERNEL          : name of the function to vectorize/function "
+         "with loop to vectorize.\n"
+      << "-t DECL            : target SIMD declaration (WFV mode only, will "
+         "be auto generated if missing).\n"
+      << "-s SHAPES          : WFV argument shapes.\n"
+      << "-m MaskPos         : (wfv only) mask argument position.\n"
+      << "--math-prec <ulp>  : ULP error bound on math functions (n/10).\n"
+      << "-x GVSHAPES        : comma-separated list of global value and "
+         "function-return shapes, e.g. \"gvar=C,func=S4\".\n"
+      << "-w WIDTH           : vectorization factor.\n"
+      << "-v                 : enable verbose output (rvTool level output).\n";
 }
 
 int main(int argc, char **argv) {
@@ -536,7 +569,13 @@ int main(int argc, char **argv) {
   std::string kernelName;
   bool hasKernelName = reader.readOption<std::string>("-k", kernelName);
 
-  OnlyAnalyze = reader.hasOption("-analyze"); // global
+  PrintAnalysis = reader.getOption<std::string>("-analyze", "");
+  if (!HasValidAnalysisSetting()) {
+    errs() << "Invalid setting for '-analyze', expected " ValidAnalysisString
+              ".\n";
+    return 1;
+  }
+
   bool wfvMode = reader.hasOption("-wfv");
   bool loopVecMode = reader.hasOption("-loopvec");
 
@@ -555,7 +594,9 @@ int main(int argc, char **argv) {
 
   int ulpErrorBound = 10;
   reader.readOption<int>("--math-prec", ulpErrorBound);
-  IF_VERBOSE { errs() << "SLEEF ulpErrorBound: " << (ulpErrorBound/10.0) << "\n"; }
+  IF_VERBOSE {
+    errs() << "SLEEF ulpErrorBound: " << (ulpErrorBound / 10.0) << "\n";
+  }
 
   if (!hasFile) {
     PrintHelp();
@@ -667,17 +708,21 @@ int main(int argc, char **argv) {
 
     if (wfvMode) {
       // request SIMD decl (with a requested name, if any)
-      Function *vectorFn = hasTargetDeclName ? mod->getFunction(targetDeclName) : nullptr;
+      Function *vectorFn =
+          hasTargetDeclName ? mod->getFunction(targetDeclName) : nullptr;
       if (!vectorFn) {
         vectorFn = rv::createVectorDeclaration(*scalarFn, resShape, argShapes,
                                                vectorWidth, maskPos);
         vectorFn->copyAttributesFrom(scalarFn);
 
-        if (hasTargetDeclName) vectorFn->setName(targetDeclName);
+        if (hasTargetDeclName)
+          vectorFn->setName(targetDeclName);
       }
       assert(vectorFn);
 
-      auto predMode = maskPos >= 0 ? rv::CallPredicateMode::PredicateArg : rv::CallPredicateMode::SafeWithoutPredicate;
+      auto predMode = maskPos >= 0
+                          ? rv::CallPredicateMode::PredicateArg
+                          : rv::CallPredicateMode::SafeWithoutPredicate;
       rv::VectorMapping vectorizerJob(scalarFn, vectorFn, vectorWidth, maskPos,
                                       resShape, argShapes, predMode);
 
@@ -689,8 +734,10 @@ int main(int argc, char **argv) {
                         << "\" with vector size " << vectorizerJob.vectorWidth
                         << "... \n";
 
-      // vectorize and assign a mangled name (if no specific name was requested beforehand)
-      vectorizeFunction(vectorizerJob, shapeMap, !hasTargetDeclName, ulpErrorBound);
+      // vectorize and assign a mangled name (if no specific name was requested
+      // beforehand)
+      vectorizeFunction(vectorizerJob, shapeMap, !hasTargetDeclName,
+                        ulpErrorBound);
 
     } else if (loopVecMode) {
       vectorizeFirstLoop(*scalarFn, vectorWidth, ulpErrorBound);
@@ -707,7 +754,7 @@ int main(int argc, char **argv) {
 
   } // !finish
 
-  if (OnlyAnalyze)
+  if (AnalyzeOnly())
     return 0;
 
   // output

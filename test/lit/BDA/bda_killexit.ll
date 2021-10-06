@@ -1,4 +1,4 @@
-; RUN: rvTool -wfv -analyze -i %s -k killexit -s U_TrT -w 8  | FileCheck %s
+; RUN: rvTool -wfv -analyze da -i %s -k killexit -s U_TrT -w 8  | FileCheck %s
 
 ; CHECK: %inc.plus = add i64 %inc, 1 : uni
 ; CHECK: %trip.uni = phi i64 [ %inc, %body ] : uni

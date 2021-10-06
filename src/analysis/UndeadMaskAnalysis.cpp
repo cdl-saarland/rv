@@ -1,4 +1,5 @@
-//===- src/analysis/UndeadMaskAnalysis.cpp - at-least-one-thread-live analysis --*- C++ -*-===//
+//===- src/analysis/UndeadMaskAnalysis.cpp - at-least-one-thread-live analysis
+//--*- C++ -*-===//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,13 +9,13 @@
 
 #include "rv/analysis/UndeadMaskAnalysis.h"
 
-#include <llvm/IR/PatternMatch.h>
-#include <llvm/IR/CFG.h>
-#include <llvm/IR/Instructions.h>
-#include <llvm/IR/Constants.h>
 #include "rv/region/Region.h"
-#include "rv/vectorizationInfo.h"
 #include "rv/rvDebug.h"
+#include "rv/vectorizationInfo.h"
+#include <llvm/IR/CFG.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/PatternMatch.h>
 
 #include "rv/intrinsics.h"
 #include "rvConfig.h"
@@ -31,63 +32,71 @@ using namespace llvm::PatternMatch;
 
 namespace rv {
 
-static bool
-IsConstMask(const Value & val, bool allTrue) {
-  if (!isa<ConstantInt>(val)) return false;
+static bool IsConstMask(const Value &val, bool allTrue) {
+  if (!isa<ConstantInt>(val))
+    return false;
   return allTrue == (cast<ConstantInt>(val).getZExtValue() != 0);
 }
 
-static Value*
-MatchNegation(const Value & val) {
-  Value * Elem = nullptr;
+static Value *MatchNegation(const Value &val) {
+  Value *Elem = nullptr;
   if (match(&val, m_Not(m_Value(Elem)))) {
     return Elem;
   }
   return nullptr;
 }
 
-bool
-UndeadMaskAnalysis::implies(const Value & lhs, bool lhsNegated, const Value & rhs, bool rhsNegated) {
-  IF_DEBUG_UDM { errs() << "UDM: whether " << lhs << ", lhsNegated=" << lhsNegated << " == implies ==> rhs " << rhs << ", rhsNegated=" << rhsNegated << "\n"; }
+bool UndeadMaskAnalysis::implies(const Value &lhs, bool lhsNegated,
+                                 const Value &rhs, bool rhsNegated) {
+  IF_DEBUG_UDM {
+    errs() << "UDM: whether " << lhs << ", lhsNegated=" << lhsNegated
+           << " == implies ==> rhs " << rhs << ", rhsNegated=" << rhsNegated
+           << "\n";
+  }
 
-// trivial cases
+  // trivial cases
   if ((lhsNegated == rhsNegated) && (&lhs == &rhs)) {
     IF_DEBUG_UDM { errs() << " yes! A => A\n"; }
     return true;
   }
-  if (IsConstMask(rhs, !rhsNegated)) return true; // <everything> => true
-  if (IsConstMask(lhs, lhsNegated)) return true; // false => <everything> OR !true => <everything>
+  if (IsConstMask(rhs, !rhsNegated))
+    return true; // <everything> => true
+  if (IsConstMask(lhs, lhsNegated))
+    return true; // false => <everything> OR !true => <everything>
 
-// unwind negations in @lhs and @rhs
-  const Value * negatedLhs = MatchNegation(lhs);
-  const Value * negatedRhs = MatchNegation(rhs);
+  // unwind negations in @lhs and @rhs
+  const Value *negatedLhs = MatchNegation(lhs);
+  const Value *negatedRhs = MatchNegation(rhs);
   if (negatedLhs || negatedRhs) {
-    return implies(negatedLhs ? *negatedLhs : lhs, ((bool) negatedLhs) ^ lhsNegated,
-                   negatedRhs ? *negatedRhs : rhs, ((bool) negatedRhs) ^ rhsNegated);
+    return implies(
+        negatedLhs ? *negatedLhs : lhs, ((bool)negatedLhs) ^ lhsNegated,
+        negatedRhs ? *negatedRhs : rhs, ((bool)negatedRhs) ^ rhsNegated);
   }
 
-// see through LHS conjunctions
+  // see through LHS conjunctions
   Value *A, *B;
   if ((!lhsNegated && match(&lhs, m_And(m_Value(A), m_Value(B)))) ||
       (lhsNegated && match(&lhs, m_Or(m_Value(A), m_Value(B))))) {
     IF_DEBUG_UDM { errs() << "\tlhs conjunction case\n"; }
-    return implies(*A, lhsNegated, rhs, rhsNegated) || implies(*B, lhsNegated, rhs, rhsNegated);
+    return implies(*A, lhsNegated, rhs, rhsNegated) ||
+           implies(*B, lhsNegated, rhs, rhsNegated);
   }
 
-// see through RHS disjunctions
+  // see through RHS disjunctions
   if ((!rhsNegated && match(&rhs, m_Or(m_Value(A), m_Value(B)))) ||
       (rhsNegated && match(&rhs, m_And(m_Value(A), m_Value(B))))) {
     IF_DEBUG_UDM { errs() << "\trhs disjunction case\n"; }
-    return implies(lhs, lhsNegated, *A, rhsNegated) || implies(rhs, lhsNegated, *B, rhsNegated);
+    return implies(lhs, lhsNegated, *A, rhsNegated) ||
+           implies(rhs, lhsNegated, *B, rhsNegated);
   }
 
-// mask predicate
+  // mask predicate
   auto maskIntrinsicID = GetIntrinsicID(lhs);
   if (maskIntrinsicID == RVIntrinsic::Unknown) {
     return false;
   }
 
-  const auto * maskArg = cast<const CallInst>(lhs).getArgOperand(0);
+  const auto *maskArg = cast<const CallInst>(lhs).getArgOperand(0);
 
   switch (maskIntrinsicID) {
   case RVIntrinsic::Any:
@@ -102,42 +111,44 @@ UndeadMaskAnalysis::implies(const Value & lhs, bool lhsNegated, const Value & rh
   return false;
 }
 
-UndeadMaskAnalysis::UndeadMaskAnalysis(VectorizationInfo & VecInfo, FunctionAnalysisManager &FAM)
-: vecInfo(VecInfo)
-, domTree(FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction()))
-{}
+UndeadMaskAnalysis::UndeadMaskAnalysis(VectorizationInfo &VecInfo,
+                                       FunctionAnalysisManager &FAM)
+    : vecInfo(VecInfo), domTree(FAM.getResult<DominatorTreeAnalysis>(
+                            vecInfo.getScalarFunction())) {}
 
-const BasicBlock*
-GetUniquePredecessor(const BasicBlock & block) {
+const BasicBlock *GetUniquePredecessor(const BasicBlock &block) {
   // find a unique predecessor
-  const BasicBlock * uniquePred = nullptr;
+  const BasicBlock *uniquePred = nullptr;
   const_pred_iterator itPred, itEnd;
-  for (itPred = pred_begin(&block), itEnd = pred_end(&block);
-      itPred != itEnd;
-      ++itPred) {
-    if (uniquePred) return nullptr;
+  for (itPred = pred_begin(&block), itEnd = pred_end(&block); itPred != itEnd;
+       ++itPred) {
+    if (uniquePred)
+      return nullptr;
     uniquePred = *itPred;
   }
 
-  if (!uniquePred) return nullptr;
+  if (!uniquePred)
+    return nullptr;
 
-  const auto * uniqueBranch = dyn_cast<BranchInst>(uniquePred->getTerminator());
-  if (!uniqueBranch) return nullptr; // FIXME
+  const auto *uniqueBranch = dyn_cast<BranchInst>(uniquePred->getTerminator());
+  if (!uniqueBranch)
+    return nullptr; // FIXME
 
   return uniquePred;
 }
 
-static bool
-IsTargetOnFalse(const BranchInst & branch, const BasicBlock & Dest) {
+static bool IsTargetOnFalse(const BranchInst &branch, const BasicBlock &Dest) {
   assert(branch.isConditional());
   return branch.getSuccessor(1) == &Dest;
 }
 
 // full mask implication
-bool
-UndeadMaskAnalysis::implies(const Mask & lhs, bool lhsNegated, const Mask & rhs, bool rhsNegated) {
-  assert((lhs.getAVL() == rhs.getAVL()) && "TODO implement mixed AVL vectorization");
-  if (!lhs.getPred()) return true;
+bool UndeadMaskAnalysis::implies(const Mask &lhs, bool lhsNegated,
+                                 const Mask &rhs, bool rhsNegated) {
+  assert((lhs.getAVL() == rhs.getAVL()) &&
+         "TODO implement mixed AVL vectorization");
+  if (!lhs.getPred())
+    return true;
 
   // Make sure we always have a materialized predicate
   auto &Ctx = lhs.getPred()->getContext();
@@ -145,48 +156,63 @@ UndeadMaskAnalysis::implies(const Mask & lhs, bool lhsNegated, const Mask & rhs,
   return implies(*lhs.getPred(), lhsNegated, rhsPred, rhsNegated);
 }
 
-bool
-UndeadMaskAnalysis::isUndead(const Mask & mask, const BasicBlock & where) {
+bool UndeadMaskAnalysis::isUndead(const Mask &mask, const BasicBlock &where) {
   // IF_DEBUG_UDM { DumpValue(*where.getParent()); }
 
   // use cached result (where available_
   auto it = liveDominatorMap.find(mask);
   if (it != liveDominatorMap.end()) {
-    const auto * liveDomBlock = it->second;
-    if (liveDomBlock) return domTree.dominates(liveDomBlock, &where);
-    else return false; // mask has no live dominator
+    const auto *liveDomBlock = it->second;
+    if (liveDomBlock)
+      return domTree.dominates(liveDomBlock, &where);
+    else
+      return false; // mask has no live dominator
   }
 
-  IF_DEBUG_UDM { errs() << "UDM: query for "; mask.print(errs()); errs() << " at block " << where.getName() << "\n"; }
+  IF_DEBUG_UDM {
+    errs() << "UDM: query for ";
+    mask.print(errs());
+    errs() << " at block " << where.getName() << "\n";
+  }
 
-  // descend down the dominator tree to find a dominating known-unead branch condition that implies @mask
-  auto * domNode = domTree.getNode(const_cast<BasicBlock*>(&where));
+  // descend down the dominator tree to find a dominating known-unead branch
+  // condition that implies @mask
+  auto *domNode = domTree.getNode(const_cast<BasicBlock *>(&where));
   assert(domNode);
 
   while (domNode) {
-    const auto * block = domNode->getBlock();
-    if (!vecInfo.getRegion().contains(block)) return false; // TODO query the entry predicate
+    const auto *block = domNode->getBlock();
+    if (!vecInfo.getRegion().contains(block))
+      return false; // TODO query the entry predicate
 
-  // whether the unique predecessor of this block has an edge predicate that implies that at least one lane is live in the mask predicate
-    const auto * predBlock = GetUniquePredecessor(*block);
+    // whether the unique predecessor of this block has an edge predicate that
+    // implies that at least one lane is live in the mask predicate
+    const auto *predBlock = GetUniquePredecessor(*block);
     if (predBlock) {
 
-      IF_DEBUG_UDM { errs() << "UDM:\t has unique pred " << predBlock->getName() << ".\n"; }
-      auto * predTerm = predBlock->getTerminator();
-      auto * predBranch = dyn_cast<BranchInst>(predTerm);
+      IF_DEBUG_UDM {
+        errs() << "UDM:\t has unique pred " << predBlock->getName() << ".\n";
+      }
+      auto *predTerm = predBlock->getTerminator();
+      auto *predBranch = dyn_cast<BranchInst>(predTerm);
       if (predBranch && predBranch->isConditional()) {
         Value *brCond = predBranch->getCondition();
 
         // check that the predicate of the controlling branch ia undead
         auto predMask = vecInfo.getMask(*predBlock);
-        IF_DEBUG_UDM { errs() << "Checking that the pred mask is undead "; predMask.print(errs()); errs() << "\n"; }
+        IF_DEBUG_UDM {
+          errs() << "Checking that the pred mask is undead ";
+          predMask.print(errs());
+          errs() << "\n";
+        }
         if (!predMask.knownAllTrue() && !isUndead(predMask, *predBlock)) {
           liveDominatorMap[mask] = nullptr;
           return false;
         }
 
         Mask branchMask = Mask::inferFromPredicate(*brCond);
-        // whether the branch predicate implies that at least one lane in @mask is live
+        // whether the branch predicate implies that at least one lane in @mask
+        // is live
         if (!implies(branchMask, IsTargetOnFalse(*predBranch, *block), mask,
                      false))
           continue;
@@ -196,12 +222,25 @@ UndeadMaskAnalysis::isUndead(const Mask & mask, const BasicBlock & where) {
       }
     }
 
-  // Otw, check if any dominator has this property
+    // Otw, check if any dominator has this property
     domNode = domNode->getIDom();
   }
 
   liveDominatorMap[mask] = nullptr;
   return false;
+}
+
+void UndeadMaskAnalysis::print(raw_ostream &Out) {
+  Out << "UDM {\n";
+  vecInfo.getRegion().for_blocks_rpo([&](const BasicBlock &BB) {
+    auto Mask = vecInfo.getMask(BB);
+
+    if (!isUndead(Mask, BB))
+      return true;
+    Out << BB.getName().str() << ":  undead\n";
+    return true;
+  });
+  Out << "}\n";
 }
 
 } // namespace rv
