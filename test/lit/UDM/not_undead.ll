@@ -7,6 +7,7 @@ declare dso_local zeroext i1 @rv_any(i1 zeroext) local_unnamed_addr #2
 
 ; CHECK:      UDM {
 ; CHECK-NEXT: onAnyEither:  undead
+; CHECK-NEXT: exit:  undead
 ; CHECK-NEXT: }
 
 define void @implied_undead_or(i1 %mask, i1 %distraction, i32* %uniPtr, i32 %uniVal) {
