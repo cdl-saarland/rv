@@ -1,8 +1,13 @@
-; RUN: rvTool -wfv -lower -i %s -k implied_undead -s T_U_U -w 8  | FileCheck %s
-; RUN: rvTool -wfv -lower -i %s -k implied_undead_neg -s T_U_U -w 8  | FileCheck %s
-; RUN: rvTool -wfv -lower -i %s -k implied_undead_and -s T_T_U_U -w 8  | FileCheck %s
+; RUN: rvTool -wfv -analyze udm -i %s -k implied_undead -s T_U_U -w 8  | FileCheck %s --check-prefix=PLAIN-CHECK
+; RUN: rvTool -wfv -analyze udm -i %s -k implied_undead_neg -s T_U_U -w 8  | FileCheck %s --check-prefix=NEG-CHECK
+; RUN: rvTool -wfv -analyze udm -i %s -k implied_undead_and -s T_T_U_U -w 8  | FileCheck %s --check-prefix=AND-CHECK
 
-; CHECK-NOT: mem_block:
+; PLAIN-CHECK:      UDM {
+; PLAIN-CHECK-NEXT: entry:  undead
+; PLAIN-CHECK-NEXT: onAnyTrue:  undead
+; PLAIN-CHECK-NEXT: onTrue:  undead
+; PLAIN-CHECK-NEXT: exit:  undead
+; PLAIN-CHECK-NEXT: }
 
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-linux-gnu"
@@ -25,6 +30,13 @@ exit:
   ret void
 }
 
+; NEG-CHECK:      UDM {
+; NEG-CHECK-NEXT: entry:  undead
+; NEG-CHECK-NEXT: onAnyFalse:  undead
+; NEG-CHECK-NEXT: onFalse:  undead
+; NEG-CHECK-NEXT: exit:  undead
+; NEG-CHECK-NEXT: }
+
 define void @implied_undead_neg(i1 %mask, i32* %uniPtr, i32 %uniVal) {
 entry:
   %negMask = xor i1 %mask, true
@@ -41,6 +53,13 @@ onFalse:
 exit:
   ret void
 }
+
+; AND-CHECK:      UDM {
+; AND-CHECK-NEXT: entry:  undead
+; AND-CHECK-NEXT: onAnyBoth:  undead
+; AND-CHECK-NEXT: onTrue:  undead
+; AND-CHECK-NEXT: exit:  undead
+; AND-CHECK-NEXT: }
 
 define void @implied_undead_and(i1 %mask, i1 %distraction, i32* %uniPtr, i32 %uniVal) {
 entry:

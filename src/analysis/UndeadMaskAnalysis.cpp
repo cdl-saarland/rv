@@ -159,6 +159,10 @@ bool UndeadMaskAnalysis::implies(const Mask &lhs, bool lhsNegated,
 bool UndeadMaskAnalysis::isUndead(const Mask &mask, const BasicBlock &where) {
   // IF_DEBUG_UDM { DumpValue(*where.getParent()); }
 
+  // Short cut for trivial 'entry' blocks.
+  if (vecInfo.getMask(where).knownAllTrue() && mask.knownAllTrue())
+    return true;
+
   // use cached result (where available_
   auto it = liveDominatorMap.find(mask);
   if (it != liveDominatorMap.end()) {
