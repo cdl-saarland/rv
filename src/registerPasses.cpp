@@ -16,10 +16,17 @@
 #include "rv/passes/WFVPass.h"
 #include "rv/passes/LoopVectorizer.h"
 #include "rv/passes/irPolisher.h"
+#include "rv/passes/AutoMathPass.h"
 
 using namespace llvm;
 
 cl::OptionCategory rvCategory("RV Options", "Configure the Region Vectorizer");
+
+static cl::opt<bool> rvVectorizeEnabled(
+    "rv",
+    cl::desc("Enable Whole-Function and Outer-Loop Vectorization with RV "
+             "(implies -rv-wfv and -rv-loopvec)."),
+    cl::init(true), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static cl::opt<bool> rvLowerBuiltins("rv-lower",
                                      cl::desc("Lower RV specific builtins"),
@@ -45,26 +52,24 @@ static cl::opt<bool> rvPrep("rv-prep",
                                   cl::init(false), cl::ZeroOrMore,
                                   cl::cat(rvCategory));
 
-static cl::opt<bool> rvVectorizeEnabled(
-    "rv",
-    cl::desc("Enable Whole-Function and Outer-Loop Vectorization with RV "
-             "(implies -rv-wfv and -rv-loopvec)."),
-    cl::init(true), cl::ZeroOrMore, cl::cat(rvCategory));
-
 static cl::opt<bool>
     rvAutoVectorizeMath("rv-math",
                         cl::desc("Use RV to auto-vectorize libm calls."),
                         cl::init(true), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static bool mayVectorize() {
-  return rvWFVEnabled || rvLoopVecEnabled || rvVectorizeEnabled;
+  return rvVectorizeEnabled && (rvWFVEnabled || rvLoopVecEnabled);
 }
-static bool shouldRunWFVPass() { return rvWFVEnabled || rvVectorizeEnabled; }
+static bool shouldRunWFVPass() { return rvWFVEnabled && rvVectorizeEnabled; }
 static bool shouldRunLoopVecPass() {
-  return rvLoopVecEnabled || rvVectorizeEnabled;
+  return rvLoopVecEnabled && rvVectorizeEnabled;
 }
-static bool shouldLowerBuiltins() { return rvLowerBuiltins; }
-static bool shouldAutoVectorizeMath() { return rvAutoVectorizeMath; }
+static bool shouldLowerBuiltins() {
+  return rvLowerBuiltins && rvVectorizeEnabled;
+}
+static bool shouldAutoVectorizeMath() {
+  return rvAutoVectorizeMath && rvVectorizeEnabled;
+}
 
 ///// Legacy PM pass registration /////
 static void registerLegacyRVPasses(const llvm::PassManagerBuilder &Builder,
@@ -149,6 +154,8 @@ void rv::addConfiguredRVPasses(PassBuilder &PB) {
           return;
         if (shouldRunWFVPass())
           MPM.addPass(rv::WFVWrapperPass());
+        if (shouldAutoVectorizeMath()) 
+          MPM.addPass(rv::AutoMathWrapperPass());
         if (mayVectorize())
           rv::addCleanupPasses(MPM);
       });
