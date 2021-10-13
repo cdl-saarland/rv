@@ -36,11 +36,11 @@ static cl::opt<bool> rvLowerBuiltins("rv-lower",
 static cl::opt<bool>
     rvLoopVecEnabled("rv-loopvec",
                      cl::desc("Enable RV's outer-loop vectorizer."),
-                     cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+                     cl::init(true), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static cl::opt<bool>
     rvWFVEnabled("rv-wfv", cl::desc("Enable RV's whole-function vectorizer."),
-                 cl::init(false), cl::ZeroOrMore, cl::cat(rvCategory));
+                 cl::init(true), cl::ZeroOrMore, cl::cat(rvCategory));
 
 static cl::opt<bool> rvOnlyPolish("rv-polish",
                                   cl::desc("Only run RV's polish phase."),
