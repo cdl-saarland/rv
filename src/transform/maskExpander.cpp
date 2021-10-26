@@ -352,6 +352,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   // factor in all edges
   Value * lastUniIn = nullptr;
   bool redundantUniPhi = true;
+  size_t num_incomming_values = 0;
   VectorShape phiShape = VectorShape::uni();
 
   for (auto itPred = itBegin; itPred != itEnd; ++itPred) {
@@ -372,6 +373,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
       redundantUniPhi &= (lastUniIn == nullptr) || (lastUniIn == &predMask);
       lastUniIn = &predMask;
       uniPhi->addIncoming(&predMask, predBlock);
+      num_incomming_values++;
       phiShape = VectorShape::join(vecInfo.getVectorShape(predMask), phiShape);
     }
 #endif
@@ -423,8 +425,8 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   IF_DEBUG_ME { errs() << "\t mask(" << BB.getName() << ") = \n"; }
   IF_DEBUG_ME { errs() << "\t\t uniPhi: " << *uniPhi << " redundant " << redundantUniPhi << "\n"; }
   size_t startIdx = 0;
-  if (uniPhi->getNumIncomingValues() == 0) {
-    assert(!lastUniIn && "uniform inputs but no incoming values in uni phi");
+  if (num_incomming_values == 0) {
+    assert((!lastUniIn || lastUniIn == falseConst) && "uniform inputs but no incoming values in uni phi");
     // no uniform inputs
     uniPhi->eraseFromParent();
     uniPhi = nullptr;
