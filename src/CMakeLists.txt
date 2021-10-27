@@ -105,7 +105,12 @@ set (RV_LIBRARY_OBJECTS
 )
 
 IF (RV_COMPONENT_BUILD)
-  add_llvm_component_library(${RV_LIBRARY_NAME} ${RV_LIBRARY_OBJECTS})
+  add_llvm_component_library(
+    ${RV_LIBRARY_NAME} ${RV_LIBRARY_OBJECTS}
+
+    DEPENDS
+    intrinsics_gen
+  )
 ELSE()
   add_rv_library(${RV_LIBRARY_NAME} ${RV_LIBRARY_OBJECTS})
 ENDIF()
