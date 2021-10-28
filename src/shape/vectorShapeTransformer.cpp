@@ -301,6 +301,12 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
       auto ptrShape = getObservedShape(BB, *storeInst.getPointerOperand());
       if (valShape.isDefined() && !valShape.isUniform())
         taintedOps.push_back(storeInst.getPointerOperand());
+
+      bool varying = false;
+      bool known = vecInfo.getVaryingPredicateFlag(*I.getParent(), varying);
+      if (known && varying)
+          taintedOps.push_back(storeInst.getPointerOperand());
+
       return VectorShape::join(
           ptrShape,
           (valShape.greaterThanUniform() ? VectorShape::varying() : valShape));
