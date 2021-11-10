@@ -110,6 +110,13 @@ IF (RV_COMPONENT_BUILD)
 
     DEPENDS
     intrinsics_gen
+
+    LINK_COMPONENTS
+    Analysis
+    Core
+    Support
+    ScalarOpts
+    TransformUtils
   )
 ELSE()
   add_rv_library(${RV_LIBRARY_NAME} ${RV_LIBRARY_OBJECTS})
