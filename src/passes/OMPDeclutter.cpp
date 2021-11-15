@@ -344,9 +344,11 @@ struct OMPDeclutterSession {
   }
 
   bool privatizeIterationBounds() {
+    bool Changed = false;
+
     auto KMPStaticInitFunc = F.getParent()->getFunction(kmpc_for_static_init_4_Name);
     if (!KMPStaticInitFunc)
-      return false;
+      return Changed;
 
     std::set<Instruction*> DeadLoads;
     std::set<Value*> SimplifyDataFlow;
@@ -374,6 +376,11 @@ struct OMPDeclutterSession {
 
         UpperBoundValue = Store->getValueOperand();
       }
+
+      // FIXME: This is actually a failure -> could not find bound store.
+      if (!UpperBoundValue)
+        continue;
+
       IF_DEBUG_DEC { errs() << "Found upper bound value:" << *UpperBoundValue << "\n"; }
 
       // Remove redundant phi nodes.
@@ -391,6 +398,7 @@ struct OMPDeclutterSession {
 
         IF_DEBUG_DEC { errs() << "REPLACE RELOAD: " << *Reload << " with " << *UpperBoundValue << "\n"; }
         Reload->replaceAllUsesWith(UpperBoundValue);
+        Changed = true;
         DeadLoads.insert(Reload);
       }
 
@@ -404,13 +412,14 @@ struct OMPDeclutterSession {
     }
 
     for (auto *Load : DeadLoads) {
+      Changed = true;
       Load->eraseFromParent();
     }
 
     for (auto *V : SimplifyDataFlow)
       simplifyDataFlow(*V);
 
-    return false;
+    return Changed;
   }
 
   static bool IsPtrPtr(Type *T) {
