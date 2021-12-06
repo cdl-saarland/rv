@@ -47,7 +47,11 @@ set(FLAGS_avx -mavx -mfma -DENABLE_BUILTIN_MATH -DENABLE_AVX=ON)
 # TODO: why -march=skylake?
 set(FLAGS_avx2 -march=skylake -mavx2 -mfma -DENABLE_BUILTIN_MATH -DENABLE_AVX2=ON)
 set(FLAGS_avx512 -mfma -mavx512f -mavx512dq -mavx512cd -mavx512bw -mavx512vl -march=skylake -DENABLE_AVX512F=ON -DENABLE_BUILTIN_MATH)
-set(FLAGS_advsimd -mfma -target aarch64-unknown-linux-gnu -mcpu=cortex-a53 -DACCURATE_SQRT -DENABLE_ADVSIMD=ON -DENABLE_BUILTIN_MATH)
+if(APPLE)
+    set(FLAGS_advsimd -target arm64-apple-darwin -mcpu=cyclone -DACCURATE_SQRT -DENABLE_ADVSIMD=ON -DENABLE_BUILTIN_MATH)
+else()
+    set(FLAGS_advsimd -mfma -target aarch64-unknown-linux-gnu -mcpu=cortex-a53 -DACCURATE_SQRT -DENABLE_ADVSIMD=ON -DENABLE_BUILTIN_MATH)
+endif()
 set(FLAGS_vla -DACCURATE_SQRT -DENABLE_BUILTIN_MATH -m64)
 
 
