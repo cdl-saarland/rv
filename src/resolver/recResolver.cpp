@@ -36,6 +36,7 @@
 #include "rv/region/FunctionRegion.h"
 #include "rv/transform/singleReturnTrans.h"
 #include "rv/passes/loopExitCanonicalizer.h"
+#include "rv/passes/PassManagerSession.h"
 #include "report.h"
 
 using namespace llvm;
@@ -129,26 +130,25 @@ public:
     SingleReturnTrans::run(funcRegion);
 
     // compute anlaysis results
-    PassBuilder PB;
-    FunctionAnalysisManager FAM;
-    PB.registerFunctionAnalyses(FAM);
+    PassManagerSession PMS;
 
     // re-establish LCSSA
     FunctionPassManager FPM;
     FPM.addPass<LCSSAPass>(LCSSAPass());
-    FPM.run(*clonedFunc, FAM);
+    FPM.run(*clonedFunc, PMS.FAM);
 
     // compute DT, PDT, LI
     // normalize loop exits (TODO make divLoopTrans work without this)
     {
-      auto & tmpLI = FAM.getResult<LoopAnalysis>(*clonedFunc);
+      auto & tmpLI = PMS.FAM.getResult<LoopAnalysis>(*clonedFunc);
       LoopExitCanonicalizer canonicalizer(tmpLI);
       canonicalizer.canonicalize(*clonedFunc);
-      FAM.invalidate<DominatorTreeAnalysis>(*clonedFunc);
-      FAM.invalidate<PostDominatorTreeAnalysis>(*clonedFunc);
-      // invalidate & recompute LI
-      FAM.invalidate<LoopAnalysis>(*clonedFunc);
-      FAM.getResult<LoopAnalysis>(*clonedFunc);
+      auto PA = PreservedAnalyses::all();
+      PA.abandon<DominatorTreeAnalysis>();
+      PA.abandon<PostDominatorTreeAnalysis>();
+      PA.abandon<LoopAnalysis>();
+      PMS.FAM.invalidate(*clonedFunc, PA);
+      PMS.FAM.getResult<LoopAnalysis>(*clonedFunc);
     }
 
 // run analysis until result shape stabilizes
@@ -171,7 +171,7 @@ public:
 
       // run VA (on clonedFunc) -> tempVecInfo
       VectorizationInfo tempVecInfo(funcRegion, recMapping);
-      vectorizer.analyze(tempVecInfo, FAM);
+      vectorizer.analyze(tempVecInfo, PMS.FAM);
 
       // refine the result shape (from tempVecInfo)
       if (!returnsVoid) {
@@ -236,9 +236,9 @@ public:
       VectorizationInfo vecInfo(funcRegion, recMapping);
 
     // generate the vector function body
-      vectorizer.analyze(vecInfo, FAM);
-      vectorizer.linearize(vecInfo, FAM);
-      vectorizer.vectorize(vecInfo, FAM, nullptr);
+      vectorizer.analyze(vecInfo, PMS.FAM);
+      vectorizer.linearize(vecInfo, PMS.FAM);
+      vectorizer.vectorize(vecInfo, PMS.FAM, nullptr);
       vectorizer.finalize();
     }
 

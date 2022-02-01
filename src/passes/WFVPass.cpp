@@ -54,12 +54,7 @@ using namespace llvm;
 
 ///// Pass Implementation /////
 
-WFV::WFV() {
-  // Prepare Analyses
-  PassBuilder PB;
-  PB.registerFunctionAnalyses(FAM);
-}
-
+WFV::WFV() : PMS() {}
 
 void
 WFV::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob) {
@@ -90,7 +85,7 @@ WFV::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob)
 
 // Vectorize
   // vectorizationAnalysis
-  vectorizer.analyze(vecInfo, FAM); // TODO can be shared across jobs
+  vectorizer.analyze(vecInfo, PMS.FAM); // TODO can be shared across jobs
 
   if (enableDiagOutput) {
     errs() << "-- VA result --\n";
@@ -101,20 +96,20 @@ WFV::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob)
   IF_DEBUG Dump(*scalarCopy);
 
   // control conversion
-  vectorizer.linearize(vecInfo, FAM);
+  vectorizer.linearize(vecInfo, PMS.FAM);
 
   // vectorize the prepared loop embedding it in its context
   ValueToValueMapTy vecMap;
 
   // FIXME SE is invalid at this point..
   ScalarEvolutionAnalysis adhocAnalysis;
-  adhocAnalysis.run(*scalarCopy, FAM);
+  adhocAnalysis.run(*scalarCopy, PMS.FAM);
 
   MemoryDependenceAnalysis mdAnalysis;
-  mdAnalysis.run(*scalarCopy, FAM);
+  mdAnalysis.run(*scalarCopy, PMS.FAM);
 
   // FIXME share state until this point (modified src function)
-  bool vectorizeOk = vectorizer.vectorize(vecInfo, FAM, &vecMap);
+  bool vectorizeOk = vectorizer.vectorize(vecInfo, PMS.FAM, &vecMap);
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
 
@@ -148,7 +143,7 @@ WFV::isSaneMapping(VectorMapping & wfvJob) const {
 
 void
 WFV::collectJobs(Function & F) {
-  auto attribSet = F.getAttributes().getFnAttributes();
+  auto attribSet = F.getAttributes().getFnAttrs();
 
   // parse SIMD signatures
   for (auto attrib : attribSet) {
@@ -182,8 +177,8 @@ bool WFV::run(Module &M) {
 
   Config rvConfig = Config::createForFunction(protoFunc);
 
-  auto &TTI = FAM.getResult<TargetIRAnalysis>(protoFunc);
-  auto &TLI = FAM.getResult<TargetLibraryAnalysis>(protoFunc);
+  auto &TTI = PMS.FAM.getResult<TargetIRAnalysis>(protoFunc);
+  auto &TLI = PMS.FAM.getResult<TargetLibraryAnalysis>(protoFunc);
 
   // configure platInfo
   PlatformInfo platInfo(M, &TTI, &TLI);

@@ -45,6 +45,7 @@
 #include "rv/rvDebug.h"
 #include "rv/utils.h"
 #include "rv/vectorMapping.h"
+#include "rv/passes/PassManagerSession.h"
 
 #include "rv/region/FunctionRegion.h"
 #include "rv/region/LoopRegion.h"
@@ -84,7 +85,7 @@ static const char VARCHAR = 'T';
 static bool verbose = false;
 #define IF_VERBOSE if (verbose)
 
-static void LLVM_ATTRIBUTE_NORETURN fail();
+[[noreturn]] static void fail();
 
 static void fail() {
   std::cerr << '\n';
@@ -280,17 +281,15 @@ void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth,
     canonicalizer.canonicalize(parentFn);
   }
 
-  // set up analysis infrastructure
-  PassBuilder PB;
-  FunctionAnalysisManager FAM;
-  PB.registerFunctionAnalyses(FAM);
+  // setup LLVM analysis infrastructure
+  rv::PassManagerSession PMS;
 
   // run other analysis up front that may invalidate LoopInfo
   // ScalarEvolutionAnalysis seAnalysis;
   // ScalarEvolution SE = seAnalysis.run(parentFn, FAM);
 
   // compute actual analysis structures
-  auto &LI = FAM.getResult<LoopAnalysis>(parentFn);
+  auto &LI = PMS.FAM.getResult<LoopAnalysis>(parentFn);
 
   if (LI.begin() == LI.end()) {
     return;
@@ -310,7 +309,7 @@ void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth,
   // HAVE TO maintain FAM.getCachedResult<LoopAnalysis> from this point on! (or
   // the loop region gets invalidated)
 
-  vectorizeLoop(parentFn, *firstLoop, vectorWidth, ulpErrorBound, FAM);
+  vectorizeLoop(parentFn, *firstLoop, vectorWidth, ulpErrorBound, PMS.FAM);
 
   // mark region
   // run RV
@@ -324,17 +323,14 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes,
   Function *scalarFn = vectorizerJob.scalarFn;
   Module &mod = *scalarFn->getParent();
 
-  FunctionAnalysisManager FAM;
-
   // setup LLVM analysis infrastructure
-  PassBuilder PB;
-  PB.registerFunctionAnalyses(FAM);
+  rv::PassManagerSession PMS;
 
   // platform API
   TargetIRAnalysis irAnalysis;
-  TargetTransformInfo tti = irAnalysis.run(*scalarFn, FAM);
+  TargetTransformInfo tti = irAnalysis.run(*scalarFn, PMS.FAM);
   TargetLibraryAnalysis libAnalysis;
-  TargetLibraryInfo tli = libAnalysis.run(*scalarFn, FAM);
+  TargetLibraryInfo tli = libAnalysis.run(*scalarFn, PMS.FAM);
   rv::PlatformInfo platInfo(mod, &tti, &tli);
 
   // assign a proper vector function name
@@ -373,7 +369,7 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes,
   scalarCopy->setName(scalarFn->getName() + ".vectorizer.tmp");
 
   // request LI
-  FAM.getResult<LoopAnalysis>(*scalarCopy);
+  PMS.FAM.getResult<LoopAnalysis>(*scalarCopy);
 
   // configure RV
   auto config = rv::Config::createForFunction(*scalarFn);
@@ -424,10 +420,10 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes,
   }
 
   // early math func lowering
-  vectorizer.lowerRuntimeCalls(vecInfo, FAM);
+  vectorizer.lowerRuntimeCalls(vecInfo, PMS.FAM);
 
   // vectorizationAnalysis
-  vectorizer.analyze(vecInfo, FAM);
+  vectorizer.analyze(vecInfo, PMS.FAM);
   if (PrintOnlyDA()) {
     vecInfo.print(outs());
     return;
@@ -436,21 +432,21 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes,
   if (PrintOnlyUDM()) {
     // Expand all block masks and show which block masks are considered 'undead'
     // (never all false).
-    rv::UndeadMaskAnalysis UDM(vecInfo, FAM);
-    rv::MaskExpander maskEx(vecInfo, FAM);
+    rv::UndeadMaskAnalysis UDM(vecInfo, PMS.FAM);
+    rv::MaskExpander maskEx(vecInfo, PMS.FAM);
     maskEx.expandRegionMasks();
     UDM.print(outs());
     return;
   }
 
   // mask generator
-  vectorizer.linearize(vecInfo, FAM);
+  vectorizer.linearize(vecInfo, PMS.FAM);
   // if (!maskEx) fail("mask generation failed.");
 
   // Control conversion does not preserve the domTree so we have to rebuild it
   // for now
   DominatorTree domTreeNew(*vecInfo.getMapping().scalarFn);
-  bool vectorizeOk = vectorizer.vectorize(vecInfo, FAM, nullptr);
+  bool vectorizeOk = vectorizer.vectorize(vecInfo, PMS.FAM, nullptr);
   if (!vectorizeOk)
     fail("vector code generation failed.");
 

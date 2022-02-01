@@ -130,6 +130,7 @@ namespace rv {
     BasicBlockVector getMappedBlocks(llvm::BasicBlock *const bb);
 
   private:
+    llvm::Type* vectorizeType(llvm::Type *ScaTy);
     void vectorize(llvm::BasicBlock *const bb, llvm::BasicBlock *vecBlock);
     void vectorizeInstruction(llvm::Instruction *const inst);
     void vectorizePHIInstruction(llvm::PHINode *const scalPhi);
@@ -169,8 +170,6 @@ namespace rv {
                          unsigned laneIdx = 0);
 
     llvm::SmallPtrSet<llvm::Instruction *, 16> keepScalar;
-    llvm::DenseMap<unsigned, llvm::Function *> cascadeLoadMap;
-    llvm::DenseMap<unsigned, llvm::Function *> cascadeStoreMap;
     llvm::DenseMap<const llvm::Value *, llvm::Value *> vectorValueMap;
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
@@ -194,14 +193,6 @@ namespace rv {
     llvm::Value *requestScalarGEP(llvm::GetElementPtrInst *const gep, unsigned laneIdx, bool skipMapping);
     llvm::Value *requestVectorBitCast(llvm::BitCastInst *const bc);
     llvm::Value *requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx, bool skipMapping);
-
-    llvm::Value *requestInterleavedGEP(llvm::GetElementPtrInst *const gep, unsigned interleavedIdx);
-    llvm::Value *requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, llvm::Type *const vecType);
-
-    llvm::Value *requestCascadeLoad(llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
-    llvm::Value *requestCascadeStore(llvm::Value *vecVal, llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
-    llvm::Function *createCascadeMemory(llvm::VectorType *pointerVectorType, unsigned alignment,
-                                        llvm::VectorType *maskType, bool store);
 
     llvm::Value* getSplat(llvm::Constant* Elt);
     void mapCascadeFunction(unsigned bitWidth, llvm::Function *function, bool store);

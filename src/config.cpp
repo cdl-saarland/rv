@@ -154,7 +154,7 @@ Config::createForFunction(Function & F) {
       {"+neon", [&config]() { config.useADVSIMD = true; config.useNEON = true; } }
   };
 
-  auto attribSet = F.getAttributes().getFnAttributes();
+  auto attribSet = F.getAttributes().getFnAttrs();
   // parse SIMD signatures
   for (auto attrib : attribSet) {
     if (!attrib.isStringAttribute()) continue;

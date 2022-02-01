@@ -94,7 +94,7 @@ MemCopyElision::createBaseGEP(llvm::Value * ptrVal, llvm::Type * baseTy, llvm::I
   }
   if (idxList.size() == 1) return ptrVal;
   else {
-    auto * baseGep = builder.CreateGEP(ptrVal, idxList, "basegep");
+    auto * baseGep = builder.CreateGEP(dataTy, ptrVal, idxList, "basegep");
     vecInfo.setVectorShape(*baseGep, VectorShape::varying());
     return baseGep;
   }
@@ -106,10 +106,12 @@ MemCopyElision::lowerMemCopy(llvm::Value * destBase, llvm::Value * srcBase, llvm
   auto * intTy = IntegerType::getInt32Ty(builder.getContext());
 
   unsigned AddrSpace = cast<PointerType>(srcBase->getType())->getAddressSpace();
+  auto *CommonPtrTy = commonTy->getPointerTo(AddrSpace);
+
   auto *commonSrcBase =
-      builder.CreatePointerCast(srcBase, commonTy->getPointerTo(AddrSpace));
+      builder.CreatePointerCast(srcBase, CommonPtrTy);
   auto *commonDestBase =
-      builder.CreatePointerCast(destBase, commonTy->getPointerTo(AddrSpace));
+      builder.CreatePointerCast(destBase, CommonPtrTy);
 
   const size_t elemSize = layout.getTypeStoreSize(commonTy);
   assert(numBytes % elemSize == 0);
@@ -119,13 +121,13 @@ MemCopyElision::lowerMemCopy(llvm::Value * destBase, llvm::Value * srcBase, llvm
   for (size_t i = 0; i < numElems; ++i) {
     auto * idxConst = ConstantInt::get(intTy, i, false);
   // gep to elemens
-    auto * srcElemPtr = builder.CreateGEP(commonSrcBase, idxConst);
-    auto * destElemPtr = builder.CreateGEP(commonDestBase, idxConst);
+    auto * srcElemPtr = builder.CreateGEP(commonTy, commonSrcBase, idxConst);
+    auto * destElemPtr = builder.CreateGEP(commonTy, commonDestBase, idxConst);
     vecInfo.setVectorShape(*srcElemPtr, varShape);
     vecInfo.setVectorShape(*destElemPtr, varShape);
 
   // element transfer
-    auto * elem = builder.CreateLoad(srcElemPtr);
+    auto * elem = builder.CreateLoad(commonTy, srcElemPtr);
     vecInfo.setVectorShape(*elem, VectorShape::varying());
     auto * store = builder.CreateStore(elem, destElemPtr);
     vecInfo.setVectorShape(*store, varShape);

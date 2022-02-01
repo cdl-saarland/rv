@@ -38,6 +38,7 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Passes/PassBuilder.h"
+#include "rv/passes/PassManagerSession.h"
 
 #include "llvm/Analysis/BranchProbabilityInfo.h"
 #include "llvm/Analysis/LoopInfo.h"
@@ -193,7 +194,7 @@ struct FuncSession {
     }
 
     // Check whether we can get a resolver for this
-    VectorShapeVec VecArgShapes(CI.getNumArgOperands(), VectorShape::varying());
+    VectorShapeVec VecArgShapes(CI.arg_size(), VectorShape::varying());
 
     auto ResolverPtr = PlatInfo.getResolver(ScalarCallee->getName(),
                                             *ScalarCallee->getFunctionType(),
@@ -301,11 +302,8 @@ struct FuncSession {
   }
 };
 
-AutoMathPass::AutoMathPass() {
-  // Prepare Analyses
-  PassBuilder PB;
-  PB.registerFunctionAnalyses(FAM);
-}
+AutoMathPass::AutoMathPass() : PMS()
+{}
 
 bool AutoMathPass::run(Function &F) {
   // Should we vectorize math here?
@@ -313,8 +311,8 @@ bool AutoMathPass::run(Function &F) {
     return false;
 
   // Setup the vectorizer
-  auto &TLI = FAM.getResult<TargetLibraryAnalysis>(F);
-  auto &TTI = FAM.getResult<TargetIRAnalysis>(F);
+  auto &TLI = PMS.FAM.getResult<TargetLibraryAnalysis>(F);
+  auto &TTI = PMS.FAM.getResult<TargetIRAnalysis>(F);
   FuncSession FuncSession(F, TTI, TLI);
   return FuncSession.run();
 }

@@ -139,8 +139,10 @@ VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, FunctionAnal
     if (hostLoop) EmbedInlinedCode(entryBB, *hostLoop, LI, funcBlocks);
   }
   if (Changed) {
-    FAM.invalidate<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
-    FAM.invalidate<PostDominatorTreeAnalysis>(vecInfo.getScalarFunction());
+    auto PA = PreservedAnalyses::all();
+    PA.abandon<DominatorTreeAnalysis>();
+    PA.abandon<PostDominatorTreeAnalysis>();
+    FAM.invalidate(vecInfo.getScalarFunction(), PA);
   }
 }
 
@@ -318,20 +320,25 @@ lowerIntrinsicCall(CallInst* call) {
 
     case RVIntrinsic::VecLoad: {
       lowerIntrinsicCall(call, [] (CallInst* call) {
+        // FIXME: Re-use the intrinsic types.
         IRBuilder<> builder(call);
-        auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
-        auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-        auto * gep = builder.CreateGEP(ptrCast, call->getOperand(1));
-        return builder.CreateLoad(gep);
+        auto *DataTy = builder.getFloatTy();
+        auto *ptrTy = PointerType::get(
+            DataTy, call->getOperand(0)->getType()->getPointerAddressSpace());
+        auto *ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
+        auto *gep = builder.CreateGEP(DataTy, ptrCast, call->getOperand(1));
+        return builder.CreateLoad(builder.getFloatTy(), gep);
       });
     } break;
 
     case RVIntrinsic::VecStore: {
       lowerIntrinsicCall(call, [] (CallInst* call) {
         IRBuilder<> builder(call);
-        auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
-        auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-        auto * gep = builder.CreateGEP(ptrCast, call->getOperand(1));
+        auto *DataTy = builder.getFloatTy();
+        auto *ptrTy = PointerType::get(
+            DataTy, call->getOperand(0)->getType()->getPointerAddressSpace());
+        auto *ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
+        auto *gep = builder.CreateGEP(DataTy, ptrCast, call->getOperand(1));
         return builder.CreateStore(call->getOperand(2), gep);
       });
     } break;

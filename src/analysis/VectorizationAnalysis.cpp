@@ -392,11 +392,11 @@ void VectorizationAnalysis::analyze() {
 static bool AllUniformOrUndefCall(const VectorizationInfo & VecInfo, const Instruction &I) {
   const auto *C = dyn_cast<CallInst>(&I);
   if (!C) return false;
-  for (unsigned i = 0; i < C->getNumArgOperands(); ++i) {
-    const auto *Op = C->getArgOperand(i);
-    if (!VecInfo.hasKnownShape(*Op))
+  for (auto &ArgUse : C->args()) {
+    auto &Op = *ArgUse;
+    if (!VecInfo.hasKnownShape(Op))
       continue;
-    auto OpShape = VecInfo.getVectorShape(*Op);
+    auto OpShape = VecInfo.getVectorShape(Op);
     if (OpShape.isUniform() || !OpShape.isDefined())
       continue;
     return false;
@@ -470,7 +470,7 @@ void VectorizationAnalysis::init(const Function &F) {
       if (isa<AllocaInst>(&I)) {
         updateShape(I, VectorShape::uni(vecInfo.getMapping().vectorWidth));
       } else if (const CallInst *call = dyn_cast<CallInst>(&I)) {
-        if (call->getNumArgOperands() != 0)
+        if (!call->arg_empty())
           continue;
 
         putOnWorklist(I);

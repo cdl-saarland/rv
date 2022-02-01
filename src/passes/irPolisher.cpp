@@ -26,6 +26,7 @@
 #include "rv/passes/irPolisher.h"
 #include "report.h"
 
+#include "rv/passes/PassManagerSession.h"
 #include "rv/legacy/LinkAllPasses.h"
 #include "rv/passes.h"
 #include "rv/config.h"
@@ -460,7 +461,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     newInst = newStore;
   } else if (auto loadInst = dyn_cast<LoadInst>(inst)) {
     auto ptr = loadInst->getOperand(0);
-    auto newLoad = builder.CreateLoad(ptr);
+    auto newLoad = builder.CreateLoad(loadInst->getType(), ptr);
 
     newLoad->setAlignment(llvm::Align(loadInst->getAlignment()));
     newLoad->setVolatile(loadInst->isVolatile());
@@ -489,7 +490,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     } else {
       // Default path for all other function calls
       std::vector<Value*> newArgs;
-      for (auto& arg : callInst->arg_operands()) {
+      for (auto& arg : callInst->args()) {
         auto newArg = arg.get();
         // If the argument is a boolean vector, we reconstruct it from the new mask
         if (isBooleanVector(arg->getType()))
@@ -558,12 +559,10 @@ bool IRPolisher::polish() {
   IF_DEBUG { errs() << "Starting polishing phase\n"; }
 
   // Run InstCombine to perform peephole opts
+  rv::PassManagerSession PMS;
   FunctionPassManager FPM;
-  FunctionAnalysisManager FAM;
-  PassBuilder builder;
-  builder.registerFunctionAnalyses(FAM);
   FPM.addPass(AggressiveInstCombinePass());
-  FPM.run(F, FAM);
+  FPM.run(F, PMS.FAM);
 
   visitedInsts.clear();
   queue = std::queue<ExtInst>();

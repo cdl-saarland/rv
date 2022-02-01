@@ -23,6 +23,7 @@
 #include "rv/transform/remTransform.h"
 #include "rv/vectorMapping.h"
 
+#include "rv/passes/PassManagerSession.h"
 #include "rv/config.h"
 #include "rv/rvDebug.h"
 #ifdef RV_ENABLE_LOOPDIST
@@ -165,7 +166,7 @@ bool LoopVectorizer::canAdjustTripCount(Loop &L, int VectorWidth,
 }
 
 int LoopVectorizer::getTripCount(Loop &L) {
-  auto &SE = FAM.getResult<ScalarEvolutionAnalysis>(F);
+  auto &SE = PMS.FAM.getResult<ScalarEvolutionAnalysis>(F);
   auto *BTC = dyn_cast<SCEVConstant>(SE.getBackedgeTakenCount(&L));
   if (!BTC)
     return -1;
@@ -178,11 +179,11 @@ int LoopVectorizer::getTripCount(Loop &L) {
 }
 
 bool LoopVectorizer::hasVectorizableLoopStructure(Loop &L, bool EmitRemarks) {
-  ReductionAnalysis MyReda(F, FAM);
+  ReductionAnalysis MyReda(F, PMS.FAM);
   MyReda.analyze(L);
 
   // Verify vectorizable control flow
-  RemainderTransform remTrans(F, FAM, MyReda);
+  RemainderTransform remTrans(F, PMS.FAM, MyReda);
   if (!remTrans.analyzeLoopStructure(L))
     return false;
 
@@ -302,7 +303,7 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
   } else if (AutoDetectParallelLoops()) {
 
     // Auto-detect vectorizable loops with the LoopDependenceAnalysis
-    auto &LDI = FAM.getResult<LoopDependenceAnalysis>(F);
+    auto &LDI = PMS.FAM.getResult<LoopDependenceAnalysis>(F);
     auto DepInfo = LDI.getDependenceInfo(L);
     if (!DepInfo.VectorizationFactor.hasValue()) {
       if (enableDiagOutput) {
@@ -556,9 +557,9 @@ PreparedLoop LoopVectorizer::transformToVectorizableLoop(
   }
 
   // try to applu the remainder transformation
-  ReductionAnalysis MyReda(F, FAM);
+  ReductionAnalysis MyReda(F, PMS.FAM);
   MyReda.analyze(L);
-  RemainderTransform remTrans(F, FAM, MyReda);
+  RemainderTransform remTrans(F, PMS.FAM, MyReda);
   PreparedLoop LoopPrep = remTrans.createVectorizableLoop(
       L, uniformOverrides, RVConfig.useAVL, VectorWidth, tripAlign);
 
@@ -566,7 +567,7 @@ PreparedLoop LoopVectorizer::transformToVectorizableLoop(
 }
 
 bool LoopVectorizer::prepareLoopVectorization() {
-  auto &LI = *FAM.getCachedResult<LoopAnalysis>(F);
+  auto &LI = *PMS.FAM.getCachedResult<LoopAnalysis>(F);
   for (LoopJob &LJ : LoopsToPrepare) {
     auto &L = *LI.getLoopFor(LJ.Header);
 
@@ -587,10 +588,10 @@ bool LoopVectorizer::prepareLoopVectorization() {
 #ifdef RV_ENABLE_LOOPDIST
     /// BEGIN EXPERIMENTAL SECTION
     {
-      ReductionAnalysis MyReda(*F, FAM);
+      ReductionAnalysis MyReda(*F, PMS.FAM);
       MyReda.analyze(*LoopPrep.TheLoop);
 
-      LoopComponentAnalysis LCA(*F, *LoopPrep.TheLoop, FAM, MyReda);
+      LoopComponentAnalysis LCA(*F, *LoopPrep.TheLoop, PMS.FAM, MyReda);
       LCA.run();
       LoopDistributionTransform loopDistTrans(vectorizer->getPlatformInfo(),
                                               LJ.VectorWidth, LCA);
@@ -660,12 +661,12 @@ bool LoopVectorizer::prepareLoopVectorization() {
 }
 
 bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
-  // auto &LI = *FAM.getCachedResult<LoopAnalysis>(*F);
-  auto &LI = FAM.getResult<LoopAnalysis>(F);
+  // auto &LI = *PMS.FAM.getCachedResult<LoopAnalysis>(*F);
+  auto &LI = PMS.FAM.getResult<LoopAnalysis>(F);
   auto &L = *LI.getLoopFor(LVJob.LJ.Header);
 
   // analyze the recurrence patterns of this loop
-  ReductionAnalysis MyReda(F, FAM);
+  ReductionAnalysis MyReda(F, PMS.FAM);
   MyReda.analyze(L);
 
   // start vectorizing the prepared loop
@@ -728,11 +729,11 @@ bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
   }
 
   // early math func lowering
-  vectorizer->lowerRuntimeCalls(vecInfo, FAM);
+  vectorizer->lowerRuntimeCalls(vecInfo, PMS.FAM);
 
   // Vectorize
   // vectorizationAnalysis
-  vectorizer->analyze(vecInfo, FAM);
+  vectorizer->analyze(vecInfo, PMS.FAM);
 
   if (enableDiagOutput) {
     errs() << "-- VA result --\n";
@@ -745,15 +746,15 @@ bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
   assert(L.getLoopPreheader());
 
   // control conversion
-  vectorizer->linearize(vecInfo, FAM);
+  vectorizer->linearize(vecInfo, PMS.FAM);
 
   // vectorize the prepared loop embedding it in its context
   ValueToValueMapTy vecMap;
 
   ScalarEvolutionAnalysis adhocAnalysis;
-  adhocAnalysis.run(F, FAM);
+  adhocAnalysis.run(F, PMS.FAM);
 
-  bool vectorizeOk = vectorizer->vectorize(vecInfo, FAM, &vecMap);
+  bool vectorizeOk = vectorizer->vectorize(vecInfo, PMS.FAM, &vecMap);
   if (!vectorizeOk)
     llvm_unreachable("vector code generation failed");
 
@@ -772,11 +773,13 @@ bool LoopVectorizer::vectorizeLoopRegions() {
   bool Changed = false;
 
   for (auto &LVJob : LoopsToVectorize) {
+    auto PA = PreservedAnalyses::all();
     // FIXME repair loop info on the go
     // Rebuild analysis structured
-    FAM.invalidate<DominatorTreeAnalysis>(F);
-    FAM.invalidate<PostDominatorTreeAnalysis>(F);
-    FAM.invalidate<LoopAnalysis>(F);
+    PA.abandon<DominatorTreeAnalysis>();
+    PA.abandon<PostDominatorTreeAnalysis>();
+    PA.abandon<LoopAnalysis>();
+    PMS.FAM.invalidate(F, PA);
 
     Changed |= vectorizeLoop(LVJob);
   }
@@ -815,10 +818,6 @@ bool LoopVectorizer::run() {
     Dump(*F.getParent());
   }
 
-  // create private analysis infrastructure
-  PassBuilder PB;
-  PB.registerFunctionAnalyses(FAM);
-
   // setup PlatformInfo
   PlatformInfo platInfo(*F.getParent(), &PassTTI, &PassTLI);
   vectorizer.reset(new VectorizerInterface(platInfo, RVConfig));
@@ -841,7 +840,7 @@ bool LoopVectorizer::run() {
   bool Changed = false;
 
   // Step 1: cost, legal, collect loopb jobs
-  auto &LI = FAM.getResult<LoopAnalysis>(F);
+  auto &LI = PMS.FAM.getResult<LoopAnalysis>(F);
   bool FoundAnyLoops = collectLoopJobs(LI);
   if (!FoundAnyLoops)
     return false;

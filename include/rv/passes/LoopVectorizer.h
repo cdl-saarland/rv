@@ -20,6 +20,7 @@
 #include "rv/transform/remTransform.h"
 #include "rv/rv.h"
 #include "rv/legacy/passes.h"
+#include "rv/passes/PassManagerSession.h"
 
 namespace llvm {
   class OptimizationRemarkEmitter;
@@ -98,7 +99,7 @@ private:
   bool vectorizeLoopRegions();
   bool vectorizeLoop(LoopVectorizerJob& LVJob);
 
-  llvm::FunctionAnalysisManager FAM; // private pass infrastructure
+  PassManagerSession PMS;
   std::unique_ptr<VectorizerInterface> vectorizer;
 
   bool canVectorizeLoop(llvm::Loop &L);

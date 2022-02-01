@@ -94,8 +94,10 @@ LowerDivergentSwitches::run() {
 
   bool Changed = !switchInsts.empty();
   if (Changed) {
-    FAM.invalidate<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
-    FAM.invalidate<PostDominatorTreeAnalysis>(vecInfo.getScalarFunction());
+    auto PA = PreservedAnalyses::all();
+    PA.abandon<DominatorTreeAnalysis>();
+    PA.abandon<PostDominatorTreeAnalysis>();
+    FAM.invalidate(vecInfo.getScalarFunction(), PA);
   }
   return Changed;
 }

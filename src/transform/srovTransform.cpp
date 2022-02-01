@@ -450,25 +450,32 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
     size_t n = ptrElemTy->getStructNumElements();
     for (size_t i = 0; i < n; i++) {
       // load every member
-      auto * elemGep = builder.CreateGEP(ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
+      auto *ElemTy = ptrElemTy->getStructElementType(i);
+      auto * elemGep = builder.CreateGEP(ElemTy, ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
       vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
       flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
     }
     return flatIdx;
 
   } else if (ptrElemTy->isVectorTy()) {
-    auto * intTy = Type::getInt32Ty(builder.getContext());
+    auto *intTy = Type::getInt32Ty(builder.getContext());
     size_t n = cast<FixedVectorType>(ptrElemTy)->getNumElements();
-    auto * ptrTy = cast<PointerType>(ptr->getType());
-    auto * scaPtrTy = PointerType::get(cast<FixedVectorType>(ptrTy->getPointerElementType())->getElementType(), ptrTy->getPointerAddressSpace());
-    auto * scaPtr = builder.CreatePointerCast(ptr, scaPtrTy);
+    auto *ElemTy = cast<VectorType>(ptrElemTy)->getElementType();
+    auto *ptrTy = cast<PointerType>(ptr->getType());
+    auto *scaPtrTy = PointerType::get(ElemTy, ptrTy->getPointerAddressSpace());
+    auto *scaPtr = builder.CreatePointerCast(ptr, scaPtrTy);
     vecInfo.setVectorShape(*scaPtr, ptrShape);
 
     for (size_t i = 0; i < n; i++) {
       // load every member
-      auto * elemGep = i > 0 ? builder.CreateGEP(scaPtr, ConstantInt::get(intTy, i, true), "srov_gep") : scaPtr;
+      auto *elemGep =
+          i > 0
+              ? builder.CreateGEP(ElemTy, scaPtr,
+                                  ConstantInt::get(intTy, i, true), "srov_gep")
+              : scaPtr;
       vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
-      flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
+      flatIdx =
+          flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
     }
     return flatIdx;
 
@@ -477,7 +484,7 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
     if (load) {
       // for a load, replVec will be filled with the loaded data
       assert(replVec.size() == flatIdx);
-      auto * flatLoad = builder.CreateLoad(ptr, load->isVolatile());
+      auto * flatLoad = builder.CreateLoad(ptrElemTy, ptr, load->isVolatile());
       vecInfo.setVectorShape(*flatLoad, vecInfo.getVectorShape(*load));
       replVec.push_back(flatLoad);
     }

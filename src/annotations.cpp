@@ -35,8 +35,8 @@ IsCriticalSection(const llvm::Function & func) {
 void
 MarkAsCriticalSection(llvm::Function & func) {
   // mark function as "noinline" to survive O3
-  func.removeAttribute(AttributeList::FunctionIndex, Attribute::AlwaysInline);
-  func.addAttribute(AttributeList::FunctionIndex, Attribute::NoInline);
+  func.removeFnAttr(Attribute::AlwaysInline);
+  func.addFnAttr(Attribute::NoInline);
   func.setMetadata(rv_atomic_string, MDNode::get(func.getContext(), {}));
 }
 

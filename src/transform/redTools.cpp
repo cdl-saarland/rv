@@ -113,14 +113,13 @@ GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal) {
 static
 Intrinsic::ID
 GetMaskedIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oRequiresRetTy) {
-  oHasInitVal = false;
+  oHasInitVal = true;
   oRequiresRetTy = false;
   switch (kind) {
     default:
       return Intrinsic::not_intrinsic;
     case RedKind::Add: {
      if (elemTy.isFloatingPointTy()) {
-       oHasInitVal = true;
        oRequiresRetTy = true;
        return Intrinsic::vp_reduce_fadd;
      } else {
@@ -129,7 +128,6 @@ GetMaskedIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oReq
     }
     case RedKind::Mul: {
      if (elemTy.isFloatingPointTy()) {
-       oHasInitVal = true;
        oRequiresRetTy = true;
        return Intrinsic::vp_reduce_fadd;
      } else {

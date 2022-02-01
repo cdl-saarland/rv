@@ -18,6 +18,7 @@
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "rv/transform/remTransform.h"
+#include "rv/passes/PassManagerSession.h"
 #include "rv/config.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "llvm/ADT/StringRef.h"
@@ -44,7 +45,7 @@ class VectorizerInterface;
 class PlatformInfo;
 
 class AutoMathPass {
-  llvm::FunctionAnalysisManager FAM;
+  PassManagerSession PMS;
 
   // Functions we are required to vectorized
   std::map<llvm::Function*, llvm::SmallSet<unsigned,2>> MathFuncsToWidth;

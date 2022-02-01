@@ -147,7 +147,7 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
         case CmpInst::Predicate::ICMP_ULE:
           diffShape = -diffShape; // Negate and handle like LESS/GREATER_EQUAL
           // fallthrough
-        case CmpInst::Predicate::ICMP_SLT:
+        [[fallthrough]]; case CmpInst::Predicate::ICMP_SLT:
         case CmpInst::Predicate::ICMP_ULT:
         case CmpInst::Predicate::ICMP_SGE:
         case CmpInst::Predicate::ICMP_UGE:
@@ -253,7 +253,7 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
       // collect required argument shapes
       // bail if any shape was undefined
       bool allArgsUniform = true;
-      size_t numParams = call.getNumArgOperands();
+      size_t numParams = call.arg_size();
       VectorShapeVec callArgShapes;
       for (size_t i = 0; i < numParams; ++i) {
         auto& op = *call.getArgOperand(i);

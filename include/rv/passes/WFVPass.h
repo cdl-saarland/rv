@@ -16,6 +16,7 @@
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "rv/transform/remTransform.h"
+#include "rv/passes/PassManagerSession.h"
 #include "rv/config.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "llvm/ADT/StringRef.h"
@@ -43,7 +44,7 @@ struct VectorMapping;
 class VectorizerInterface;
 
 class WFV {
-  llvm::FunctionAnalysisManager FAM;
+  PassManagerSession PMS;
 
   bool enableDiagOutput; // WFV_DIAG
 

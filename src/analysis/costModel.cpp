@@ -87,7 +87,7 @@ CostModel::IsVectorizableFunction(Function & callee) const {
   }
 
 // in case of Vector Function ABi strings in the functions attributes assume the right version will become available at widening time
-  auto attribSet = callee.getAttributes().getFnAttributes();
+  auto attribSet = callee.getAttributes().getFnAttrs();
 
   for (auto attrib : attribSet) {
     if (!attrib.isStringAttribute()) continue;
@@ -125,7 +125,8 @@ CostModel::pickWidthForInstruction(const Instruction & inst, size_t maxWidth) co
 
     // Otw, default to the FunctionResolver API (under pessimistic assumptions)
     VectorShapeVec topArgVec;
-    for (int i = 0; i < (int) call->getNumArgOperands(); ++i) {
+    for (auto &Arg : call->args()) {
+      (void) Arg;
       // botArgVec.push_back(VectorShape::undef()); // FIXME this causes divergence in the VA
       topArgVec.push_back(VectorShape::varying());
     }

@@ -1,3 +1,4 @@
+.lit*
 logs/*
 build/*
 __pycache__/*

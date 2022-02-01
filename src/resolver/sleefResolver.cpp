@@ -29,6 +29,7 @@
 #include "rv/region/FunctionRegion.h"
 #include "rv/transform/singleReturnTrans.h"
 #include "rv/passes/loopExitCanonicalizer.h"
+#include "rv/passes/PassManagerSession.h"
 #include "report.h"
 
 #include <llvm/IR/Verifier.h>
@@ -620,39 +621,39 @@ struct SleefVLAResolver : public FunctionResolver {
     SingleReturnTrans::run(funcRegion);
 
     // compute anlaysis results
-    PassBuilder PB;
-    FunctionAnalysisManager FAM;
-    PB.registerFunctionAnalyses(FAM);
+    PassManagerSession PMS;
 
     // compute DT, PDT, LI
-    FAM.getResult<DominatorTreeAnalysis>(*clonedFunc);
-    FAM.getResult<PostDominatorTreeAnalysis>(*clonedFunc);
-    FAM.getResult<LoopAnalysis>(*clonedFunc);
-    FAM.getResult<ScalarEvolutionAnalysis>(*clonedFunc);
-    FAM.getResult<MemoryDependenceAnalysis>(*clonedFunc);
-    FAM.getResult<BranchProbabilityAnalysis>(*clonedFunc);
+    PMS.FAM.getResult<DominatorTreeAnalysis>(*clonedFunc);
+    PMS.FAM.getResult<PostDominatorTreeAnalysis>(*clonedFunc);
+    PMS.FAM.getResult<LoopAnalysis>(*clonedFunc);
+    PMS.FAM.getResult<ScalarEvolutionAnalysis>(*clonedFunc);
+    PMS.FAM.getResult<MemoryDependenceAnalysis>(*clonedFunc);
+    PMS.FAM.getResult<BranchProbabilityAnalysis>(*clonedFunc);
 
     // re-establish LCSSA
     FunctionPassManager FPM;
     FPM.addPass<LCSSAPass>(LCSSAPass());
-    FPM.run(*clonedFunc, FAM);
+    FPM.run(*clonedFunc, PMS.FAM);
 
     // normalize loop exits (TODO make divLoopTrans work without this)
     {
-      LoopInfo &LI = FAM.getResult<LoopAnalysis>(*clonedFunc);
+      LoopInfo &LI = PMS.FAM.getResult<LoopAnalysis>(*clonedFunc);
       LoopExitCanonicalizer canonicalizer(LI);
       canonicalizer.canonicalize(*clonedFunc);
-      FAM.invalidate<DominatorTreeAnalysis>(*clonedFunc);
-      FAM.invalidate<PostDominatorTreeAnalysis>(*clonedFunc);
+      auto PA = PreservedAnalyses::all();
+      PA.abandon<DominatorTreeAnalysis>();
+      PA.abandon<PostDominatorTreeAnalysis>();
       // invalidate & recompute LI
-      FAM.invalidate<LoopAnalysis>(*clonedFunc);
-      FAM.getResult<LoopAnalysis>(*clonedFunc);
+      PA.abandon<LoopAnalysis>();
+      PMS.FAM.invalidate(*clonedFunc, PA);
+      PMS.FAM.getResult<LoopAnalysis>(*clonedFunc);
     }
 
     // run pipeline
-    vectorizer.analyze(vecInfo, FAM);
-    vectorizer.linearize(vecInfo, FAM);
-    vectorizer.vectorize(vecInfo, FAM, nullptr);
+    vectorizer.analyze(vecInfo, PMS.FAM);
+    vectorizer.linearize(vecInfo, PMS.FAM);
+    vectorizer.vectorize(vecInfo, PMS.FAM, nullptr);
     vectorizer.finalize();
 
     // discard temporary mapping

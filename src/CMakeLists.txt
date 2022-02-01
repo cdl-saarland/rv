@@ -71,6 +71,7 @@ set (RV_LIBRARY_OBJECTS
   passes/irPolisher.cpp
   passes/loopExitCanonicalizer.cpp
   passes/lowerRVIntrinsics.cpp
+  passes/PassManagerSession.cpp
   region/FunctionRegion.cpp
   region/LoopRegion.cpp
   region/Region.cpp
