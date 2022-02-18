@@ -595,13 +595,17 @@ VectorShapeTransformer::computeShapeForAtomicRMWInst(const AtomicRMWInst &RMW) c
 
     const auto & BB = *RMW.getParent();
 
-    const VectorShape& shape1 = getObservedShape(BB, *op1);
+    bool varying = false;
+    bool known = vecInfo.getVaryingPredicateFlag(BB, varying);
+    if (known && !varying) {
+      const VectorShape& shape1 = getObservedShape(BB, *op1);
 
-    const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2);
-    if (shape1.isUniform() && constantOp) {
-      int c = (int) constantOp->getSExtValue();
-      if (RMW.getOperation() == AtomicRMWInst::Sub) c *= -1;
-      return VectorShape::strided(c);
+      const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2);
+      if (shape1.isUniform() && constantOp) {
+        int c = (int) constantOp->getSExtValue();
+        if (RMW.getOperation() == AtomicRMWInst::Sub) c *= -1;
+        return VectorShape::strided(c);
+      }
     }
   }
 

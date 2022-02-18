@@ -822,23 +822,21 @@ void NatBuilder::vectorizeAtomicRMW(AtomicRMWInst *const atomicrmw) {
     Value *predicate = vecInfo.getPredicate(*atomicrmw->getParent());
     assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
     bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
-    if (needsMask) {
-        replicateInstruction(atomicrmw);
-    } else {
-        AtomicRMWInst *clonedinst = cast<AtomicRMWInst>(atomicrmw->clone());
-        clonedinst->setOperand(0, requestScalarValue(atomicrmw->getPointerOperand()));
+    assert(!needsMask && "Masked AtomicRMW instructions cannot be strided!");
 
-        Value * previousconst = atomicrmw->getValOperand();
-        IntegerType * previoustype = cast<IntegerType>(previousconst->getType());
+    AtomicRMWInst *clonedinst = cast<AtomicRMWInst>(atomicrmw->clone());
+    clonedinst->setOperand(0, requestScalarValue(atomicrmw->getPointerOperand()));
 
-        int stride = (atomicrmw->getOperation() == AtomicRMWInst::Sub) ? -1 * shape.getStride() : shape.getStride();
-        int updateresult = vectorWidth() * stride;
+    Value * val = atomicrmw->getValOperand();
+    IntegerType * valtype = cast<IntegerType>(val->getType());
 
-        clonedinst->setOperand(1, ConstantInt::get(previoustype, updateresult));
+    int stride = (atomicrmw->getOperation() == AtomicRMWInst::Sub) ? -1 * shape.getStride() : shape.getStride();
+    int updateresult = vectorWidth() * stride;
 
-        builder.Insert(clonedinst, atomicrmw->getName());
-        mapScalarValue(atomicrmw, clonedinst);
-    }
+    clonedinst->setOperand(1, ConstantInt::get(valtype, updateresult));
+
+    builder.Insert(clonedinst, atomicrmw->getName());
+    mapScalarValue(atomicrmw, clonedinst);
   } else if (shouldVectorize(atomicrmw)) {
     Value * ptr = atomicrmw->getPointerOperand();
     Value * val = atomicrmw->getValOperand();
@@ -848,16 +846,28 @@ void NatBuilder::vectorizeAtomicRMW(AtomicRMWInst *const atomicrmw) {
       replicateInstruction(atomicrmw);
       return;
     }
+
     Value *predicate = vecInfo.getPredicate(*atomicrmw->getParent());
     assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
     bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
-    if (needsMask) {
+    if (needsMask && !(
+                atomicrmw->getOperation() == AtomicRMWInst::Add  ||
+                atomicrmw->getOperation() == AtomicRMWInst::Sub  ||
+                atomicrmw->getOperation() == AtomicRMWInst::And  ||
+                atomicrmw->getOperation() == AtomicRMWInst::Or   ||
+                atomicrmw->getOperation() == AtomicRMWInst::Min  ||
+                atomicrmw->getOperation() == AtomicRMWInst::Max  ||
+                atomicrmw->getOperation() == AtomicRMWInst::UMin ||
+                atomicrmw->getOperation() == AtomicRMWInst::UMax
+                )) {
       replicateInstruction(atomicrmw);
       return;
     }
 
     switch (atomicrmw->getOperation()) {
     case AtomicRMWInst::Xchg: {
+      assert(!needsMask);
+
       AtomicRMWInst *clonedInst = cast<AtomicRMWInst>(atomicrmw->clone());
       clonedInst->setOperand(0, requestScalarValue(ptr));
 
@@ -906,6 +916,15 @@ void NatBuilder::vectorizeAtomicRMW(AtomicRMWInst *const atomicrmw) {
       case AtomicRMWInst::UMin: reduction = RedKind::UMin; break;
       default:
         llvm_unreachable("case missing");
+      }
+
+      if (needsMask) {
+          //Fill masked lanes with neutral element for reduction.
+          auto elemTy = vectorizedVal->getType()->getScalarType();
+          Value *neutralElement = builder.CreateVectorSplat(vectorWidth(), &GetNeutralElement(reduction, *elemTy));
+
+          auto *vecMask = maskInactiveLanes(requestVectorValue(predicate), atomicrmw->getParent(), false);
+          vectorizedVal = builder.CreateSelect(vecMask, vectorizedVal, neutralElement);
       }
 
       Value *finalVal = &CreateVectorReduce(config, builder, reduction, *vectorizedVal, nullptr);
