@@ -79,6 +79,7 @@ set (RV_LIBRARY_OBJECTS
   resolver/recResolver.cpp
   resolver/resolver.cpp
   resolver/sleefResolver.cpp
+  rv-c/passes.cpp
   shape/vectorShape.cpp
   shape/vectorShapeTransformer.cpp
   transform/CoherentIFTransform.cpp
