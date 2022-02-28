@@ -191,6 +191,11 @@ PlatformInfo::getMaxVectorWidth() const {
 }
 
 size_t PlatformInfo::getMaxVectorBits() const {
+  // Bypass TTI for VE since we want to enable RV vectorization while disabling
+  // LLVM vectorization via TTI.
+  llvm::Triple Triple(getModule().getTargetTriple());
+  if (Triple.getArch() == Triple::ve)
+    return 256 * 64;
   return mTTI->getRegisterBitWidth(TargetTransformInfo::RGK_FixedWidthVector);
 }
 
