@@ -1000,7 +1000,7 @@ struct LoopTransformer {
            if (itHeaderPhi != headerPhis.end()) {
              // we are checking the header phi directly
              headerPhi = itHeaderPhi->second;
-             offset = 0;
+             offset = -2;
            } else {
              // we checking the reductor result on the header phi (next iteration value)
              assert(reductors.find(&inst) != reductors.end() && "not testing a reductor");
