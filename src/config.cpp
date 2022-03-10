@@ -15,6 +15,7 @@
 
 #include <cstdlib>
 #include <sstream>
+#include <map>
 
 using namespace llvm;
 

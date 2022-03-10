@@ -129,7 +129,7 @@ WFV::isSaneMapping(VectorMapping & wfvJob) const {
     // do not allow strided pointers with overlapping element types
     auto * argPtrTy = dyn_cast<PointerType>(scaFuncTy.getParamType(argIdx));
     if (!argPtrTy) continue;
-    size_t elemByteSize = DL.getTypeStoreSize(argPtrTy->getElementType());
+    size_t elemByteSize = DL.getTypeStoreSize(argPtrTy->getPointerElementType());
 
     if (argShape.hasStridedShape() &&
        ((size_t) std::abs(argShape.getStride())) < elemByteSize) {

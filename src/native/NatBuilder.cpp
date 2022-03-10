@@ -773,7 +773,7 @@ bool IsVectorizableTy(const Type & ty) {
 
 void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
   llvm::Align allocAlign = allocaInst->getAlign();
-  auto * allocTy = allocaInst->getType()->getElementType();
+  auto * allocTy = allocaInst->getAllocatedType();
 
   ++numSlowAllocas;
 
@@ -1681,7 +1681,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     accessedPtr = store->getPointerOperand();
   }
 
-  assert(accessedType == cast<PointerType>(accessedPtr->getType())->getElementType() &&
+  assert(accessedType == cast<PointerType>(accessedPtr->getType())->getPointerElementType() &&
          "accessed type and pointed object type differ!");
   assert(vecInfo.hasKnownShape(*accessedPtr) && "no shape for accessed pointer!");
   VectorShape addrShape = getVectorShape(*accessedPtr);

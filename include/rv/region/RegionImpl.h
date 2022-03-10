@@ -9,6 +9,7 @@
 #ifndef RV_REGIONIMPL_H
 #define RV_REGIONIMPL_H
 
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
