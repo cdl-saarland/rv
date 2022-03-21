@@ -234,7 +234,13 @@ namespace rv {
                                      llvm::Value *values);
 
     llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, llvm::Align alignment, Mask vecMask);
+    llvm::Value *createStridedStore(llvm::Value *val, llvm::Value *ptr,
+                                    llvm::Align alignment, Mask vecMask,
+                                    int64_t Stride);
     llvm::Value *createContiguousLoad(llvm::Value *ptr, llvm::Align alignment, Mask vecMask, llvm::Value *passThru);
+    llvm::Value *createStridedLoad(llvm::Value *ptr, llvm::Align alignment,
+                                   Mask vecMask, llvm::Value *passThru,
+                                   int64_t Stride);
 
     void visitMemInstructions();
 

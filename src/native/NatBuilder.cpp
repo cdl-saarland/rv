@@ -1736,6 +1736,13 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
       addrShape.isUniform() ? ++numUniLoads : needsMask ? ++numContMaskedLoads : ++numContLoads;
 
+    } else if (config.enableVP && addrShape.hasStridedShape()) {
+      // general strided access
+      Value *vecBasePtr = requestScalarValue(accessedPtr);
+      vecMem = createStridedLoad(vecBasePtr, Align(alignment), vecMask, UndefValue::get(vecType), addrShape.getStride());
+
+      addrShape.isUniform() ? ++numUniLoads : needsMask ? ++numContMaskedLoads : ++numContLoads;
+
     } else {
       // otw
       auto *vecAddr = requestVectorValue(accessedPtr);
@@ -1787,6 +1794,18 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
       addrShape.isUniform() ? ++numUniStores : needsMask ? ++numContMaskedStores : ++numContStores;
 
+    } else if (config.enableVP && addrShape.hasStridedShape()) {
+     // strided store
+      auto *mappedStoredVal = addrShape.isUniform()
+                                  ? requestScalarValue(storedValue)
+                                  : requestVectorValue(storedValue);
+      Value *vecBasePtr = requestScalarValue(accessedPtr);
+      vecMem = createStridedStore(mappedStoredVal, vecBasePtr, Align(alignment),
+                                  vecMask, addrShape.getStride());
+
+      addrShape.isUniform() ? ++numUniStores
+      : needsMask           ? ++numContMaskedStores
+                            : ++numContStores;
     } else {
       // otw
       Value *vecPtr = requestVectorValue(accessedPtr);
@@ -1914,6 +1933,15 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, Align alignment, Value *ad
   return builder.CreateCall(intr, args);
 }
 
+Value *NatBuilder::createStridedStore(Value *vecVal, Value *elemPtr, Align alignment, Mask vecMask, int64_t Stride) {
+  assert(config.enableVP);
+  VPBuilder vpBuilder(builder);
+  vpBuilder.setStaticVL(vecInfo.getVectorWidth());
+  vpBuilder.setMask(vecMask.getPred());
+  vpBuilder.setEVL(vecMask.getAVL());
+  return &vpBuilder.CreateStridedStore(*vecVal, *elemPtr, alignment, Stride);
+}
+
 Value *NatBuilder::createContiguousStore(Value *vecVal, Value *elemPtr, Align alignment, Mask vecMask) {
 #ifdef LLVM_HAVE_VP
   if (config.enableVP) {
@@ -1934,6 +1962,17 @@ Value *NatBuilder::createContiguousStore(Value *vecVal, Value *elemPtr, Align al
     store->setAlignment(Align(alignment));
     return store;
   }
+}
+
+llvm::Value *NatBuilder::createStridedLoad(llvm::Value *elemPtr, llvm::Align alignment,
+                               Mask vecMask, llvm::Value *passThru,
+                               int64_t Stride) {
+  assert (config.enableVP);
+  VPBuilder vpBuilder(builder);
+  vpBuilder.setStaticVL(vecInfo.getVectorWidth());
+  vpBuilder.setMask(vecMask.getPred());
+  vpBuilder.setEVL(vecMask.getAVL());
+  return &vpBuilder.CreateStridedLoad(passThru->getType(), *elemPtr, alignment, Stride);
 }
 
 Value *NatBuilder::createContiguousLoad(Value *elemPtr, Align alignment, Mask vecMask, Value *passThru) {
