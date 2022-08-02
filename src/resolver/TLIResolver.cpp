@@ -39,7 +39,7 @@ public:
 
   Function& requestVectorized() {
     // TODO actually emit a SIMD declaration for this function
-    StringRef tliFnName = TLI.getVectorizedFunction(funcName, vectorWidth);
+    StringRef tliFnName = TLI.getVectorizedFunction(funcName, ElementCount::getFixed(vectorWidth));
     return *targetModule.getFunction(tliFnName);
   }
 };
@@ -54,7 +54,7 @@ public:
 
   std::unique_ptr<FunctionResolver>
   resolve(llvm::StringRef funcName, llvm::FunctionType & scaFuncTy, const VectorShapeVec & argShapes, int vectorWidth, bool hasPredicate, llvm::Module & destModule) {
-    StringRef tliFnName = TLI.getVectorizedFunction(funcName, vectorWidth);
+    StringRef tliFnName = TLI.getVectorizedFunction(funcName, ElementCount::getFixed(vectorWidth));
     if (!tliFnName.empty()) {
       return std::make_unique<TLIFuncResolver>(destModule, TLI, funcName, scaFuncTy, vectorWidth);
     }

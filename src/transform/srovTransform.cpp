@@ -346,7 +346,7 @@ replicateType(Type & type, TypeVec & oTypes) {
     }
   } else if (vecTy) {
     auto * elemTy = vecTy->getElementType();
-    size_t numElems = vecTy->getNumElements();
+    size_t numElems = vecTy->getElementCount().getFixedValue();
     oTypes.reserve(oTypes.size() + numElems);
     for (size_t i = 0; i < numElems; ++i) {
       oTypes.push_back(elemTy);
@@ -427,7 +427,7 @@ GetNumReplicates(const Type & type) {
     // auto & elemTy = *vecTy->getArrayElementType();
     // auto flatElemSize = GetNumReplicates(elemTy);
     // if (flatElemSize == 0) return 0;
-    flatSize = vecTy->getNumElements();
+    flatSize = vecTy->getElementCount().getFixedValue();
   }
 
 // passed all tests
@@ -608,7 +608,7 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
       replVec.push_back(aggRepl[start + i]);
     }
   } else if (isa<ShuffleVectorInst>(inst)) {
-    const int width = vecTy->getNumElements();
+    const int width = vecTy->getElementCount().getFixedValue();
 
     auto & shuffle = cast<ShuffleVectorInst>(inst);
     ValVec lhsVec = requestReplicate(*shuffle.getOperand(0));
@@ -629,7 +629,7 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
     auto * flatTy = vecTy->getElementType();
 
     std::vector<Instruction*> repls;
-    for (size_t c = 0; c < vecTy->getNumElements(); ++c) {
+    for (size_t c = 0; c < vecTy->getElementCount().getFixedValue(); ++c) {
       auto * cloned = inst.clone();
       cloned->mutateType(flatTy);
       repls.push_back(cloned);
@@ -638,13 +638,13 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
     // remap operands
     for (size_t i = 0; i < inst.getNumOperands(); ++i) {
       ValVec opRepl = requestReplicate(*inst.getOperand(i));
-      for (size_t c = 0; c < vecTy->getNumElements(); ++c) {
+      for (size_t c = 0; c < vecTy->getElementCount().getFixedValue(); ++c) {
         repls[c]->setOperand(i, opRepl[c]);
       }
     }
 
     // insert op
-    for (size_t c = 0; c < vecTy->getNumElements(); ++c) {
+    for (size_t c = 0; c < vecTy->getElementCount().getFixedValue(); ++c) {
       builder.Insert(repls[c], ".r");
       replVec.push_back(repls[c]);
     }
@@ -669,7 +669,7 @@ requestConstVectorReplicate(Constant & val) {
   ValVec res;
   auto & vecTy = cast<VectorType>(*val.getType());
   auto & elemTy = *vecTy.getElementType();
-  const size_t width = vecTy.getNumElements();
+  const size_t width = vecTy.getElementCount().getFixedValue();
 
   if (val.isZeroValue()) {
     for (size_t i = 0; i < width; ++i) {

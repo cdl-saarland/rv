@@ -201,7 +201,7 @@ CreateExtract(IRBuilder<> & builder, Value & vecVal, int laneOffset) {
     return vecVal; //uniform value
   }
 
-  const int vectorWidth = vecTy->getNumElements();
+  const int vectorWidth = vecTy->getElementCount().getFixedValue();
   int laneIdx = laneOffset >= 0 ? laneOffset : vectorWidth + laneOffset;
   assert(laneIdx >= 0 && laneIdx < vectorWidth);
 

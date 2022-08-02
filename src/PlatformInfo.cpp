@@ -192,7 +192,7 @@ PlatformInfo::getMaxVectorWidth() const {
 
 size_t
 PlatformInfo::getMaxVectorBits() const {
-  return mTTI->getRegisterBitWidth(true);
+  return mTTI->getRegisterBitWidth(TargetTransformInfo::RegisterKind::RGK_FixedWidthVector);
 }
 
 void

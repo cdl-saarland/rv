@@ -2110,7 +2110,8 @@ Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, llvm::Align ali
 
 Value *NatBuilder::createContiguousLoad(Value *ptr, llvm::Align alignment, Value *mask, Value *passThru) {
   if (mask) {
-    return builder.CreateMaskedLoad(ptr, alignment, mask, passThru, "cont_load");
+    auto target_type = ptr->getType()->getPointerElementType();
+    return builder.CreateMaskedLoad(target_type, ptr, alignment, mask, passThru, "cont_load");
 
   } else {
     LoadInst *load = builder.CreateLoad(ptr, "cont_load");
