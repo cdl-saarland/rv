@@ -449,6 +449,17 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
     }
     return flatIdx;
 
+  } else if (ptrElemTy->isArrayTy()) {
+    auto * intTy = Type::getInt32Ty(builder.getContext());
+    size_t n = ptrElemTy->getArrayNumElements();
+    for (size_t i = 0; i < n; i++) {
+      // load every member
+      auto * elemGep = builder.CreateGEP(ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
+      vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
+      flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
+    }
+    return flatIdx;
+
   } else if (ptrElemTy->isVectorTy()) {
     auto * intTy = Type::getInt32Ty(builder.getContext());
     size_t n = cast<FixedVectorType>(ptrElemTy)->getNumElements();

@@ -100,6 +100,7 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
   if (I.isCast()) return computeShapeForCastInst(cast<const CastInst>(I));
   if (isa<PHINode>(I)) return computeShapeForPHINode(cast<const PHINode>(I));
   if (isa<AtomicRMWInst>(I)) return computeShapeForAtomicRMWInst(cast<const AtomicRMWInst>(I));
+  if (isa<AtomicCmpXchgInst>(I)) return VectorShape::varying();
 
   const DataLayout & layout = vecInfo.getDataLayout();
   const BasicBlock & BB = *I.getParent();
@@ -300,6 +301,12 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
       auto ptrShape = getObservedShape(BB, *storeInst.getPointerOperand());
       if (valShape.isDefined() && !valShape.isUniform())
         taintedOps.push_back(storeInst.getPointerOperand());
+
+      bool varying = false;
+      bool known = vecInfo.getVaryingPredicateFlag(*I.getParent(), varying);
+      if (known && varying)
+          taintedOps.push_back(storeInst.getPointerOperand());
+
       return VectorShape::join(
           ptrShape,
           (valShape.greaterThanUniform() ? VectorShape::varying() : valShape));
@@ -319,6 +326,11 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
         return VectorShape::varying();
 
       return VectorShape::join(sel1Shape, sel2Shape);
+    }
+
+    case Instruction::Fence:
+    {
+      return VectorShape::uni();
     }
 
       // use the generic transfer
@@ -583,13 +595,17 @@ VectorShapeTransformer::computeShapeForAtomicRMWInst(const AtomicRMWInst &RMW) c
 
     const auto & BB = *RMW.getParent();
 
-    const VectorShape& shape1 = getObservedShape(BB, *op1);
+    bool varying = false;
+    bool known = vecInfo.getVaryingPredicateFlag(BB, varying);
+    if (known && !varying) {
+      const VectorShape& shape1 = getObservedShape(BB, *op1);
 
-    const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2);
-    if (shape1.isUniform() && constantOp) {
-      int c = (int) constantOp->getSExtValue();
-      if (RMW.getOperation() == AtomicRMWInst::Sub) c *= -1;
-      return VectorShape::strided(c);
+      const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2);
+      if (shape1.isUniform() && constantOp) {
+        int c = (int) constantOp->getSExtValue();
+        if (RMW.getOperation() == AtomicRMWInst::Sub) c *= -1;
+        return VectorShape::strided(c);
+      }
     }
   }
 

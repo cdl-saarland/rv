@@ -13,6 +13,8 @@
 #include "llvm/Transforms/Utils/SSAUpdater.h"
 #include "llvm/IR/Verifier.h"
 #include <llvm/IR/PatternMatch.h>
+#include <llvm/Passes/PassBuilder.h>
+#include <llvm/Analysis/InstructionSimplify.h>
 
 #include <cassert>
 
@@ -350,6 +352,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   // factor in all edges
   Value * lastUniIn = nullptr;
   bool redundantUniPhi = true;
+  size_t num_incomming_values = 0;
   VectorShape phiShape = VectorShape::uni();
 
   for (auto itPred = itBegin; itPred != itEnd; ++itPred) {
@@ -370,6 +373,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
       redundantUniPhi &= (lastUniIn == nullptr) || (lastUniIn == &predMask);
       lastUniIn = &predMask;
       uniPhi->addIncoming(&predMask, predBlock);
+      num_incomming_values++;
       phiShape = VectorShape::join(vecInfo.getVectorShape(predMask), phiShape);
     }
 #endif
@@ -410,6 +414,9 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
     }
 
     orVec.push_back(edgeMask);
+    uniPhi->addIncoming(falseConst, predBlock);
+    redundantUniPhi &= (lastUniIn == nullptr) || (lastUniIn == falseConst);
+    lastUniIn = falseConst;
   }
 
 // start constructing the block mask
@@ -418,8 +425,8 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   IF_DEBUG_ME { errs() << "\t mask(" << BB.getName() << ") = \n"; }
   IF_DEBUG_ME { errs() << "\t\t uniPhi: " << *uniPhi << " redundant " << redundantUniPhi << "\n"; }
   size_t startIdx = 0;
-  if (uniPhi->getNumIncomingValues() == 0) {
-    assert(!lastUniIn && "uniform inputs but no incoming values in uni phi");
+  if (num_incomming_values == 0) {
+    assert((!lastUniIn || lastUniIn == falseConst) && "uniform inputs but no incoming values in uni phi");
     // no uniform inputs
     uniPhi->eraseFromParent();
     uniPhi = nullptr;
@@ -483,6 +490,27 @@ MaskExpander::expandRegionMasks() {
 
     auto & blockMask = requestBlockMask(BB);
     vecInfo.setPredicate(BB, blockMask);
+  }
+
+  // simplify constructed predicates, if possible.
+  PassBuilder PB;
+  FunctionAnalysisManager FAM;
+  PB.registerFunctionAnalyses(FAM);
+
+  const SimplifyQuery Q = getBestSimplifyQuery(FAM, vecInfo.getScalarFunction());
+  for (auto & BB : vecInfo.getScalarFunction()) {
+    auto blockMask = vecInfo.getPredicate(BB);
+    if (blockMask && isa<Instruction>(blockMask)) {
+      auto simplMask = SimplifyInstruction(cast<Instruction>(blockMask), Q);
+      if (simplMask) {
+        vecInfo.setPredicate(BB, *simplMask);
+
+        VectorShape maskShape = vecInfo.getVectorShape(*blockMask);
+        VectorShape simplShape = vecInfo.getVectorShape(*simplMask);
+        if (maskShape.morePreciseThan(simplShape))
+          vecInfo.setVectorShape(*simplMask, maskShape);
+      }
+    }
   }
 
   // finalize loop live masks by adding masks on loop entry

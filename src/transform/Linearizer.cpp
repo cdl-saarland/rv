@@ -738,6 +738,13 @@ Linearizer::foldPhis(BasicBlock & block) {
       } else {
         IRBuilder<> preBuilder(&*preHead, preHead->getTerminator()->getIterator());
         foldedInVal = preBuilder.CreateSelect(inMask, preHeaderInput, shadowInput);
+
+        auto inShape = vecInfo.getVectorShape(*inMask);
+        if (inShape.isUniform())
+            vecInfo.setVectorShape(*foldedInVal, VectorShape::uni());
+        else
+            vecInfo.setVectorShape(*foldedInVal, VectorShape::varying());
+
         numFoldedAssignments += 2;
         ++numCDivPhis;
       }

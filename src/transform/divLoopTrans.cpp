@@ -443,6 +443,7 @@ TransformSession::requestPureLatch() {
   }
   auto & pureLatchBr = *BranchInst::Create(&header, pureLatch);
   vecInfo.setVectorShape(pureLatchBr, VectorShape::uni());
+  vecInfo.setVectorShape(*pureLatch, VectorShape::uni());
 
   // register with LoopInfo & LoopTracker
   loop.addBasicBlockToLoop(pureLatch, loopInfo);
