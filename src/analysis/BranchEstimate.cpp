@@ -73,7 +73,7 @@ BranchEstimate::getBlockScore(BasicBlock & entry) {
       if (!callee) { score += 8; continue; }
 
       VectorShapeVec argShapeVec;
-      for (const auto & arg : call->arg_operands()) {
+      for (const auto & arg : call->args()) {
         argShapeVec.push_back(vecInfo.getVectorShape(*arg.getUser()));
       }
 

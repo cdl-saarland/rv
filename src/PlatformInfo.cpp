@@ -56,7 +56,7 @@ GetBuiltinMapping(Function & F, VectorMapping & KnownMapping) {
 
 void
 PlatformInfo::registerDeclareSIMDFunction(Function & F) {
-  auto attribSet = F.getAttributes().getFnAttributes();
+  auto attribSet = F.getAttributes().getFnAttrs();
   // parse SIMD signatures
   std::vector<VectorMapping> wfvJobs;
   for (auto attrib : attribSet) {

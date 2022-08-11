@@ -489,7 +489,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     } else {
       // Default path for all other function calls
       std::vector<Value*> newArgs;
-      for (auto& arg : callInst->arg_operands()) {
+      for (auto& arg : callInst->args()) {
         auto newArg = arg.get();
         // If the argument is a boolean vector, we reconstruct it from the new mask
         if (isBooleanVector(arg->getType()))

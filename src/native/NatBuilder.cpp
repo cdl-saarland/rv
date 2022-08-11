@@ -1017,7 +1017,7 @@ void NatBuilder::vectorizeInstruction(Instruction *const inst) {
 }
 
 void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
-  assert(rvCall->getNumArgOperands() == 1 && "expected only 1 argument for rv_any");
+  assert(rvCall->arg_size() == 1 && "expected only 1 argument for rv_any");
 
   Value *predicate = rvCall->getArgOperand(0);
   const VectorShape &shape = getVectorShape(*predicate);
@@ -1047,7 +1047,7 @@ void
 NatBuilder::vectorizeExtractCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_extract(vec, laneId)");
+  assert(rvCall->arg_size() == 2 && "expected 2 arguments for rv_extract(vec, laneId)");
 
   Value *vecArg = rvCall->getArgOperand(0);
 
@@ -1071,7 +1071,7 @@ void
 NatBuilder::vectorizeInsertCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  assert(rvCall->getNumArgOperands() == 3 && "expected 3 arguments for rv_insert(vec, laneId, value)");
+  assert(rvCall->arg_size() == 3 && "expected 3 arguments for rv_insert(vec, laneId, value)");
 
   Value *vecArg  = rvCall->getArgOperand(0);
   assert(getVectorShape(*rvCall->getArgOperand(2)).isUniform());
@@ -1096,7 +1096,7 @@ void
 NatBuilder::vectorizeLoadCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_load(vecPtr, laneId)");
+  assert(rvCall->arg_size() == 2 && "expected 2 arguments for rv_load(vecPtr, laneId)");
 
   Value *vecPtr = rvCall->getArgOperand(0);
   assert(getVectorShape(*rvCall->getArgOperand(1)).isUniform());
@@ -1130,7 +1130,7 @@ void
 NatBuilder::vectorizeStoreCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  assert(rvCall->getNumArgOperands() == 3 && "expected 3 arguments for rv_store(vecPtr, laneId, value)");
+  assert(rvCall->arg_size() == 3 && "expected 3 arguments for rv_store(vecPtr, laneId, value)");
 
   Value *vecPtr  = rvCall->getArgOperand(0);
   Value *elemVal = requestScalarValue(rvCall->getArgOperand(2));
@@ -1158,7 +1158,7 @@ void
 NatBuilder::vectorizeShuffleCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_shuffle(vec, shift)");
+  assert(rvCall->arg_size() == 2 && "expected 2 arguments for rv_shuffle(vec, shift)");
 
   Value *vecArg = rvCall->getArgOperand(0);
 
@@ -1289,7 +1289,7 @@ void
 NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  assert(rvCall->getNumArgOperands() == 1 && "expected 1 argument for rv_ballot(cond)");
+  assert(rvCall->arg_size() == 1 && "expected 1 argument for rv_ballot(cond)");
 
   Value *condArg = rvCall->getArgOperand(0);
 
@@ -1304,7 +1304,7 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
   ++numRVIntrinsics;
 
   auto vecWidth = vecInfo.getVectorWidth();
-  assert(rvCall.getNumArgOperands() == 1 && "expected 1 argument for rv_index(mask)");
+  assert(rvCall.arg_size() == 1 && "expected 1 argument for rv_index(mask)");
   Value *condArg = rvCall.getArgOperand(0);
 
   auto * intLaneTy = IntegerType::getIntNTy(rvCall.getContext(), 512 / vecWidth);
@@ -1372,7 +1372,7 @@ NatBuilder::vectorizePopCountCall(CallInst *rvCall) {
 
   auto indexTy = rvCall->getType();
 
-  assert(rvCall->getNumArgOperands() == 1 && "expected 1 argument for rv_ballot(cond)");
+  assert(rvCall->arg_size() == 1 && "expected 1 argument for rv_ballot(cond)");
 
   Value *condArg = rvCall->getArgOperand(0);
   auto vecWidth = vecInfo.getVectorWidth();
@@ -1396,7 +1396,7 @@ void
 NatBuilder::vectorizeAlignCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_align(ptr, alignment)");
+  assert(rvCall->arg_size() == 2 && "expected 2 arguments for rv_align(ptr, alignment)");
 
   Value *vecArg = rvCall->getArgOperand(0);
 
@@ -1410,7 +1410,7 @@ void
 NatBuilder::vectorizeLaneIDCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  assert(rvCall->getNumArgOperands() == 0 && "expected 0 arguments for rv_lane_id()");
+  assert(rvCall->arg_size() == 0 && "expected 0 arguments for rv_lane_id()");
   Value *contVec = createContiguousVector(vectorWidth(), rvCall->getType(), 0, 1);
   mapVectorValue(rvCall, contVec);
 }
@@ -1419,7 +1419,7 @@ void
 NatBuilder::vectorizeNumLanesCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  assert(rvCall->getNumArgOperands() == 0 && "expected 0 arguments for rv_num_lanes()");
+  assert(rvCall->arg_size() == 0 && "expected 0 arguments for rv_num_lanes()");
   mapScalarValue(rvCall, ConstantInt::get(rvCall->getType(), vectorWidth(), false));
 }
 
@@ -1427,7 +1427,7 @@ void
 NatBuilder::vectorizeCompactCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_compact(vec, mask)");
+  assert(rvCall->arg_size() == 2 && "expected 2 arguments for rv_compact(vec, mask)");
 
   Value *vecArg  = rvCall->getArgOperand(0);
   Value *maskArg = rvCall->getArgOperand(1);
@@ -1495,7 +1495,7 @@ MayRecurse(const Function &F) {
 
 static void
 CopyTargetAttributes(Function & destFunc, Function & srcFunc) {
-  auto attribSet = srcFunc.getAttributes().getFnAttributes();
+  auto attribSet = srcFunc.getAttributes().getFnAttrs();
 
   // parse SIMD signatures
   for (auto attrib : attribSet) {
@@ -1520,7 +1520,7 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   Function * calledFunction = dyn_cast<Function>(callee);
 
   VectorShapeVec callArgShapes;
-  for (int i = 0; i < (int) scalCall->getNumArgOperands(); ++i) {
+  for (int i = 0; i < (int) scalCall->arg_size(); ++i) {
     auto argShape = vecInfo.getVectorShape(*scalCall->getArgOperand(i));
     callArgShapes.push_back(argShape);
   }
@@ -1583,7 +1583,7 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     if (!replicate) {
       unsigned replicationFactor = vectorWidth() / vecWidth;
       //bool doublePrecision = false;
-      //if (scalCall->getNumArgOperands() > 0) {
+      //if (scalCall->arg_size() > 0) {
         // doublePrecision = scalCall->getArgOperand(0)->getType()->isDoubleTy();
       // }
       Function &simdFunc = funcResolver->requestVectorized();
@@ -1593,7 +1593,7 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       ShuffleBuilder extractor(vecWidth);
 
       // prepare the extract shuffler
-      for (unsigned i = 0; i < scalCall->getNumArgOperands(); ++i) {
+      for (unsigned i = 0; i < scalCall->arg_size(); ++i) {
         Value *const arg = scalCall->getArgOperand(i);
         Value *mappedArg = requestVectorValue(arg);
         extractor.add(mappedArg);
@@ -1606,7 +1606,7 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
         call->setCalledFunction(&simdFunc);
 
         // insert arguments into call
-        for (unsigned j = 0; j < scalCall->getNumArgOperands(); ++j) {
+        for (unsigned j = 0; j < scalCall->arg_size(); ++j) {
           Value *vecArg = extractor.extractVector(builder, j, i * vecWidth);
           call->setArgOperand(j, vecArg);
         }
@@ -1660,7 +1660,7 @@ void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx)
   auto *callee = scalCall->getCalledOperand();
 
   std::vector<Value *> args;
-  for (unsigned i = 0; i < scalCall->getNumArgOperands(); ++i) {
+  for (unsigned i = 0; i < scalCall->arg_size(); ++i) {
     Value *scalArg = scalCall->getArgOperand(i);
     Value *laneArg = requestScalarValue(scalArg, laneIdx);
     args.push_back(laneArg);

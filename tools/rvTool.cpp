@@ -73,7 +73,7 @@ static const char VARCHAR = 'T';
 static bool verbose = false;
 #define IF_VERBOSE if (verbose)
 
-static void LLVM_ATTRIBUTE_NORETURN fail();
+[[noreturn]] static void fail();
 
 static void fail() {
   std::cerr << '\n';

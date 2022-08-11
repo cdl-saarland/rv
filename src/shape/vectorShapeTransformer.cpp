@@ -254,7 +254,7 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
       // collect required argument shapes
       // bail if any shape was undefined
       bool allArgsUniform = true;
-      size_t numParams = call.getNumArgOperands();
+      size_t numParams = call.arg_size();
       VectorShapeVec callArgShapes;
       for (size_t i = 0; i < numParams; ++i) {
         auto& op = *call.getArgOperand(i);

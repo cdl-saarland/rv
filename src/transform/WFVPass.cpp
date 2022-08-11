@@ -153,7 +153,7 @@ WFVPass::isSaneMapping(VectorMapping & wfvJob) const {
 
 void
 WFVPass::collectJobs(Function & F) {
-  auto attribSet = F.getAttributes().getFnAttributes();
+  auto attribSet = F.getAttributes().getFnAttrs();
 
   // parse SIMD signatures
   for (auto attrib : attribSet) {
