@@ -375,7 +375,11 @@ bool LoopVectorizer::runOnFunction(Function &F) {
 
 // create private analysis infrastructure
   PassBuilder PB;
+  PB.registerModuleAnalyses(MAM);
+  PB.registerCGSCCAnalyses(CGAM);
   PB.registerFunctionAnalyses(FAM);
+  PB.registerLoopAnalyses(LAM);
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
 // stash function analyses
   this->F = &F;

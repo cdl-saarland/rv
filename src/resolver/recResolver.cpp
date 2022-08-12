@@ -128,10 +128,18 @@ public:
     // unify returns (if necessary)
     SingleReturnTrans::run(funcRegion);
 
-    // compute anlaysis results
-    PassBuilder PB;
+    // setup LLVM analysis infrastructure
+    LoopAnalysisManager LAM;
     FunctionAnalysisManager FAM;
+    CGSCCAnalysisManager CGAM;
+    ModuleAnalysisManager MAM;
+
+    PassBuilder PB;
+    PB.registerModuleAnalyses(MAM);
+    PB.registerCGSCCAnalyses(CGAM);
     PB.registerFunctionAnalyses(FAM);
+    PB.registerLoopAnalyses(LAM);
+    PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
     // compute DT, PDT, LI
     // normalize loop exits (TODO make divLoopTrans work without this)

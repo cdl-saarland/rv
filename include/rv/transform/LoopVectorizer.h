@@ -17,6 +17,8 @@
 #include "rv/analysis/loopAnnotations.h"
 #include "rv/config.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/Analysis/LoopAnalysisManager.h"
+#include "llvm/Analysis/CGSCCPassManager.h"
 #include "rv/rv.h"
 #include "rv/passes.h"
 
@@ -64,6 +66,9 @@ private:
 
   llvm::Function * F;
   llvm::FunctionAnalysisManager FAM; // private pass infrastructure
+  llvm::LoopAnalysisManager LAM;
+  llvm::CGSCCAnalysisManager CGAM;
+  llvm::ModuleAnalysisManager MAM;
   llvm::DominatorTree * DT;
   llvm::PostDominatorTree * PDT;
   llvm::LoopInfo * LI;

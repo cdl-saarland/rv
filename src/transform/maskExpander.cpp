@@ -493,9 +493,18 @@ MaskExpander::expandRegionMasks() {
   }
 
   // simplify constructed predicates, if possible.
-  PassBuilder PB;
+  // setup LLVM analysis infrastructure
+  LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;
+  CGSCCAnalysisManager CGAM;
+  ModuleAnalysisManager MAM;
+
+  PassBuilder PB;
+  PB.registerModuleAnalyses(MAM);
+  PB.registerCGSCCAnalyses(CGAM);
   PB.registerFunctionAnalyses(FAM);
+  PB.registerLoopAnalyses(LAM);
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
   const SimplifyQuery Q = getBestSimplifyQuery(FAM, vecInfo.getScalarFunction());
   for (auto & BB : vecInfo.getScalarFunction()) {

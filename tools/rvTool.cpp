@@ -264,10 +264,18 @@ void vectorizeFirstLoop(Function &parentFn, unsigned vectorWidth, int ulpErrorBo
     canonicalizer.canonicalize(parentFn);
   }
 
-  // set up analysis infrastructure
-  PassBuilder PB;
+  // setup LLVM analysis infrastructure
+  LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;
+  CGSCCAnalysisManager CGAM;
+  ModuleAnalysisManager MAM;
+
+  PassBuilder PB;
+  PB.registerModuleAnalyses(MAM);
+  PB.registerCGSCCAnalyses(CGAM);
   PB.registerFunctionAnalyses(FAM);
+  PB.registerLoopAnalyses(LAM);
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
   // run other analysis up front that may invalidate LoopInfo
   // ScalarEvolutionAnalysis seAnalysis;
@@ -307,11 +315,18 @@ void vectorizeFunction(rv::VectorMapping &vectorizerJob, ShapeMap extraShapes, b
   Function *scalarFn = vectorizerJob.scalarFn;
   Module &mod = *scalarFn->getParent();
 
-  FunctionAnalysisManager FAM;
-
   // setup LLVM analysis infrastructure
+  LoopAnalysisManager LAM;
+  FunctionAnalysisManager FAM;
+  CGSCCAnalysisManager CGAM;
+  ModuleAnalysisManager MAM;
+
   PassBuilder PB;
+  PB.registerModuleAnalyses(MAM);
+  PB.registerCGSCCAnalyses(CGAM);
   PB.registerFunctionAnalyses(FAM);
+  PB.registerLoopAnalyses(LAM);
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
   // platform API
   TargetIRAnalysis irAnalysis;

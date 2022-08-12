@@ -556,9 +556,16 @@ bool IRPolisher::polish() {
 
   // Run InstCombine to perform peephole opts
   FunctionPassManager FPM;
+  LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;
+  CGSCCAnalysisManager CGAM;
+  ModuleAnalysisManager MAM;
   PassBuilder builder;
+  builder.registerModuleAnalyses(MAM);
+  builder.registerCGSCCAnalyses(CGAM);
   builder.registerFunctionAnalyses(FAM);
+  builder.registerLoopAnalyses(LAM);
+  builder.crossRegisterProxies(LAM, FAM, CGAM, MAM);
   FPM.addPass(AggressiveInstCombinePass());
   FPM.run(F, FAM);
 

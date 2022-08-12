@@ -79,10 +79,18 @@ WFVPass::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfv
   // unify returns as necessary
   SingleReturnTrans::run(funcRegionWrapper);
 
-  // prepare analyses
-  PassBuilder PB;
+  // setup LLVM analysis infrastructure
+  LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;
+  CGSCCAnalysisManager CGAM;
+  ModuleAnalysisManager MAM;
+
+  PassBuilder PB;
+  PB.registerModuleAnalyses(MAM);
+  PB.registerCGSCCAnalyses(CGAM);
   PB.registerFunctionAnalyses(FAM);
+  PB.registerLoopAnalyses(LAM);
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
 // early math func lowering
   // vectorizer.lowerRuntimeCalls(vecInfo, LI);
