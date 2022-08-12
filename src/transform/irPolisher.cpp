@@ -460,7 +460,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     newInst = newStore;
   } else if (auto loadInst = dyn_cast<LoadInst>(inst)) {
     auto ptr = loadInst->getOperand(0);
-    auto newLoad = builder.CreateLoad(ptr);
+    auto newLoad = builder.CreateLoad(ptr->getType()->getPointerElementType(), ptr);
 
     newLoad->setAlignment(llvm::Align(loadInst->getAlignment()));
     newLoad->setVolatile(loadInst->isVolatile());

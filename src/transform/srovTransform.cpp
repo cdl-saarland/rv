@@ -443,7 +443,7 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
     size_t n = ptrElemTy->getStructNumElements();
     for (size_t i = 0; i < n; i++) {
       // load every member
-      auto * elemGep = builder.CreateGEP(ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
+      auto * elemGep = builder.CreateGEP(ptrElemTy, ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
       vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
       flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
     }
@@ -454,7 +454,7 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
     size_t n = ptrElemTy->getArrayNumElements();
     for (size_t i = 0; i < n; i++) {
       // load every member
-      auto * elemGep = builder.CreateGEP(ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
+      auto * elemGep = builder.CreateGEP(ptrElemTy, ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
       vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
       flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
     }
@@ -470,7 +470,7 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
 
     for (size_t i = 0; i < n; i++) {
       // load every member
-      auto * elemGep = i > 0 ? builder.CreateGEP(scaPtr, ConstantInt::get(intTy, i, true), "srov_gep") : scaPtr;
+      auto * elemGep = i > 0 ? builder.CreateGEP(ptrElemTy, scaPtr, ConstantInt::get(intTy, i, true), "srov_gep") : scaPtr;
       vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
       flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
     }
@@ -481,7 +481,7 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
     if (load) {
       // for a load, replVec will be filled with the loaded data
       assert(replVec.size() == flatIdx);
-      auto * flatLoad = builder.CreateLoad(ptr, load->isVolatile());
+      auto * flatLoad = builder.CreateLoad(ptrElemTy, ptr, load->isVolatile());
       vecInfo.setVectorShape(*flatLoad, vecInfo.getVectorShape(*load));
       replVec.push_back(flatLoad);
     }

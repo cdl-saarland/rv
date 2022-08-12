@@ -94,7 +94,7 @@ MemCopyElision::createBaseGEP(llvm::Value * ptrVal, llvm::Type * baseTy, llvm::I
   }
   if (idxList.size() == 1) return ptrVal;
   else {
-    auto * baseGep = builder.CreateGEP(ptrVal, idxList, "basegep");
+    auto * baseGep = builder.CreateGEP(dataTy, ptrVal, idxList, "basegep");
     vecInfo.setVectorShape(*baseGep, VectorShape::varying());
     return baseGep;
   }
@@ -113,13 +113,13 @@ MemCopyElision::lowerMemCopy(llvm::Value * destBase, llvm::Value * srcBase, llvm
   for (size_t i = 0; i < numElems; ++i) {
     auto * idxConst = ConstantInt::get(intTy, i, false);
   // gep to elemens
-    auto * srcElemPtr = builder.CreateGEP(srcBase, {nullInt, idxConst});
-    auto * destElemPtr = builder.CreateGEP(destBase, {nullInt, idxConst});
+    auto * srcElemPtr = builder.CreateGEP(commonTy, srcBase, {nullInt, idxConst});
+    auto * destElemPtr = builder.CreateGEP(commonTy, destBase, {nullInt, idxConst});
     vecInfo.setVectorShape(*srcElemPtr, varShape);
     vecInfo.setVectorShape(*destElemPtr, varShape);
 
   // element transfer
-    auto * elem = builder.CreateLoad(srcElemPtr);
+    auto * elem = builder.CreateLoad(commonTy, srcElemPtr);
     vecInfo.setVectorShape(*elem, VectorShape::varying());
     auto * store = builder.CreateStore(elem, destElemPtr);
     vecInfo.setVectorShape(*store, varShape);

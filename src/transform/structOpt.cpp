@@ -126,7 +126,7 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
     }
 
     for (size_t i = 0; i < scalarTy->getStructNumElements(); ++i) {
-      auto * vecGEP = builder.CreateGEP(vecPtrVal, { builder.getInt32(0), builder.getInt32(i) });
+      auto * vecGEP = builder.CreateGEP(scalarTy, vecPtrVal, { builder.getInt32(0), builder.getInt32(i) });
       auto * structElem = storeVal ? builder.CreateExtractValue(storeVal, i) : nullptr;
       auto * elemTy = scalarTy->getStructElementType(i);
 
@@ -157,7 +157,7 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
   vecInfo.setVectorShape(*castElemTy, VectorShape::cont(alignment));
 
   if (load)  {
-    auto * vecLoad = builder.CreateLoad(castElemTy, load->getName());
+    auto * vecLoad = builder.CreateLoad(plainElemTy, castElemTy, load->getName());
     vecInfo.setVectorShape(*vecLoad, vecInfo.getVectorShape(*load));
     vecLoad->setAlignment(llvm::Align(alignment));
 

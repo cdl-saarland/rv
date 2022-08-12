@@ -803,7 +803,7 @@ void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
 
     // extract basePtrs
     auto * offsetVec = createContiguousVector(vectorWidth(), indexTy, 0, 1);
-    auto * allocaPtrVec = builder.CreateGEP(baseAlloca, offsetVec, name + ".alloca_vec");
+    auto * allocaPtrVec = builder.CreateGEP(allocTy, baseAlloca, offsetVec, name + ".alloca_vec");
 
     // register as vectorized alloca
     mapVectorValue(allocaInst, allocaPtrVec);
@@ -1108,13 +1108,13 @@ NatBuilder::vectorizeLoadCall(CallInst *rvCall) {
     auto * uniVal = requestScalarValue(vecPtr);
     auto addressSpace = uniVal->getType()->getPointerAddressSpace();
     auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
-    auto * gepPtr = builder.CreateGEP(castPtr, laneId);
-    laneVal = builder.CreateLoad(gepPtr);
+    auto * gepPtr = builder.CreateGEP(builder.getFloatTy(), castPtr, laneId);
+    laneVal = builder.CreateLoad(builder.getFloatTy(), gepPtr);
   } else {
 // non-uniform arg
     auto * vecVal = requestVectorValue(vecPtr);
     auto * lanePtr = builder.CreateExtractElement(vecVal, laneId, "rv_load");
-    laneVal = builder.CreateLoad(lanePtr, "rv_load");
+    laneVal = builder.CreateLoad(lanePtr->getType()->getPointerElementType(), lanePtr, "rv_load");
   }
 
   if (vecInfo.getVectorShape(*rvCall).isUniform()) {
@@ -1141,7 +1141,7 @@ NatBuilder::vectorizeStoreCall(CallInst *rvCall) {
     auto * uniVal = requestScalarValue(vecPtr);
     auto addressSpace = uniVal->getType()->getPointerAddressSpace();
     auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
-    auto * gepPtr = builder.CreateGEP(castPtr, laneId );
+    auto * gepPtr = builder.CreateGEP(builder.getFloatTy(), castPtr, laneId );
     auto * store = builder.CreateStore(elemVal, gepPtr);
     mapScalarValue(rvCall, store);
     return;
@@ -1445,7 +1445,8 @@ NatBuilder::vectorizeCompactCall(CallInst *rvCall) {
   auto vecWidth = cast<FixedVectorType>(maskVal->getType())->getNumElements();
   auto tableIndex = createVectorMaskSummary(*rvCall->getType(), maskVal, builder, RVIntrinsic::Ballot);
   auto table = createCompactLookupTable(vecWidth);
-  auto indices = builder.CreateLoad(builder.CreateInBoundsGEP(table, { builder.getInt32(0), tableIndex }), "rv_compact_indices");
+  auto gepPtr = builder.CreateInBoundsGEP(table->getType()->getPointerElementType(), table, { builder.getInt32(0), tableIndex });
+  auto indices = builder.CreateLoad(gepPtr->getType()->getPointerElementType(), gepPtr, "rv_compact_indices");
   Value * compacted = UndefValue::get(vecVal->getType());
   for (size_t i = 0; i < vecWidth; ++i) {
     auto index = builder.CreateExtractElement(indices, builder.getInt32(i), "rv_compact_index");
@@ -2047,7 +2048,7 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedTy
       vecMem = builder.CreateStore(values, addr);
       cast<StoreInst>(vecMem)->setAlignment(llvm::Align(alignment));
     } else {
-      vecMem = builder.CreateLoad(addr, "scal_mask_mem");
+      vecMem = builder.CreateLoad(addr->getType()->getPointerElementType(), addr, "scal_mask_mem");
       cast<LoadInst>(vecMem)->setAlignment(llvm::Align(alignment));
     }
     return vecMem;
@@ -2138,12 +2139,12 @@ Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, llvm::Align ali
 }
 
 Value *NatBuilder::createContiguousLoad(Value *ptr, llvm::Align alignment, Value *mask, Value *passThru) {
-  if (mask) {
-    auto target_type = ptr->getType()->getPointerElementType();
-    return builder.CreateMaskedLoad(target_type, ptr, alignment, mask, passThru, "cont_load");
+  auto target_type = ptr->getType()->getPointerElementType();
 
+  if (mask) {
+    return builder.CreateMaskedLoad(target_type, ptr, alignment, mask, passThru, "cont_load");
   } else {
-    LoadInst *load = builder.CreateLoad(ptr, "cont_load");
+    LoadInst *load = builder.CreateLoad(target_type, ptr, "cont_load");
     load->setAlignment(llvm::Align(alignment));
     return load;
   }
@@ -2319,13 +2320,13 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
       if (vecShape.getStride() % scalarBytes == 0) {
         // stride aligned with object size
         Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride() / scalarBytes);
-        vecValue = builder.CreateGEP(vecValue, contVec, "expand_strided_ptr");
+        vecValue = builder.CreateGEP(scalarPtrTy->getPointerElementType(), vecValue, contVec, "expand_strided_ptr");
       } else {
         // sub element stride
         auto * charPtrTy = builder.getInt8PtrTy(AddrSpace);
         auto * charPtrVec = builder.CreatePointerCast(vecValue, FixedVectorType::get(charPtrTy, vectorWidth()), "byte_ptr");
         Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride());
-        auto * bytePtrVec = builder.CreateGEP(charPtrVec, contVec, "expand_byte_ptr");
+        auto * bytePtrVec = builder.CreateGEP(builder.getInt8Ty(), charPtrVec, contVec, "expand_byte_ptr");
         vecValue = builder.CreatePointerCast(bytePtrVec, actualPtrVecTy);
       }
     }
@@ -2445,12 +2446,12 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     // if the mappedVal is a alloca instruction, create a GEP instruction
     if (isa<AllocaInst>(mappedVal)) {
       auto indexTy = getIndexTy(mappedVal);
-      reqVal = builder.CreateGEP(mappedVal, ConstantInt::get(indexTy, laneIdx));
+      reqVal = builder.CreateGEP(value->getType()->getPointerElementType(), mappedVal, ConstantInt::get(indexTy, laneIdx));
     } else {
       // extract from GEPs are not allowed. in that case recreate the scalar instruction and get that new value
       if (isa<GetElementPtrInst>(mappedVal) && isa<GetElementPtrInst>(value)) {
         auto indexTy = getIndexTy(mappedVal);
-        reqVal = builder.CreateGEP(mappedVal, ConstantInt::get(indexTy, laneIdx));
+        reqVal = builder.CreateGEP(value->getType()->getPointerElementType(), mappedVal, ConstantInt::get(indexTy, laneIdx));
       } else {
         reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
       }
@@ -2506,7 +2507,7 @@ NatBuilder::buildGEP(GetElementPtrInst *const gep, bool buildScalar, unsigned la
     idxList.push_back(vecIdx);
   }
 
-  Value * vecGEP = builder.CreateGEP(vecBasePtr, idxList, gep->getName());
+  Value * vecGEP = builder.CreateGEP(vecBasePtr->getType()->getScalarType()->getPointerElementType(), vecBasePtr, idxList, gep->getName());
   auto * vecGEPInst = dyn_cast<GetElementPtrInst>(vecGEP);
   if (vecGEPInst) {
     vecGEPInst->setIsInBounds(gep->isInBounds());
@@ -2641,7 +2642,7 @@ NatBuilder::requestInterleavedGEP(GetElementPtrInst *const gep, unsigned interle
     idxList.push_back(interIdx);
   }
 
-  auto *interGEP = builder.CreateGEP(basePtr, idxList, "inter_gep");
+  auto *interGEP = builder.CreateGEP(basePtr->getType()->getPointerElementType(), basePtr, idxList, "inter_gep");
   auto * interGEPInst = dyn_cast<GetElementPtrInst>(interGEP);
   if (interGEPInst) interGEPInst->setIsInBounds(gep->isInBounds());
 
@@ -2662,7 +2663,7 @@ NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interlea
   else {
     Value *ptr = requestScalarValue(addr, 0, true);
     auto * indexTy = getIndexTy(ptr);
-    interAddr = builder.CreateGEP(ptr, ConstantInt::get(indexTy, vectorWidth() * interleavedIdx), "inter_gep");
+    interAddr = builder.CreateGEP(ptr->getType()->getPointerElementType(), ptr, ConstantInt::get(indexTy, vectorWidth() * interleavedIdx), "inter_gep");
   }
 
   int AddrSpace = cast<PointerType>(addr->getType())->getAddressSpace();
@@ -2818,7 +2819,7 @@ Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigne
       builder.CreateStore(storeLaneVal, pointerLaneVal);
     } else {
       // ... load from pointer, insert to result vector, branch to next
-      Value *loadInst = builder.CreateLoad(pointerLaneVal, "load_lane_" + std::to_string(i));
+      Value *loadInst = builder.CreateLoad(pointerLaneVal->getType()->getPointerElementType(), pointerLaneVal, "load_lane_" + std::to_string(i));
       cast<LoadInst>(loadInst)->setAlignment(llvm::Align(alignment));
       insert = builder.CreateInsertElement(resVec, loadInst, ConstantInt::get(i32Ty, i),
                                            "insert_lane_" + std::to_string(i));

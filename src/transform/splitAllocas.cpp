@@ -52,7 +52,7 @@ Value * SplitAllocas::AllocaTree::load(IRBuilder<> & builder, VectorizationInfo 
     }
     return loadVal;
   } else {
-    auto load = builder.CreateLoad(leafAlloca);
+    auto load = builder.CreateLoad(type, leafAlloca);
     vecInfo.setVectorShape(*load, vectorShape);
     return load;
   }

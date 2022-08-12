@@ -205,7 +205,7 @@ BlockSet splitNode(llvm::BasicBlock *srcBlock, llvm::DominatorTree *domTree) {
           assert(ssaUpdater.HasValueForBlock(userInst.getParent()));
 #else
           IRBuilder<> builder(userInst.getParent(), userInst.getIterator());
-          fixedDef = builder.CreateLoad(location, "cns.2reg");
+          fixedDef = builder.CreateLoad(inst.getType(), location, "cns.2reg");
 #endif
 
         } else {
@@ -225,7 +225,7 @@ BlockSet splitNode(llvm::BasicBlock *srcBlock, llvm::DominatorTree *domTree) {
           assert(ssaUpdater.HasValueForBlock(inBlock));
 #else
           IRBuilder<> builder(inBlock, inBlock->getTerminator()->getIterator());
-          fixedDef = builder.CreateLoad(location, "cns.2reg");
+          fixedDef = builder.CreateLoad(inst.getType(), location, "cns.2reg");
 #endif
         }
 
