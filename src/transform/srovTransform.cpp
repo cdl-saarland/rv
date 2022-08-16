@@ -470,7 +470,7 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
 
     for (size_t i = 0; i < n; i++) {
       // load every member
-      auto * elemGep = i > 0 ? builder.CreateGEP(ptrElemTy, scaPtr, ConstantInt::get(intTy, i, true), "srov_gep") : scaPtr;
+      auto * elemGep = i > 0 ? builder.CreateGEP(scaPtrTy->getPointerElementType(), scaPtr, ConstantInt::get(intTy, i, true), "srov_gep") : scaPtr;
       vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
       flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
     }
