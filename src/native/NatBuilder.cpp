@@ -434,7 +434,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
           vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr, predicate, mask, mappedStoredVal);
         }
         mapScalarValue(inst, vecMem);
-      } else if (needsMask)
+      } else if (needsMask || !addrShape.isUniform())
         replicateInstruction(inst);
       else
         copyInstruction(inst);
