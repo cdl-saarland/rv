@@ -101,7 +101,7 @@ Function &cloneFunctionIntoModule(Function &func, Module &cloneInto, StringRef n
 
   SmallVector<ReturnInst *, 1> Returns; // unused
 
-  CloneFunctionInto(&clonedFn, &func, VMap, CloneFunctionChangeType::DifferentModule, Returns);
+  CloneFunctionInto(&clonedFn, &func, VMap, CloneFunctionChangeType::ClonedModule, Returns);
   return clonedFn;
 }
 
