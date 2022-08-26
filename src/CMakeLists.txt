@@ -93,7 +93,10 @@ add_rv_library(RV
   ${RV_SLEEF_OBJECTS}
 )
 
-target_include_directories(RV PUBLIC ${RV_SOURCE_DIR}/include)
+target_include_directories(RV PUBLIC
+    $<BUILD_INTERFACE:${RV_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_PREFIX}/include>
+)
 
 if (BUILD_SHARED_LIBS)
   target_link_libraries(RV PUBLIC
