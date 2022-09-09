@@ -169,11 +169,27 @@ typedef SmallSet<const Value*, 32> ConstValSet;
 
 bool
 canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
+  if (replMap.hasReplicate(val))
+    return true;
+
+  TypeVec replTyVec;
+  replicateType(*val.getType(), replTyVec);
+
+  if(replTyVec.size() == 0)
+    return false; //un-replictable type
+
   auto * constVal = dyn_cast<Constant>(&val);
   auto * selInst = dyn_cast<SelectInst>(&val);
   auto * phiInst = dyn_cast<PHINode>(&val);
   auto * insertValInst = dyn_cast<InsertValueInst>(&val);
   auto * insertElemInst = dyn_cast<InsertElementInst>(&val);
+  auto * extractValInst = dyn_cast<ExtractValueInst>(&val);
+  auto * extractElemInst = dyn_cast<ExtractElementInst>(&val);
+  auto * shuffleVectorInst = dyn_cast<ShuffleVectorInst>(&val);
+
+  // replication of atoms (unless this is an extract)
+  if ((replTyVec.size() == 1) && !isa<StructType, ArrayType, VectorType>(val.getType()) && !extractValInst && !extractElemInst)
+    return true;
 
   // remark: checkedSet makes every value appear replicable on the second query
   // However, a single negative reponse for a recursive constituent makes canReplicate fail anyway
@@ -187,6 +203,7 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
 
   // check whether the instruction itself is replicatable
   if (constVal) return true;
+
   if (phiInst) {
     for (size_t i = 0; i < phiInst->getNumIncomingValues(); ++i) {
       if (!canReplicate(*phiInst->getIncomingValue(i), checkedSet)) {
@@ -199,14 +216,31 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
     return canReplicate(*selInst->getTrueValue(), checkedSet) && canReplicate(*selInst->getFalseValue(), checkedSet);
 
   } else if (insertValInst) {
-    return canReplicate(*insertValInst->getAggregateOperand(), checkedSet);
+    auto & aggVal = *insertValInst->getAggregateOperand();
+    auto & elemVal = *insertValInst->getOperand(1);
+    return canReplicate(aggVal, checkedSet) && canReplicate(elemVal, checkedSet);
+
   } else if (insertElemInst) {
-    auto * vecOp = insertElemInst->getOperand(0);
-    return canReplicate(*vecOp, checkedSet);
-  } else if (isa<ExtractValueInst>(val)) {
+    auto & vecVal = *insertElemInst->getOperand(0);
+    return canReplicate(vecVal, checkedSet);
+
+  } else if (extractValInst) {
+    auto & aggVal = *extractValInst->getAggregateOperand();
+    return canReplicate(aggVal, checkedSet);
+
+  } else if (extractElemInst) {
+    auto & vecVal = *extractElemInst->getVectorOperand();
+    canReplicate(vecVal, checkedSet);
+
+  } else if (shuffleVectorInst) {
+    return canReplicate(*shuffleVectorInst->getOperand(0), checkedSet) && canReplicate(*shuffleVectorInst->getOperand(1), checkedSet);
+
+  } else if (isa<LoadInst>(val)) {
     return true;
-  } else if (isa<LoadInst>(val) || isa<StoreInst>(val)) {
-    return true;
+
+  } else if (isa<StoreInst>(val)) {
+    return canReplicate(*cast<StoreInst>(val).getValueOperand(), checkedSet);
+
   } else if (isa<VectorType>(val.getType())) {
     return cast<Instruction>(val).isBinaryOp(); // allow replication of binary SIMD operators
   }
