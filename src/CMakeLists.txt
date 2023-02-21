@@ -52,6 +52,7 @@ add_rv_library(RV
   native/NatBuilder.cpp
   native/ShuffleBuilder.cpp
   native/Utils.cpp
+  passes/LoopVectorizer.cpp
   region/FunctionRegion.cpp
   region/LoopRegion.cpp
   region/Region.cpp
@@ -64,7 +65,6 @@ add_rv_library(RV
   shape/vectorShapeTransformer.cpp
   transform/CoherentIFTransform.cpp
   transform/Linearizer.cpp
-  transform/LoopVectorizer.cpp
   transform/WFVPass.cpp
   transform/bosccTransform.cpp
   # transform/cns/llvmDomination.cpp

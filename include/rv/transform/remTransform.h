@@ -33,13 +33,22 @@ class BranchCondition;
 class ReductionAnalysis;
 class VectorizationInfo;
 
+struct PreparedLoop {
+  llvm::Loop* TheLoop;
+  llvm::Value * EntryAVL;
+  PreparedLoop() : TheLoop(nullptr), EntryAVL(nullptr) {}
+  PreparedLoop(llvm::Loop *_TheLoop, llvm::Value *_EntryAVL)
+      : TheLoop(_TheLoop), EntryAVL(_EntryAVL) {}
+};
+
 class RemainderTransform {
   llvm::Function & F;
+  llvm::FunctionAnalysisManager &FAM;
   llvm::DominatorTree & DT;
   llvm::PostDominatorTree & PDT;
   llvm::LoopInfo & LI;
+  llvm::BranchProbabilityInfo &PBI;
   ReductionAnalysis & reda;
-  llvm::BranchProbabilityInfo * PB;
 
 
 // RemainderTransform capability checks
@@ -50,18 +59,14 @@ class RemainderTransform {
   bool canTransformLoop(llvm::Loop & L);
 
 public:
-  RemainderTransform(llvm::Function &_F, llvm::DominatorTree & _DT, llvm::PostDominatorTree & _PDT, llvm::LoopInfo & _LI, ReductionAnalysis & _reda, llvm::BranchProbabilityInfo * _PB = nullptr)
-  : F(_F)
-  , DT(_DT)
-  , PDT(_PDT)
-  , LI(_LI)
-  , reda(_reda)
-  , PB(_PB)
-  {}
+  RemainderTransform(llvm::Function &_F, llvm::FunctionAnalysisManager & FAM, ReductionAnalysis & _reda);
 
   // create a vectorizable loop or return nullptr if remTrans can not currently do it
-  llvm::Loop*
-  createVectorizableLoop(llvm::Loop & L, ValueSet & uniOverrides, int vectorWidth, int tripAlign);
+  PreparedLoop
+  createVectorizableLoop(llvm::Loop & L, ValueSet & uniOverrides, bool useTailPredication, int vectorWidth, int tripAlign);
+
+  // Check whether ::createVectorizableLoop will succeed on \p L.
+  bool analyzeLoopStructure(llvm::Loop &L);
 };
 
 }
