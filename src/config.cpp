@@ -107,11 +107,14 @@ Config::createDefaultConfig() {
     } else if (arch == "advsimd") {
       Report() << "RV_ARCH: configured for arm advsimd!\n";
       config.useADVSIMD = true;
+#if 0
+    // LLVM upstream VP implementation is diverged from NEC sx-aurora-dev/llvm-project. Disable AVL for now
     } else if (arch == "ve") {
       Report() << "RV_ARCH: configured for NEC SX-Aurora!\n";
       config.useVE = true;
       config.useAVL = !CheckFlag("RV_DISABLE_AVL");
     }
+#endif
   }
 
   return config;
