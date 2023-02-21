@@ -47,7 +47,6 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 
-#include "llvm/Analysis/LoopDependenceAnalysis.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include <sstream>
@@ -69,14 +68,6 @@ using namespace llvm;
 cl::OptionCategory
     rvLoopVecCategory("RV LoopVectorizer Options",
                       "Configure the Outer-Loop Vectorizer of RV");
-
-static cl::opt<bool>
-    rvAutoVec("rv-autovec",
-              cl::desc("Enable automatic outer-loop vectorization with RV "),
-              cl::init(false), cl::ZeroOrMore, cl::cat(rvLoopVecCategory));
-
-// Whether LV should try to detect parallel loops
-static bool AutoDetectParallelLoops() { return rvAutoVec; }
 
 static bool IsSupportedReduction(Loop &L, Reduction &red) {
   // check that all users of the reduction are either (a) part of it or (b)
@@ -300,25 +291,6 @@ bool LoopVectorizer::scoreLoop(LoopJob &LJ, LoopScore &LS, Loop &L) {
     mdAnnot.vectorizeEnable = true;
 
     // Check whether this loop is actually parallel (expensive)
-  } else if (AutoDetectParallelLoops()) {
-
-    // Auto-detect vectorizable loops with the LoopDependenceAnalysis
-    auto &LDI = PMS.FAM.getResult<LoopDependenceAnalysis>(F);
-    auto DepInfo = LDI.getDependenceInfo(L);
-    if (!DepInfo.VectorizationFactor.hasValue()) {
-      if (enableDiagOutput) {
-        Report() << "loopVecPass: LDI: parallel loop " << L.getName() << "\n";
-      }
-      mdAnnot.minDepDist = ParallelDistance;
-      mdAnnot.vectorizeEnable = true;
-    } else if (DepInfo.VectorizationFactor.getValue() > 1) {
-      mdAnnot.minDepDist = DepInfo.VectorizationFactor.getValue();
-      mdAnnot.vectorizeEnable = true;
-      if (enableDiagOutput) {
-        Report() << "loopVecPass: LDI: loop " << L.getName() << " with dep dist"
-                 << mdAnnot.minDepDist.get() << "\n";
-      }
-    }
   }
 
   if (enableDiagOutput) {
