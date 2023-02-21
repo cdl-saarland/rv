@@ -191,7 +191,14 @@ endif()
 add_definitions( -D_GNU_SOURCE )
 
 # populates $RV_SLEEF_OBJECTS with sleef BC buffer files (if RV_ENABLE_SLEEF is set).
-add_subdirectory(vecmath)
+if(RV_ENABLE_SLEEF)
+  message(STATUS "-- rv: Building with SLEEF")
+  add_subdirectory(vecmath)
+  set(RV_SLEEF_OBJECTS $<TARGET_OBJECTS:vecmath>)
+else()
+  message(STATUS "-- rv: Buildling without SLEEF.")
+  set(RV_SLEEF_OBJECTS)
+endif()
 
 # links RV_SLEEF_OBJECTS into libRV
 add_subdirectory(src)
