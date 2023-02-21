@@ -403,7 +403,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
 
     // loads and stores need special treatment (masking, shuffling, etc) (build them lazily)
     if (canVectorize(inst) && (load || store))
-      if (config.enableInterleaved) addLazyInstruction(inst);
+      if (false) addLazyInstruction(inst);
       else vectorizeMemoryInstruction(inst);
     else if (store) {
       Value *predicate = vecInfo.getPredicate(*inst->getParent());
@@ -458,7 +458,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
         case RVIntrinsic::LaneID: vectorizeLaneIDCall(call); break;
         case RVIntrinsic::NumLanes: vectorizeNumLanesCall(call); break;
         default: {
-          if (config.enableInterleaved) addLazyInstruction(inst);
+          if (false) addLazyInstruction(inst);
           else {
             if (shouldVectorize(call)) vectorizeCallInstruction(call);
             else copyCallInstruction(call);
@@ -3479,57 +3479,7 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
 }
 
 bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSize, std::vector<Value *> &srcs) {
-  if (!config.enableInterleaved)
-    return false;
-
-  StructType *st;
-  if ((st = isStructAccess(accessedPtr)) && !isHomogeneousStruct(st, layout))
-    return false;
-
-  // group memory instructions based on their dependencies
-  InstructionGrouper instructionGrouper;
-  instructionGrouper.add(inst, memDepRes);
-  for (Instruction *instr : lazyInstructions) {
-    instructionGrouper.add(instr, memDepRes);
-  }
-
-  InstructionGroup instrGroup = instructionGrouper.getInstructionGroup(inst);
-  if (instrGroup.size() <= 1)
-    return false;
-
-  const VectorShape &addrShape = getVectorShape(*accessedPtr);
-
-  // group our group based on memory layout next
-  MemoryAccessGrouper memoryGrouper(SE, static_cast<unsigned>(byteSize));
-  std::map<Value *, const SCEV *> addrSCEVMap;
-  std::map<const SCEV *, Value *> scevInstrMap;
-  for (Instruction *instr : instrGroup) {
-    Value *addrVal = getPointerOperand(instr);
-    assert(addrVal && "grouped instruction was not a memory instruction!!");
-    // only group strided accesses
-    VectorShape shape = getVectorShape(*addrVal);
-    bool groupByteContiguous = shape.isStrided(static_cast<int>(layout.getTypeStoreSize(cast<PointerType>(addrVal->getType())->getElementType())));
-    if (!shape.isStrided() || groupByteContiguous)
-      continue;
-    const SCEV *scev = memoryGrouper.add(addrVal);
-    addrSCEVMap[addrVal] = scev;
-    scevInstrMap[scev] = instr;
-  }
-
-  // check if there is an interleaved memory group for our base address
-  const MemoryGroup &memGroup = memoryGrouper.getMemoryGroup(addrSCEVMap[accessedPtr]);
-  int stride = addrShape.getStride() / byteSize;
-  bool hasGaps = false;
-  for (unsigned i = 0; i < memGroup.size(); ++i) {
-    if (!memGroup[i]) {
-      hasGaps = true;
-      break;
-    }
-    srcs.push_back(scevInstrMap[memGroup[i]]);
-  }
-
-  // we have found a memory group if it has no gaps and the size is bigger than 1
-  return !hasGaps && memGroup.size() > 1 && static_cast<int>(memGroup.size()) == stride;
+  return false;
 }
 
 void NatBuilder::visitMemInstructions() {
