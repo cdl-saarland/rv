@@ -14,8 +14,6 @@
 #include <llvm/IR/Dominators.h>
 #include "llvm/IR/PassManager.h"
 
-#include "rv/Mask.h"
-
 #include <map>
 
 namespace rv {
@@ -45,15 +43,11 @@ class UndeadMaskAnalysis {
   // whether @lhs ^ @lhsNegated implies @rhs ^ @rhsNegated
   // (returns false if answer unknown)
   bool implies(const llvm::Value & lhs, bool lhsNegated, const llvm::Value & rhs, bool rhsNegated);
-
-  // full mask implication
-  bool implies(const Mask & lhs, bool lhsNegated, const Mask & rhs, bool rhsNegated);
-
-  std::map<Mask, const llvm::BasicBlock*> liveDominatorMap;
+  std::map<const llvm::Value*, const llvm::BasicBlock*> liveDominatorMap;
 
 public:
   UndeadMaskAnalysis(VectorizationInfo & vecInfo, llvm::FunctionAnalysisManager &FAM);
-  bool isUndead(const Mask & mask, const llvm::BasicBlock & where);
+  bool isUndead(const llvm::Value & mask, const llvm::BasicBlock & where);
   void print(llvm::raw_ostream &);
 };
 

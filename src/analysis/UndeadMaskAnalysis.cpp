@@ -1,4 +1,4 @@
-//===- src/analysis/UndeadMaskAnalysis.cpp - at-least-one-thread-live analysis
+//===- src/analysis/UndeadMaskAnalysis.cpp - at-least-one-thread-live analysis\
 //--*- C++ -*-===//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -142,29 +142,11 @@ static bool IsTargetOnFalse(const BranchInst &branch, const BasicBlock &Dest) {
   return branch.getSuccessor(1) == &Dest;
 }
 
-// full mask implication
-bool UndeadMaskAnalysis::implies(const Mask &lhs, bool lhsNegated,
-                                 const Mask &rhs, bool rhsNegated) {
-  assert((lhs.getAVL() == rhs.getAVL()) &&
-         "TODO implement mixed AVL vectorization");
-  if (!lhs.getPred())
-    return true;
-
-  // Make sure we always have a materialized predicate
-  auto &Ctx = lhs.getPred()->getContext();
-  Value &rhsPred = rhs.requestPredAsValue(Ctx);
-  return implies(*lhs.getPred(), lhsNegated, rhsPred, rhsNegated);
-}
-
-bool UndeadMaskAnalysis::isUndead(const Mask &mask, const BasicBlock &where) {
+bool UndeadMaskAnalysis::isUndead(const Value &mask, const BasicBlock &where) {
   // IF_DEBUG_UDM { DumpValue(*where.getParent()); }
 
-  // Short cut for trivial 'entry' blocks.
-  if (vecInfo.getMask(where).knownAllTrue() && mask.knownAllTrue())
-    return true;
-
   // use cached result (where available_
-  auto it = liveDominatorMap.find(mask);
+  auto it = liveDominatorMap.find(&mask);
   if (it != liveDominatorMap.end()) {
     const auto *liveDomBlock = it->second;
     if (liveDomBlock)
@@ -174,9 +156,8 @@ bool UndeadMaskAnalysis::isUndead(const Mask &mask, const BasicBlock &where) {
   }
 
   IF_DEBUG_UDM {
-    errs() << "UDM: query for ";
-    mask.print(errs());
-    errs() << " at block " << where.getName() << "\n";
+    errs() << "UDM: query for " << mask.getName() << " at block "
+           << where.getName() << "\n";
   }
 
   // descend down the dominator tree to find a dominating known-unead branch
@@ -200,29 +181,28 @@ bool UndeadMaskAnalysis::isUndead(const Mask &mask, const BasicBlock &where) {
       auto *predTerm = predBlock->getTerminator();
       auto *predBranch = dyn_cast<BranchInst>(predTerm);
       if (predBranch && predBranch->isConditional()) {
-        Value *brCond = predBranch->getCondition();
+        const auto *predCond = predBranch->getCondition();
 
         // check that the predicate of the controlling branch ia undead
-        auto predMask = vecInfo.getMask(*predBlock);
+        auto *predMask = vecInfo.getPredicate(*predBlock);
         IF_DEBUG_UDM {
-          errs() << "Checking that the pred mask is undead ";
-          predMask.print(errs());
-          errs() << "\n";
+          if (predMask)
+            errs() << "Checking that the pred mask is undead " << *predMask
+                   << "\n";
         }
-        if (!predMask.knownAllTrue() && !isUndead(predMask, *predBlock)) {
-          liveDominatorMap[mask] = nullptr;
+        if (predMask && !IsConstMask(*predMask, true) &&
+            !isUndead(*predMask, *predBlock)) {
+          liveDominatorMap[&mask] = nullptr;
           return false;
         }
 
-        Mask branchMask = Mask::inferFromPredicate(*brCond);
         // whether the branch predicate implies that at least one lane in @mask
         // is live
-        if (!implies(branchMask, IsTargetOnFalse(*predBranch, *block), mask,
-                     false))
-          continue;
-
-        liveDominatorMap[mask] = block;
-        return true;
+        if (implies(*predCond, IsTargetOnFalse(*predBranch, *block), mask,
+                    false)) {
+          liveDominatorMap[&mask] = block;
+          return true;
+        }
       }
     }
 
@@ -230,16 +210,16 @@ bool UndeadMaskAnalysis::isUndead(const Mask &mask, const BasicBlock &where) {
     domNode = domNode->getIDom();
   }
 
-  liveDominatorMap[mask] = nullptr;
+  liveDominatorMap[&mask] = nullptr;
   return false;
 }
 
 void UndeadMaskAnalysis::print(raw_ostream &Out) {
   Out << "UDM {\n";
   vecInfo.getRegion().for_blocks_rpo([&](const BasicBlock &BB) {
-    auto Mask = vecInfo.getMask(BB);
+    auto *Mask = vecInfo.getPredicate(BB);
 
-    if (!isUndead(Mask, BB))
+    if (Mask && !isUndead(*Mask, BB))
       return true;
     Out << BB.getName().str() << ":  undead\n";
     return true;
