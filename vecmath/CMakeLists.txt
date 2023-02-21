@@ -74,10 +74,13 @@ function(append_vecmath_bitcode _cpp _name _src)
     set(RV_VECMATH_SOURCES ${RV_VECMATH_SOURCES} ${_cpp} PARENT_SCOPE)
 endfunction()
 
+# Constant table (rempitab)
+append_vecmath_bitcode(rempitab.gen.cpp "rempitab" ${RV_LIB_SLEEF_DIR}/rempitab.c ${FLAGS_vla})
 
 # vector-length agnostic
 append_vecmath_bitcode(vla_sleef_sp.gen.cpp "vla_sp" ${RV_LIB_SLEEF_DIR}/sleefsp.c ${FLAGS_vla})
 append_vecmath_bitcode(vla_sleef_dp.gen.cpp "vla_dp" ${RV_LIB_SLEEF_DIR}/sleefdp.c ${FLAGS_vla})
+
 
 # arch specific simd extensions
 foreach(_simd ${SLEEF_SUPPORTED_SIMD_EXTENSIONS})
