@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <map>
+#include <functional>
 
 using namespace llvm;
 
@@ -113,15 +114,15 @@ Config::createDefaultConfig() {
       Report() << "RV_ARCH: configured for NEC SX-Aurora!\n";
       config.useVE = true;
       config.useAVL = !CheckFlag("RV_DISABLE_AVL");
-    }
 #endif
+    }
   }
 
   return config;
 }
 
 void
-for_elems(StringRef listText, std::function<bool(StringRef elem)> UserFunc) {
+for_elems(StringRef listText, std::function<bool(StringRef)> UserFunc) {
   size_t NextPos;
   size_t Start = 0;
 
