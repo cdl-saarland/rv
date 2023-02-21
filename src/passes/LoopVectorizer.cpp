@@ -533,7 +533,7 @@ PreparedLoop LoopVectorizer::transformToVectorizableLoop(
   MyReda.analyze(L);
   RemainderTransform remTrans(F, PMS.FAM, MyReda);
   PreparedLoop LoopPrep = remTrans.createVectorizableLoop(
-      L, uniformOverrides, RVConfig.useAVL, VectorWidth, tripAlign);
+      L, uniformOverrides, false, VectorWidth, tripAlign);
 
   return LoopPrep;
 }
@@ -652,12 +652,14 @@ bool LoopVectorizer::vectorizeLoop(LoopVectorizerJob &LVJob) {
   VectorizationInfo vecInfo(F, LVJob.LJ.VectorWidth, LoopRegion);
   std::stringstream Str;
   Str << "Loop vectorized (width " << LVJob.LJ.VectorWidth << ")";
+  assert(!LVJob.EntryAVL && "AVL support broken!");
+ #if  0
   if (LVJob.EntryAVL) {
     vecInfo.setEntryAVL(LVJob.EntryAVL);
     Str << " with dynamic VL";
   } else {
-    Str << " with scalar remainder loop";
-  }
+#endif
+  Str << " with scalar remainder loop";
   remark(Str.str(), "RVLoopVectorized", L);
 
   // Check reduction patterns of vector loop phis

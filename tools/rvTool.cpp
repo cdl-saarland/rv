@@ -152,7 +152,7 @@ void vectorizeLoop(Function &parentFn, Loop &TheLoop, unsigned vectorWidth,
   ValueSet uniOverrides;
   rv::RemainderTransform remTrans(parentFn, FAM, reductionAnalysis);
   auto LoopPrep = remTrans.createVectorizableLoop(
-      TheLoop, uniOverrides, config.useAVL, vectorWidth, 1);
+      TheLoop, uniOverrides, false, vectorWidth, 1);
   auto *preparedLoop = LoopPrep.TheLoop;
 
   if (!preparedLoop) {
@@ -163,7 +163,8 @@ void vectorizeLoop(Function &parentFn, Loop &TheLoop, unsigned vectorWidth,
   rv::LoopRegion loopRegionImpl(*preparedLoop);
   rv::Region loopRegion(loopRegionImpl);
   rv::VectorizationInfo vecInfo(parentFn, vectorWidth, loopRegion);
-  vecInfo.setEntryAVL(LoopPrep.EntryAVL);
+  assert(!LoopPrep.EntryAVL && "AVL support broken!");
+  // vecInfo.setEntryAVL(LoopPrep.EntryAVL);
 
   rv::PlatformInfo platInfo(mod, &tti, &tli);
 
