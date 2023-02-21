@@ -14,52 +14,33 @@
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Metadata.h>
 #include "llvm/IR/IntrinsicsX86.h"
+#include "llvm/Support/Alignment.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include <report.h>
 #include <fstream>
 
-
 #include "NatBuilder.h"
 #include "Utils.h"
 
-#include "utils/rvTools.h"
 #include "rv/transform/redTools.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "rv/region/Region.h"
 #include "rv/rvDebug.h"
 #include "rv/intrinsics.h"
-#include "rv/Mask.h"
-#include "rv/MaskBuilder.h"
-#include "llvm/Analysis/IVDescriptors.h"
-
-#ifdef LLVM_HAVE_VP
-#include <llvm/IR/VPBuilder.h>
-#endif
 
 #include "rvConfig.h"
 #include "ShuffleBuilder.h"
 
-#if 1
-#define IF_DEBUG_NAT IF_DEBUG
-#else
-#define IF_DEBUG_NAT IF_DEBUG
-#endif
-
-const static bool EnableUnsafeOptimizations = true;
+#define IF_DEBUG_NAT  IF_DEBUG
 
 using namespace llvm;
-
-unsigned
-GetVectorNumElements(Type * VecTy) {
-  return cast<FixedVectorType>(VecTy)->getNumElements();
-}
 
 // TODO move to vector builder class...
 Value*
 CreateBroadcast(IRBuilder<> & builder, Value & vec, int idx) {
   auto * intTy = Type::getInt32Ty(builder.getContext());
-  auto *vecTy = cast<VectorType>(vec.getType());
-  const size_t vectorWidth = vecTy->getElementCount().getFixedValue();
+  auto *vecTy = cast<FixedVectorType>(vec.getType());
+  const size_t vectorWidth = vecTy->getNumElements();
   std::vector<Constant*> shuffleConsts;
   for (size_t i = 0; i < vectorWidth; ++i) {
     shuffleConsts.push_back(ConstantInt::get(intTy, idx, false));
@@ -71,10 +52,7 @@ Value*
 CreateScalarBroadcast(IRBuilder<> & builder, Value & scaValue, int elemCount) {
   auto * vecTy = FixedVectorType::get(scaValue.getType(), elemCount);
   auto * udVal = UndefValue::get(vecTy);
-  std::string Name;
-  if (scaValue.hasName())
-    Name = (scaValue.getName() + ".infirst").str();
-  auto & firstLaneVec = *builder.CreateInsertElement(udVal, &scaValue, (uint64_t) 0, Name);
+  auto & firstLaneVec = *builder.CreateInsertElement(udVal, &scaValue, (uint64_t) 0, scaValue.getName() + ".infirst");
   return CreateBroadcast(builder, firstLaneVec, 0);
 }
 
@@ -100,7 +78,8 @@ bool DumpStatistics(std::string &file) {
 
 Value*
 NatBuilder::getSplat(Constant* Elt) {
-  return ConstantVector::getSplat(ElementCount::getFixed(vectorWidth()), Elt);
+  auto EC = ElementCount::getFixed(vectorWidth());
+  return ConstantVector::getSplat(EC, Elt);
 }
 
 Type*
@@ -197,7 +176,7 @@ void NatBuilder::printStatistics() {
   file.close();
 }
 
-VectorShape NatBuilder::getVectorShape(const Value &val) const {
+VectorShape NatBuilder::getVectorShape(const Value &val) {
   if (vecInfo.hasKnownShape(val)) return vecInfo.getVectorShape(val);
   else return VectorShape::uni();
 }
@@ -218,12 +197,14 @@ NatBuilder::NatBuilder(Config _config, PlatformInfo &_platInfo, VectorizationInf
     i32Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 32)),
     vecMaskArg(nullptr),
     keepScalar(),
+    cascadeLoadMap(),
+    cascadeStoreMap(),
     vectorValueMap(),
     scalarValueMap(),
     basicBlockMap(),
     grouperMap(),
-    phiVector()
-{}
+    phiVector(),
+    lazyInstructions() {}
 
 void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
   const Function *func = vecInfo.getMapping().scalarFn;
@@ -292,12 +273,12 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
     BasicBlock *bb = node->getBlock();
     if (!vecInfo.inRegion(*bb)) continue;
 
-    BasicBlock *vecBlock = getVectorBlock(*bb, false); // TODO assert uniqueness
+    BasicBlock *vecBlock = getVectorBlock(*bb, false);
     vectorize(bb, vecBlock);
 
     // populate queue with pre-order dominators
-    for (auto *N : node->children()) {
-      nodeQueue.push_back(N);
+    for (const auto* Child : node->children()) {
+      nodeQueue.push_back(Child);
     }
   }
 
@@ -373,13 +354,17 @@ void NatBuilder::vectorize(bool embedRegion, ValueToValueMapTy * vecInstMap) {
 
 void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
   assert(vecBlock && "no block to insert vector code");
-  IF_DEBUG_NAT { errs() << ":: Vectorizing block: " << bb->getName().str() << "\n"; }
-
   builder.SetInsertPoint(vecBlock);
   for (BasicBlock::iterator it = bb->begin(), ie = bb->end(); it != ie; ++it) {
     Instruction *inst = &*it;
 
-    IF_DEBUG_NAT { errs() << "Vectorizing:\n\t"; errs() << *inst << "\n"; }
+    // generate all lazy instructions first if it is the terminator
+    if (inst == bb->getTerminator()) {
+      // vectorize any left-over lazy instructions
+      if (!lazyInstructions.empty())
+        requestLazyInstructions(lazyInstructions.back());
+      assert(lazyInstructions.empty() && "not all lazy instructions vectorized!!");
+    }
 
     PHINode *phi = dyn_cast<PHINode>(inst);
     LoadInst *load = dyn_cast<LoadInst>(inst);
@@ -388,6 +373,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
     GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(inst);
     BitCastInst *bc = dyn_cast<BitCastInst>(inst);
     AllocaInst *alloca = dyn_cast<AllocaInst>(inst);
+    AtomicRMWInst *atomicrmw = dyn_cast<AtomicRMWInst>(inst);
 
     // analyze memory predicate
     if (load || store) {
@@ -417,31 +403,66 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
 
     // loads and stores need special treatment (masking, shuffling, etc) (build them lazily)
     if (canVectorize(inst) && (load || store))
-      vectorizeMemoryInstruction(inst);
-    else if (call) {
+      if (config.enableInterleaved) addLazyInstruction(inst);
+      else vectorizeMemoryInstruction(inst);
+    else if (store) {
+      Value *predicate = vecInfo.getPredicate(*inst->getParent());
+      bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
+
+      Value *accessedPtr = store->getPointerOperand();
+      VectorShape addrShape = getVectorShape(*accessedPtr);
+
+      if (needsMask && addrShape.isUniform()) {
+        Value *storedValue = store->getValueOperand();
+        Type *accessedType = storedValue->getType();
+        Value *accessedPtr = store->getPointerOperand();
+        Value *vecMem;
+
+        llvm::Align alignment = llvm::Align(addrShape.getAlignmentFirst());
+        alignment = std::max<llvm::Align>(alignment, store->getAlign());
+        Value *addr = requestScalarValue(accessedPtr);
+        VectorShape valShape = vecInfo.getVectorShape(*storedValue);
+        Value *mask = requestVectorValue(predicate);
+
+        if (!valShape.isUniform()) {
+          Value *mappedStoredVal = requestVectorValue(storedValue);
+          vecMem = createVaryingToUniformStore(store, accessedType, alignment, addr, needsMask ? mask : nullptr, mappedStoredVal);
+        } else {
+          Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
+                                                         : requestVectorValue(storedValue);
+
+          vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr, predicate, mask, mappedStoredVal);
+        }
+        mapScalarValue(inst, vecMem);
+      } else if (needsMask || !addrShape.isUniform())
+        replicateInstruction(inst);
+      else
+        copyInstruction(inst);
+    } else if (call) {
       // calls need special treatment
       switch (GetIntrinsicID(*call)) {
         case RVIntrinsic::EntryMask: mapVectorValue(call, vecMaskArg); break;
-
-        case RVIntrinsic::Any:
-        case RVIntrinsic::All:
-        case RVIntrinsic::Ballot:
-        case RVIntrinsic::PopCount:
-          vectorizeMaskReductionCall(call, GetIntrinsicID(*call));
-          break;
-
+        case RVIntrinsic::Any: vectorizeReductionCall(call, false); break;
+        case RVIntrinsic::All: vectorizeReductionCall(call, true); break;
         case RVIntrinsic::Extract: vectorizeExtractCall(call); break;
         case RVIntrinsic::Insert: vectorizeInsertCall(call); break;
         case RVIntrinsic::Compact: vectorizeCompactCall(call); break;
-        // case RVIntrinsic::Mask: mapVectorValue(call, requestVectorMask(*call->getParent())); break;
+        case RVIntrinsic::Mask: mapVectorValue(call, requestVectorPredicate(*call->getParent())); break;
         case RVIntrinsic::VecLoad: vectorizeLoadCall(call); break;
         case RVIntrinsic::VecStore: vectorizeStoreCall(call); break;
         case RVIntrinsic::Shuffle: vectorizeShuffleCall(call); break;
+        case RVIntrinsic::Ballot: vectorizeBallotCall(call); break;
+        case RVIntrinsic::PopCount: vectorizePopCountCall(call); break;
         case RVIntrinsic::Index: vectorizeIndexCall(*call); break;
         case RVIntrinsic::Align: vectorizeAlignCall(call); break;
+        case RVIntrinsic::LaneID: vectorizeLaneIDCall(call); break;
+        case RVIntrinsic::NumLanes: vectorizeNumLanesCall(call); break;
         default: {
-          if (shouldVectorize(call)) vectorizeCallInstruction(call);
-          else copyCallInstruction(call);
+          if (config.enableInterleaved) addLazyInstruction(inst);
+          else {
+            if (shouldVectorize(call)) vectorizeCallInstruction(call);
+            else copyCallInstruction(call);
+          }
         }
       }
     } else if (phi) {
@@ -451,7 +472,7 @@ void NatBuilder::vectorize(BasicBlock *const bb, BasicBlock *vecBlock) {
       vectorizeAlloca(alloca);
     } else if (gep || bc) {
       continue; // skipped
-    } else if (auto * atomicrmw = dyn_cast<AtomicRMWInst>(inst)) {
+    } else if (atomicrmw) {
       vectorizeAtomicRMW(atomicrmw);
     } else if (canVectorize(inst) && shouldVectorize(inst)) {
       vectorizeInstruction(inst);
@@ -493,20 +514,17 @@ NatBuilder::scalarize(BasicBlock & scaBlock, Instruction & inst, bool packResult
 }
 
 Value&
-NatBuilder::createAnyGuard(bool instNeedsGuard, BasicBlock & origBlock, bool producesValue, std::function<Value*(IRBuilder<>&)> genFunc) {
-  Mask vecMask = requestVectorMask(origBlock);
-  auto ScalarMask = vecInfo.getMask(origBlock);
-  // assert(!vecMask.getAVL() && "TODO implement for AVL");
+NatBuilder::createAnyGuard(bool instNeedsGuard, BasicBlock & origBlock, Instruction & inst, bool producesValue, std::function<Value*(IRBuilder<>&)> genFunc) {
+  auto * scalarMask = vecInfo.getPredicate(origBlock);
   // only emit a guard if rv_any(p) may be false AND the emitted instructions will need it.
-  bool needsGuard =
-      instNeedsGuard && !undeadMasks.isUndead(ScalarMask, origBlock);
+  bool needsGuard = instNeedsGuard && !undeadMasks.isUndead(*scalarMask, origBlock);
 
   BasicBlock* memBlock, * continueBlock;
 
   // prologue (guard branch)
   if (needsGuard) {
     // create a mask ptest
-    Value *anyMask = createVectorMaskSummary(vecMask, RVIntrinsic::Any, nullptr);
+    Value * anyMask = createPTest(requestVectorValue(scalarMask), false);
 
     // create two new basic blocks
     memBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "mem_block",
@@ -527,12 +545,12 @@ NatBuilder::createAnyGuard(bool instNeedsGuard, BasicBlock & origBlock, bool pro
     builder.CreateBr(continueBlock);
     builder.SetInsertPoint(continueBlock);
 
-    BasicBlock &vecOrigBlock = *getVectorBlock(origBlock, true);
+    BasicBlock *vecOrigBlock = getVectorBlock(origBlock, true);
     PHINode *phi = producesValue ? builder.CreatePHI(vecMem->getType(), 2, "scal_mask_mem_phi") : nullptr;
 
     if (phi) {
       phi->addIncoming(vecMem, memBlock);
-      phi->addIncoming(UndefValue::get(vecMem->getType()), &vecOrigBlock);
+      phi->addIncoming(UndefValue::get(vecMem->getType()), vecOrigBlock);
       vecMem = phi;
     }
 
@@ -544,6 +562,10 @@ NatBuilder::createAnyGuard(bool instNeedsGuard, BasicBlock & origBlock, bool pro
 
 ValVec
 NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool packResult, std::function<Value*(IRBuilder<>&,size_t)> genFunc) {
+   // check if we need cascade first
+   Value *predicate = vecInfo.getPredicate(srcBlock);
+   assert(predicate && "expected predicate!");
+
    // packResult -> a single vector value
    // !packResult -> results of all replicated elements
    ValVec resultVec;
@@ -576,8 +598,8 @@ NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool pa
      assert(builder.GetInsertBlock() == condBlock);
 
      // guard if
-     Value *LaneMask = requestLanePredicate(srcBlock, lane); // do not map this value if it's fresh to avoid dominance violations
-     builder.CreateCondBr(LaneMask, maskedBlock, nextBlock);
+     Value *mask = requestScalarValue(predicate, lane, true); // do not map this value if it's fresh to avoid dominance violations
+     builder.CreateCondBr(mask, maskedBlock, nextBlock);
 
    // materialize the scalarized block
      builder.SetInsertPoint(maskedBlock);
@@ -649,23 +671,15 @@ NatBuilder::requestVectorCallArgs(CallInst & scaCall, Function & vecFunc, int ma
        ++vecIdx, ++itVecArg) {
 
     if (vecIdx == maskPos) {
-      Mask vecMask = requestVectorMask(*scaCall.getParent());
-      if (getenv("RV_FOLD_AVL")) {
-        VectorMaskBuilder MBuilder(vectorWidth());
-        vecMask = MBuilder.FoldAVL(builder, vecMask);
-      } else {
-        Report() << "Ignoring AVL in call!\n";
-      }
-      auto &VecMaskVal =
-          vecMask.requestPredAsValue(vecFunc.getContext(), vectorWidth());
-      vectorArgs.push_back(&VecMaskVal);
-      continue;
+      vectorArgs.push_back(requestVectorPredicate(*scaCall.getParent()));
+      // the mask argument does not exist in the scalar function
+    } else {
+      Value *op = scaCall.getArgOperand(scaIdx);
+      bool vecTypeArg = itVecArg->getType()->isVectorTy();
+      Value *mappedArg = vecTypeArg ? requestVectorValue(op) : requestScalarValue(op);
+      vectorArgs.push_back(mappedArg);
+      ++scaIdx; // actually consuming a scalar argument
     }
-    Value *op = scaCall.getArgOperand(scaIdx);
-    bool vecTypeArg = itVecArg->getType()->isVectorTy();
-    Value *mappedArg = vecTypeArg ? requestVectorValue(op) : requestScalarValue(op);
-    vectorArgs.push_back(mappedArg);
-    ++scaIdx; // actually consuming a scalar argument
   }
 }
 
@@ -710,16 +724,13 @@ void NatBuilder::vectorizePHIInstruction(PHINode *const scalPhi) {
   Type *scalType = scalPhi->getType();
   Type *type = !shape.isVarying() || scalType->isVectorTy() || scalType->isStructTy() ?
                scalType : getVectorType(scalPhi->getType(), vectorWidth());
-  std::string Name;
-  if (scalPhi->hasName()) {
-    Name = !shape.isVarying() || scalType->isVectorTy() || scalType->isStructTy() ?
-              scalPhi->getName().str() : (scalPhi->getName() + "_SIMD").str();
-  }
+  auto name = !shape.isVarying() || scalType->isVectorTy() || scalType->isStructTy() ?
+              scalPhi->getName() : scalPhi->getName() + "_SIMD";
 
   // replicate phi <vector_width> times if type is not vectorizable
   unsigned loopEnd = shape.isVarying() && (scalType->isVectorTy() || scalType->isStructTy()) ? vectorWidth() : 1;
   for (unsigned lane = 0; lane < loopEnd; ++lane) {
-    PHINode *phi = builder.CreatePHI(type, scalPhi->getNumIncomingValues(), Name);
+    PHINode *phi = builder.CreatePHI(type, scalPhi->getNumIncomingValues(), name);
     if (loopEnd == 1 && shape.isVarying())
       mapVectorValue(scalPhi, phi);
     else
@@ -772,8 +783,8 @@ bool IsVectorizableTy(const Type & ty) {
 }
 
 void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
-  llvm::Align allocAlign = allocaInst->getAlign();
-  auto * allocTy = allocaInst->getAllocatedType();
+  auto allocAlign = allocaInst->getAlignment();
+  auto * allocTy = allocaInst->getType()->getElementType();
 
   ++numSlowAllocas;
 
@@ -788,12 +799,11 @@ void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
     auto * scaleFactor = ConstantInt::get(indexTy, vectorWidth());
 
     auto * baseAlloca = builder.CreateAlloca(allocTy, allocaInst->getType()->getAddressSpace(), scaleFactor, name + ".scaled_alloca");
-    baseAlloca->setAlignment(allocAlign);
-    // auto *VecPtrTy = vectorizeType(allocaInst->getType());
+    baseAlloca->setAlignment(llvm::Align(allocAlign));
 
     // extract basePtrs
     auto * offsetVec = createContiguousVector(vectorWidth(), indexTy, 0, 1);
-    auto * allocaPtrVec = builder.CreateGEP(baseAlloca->getAllocatedType(), baseAlloca, offsetVec, name + ".alloca_vec");
+    auto * allocaPtrVec = builder.CreateGEP(allocTy, baseAlloca, offsetVec, name + ".alloca_vec");
 
     // register as vectorized alloca
     mapVectorValue(allocaInst, allocaPtrVec);
@@ -812,23 +822,21 @@ void NatBuilder::vectorizeAtomicRMW(AtomicRMWInst *const atomicrmw) {
     Value *predicate = vecInfo.getPredicate(*atomicrmw->getParent());
     assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
     bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
-    if (needsMask) {
-        replicateInstruction(atomicrmw);
-    } else {
-        AtomicRMWInst *clonedinst = cast<AtomicRMWInst>(atomicrmw->clone());
-        clonedinst->setOperand(0, requestScalarValue(atomicrmw->getPointerOperand()));
+    assert(!needsMask && "Masked AtomicRMW instructions cannot be strided!");
 
-        Value * previousconst = atomicrmw->getValOperand();
-        IntegerType * previoustype = cast<IntegerType>(previousconst->getType());
+    AtomicRMWInst *clonedinst = cast<AtomicRMWInst>(atomicrmw->clone());
+    clonedinst->setOperand(0, requestScalarValue(atomicrmw->getPointerOperand()));
 
-        int stride = (atomicrmw->getOperation() == AtomicRMWInst::Sub) ? -1 * shape.getStride() : shape.getStride();
-        int updateresult = vectorWidth() * stride;
+    Value * val = atomicrmw->getValOperand();
+    IntegerType * valtype = cast<IntegerType>(val->getType());
 
-        clonedinst->setOperand(1, ConstantInt::get(previoustype, updateresult));
+    int stride = (atomicrmw->getOperation() == AtomicRMWInst::Sub) ? -1 * shape.getStride() : shape.getStride();
+    int updateresult = vectorWidth() * stride;
 
-        builder.Insert(clonedinst, atomicrmw->getName());
-        mapScalarValue(atomicrmw, clonedinst);
-    }
+    clonedinst->setOperand(1, ConstantInt::get(valtype, updateresult));
+
+    builder.Insert(clonedinst, atomicrmw->getName());
+    mapScalarValue(atomicrmw, clonedinst);
   } else if (shouldVectorize(atomicrmw)) {
     Value * ptr = atomicrmw->getPointerOperand();
     Value * val = atomicrmw->getValOperand();
@@ -838,16 +846,28 @@ void NatBuilder::vectorizeAtomicRMW(AtomicRMWInst *const atomicrmw) {
       replicateInstruction(atomicrmw);
       return;
     }
+
     Value *predicate = vecInfo.getPredicate(*atomicrmw->getParent());
     assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
     bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
-    if (needsMask) {
+    if (needsMask && !(
+                atomicrmw->getOperation() == AtomicRMWInst::Add  ||
+                atomicrmw->getOperation() == AtomicRMWInst::Sub  ||
+                atomicrmw->getOperation() == AtomicRMWInst::And  ||
+                atomicrmw->getOperation() == AtomicRMWInst::Or   ||
+                atomicrmw->getOperation() == AtomicRMWInst::Min  ||
+                atomicrmw->getOperation() == AtomicRMWInst::Max  ||
+                atomicrmw->getOperation() == AtomicRMWInst::UMin ||
+                atomicrmw->getOperation() == AtomicRMWInst::UMax
+                )) {
       replicateInstruction(atomicrmw);
       return;
     }
 
     switch (atomicrmw->getOperation()) {
     case AtomicRMWInst::Xchg: {
+      assert(!needsMask);
+
       AtomicRMWInst *clonedInst = cast<AtomicRMWInst>(atomicrmw->clone());
       clonedInst->setOperand(0, requestScalarValue(ptr));
 
@@ -896,6 +916,15 @@ void NatBuilder::vectorizeAtomicRMW(AtomicRMWInst *const atomicrmw) {
       case AtomicRMWInst::UMin: reduction = RedKind::UMin; break;
       default:
         llvm_unreachable("case missing");
+      }
+
+      if (needsMask) {
+          //Fill masked lanes with neutral element for reduction.
+          auto elemTy = vectorizedVal->getType()->getScalarType();
+          Value *neutralElement = builder.CreateVectorSplat(vectorWidth(), &GetNeutralElement(reduction, *elemTy));
+
+          auto *vecMask = maskInactiveLanes(requestVectorValue(predicate), atomicrmw->getParent(), false);
+          vectorizedVal = builder.CreateSelect(vecMask, vectorizedVal, neutralElement);
       }
 
       Value *finalVal = &CreateVectorReduce(config, builder, reduction, *vectorizedVal, nullptr);
@@ -966,49 +995,10 @@ void NatBuilder::replicateInstruction(Instruction *const inst) {
   ++numFallbacked;
 }
 
-Type*
-NatBuilder::vectorizeType(Type *ScaTy) {
-  assert(!ScaTy->isVectorTy());
-  auto EC = ElementCount::getFixed(vectorWidth());
-  return VectorType::get(ScaTy, EC);
-}
-
 /* expects that builder has valid insertion point set */
 void NatBuilder::vectorizeInstruction(Instruction *const inst) {
   assert(inst && "no instruction to vectorize");
   assert(builder.GetInsertBlock() && "no insertion point set");
-
-#ifdef LLVM_HAVE_VP
-  if (config.enableVP) {
-    VPBuilder vpBuilder(builder);
-
-    // use the Explicit Vector Length extension
-    Mask blockMask;
-    if (!hasTotalOperationTag(*inst)) {
-      blockMask = requestVectorMask(*inst->getParent());
-    }
-
-    // configure predicate
-    vpBuilder.setMask(blockMask.getPred());
-    vpBuilder.setEVL(blockMask.getAVL());
-    vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-
-    // request all operands
-    SmallVector<Value*, 4> vecOperandVec;
-    for (int opIdx = 0; opIdx < (int) inst->getNumOperands(); ++opIdx) {
-      vecOperandVec.push_back(requestVectorValue(inst->getOperand(opIdx)));
-    }
-
-    // use VP intrinsics where available
-    auto * vpInst = vpBuilder.CreateVectorCopy(*inst, vecOperandVec);
-    if (vpInst) {
-      mapVectorValue(inst, vpInst);
-      return;
-    }
-  }
-#endif
-
-  // Otw, use the legacy code path
   Instruction *vecInst = inst->clone();
 
   if (!vecInst->getType()->isVoidTy())
@@ -1026,16 +1016,28 @@ void NatBuilder::vectorizeInstruction(Instruction *const inst) {
   ++numVectorized;
 }
 
-void NatBuilder::vectorizeMaskReductionCall(CallInst *rvCall, RVIntrinsic MaskIntrin) {
+void NatBuilder::vectorizeReductionCall(CallInst *rvCall, bool isRv_all) {
   assert(rvCall->arg_size() == 1 && "expected only 1 argument for rv_any");
 
   Value *predicate = rvCall->getArgOperand(0);
   const VectorShape &shape = getVectorShape(*predicate);
   assert((shape.isVarying() || shape.isUniform()) && "predicate can't be contigious or strided");
 
-  // Factor the black into the argument mask
-  Mask maskedMask = maskInactiveLanes(*predicate, *rvCall->getParent(), false); //isRv_all);
-  Value *reduction = createVectorMaskSummary(maskedMask, MaskIntrin, rvCall->getType());
+  Value *reduction;
+#if 1
+  Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
+  reduction = createPTest(vecPredicate, isRv_all);
+#else
+  // Value *vecPredicate = maskInactiveLanes(requestVectorValue(predicate), rvCall->getParent(), isRv_all);
+  auto * ballotVal = createVectorMaskSummary(requestVectorValue(predicate), builder, RVIntrinsic::Ballot); // FIXME block predicate
+  if (isRv_all) {
+    uint64_t mask = ((1 << vectorWidth()) - 1);
+    reduction = builder.CreateICmpEQ(ballotVal, ConstantInt::get(ballotVal->getType(), mask, false)); // mask == FullMask
+  } else {
+    reduction = builder.CreateICmpNE(ballotVal, ConstantInt::get(ballotVal->getType(), 0, false)); // mask != 0
+  }
+#endif
+
   mapScalarValue(rvCall, reduction);
 
   ++numRVIntrinsics;
@@ -1105,15 +1107,14 @@ NatBuilder::vectorizeLoadCall(CallInst *rvCall) {
   if (getVectorShape(*vecPtr).isUniform()) {
     auto * uniVal = requestScalarValue(vecPtr);
     auto addressSpace = uniVal->getType()->getPointerAddressSpace();
-    auto *PtrTy = PointerType::get(builder.getFloatTy(), addressSpace);
-    auto * castPtr = builder.CreatePointerCast(uniVal, PtrTy);
+    auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
     auto * gepPtr = builder.CreateGEP(builder.getFloatTy(), castPtr, laneId);
     laneVal = builder.CreateLoad(builder.getFloatTy(), gepPtr);
   } else {
 // non-uniform arg
     auto * vecVal = requestVectorValue(vecPtr);
     auto * lanePtr = builder.CreateExtractElement(vecVal, laneId, "rv_load");
-    laneVal = builder.CreateLoad(rvCall->getFunctionType()->getReturnType(), lanePtr, "rv_load");
+    laneVal = builder.CreateLoad(lanePtr->getType()->getPointerElementType(), lanePtr, "rv_load");
   }
 
   if (vecInfo.getVectorShape(*rvCall).isUniform()) {
@@ -1139,9 +1140,8 @@ NatBuilder::vectorizeStoreCall(CallInst *rvCall) {
   if (getVectorShape(*vecPtr).isUniform()) {
     auto * uniVal = requestScalarValue(vecPtr);
     auto addressSpace = uniVal->getType()->getPointerAddressSpace();
-    auto *PtrTy = PointerType::get(builder.getFloatTy(), addressSpace);
-    auto * castPtr = builder.CreatePointerCast(uniVal, PtrTy);
-    auto * gepPtr = builder.CreateGEP(builder.getFloatTy(), castPtr, laneId);
+    auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
+    auto * gepPtr = builder.CreateGEP(builder.getFloatTy(), castPtr, laneId );
     auto * store = builder.CreateStore(elemVal, gepPtr);
     mapScalarValue(rvCall, store);
     return;
@@ -1193,50 +1193,90 @@ NatBuilder::vectorizeShuffleCall(CallInst *rvCall) {
 }
 
 Value*
-NatBuilder::createVectorMaskSummary(Mask vecMask, RVIntrinsic mode, Type * indexTy) {
-//  Module *mod = vecInfo.getMapping().vectorFn->getParent();
+NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> & builder, RVIntrinsic mode) {
+  Module *mod = vecInfo.getMapping().vectorFn->getParent();
 
-  // TODO finalize
+  auto vecWidth = cast<FixedVectorType>(vecVal->getType())->getNumElements();
+  auto * intVecTy = FixedVectorType::get(&indexTy, vecWidth);
 
   Value * result = nullptr;
   switch (mode) {
     case RVIntrinsic::Ballot: {
-#if 0
-      // TODO return (1 << %lavl) - 1 if mask is all true
-      if (vecMask.knownAllTruePred()) {
-        // avl == number of lanes
-        return &vecMask.requestAVLAsValue(builder.getContext());
-      } 
-#endif
+      // If SSE is available, but AVX and above are not, and the vector width is greater than 4, split the vector
+      bool shouldSplitForISA = vecWidth > 4 && config.useSSE && !config.useAVX && !config.useAVX2 && !config.useAVX512;
+      if (vecWidth > 8 || shouldSplitForISA) {
+        // split up vector
+        std::vector<Constant*> lowerLanes;
+        std::vector<Constant*> higherLanes;
+        uint32_t halfWidth = vecWidth / 2;
+        for (uint32_t i = 0; i < halfWidth; ++i) {
+          lowerLanes.push_back(ConstantInt::get(i32Ty, i, false));
+          higherLanes.push_back(ConstantInt::get(i32Ty, halfWidth + i, false));
+        }
 
-      SmallVector<Constant*, 64> LaneIndices;
-      for (int i = 0; i < vectorWidth(); ++i) {
-        LaneIndices.push_back(ConstantInt::get(indexTy, 1 << i));
+        auto * lowerHalf = builder.CreateShuffleVector(vecVal, UndefValue::get(vecVal->getType()), ConstantVector::get(lowerLanes), "lowerLanes");
+        auto * lowerBallot = createVectorMaskSummary(indexTy, lowerHalf, builder, mode);
+
+        auto * upperHalf = builder.CreateShuffleVector(vecVal, UndefValue::get(vecVal->getType()), ConstantVector::get(higherLanes), "higherLanes");
+        auto * upperBallot = createVectorMaskSummary(indexTy, upperHalf, builder, mode);
+
+        // ballot(vecVal) =  upperHalf << (halfWidth) | lowerHalf
+        auto * up = builder.CreateShl(upperBallot, ConstantInt::get(&indexTy, halfWidth, false));
+        return builder.CreateOr(up, lowerBallot);
       }
-      auto IndexVec = ConstantVector::get(LaneIndices);
-      result = &CreateMaskedVectorReduce(config, builder, vecMask, RedKind::Add, *IndexVec, nullptr);
+
+      // AVX-specific code path
+      if ((config.useSSE || config.useAVX || config.useAVX2 || config.useAVX512) && (vecWidth == 2 || vecWidth == 4 || vecWidth == 8)) {
+      // non-uniform arg
+        uint32_t bits = indexTy.getScalarSizeInBits();
+        Intrinsic::ID id;
+        switch (vecWidth) {
+        case 2: id = Intrinsic::x86_sse2_movmsk_pd; bits = 64; break;
+        case 4: id = Intrinsic::x86_sse_movmsk_ps; break;
+        case 8: id = Intrinsic::x86_avx_movmsk_ps_256; break;
+        default: fail("Unsupported vector width in ballot !"); abort();
+        }
+
+        auto * extVal = builder.CreateSExt(vecVal, FixedVectorType::get(builder.getIntNTy(bits), vecWidth), "rv_ballot");
+        auto * simdVal = builder.CreateBitCast(extVal, FixedVectorType::get(bits == 32 ? builder.getFloatTy() : builder.getDoubleTy(), vecWidth), "rv_ballot");
+
+        auto movMaskDecl = Intrinsic::getDeclaration(mod, id);
+        result = builder.CreateCall(movMaskDecl, simdVal, "rv_ballot");
+
+      } else {
+        // generic emulating code path
+        //
+      // a[lane] == 1 << lane
+        std::vector<Constant*> constants(vecWidth, nullptr);
+        for (unsigned i = 0; i < vecWidth; ++i) {
+          unsigned int val = 1 << i;
+          Constant *constant = ConstantInt::get(&indexTy, val);
+          constants[i] = constant;
+        }
+        auto * flagVec = ConstantVector::get(constants);
+        auto * zeroVec = ConstantVector::getNullValue(intVecTy);
+
+      // select (vecVal[l] ? a[l] : 0)
+        auto * maskedLaneVec = builder.CreateSelect(vecVal, flagVec, zeroVec);
+
+      // reduce_or
+        result = &CreateVectorReduce(config, builder, RedKind::Or, *maskedLaneVec, nullptr);
+      }
     } break;
 
     case RVIntrinsic::PopCount: {
-      if (vecMask.knownAllTruePred()) {
-        // avl == number of lanes
-        return &vecMask.requestAVLAsValue(builder.getContext());
-      } 
+      if (config.useAVX || config.useAVX2) {
+        // ISPC popcount pattern
+        auto maskIntTy = builder.getIntNTy(vectorWidth());
+        auto maskBitCast = builder.CreateBitCast(vecVal, maskIntTy);
+        auto maskZExt = builder.CreateZExt(maskBitCast, &indexTy);
+        auto ctPopFunc = Intrinsic::getDeclaration(mod, Intrinsic::ctpop, &indexTy); // FIXME use a larger type (what should happen for <4096 x i8>)??
+        result = builder.CreateCall(ctPopFunc, {maskZExt}, "rv_popcount");
 
-      auto AllOnes = getSplat(ConstantInt::get(indexTy, 1, false));
-      result = &CreateMaskedVectorReduce(config, builder, vecMask, RedKind::Add, *AllOnes, nullptr);
-    } break;
-
-    case RVIntrinsic::Any:
-    case RVIntrinsic::All: {
-      if (vecMask.knownAllTrue()) {
-        // TODO use UndeadMaskAnalysis
-        return builder.getTrue();
+      } else {
+        auto * maskedOnes = builder.CreateZExt(vecVal, intVecTy, "rv_zext");
+        result = &CreateVectorReduce(config, builder, RedKind::Add, *maskedOnes, nullptr);
       }
-
-      RedKind redKind = (mode == RVIntrinsic::Any) ? RedKind::Or : RedKind::And;
-      Mask RedMask = vecMask.getAVL() ? Mask::fromVectorLength(*vecMask.getAVL()) : Mask::getAllTrue();
-      result = &CreateMaskedVectorReduce(config, builder, RedMask, redKind, vecMask.requestPredAsValue(builder.getContext()), nullptr);
     } break;
 
     default: abort();
@@ -1249,15 +1289,13 @@ void
 NatBuilder::vectorizeBallotCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  auto vecWidth = vecInfo.getVectorWidth();
-  assert((vecWidth == 4 || vecWidth == 8) && "rv_ballot only supports SSE and AVX instruction sets");
   assert(rvCall->arg_size() == 1 && "expected 1 argument for rv_ballot(cond)");
 
   Value *condArg = rvCall->getArgOperand(0);
 
 // non-uniform arg
-  Mask vecMask = maskInactiveLanes(*condArg, *rvCall->getParent(), false);
-  auto * mask = createVectorMaskSummary(vecMask, RVIntrinsic::Ballot, rvCall->getType());
+  auto * vecVal = maskInactiveLanes(requestVectorValue(condArg), rvCall->getParent(), false);
+  auto * mask = createVectorMaskSummary(*rvCall->getType(), vecVal, builder, RVIntrinsic::Ballot);
   mapScalarValue(rvCall, mask);
 }
 
@@ -1265,34 +1303,29 @@ void
 NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
   ++numRVIntrinsics;
 
-// avx512vl - expand based implementation
-  if (config.useAVX512) {
-    auto vecWidth = vecInfo.getVectorWidth();
-    assert(vecWidth == 4 || vecWidth == 8);
+  auto vecWidth = vecInfo.getVectorWidth();
+  assert(rvCall.arg_size() == 1 && "expected 1 argument for rv_index(mask)");
+  Value *condArg = rvCall.getArgOperand(0);
 
-    Intrinsic::ID id = Intrinsic::x86_avx512_mask_expand;
-
-    assert(rvCall.arg_size() == 1 && "expected 1 argument for rv_index(mask)");
-
-    Value *condArg = rvCall.getArgOperand(0);
-
-    auto * intLaneTy = IntegerType::getIntNTy(rvCall.getContext(), 512 / vecWidth);
-    bool argUniform = hasUniformPredicate(*rvCall.getParent()) && vecInfo.getVectorShape(*condArg).isUniform();
+  auto * intLaneTy = IntegerType::getIntNTy(rvCall.getContext(), 512 / vecWidth);
+  bool argUniform = hasUniformPredicate(*rvCall.getParent()) && vecInfo.getVectorShape(*condArg).isUniform();
 
 // uniform arg
-    if (argUniform) {
-      mapScalarValue(&rvCall, createContiguousVector(vecWidth, intLaneTy, 0, 1));
-      return;
-    }
+  if (argUniform) {
+    mapScalarValue(&rvCall, createContiguousVector(vecWidth, intLaneTy, 0, 1));
+    return;
+  }
 
-    Mask vecMask = maskInactiveLanes(*condArg, *rvCall.getParent(), false);
-    auto *maskVec = vecMask.getPred();
-    assert(!vecMask.getAVL() && "TODO implement for AVL");
+// avx512vl - expand based implementation
+  if (config.useAVX512 && (vecWidth == 4 || vecWidth == 8)) {
+    Intrinsic::ID id = Intrinsic::x86_avx512_mask_expand;
+
+    auto * maskVec = maskInactiveLanes(requestVectorValue(condArg), rvCall.getParent(), false);
     auto * contVec = createContiguousVector(vecWidth, intLaneTy, 0, 1);
 
 
     auto * fpLaneTy = Type::getDoubleTy(rvCall.getContext());
-    auto * fpVecTy =  FixedVectorType::get(fpLaneTy, vecWidth);
+    auto * fpVecTy = FixedVectorType::get(fpLaneTy, vecWidth);
     auto * intVecTy = FixedVectorType::get(intLaneTy, vecWidth);
 
     auto * fpValVec = builder.CreateBitCast(contVec, fpVecTy);
@@ -1310,11 +1343,27 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
 
     mapVectorValue(&rvCall, indexVec);
     return;
-  }
-
+  } else {
 // generic implementation
-  assert(config.useAVX512 && "TODO generic implementation (avx512vl only)");
-  abort(); // "TODO generic implementation (avx512vl only)"
+    auto * maskVec = maskInactiveLanes(requestVectorValue(condArg), rvCall.getParent(), false);
+
+    llvm::Value * CacheVal = ConstantInt::get(rvCall.getType(), 0);
+    auto * OneVal = ConstantInt::get(rvCall.getType(), 1);
+
+    auto replFunc =  [vecWidth,&CacheVal,OneVal,maskVec](IRBuilder<> & builder, size_t lane) -> Value* {
+      auto * OldVal = CacheVal;
+      if (lane < vecWidth - 1) {
+        auto * val = builder.CreateExtractElement(maskVec, ConstantInt::get(Type::getInt32Ty(builder.getContext()), lane));
+        auto * addValue = builder.CreateAdd(CacheVal, OneVal);
+        auto * NewVal = builder.CreateSelect(val, addValue, CacheVal);
+        CacheVal = NewVal;
+      }
+      return OldVal;
+    };
+
+    ValVec resVec = scalarizeCascaded(*rvCall.getParent(), rvCall, true, replFunc);
+    return;
+  }
 }
 
 void
@@ -1338,8 +1387,8 @@ NatBuilder::vectorizePopCountCall(CallInst *rvCall) {
   }
 
   // FIXME mask out inactive threads also for uniform mask
-  Mask vecMask = maskInactiveLanes(*condArg, *rvCall->getParent(), false);
-  auto * mask = createVectorMaskSummary(vecMask, RVIntrinsic::PopCount, rvCall->getType());
+  auto * vecVal = maskInactiveLanes(requestVectorValue(condArg), rvCall->getParent(), false);
+  auto * mask = createVectorMaskSummary(*rvCall->getType(), vecVal, builder, RVIntrinsic::PopCount);
   mapScalarValue(rvCall, mask);
 }
 
@@ -1358,12 +1407,27 @@ NatBuilder::vectorizeAlignCall(CallInst *rvCall) {
 }
 
 void
+NatBuilder::vectorizeLaneIDCall(CallInst *rvCall) {
+  ++numRVIntrinsics;
+
+  assert(rvCall->arg_size() == 0 && "expected 0 arguments for rv_lane_id()");
+  Value *contVec = createContiguousVector(vectorWidth(), rvCall->getType(), 0, 1);
+  mapVectorValue(rvCall, contVec);
+}
+
+void
+NatBuilder::vectorizeNumLanesCall(CallInst *rvCall) {
+  ++numRVIntrinsics;
+
+  assert(rvCall->arg_size() == 0 && "expected 0 arguments for rv_num_lanes()");
+  mapScalarValue(rvCall, ConstantInt::get(rvCall->getType(), vectorWidth(), false));
+}
+
+void
 NatBuilder::vectorizeCompactCall(CallInst *rvCall) {
   ++numRVIntrinsics;
 
-  abort(); // TODO implement for VP
-#if 0
-  assert(rvCall->getNumArgOperands() == 2 && "expected 2 arguments for rv_compact(vec, mask)");
+  assert(rvCall->arg_size() == 2 && "expected 2 arguments for rv_compact(vec, mask)");
 
   Value *vecArg  = rvCall->getArgOperand(0);
   Value *maskArg = rvCall->getArgOperand(1);
@@ -1378,10 +1442,11 @@ NatBuilder::vectorizeCompactCall(CallInst *rvCall) {
   auto * vecVal  = requestVectorValue(vecArg);
   auto * maskVal = requestVectorValue(maskArg);
 
-  auto vecWidth = cast<VectorType>(maskVal->getType())->getVectorNumElements();
-  auto tableIndex = createVectorMaskSummary(*rvCall->getType(), vecMask, builder, RVIntrinsic::Ballot);
+  auto vecWidth = cast<FixedVectorType>(maskVal->getType())->getNumElements();
+  auto tableIndex = createVectorMaskSummary(*rvCall->getType(), maskVal, builder, RVIntrinsic::Ballot);
   auto table = createCompactLookupTable(vecWidth);
-  auto indices = builder.CreateLoad(builder.CreateInBoundsGEP(table, { builder.getInt32(0), tableIndex }), "rv_compact_indices");
+  auto gepPtr = builder.CreateInBoundsGEP(table->getType()->getPointerElementType(), table, { builder.getInt32(0), tableIndex });
+  auto indices = builder.CreateLoad(gepPtr->getType()->getPointerElementType(), gepPtr, "rv_compact_indices");
   Value * compacted = UndefValue::get(vecVal->getType());
   for (size_t i = 0; i < vecWidth; ++i) {
     auto index = builder.CreateExtractElement(indices, builder.getInt32(i), "rv_compact_index");
@@ -1389,7 +1454,6 @@ NatBuilder::vectorizeCompactCall(CallInst *rvCall) {
     compacted = builder.CreateInsertElement(compacted, elem, builder.getInt32(i), "rv_compact");
   }
   mapVectorValue(rvCall, compacted);
-#endif
 }
 
 Constant*
@@ -1457,8 +1521,8 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
   Function * calledFunction = dyn_cast<Function>(callee);
 
   VectorShapeVec callArgShapes;
-  for (auto & ArgUse : scalCall->args()) {
-    auto argShape = vecInfo.getVectorShape(*ArgUse);
+  for (int i = 0; i < (int) scalCall->arg_size(); ++i) {
+    auto argShape = vecInfo.getVectorShape(*scalCall->getArgOperand(i));
     callArgShapes.push_back(argShape);
   }
 
@@ -1473,13 +1537,11 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
     }
   }
 
-  bool AlwaysRepl = getenv("NAT_REPLICATE");
-
 // Vectorize this function using a resolver provided vector function.
-  auto scaMask = vecInfo.getMask(scaBlock);
+  auto & scaMask = *vecInfo.getPredicate(scaBlock);
   std::unique_ptr<FunctionResolver> funcResolver = nullptr;
   if (calledFunction) funcResolver = platInfo.getResolver(calledFunction->getName(), *calledFunction->getFunctionType(), callArgShapes, vectorWidth(), hasCallPredicate);
-  if (!AlwaysRepl && funcResolver && !CheckFlag("RV_SPLIT")) {
+  if (funcResolver && !CheckFlag("RV_SPLIT")) {
     Function &simdFunc = funcResolver->requestVectorized();
     CopyTargetAttributes(simdFunc, vecInfo.getScalarFunction());
 
@@ -1498,13 +1560,10 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
 
     std::string callName = producesValue ? scalCall->getName().str() + ".rv" : "";
 
-    auto &vecCall = createAnyGuard(
-        needsGuardedCall, *scalCall->getParent(), producesValue,
-        [&](IRBuilder<> &builder) {
-          auto *VecCall = builder.CreateCall(&simdFunc, vectorArgs, callName);
-          VecCall->setCallingConv(simdFunc.getCallingConv());
-          return VecCall;
-        });
+    auto & vecCall = createAnyGuard(needsGuardedCall, *scalCall->getParent(), *scalCall, producesValue,
+      [&](IRBuilder<> & builder) {
+        return builder.CreateCall(&simdFunc, vectorArgs, callName);
+      });
 
     if (producesValue) { vecCall.setName(scalCall->getName() + ".mapped"); }
     mapVectorValue(scalCall, &vecCall);
@@ -1520,12 +1579,12 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       funcResolver = platInfo.getResolver(calleeName, *calledFunction->getFunctionType(), callArgShapes, vecWidth, hasCallPredicate);
       if (funcResolver) break;
     }
-    bool replicate = AlwaysRepl || !funcResolver;
+    bool replicate = !funcResolver;
 
     if (!replicate) {
       unsigned replicationFactor = vectorWidth() / vecWidth;
       //bool doublePrecision = false;
-      //if (scalCall->getNumArgOperands() > 0) {
+      //if (scalCall->arg_size() > 0) {
         // doublePrecision = scalCall->getArgOperand(0)->getType()->isDoubleTy();
       // }
       Function &simdFunc = funcResolver->requestVectorized();
@@ -1535,16 +1594,17 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
       ShuffleBuilder extractor(vecWidth);
 
       // prepare the extract shuffler
-      for (auto &ArgUse : scalCall->args()) {
-        Value *mappedArg = requestVectorValue(ArgUse);
+      for (unsigned i = 0; i < scalCall->arg_size(); ++i) {
+        Value *const arg = scalCall->getArgOperand(i);
+        Value *mappedArg = requestVectorValue(arg);
         extractor.add(mappedArg);
       }
 
       // replicate vector call
       for (unsigned i = 0; i < replicationFactor; ++i) {
         CallInst *call = cast<CallInst>(scalCall->clone());
-        call->setCalledFunction(&simdFunc);
         call->mutateType(simdFunc.getReturnType());
+        call->setCalledFunction(&simdFunc);
 
         // insert arguments into call
         for (unsigned j = 0; j < scalCall->arg_size(); ++j) {
@@ -1565,9 +1625,10 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
 
 // fallback to replication
     // check if we need cascade first
-    auto &ScaBlock = *scalCall->getParent();
-    bool needsPredicate = vecInfo.hasMask(ScaBlock) && !vecInfo.getMask(ScaBlock).knownAllTrue();
-    bool needCascade = needsPredicate && scalCall->mayHaveSideEffects();
+    Value *predicate = vecInfo.getPredicate(*scalCall->getParent());
+    assert(predicate && "expected predicate!");
+    assert(predicate->getType()->isIntegerTy(1) && "predicate must be i1 type!");
+    bool needCascade = !isa<Constant>(predicate) && scalCall->mayHaveSideEffects();
 
     // scalar replication function
     auto replFunc = [this,scalCall](IRBuilder<> & builder, size_t lane) -> Value* {
@@ -1606,8 +1667,8 @@ void NatBuilder::copyCallInstruction(CallInst *const scalCall, unsigned laneIdx)
     args.push_back(laneArg);
   }
 
-  Value *call = builder.CreateCall(scalCall->getFunctionType(), callee, args,
-                                   scalCall->getName());
+  // FIXME transfer fast math MD
+  Value *call = builder.CreateCall(scalCall->getFunctionType(), callee, args, scalCall->getName());
   mapScalarValue(scalCall, call, laneIdx);
 
   ++numScalarized;
@@ -1681,26 +1742,26 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     accessedPtr = store->getPointerOperand();
   }
 
-  assert(accessedType == cast<PointerType>(accessedPtr->getType())->getPointerElementType() &&
+  assert(accessedType == cast<PointerType>(accessedPtr->getType())->getElementType() &&
          "accessed type and pointed object type differ!");
   assert(vecInfo.hasKnownShape(*accessedPtr) && "no shape for accessed pointer!");
   VectorShape addrShape = getVectorShape(*accessedPtr);
   Type *vecType = getVectorType(accessedType, vectorWidth());
 
-  Mask scaMask = vecInfo.getMask(*inst->getParent());
-  bool needsMask = !scaMask.knownAllTrue() && !vecInfo.getVectorShape(scaMask).isUniform();
+  Value *mask = nullptr;
+  Value *predicate = vecInfo.getPredicate(*inst->getParent());
+  assert(predicate && predicate->getType()->isIntegerTy(1) && "predicate must have i1 type!");
+  bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
 
   // uniform loads from allocations do not need a mask!
   if (needsMask && load && GetUnderlyingAlloca(accessedPtr)) {
     needsMask = false;
   }
 
-  Mask vecMask;
-  if (needsMask) {
-    vecMask = requestVectorMask(*inst->getParent());
-  } else {
-    vecMask = Mask::getAllTrue();
-  }
+  if (needsMask)
+    mask = requestVectorValue(predicate);
+  else
+    mask = getConstantVector(vectorWidth(), i1Ty, 1);
 
   // generate the address for the memory instruction now
   // uniform: uniform GEP
@@ -1708,65 +1769,85 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   // interleaved: multiple contiguous GEPs
   // varying: varying vector GEP
 
-  unsigned alignment;
-  int byteSize = static_cast<int>(layout.getTypeStoreSize(accessedType));
+  std::vector<Value *> addr;
+  std::vector<Value *> srcs;
+  std::vector<Value *> masks;
+  llvm::Align alignment;
+  bool interleaved = false;
+  uint64_t byteSize = static_cast<uint64_t>(layout.getTypeStoreSize(accessedType));
 
-  // determine alignment
-  if (!addrShape.isVarying()) {
+  if (addrShape.isUniform()) {
     // scalar access
-    alignment = addrShape.getAlignmentFirst();
+    addr.push_back(requestScalarValue(accessedPtr));
+    alignment = llvm::Align(addrShape.getAlignmentFirst());
+
+  } else if ((addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !(needsMask && !config.enableMaskedMove)) {
+    // cast pointer to vector-width pointer
+    Value *ptr = requestScalarValue(accessedPtr);
+    auto & ptrTy = *cast<PointerType>(ptr->getType());
+    PointerType *vecPtrType = vecType->getPointerTo(ptrTy.getAddressSpace());
+    addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
+    alignment = llvm::Align(addrShape.getAlignmentFirst());
+
+  } else if ((addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) && !(needsMask && !config.enableMaskedMove)) {
+    // interleaved access. ptrs: base, base+vector, base+2vector, ...
+    Value *srcPtr = getPointerOperand(cast<Instruction>(srcs[0]));
+    for (unsigned i = 0; i < srcs.size(); ++i) {
+      Value *ptr = requestInterleavedAddress(srcPtr, i, vecType);
+      addr.push_back(ptr);
+      if (needsMask)
+        masks.push_back(mask);
+    }
+    alignment = llvm::Align(addrShape.getAlignmentFirst());
+    interleaved = true;
 
   } else {
-    alignment = addrShape.getAlignmentGeneral();
+    addr.push_back(requestVectorValue(accessedPtr));
+    alignment = llvm::Align(addrShape.getAlignmentGeneral());
   }
-  unsigned origAlignment = load ? load->getAlignment() : store->getAlignment();
-  alignment = std::max<unsigned>(alignment, origAlignment);
+
+  llvm::Align origAlignment = load ? load->getAlign() : store->getAlign();
+  alignment = std::max<llvm::Align>(alignment, origAlignment);
 
   Value *vecMem = nullptr;
   if (load) {
-    if (addrShape.isUniform()) {
-      // proper uniform access
-      Value *vecBasePtr = requestScalarValue(accessedPtr);
-      vecMem = createUniformMaskedMemory(load, accessedType, Align(alignment), vecBasePtr, nullptr);
+    if (needsMask && addrShape.isUniform()) {
+      assert(addr.size() == 1 && "multiple addresses for single access!");
+      vecMem = createUniformMaskedMemory(load, accessedType, alignment, addr[0], predicate, mask, nullptr);
 
-    } else if (addrShape.isStrided(byteSize)) {
-      // proper contiguous access
-      Value *vecBasePtr = requestScalarValue(accessedPtr);
-      vecMem = createContiguousLoad(vecBasePtr, Align(alignment), vecMask, UndefValue::get(vecType));
+    } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
+      assert(addr.size() == 1 && "multiple addresses for single access!");
+      vecMem = createContiguousLoad(addr[0], alignment, needsMask ? mask : nullptr, UndefValue::get(vecType));
 
       addrShape.isUniform() ? ++numUniLoads : needsMask ? ++numContMaskedLoads : ++numContLoads;
 
-    } else if (config.enableVP && addrShape.hasStridedShape()) {
-      // general strided access
-      Value *vecBasePtr = requestScalarValue(accessedPtr);
-      vecMem = createStridedLoad(vecBasePtr, Align(alignment), vecMask, UndefValue::get(vecType), addrShape.getStride());
-
-      addrShape.isUniform() ? ++numUniLoads : needsMask ? ++numContMaskedLoads : ++numContLoads;
+    } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
+      assert(addr.size() > 1 && "only one address for multiple accesses!");
+      createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs);
 
     } else {
-      // otw
-      auto *vecAddr = requestVectorValue(accessedPtr);
-      vecMem = createVaryingMemory(vecType, Align(alignment), vecAddr, vecMask, nullptr);
+      assert(addr.size() == 1 && "multiple addresses for single access!");
+      vecMem = createVaryingMemory(vecType, alignment, addr[0], mask, nullptr);
     }
 
 
   } else {
     // store
-    if (addrShape.isUniform()) {
-      // proper uniform
+    if (needsMask && addrShape.isUniform()) {
+      assert(addr.size() == 1 && "multiple addresses for single access!");
       auto valShape = vecInfo.getVectorShape(*store->getValueOperand());
-      Value *vecBasePtr = requestScalarValue(accessedPtr);
       if (!valShape.isUniform()) {
-        Value *vecValue = requestVectorValue(storedValue);
-        vecMem = createVaryingToUniformStore(store, accessedType, alignment, vecBasePtr, vecMask, vecValue);
+        Value *mappedStoredVal = requestVectorValue(storedValue);
+        vecMem = createVaryingToUniformStore(store, accessedType, alignment, addr[0], needsMask ? mask : nullptr, mappedStoredVal);
       } else {
-        assert((vecInfo.getVectorShape(*storedValue).isUniform()) && "trying to store a varying value to a uniform ptr!");
-        Value *vecValue = requestScalarValue(storedValue);
-        vecMem = createUniformMaskedMemory(store, accessedType, Align(alignment), vecBasePtr, vecValue);
+        Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
+                                                       : requestVectorValue(storedValue);
+
+        vecMem = createUniformMaskedMemory(store, accessedType, alignment, addr[0], predicate, mask, mappedStoredVal);
       }
 
-    } else if (addrShape.isStrided(byteSize)) {
-      // proper contiguous
+    } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
+      assert(addr.size() == 1 && "multiple addresses for single access!");
       auto valShape = getVectorShape(*storedValue);
 
       // memory reduction pattern "*p = varyingValue" // FIXME generalize (eg for uniform inputs, etc)
@@ -1789,215 +1870,289 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
                                                 : requestVectorValue(storedValue);
       }
-      Value *vecBasePtr = requestScalarValue(accessedPtr);
-      vecMem = createContiguousStore(mappedStoredVal, vecBasePtr, Align(alignment), vecMask);
+      vecMem = createContiguousStore(mappedStoredVal, addr[0], alignment, needsMask ? mask : nullptr);
 
       addrShape.isUniform() ? ++numUniStores : needsMask ? ++numContMaskedStores : ++numContStores;
 
-    } else if (config.enableVP && addrShape.hasStridedShape()) {
-     // strided store
-      auto *mappedStoredVal = addrShape.isUniform()
-                                  ? requestScalarValue(storedValue)
-                                  : requestVectorValue(storedValue);
-      Value *vecBasePtr = requestScalarValue(accessedPtr);
-      vecMem = createStridedStore(mappedStoredVal, vecBasePtr, Align(alignment),
-                                  vecMask, addrShape.getStride());
+    } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
+      assert(addr.size() > 1 && "only one address for multiple accesses!");
+      std::vector<Value *> vals;
+      vals.reserve(addr.size());
+      for (unsigned i = 0; i < addr.size(); ++i) {
+        Value *srcVal = cast<StoreInst>(srcs[i])->getValueOperand();
+        Value *val = requestVectorValue(srcVal);
+        vals.push_back(val);
+      }
+      createInterleavedMemory(vecType, alignment, &addr, &masks, &vals, &srcs);
 
-      addrShape.isUniform() ? ++numUniStores
-      : needsMask           ? ++numContMaskedStores
-                            : ++numContStores;
     } else {
-      // otw
-      Value *vecPtr = requestVectorValue(accessedPtr);
-      Value *vecStoreVal = requestVectorValue(storedValue);
-      vecMem = createVaryingMemory(vecType, Align(alignment), vecPtr, vecMask, vecStoreVal);
+      assert(addr.size() == 1 && "multiple addresses for single access!");
+      Value *mappedStoredVal = addrShape.isUniform() ? requestScalarValue(storedValue)
+                                                       : requestVectorValue(storedValue);
+      vecMem = createVaryingMemory(vecType, alignment, addr[0], mask, mappedStoredVal);
     }
   }
 
-  if (addrShape.isUniform()) {
-    bool impreciseLoad = load && vecInfo.getVectorShape(*load).isVarying();
-    if (impreciseLoad) {
-      // loads and stores can have a uniform pointer but produce a varying result shape
-      // this is usually an artifact of SROV (if the VA is not re-run afterwards to make shapes more precise..)
-      // v = insertvalue(undef, 0, %unifomPtr) : uniform
-      // v1 = inservalue(%v, 1, %varyingValue) : varying
-      // ...
-      // %notActuallyVaryingPtr = extractvalue(%v1, 0) : varying  <--
-      // ...
-      // %x = load %notActuallyVaryingPtr // before SROC
-      // %x = load %v1 // after SROC
-      Report() << "nat: warning: load from uniform ptr with varing shape! " << *load << "\n";
-      for (int i = 0; i < vectorWidth(); ++i) {
-        mapScalarValue(inst, vecMem, i);
+
+  // interleaved case creates mapping
+  if (!interleaved) {
+    if (addrShape.isUniform()) {
+      bool impreciseLoad = load && vecInfo.getVectorShape(*load).isVarying();
+      if (impreciseLoad) {
+        // loads and stores can have a uniform pointer but produce a varying result shape
+        // this is usually an artifact of SROV (if the VA is not re-run afterwards to make shapes more precise..)
+        // v = insertvalue(undef, 0, %unifomPtr) : uniform
+        // v1 = inservalue(%v, 1, %varyingValue) : varying
+        // ...
+        // %notActuallyVaryingPtr = extractvalue(%v1, 0) : varying  <--
+        // ...
+        // %x = load %notActuallyVaryingPtr // before SROC
+        // %x = load %v1 // after SROC
+        Report() << "nat: warning: load from uniform ptr with varing shape! " << *load << "\n";
+        for (int i = 0; i < vectorWidth(); ++i) {
+          mapScalarValue(inst, vecMem, i);
+        }
+      } else {
+        mapScalarValue(inst, vecMem);
       }
     } else {
-      mapScalarValue(inst, vecMem);
+      mapVectorValue(inst, vecMem);
     }
-  } else {
-    mapVectorValue(inst, vecMem);
   }
+
+  return;
 }
 
 
 Value *
-NatBuilder::createVaryingToUniformStore(Instruction *scaInst, Type *accessedType, unsigned int alignment, Value *addr, Mask vecMask, Value *values) {
-  assert(!vecMask.getAVL() && "TODO implement AVL");
+NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, llvm::Align alignment, Value *addr, Value *mask, Value *values) {
+  Value * indexVal = nullptr;
+  auto & ctx = builder.getContext();
 
-  bool needsGuard = true;
-  return &createAnyGuard(needsGuard, *scaInst->getParent(), isa<LoadInst>(scaInst),
-      [&](IRBuilder<> & builder)
-  {
-    auto & ctx = builder.getContext();
-    Value * indexVal = nullptr;
+  BasicBlock * continueBlock = nullptr;
+  if (!mask) {
+    // under uniform contexts store the value of the last lane
+    indexVal = ConstantInt::get(Type::getInt32Ty(ctx), vectorWidth() - 1);
+  } else {
+  // guard against empty mask
+    // create a mask ptest
 
-    if (vecMask.knownAllTrue()) {
-      // under uniform contexts store the value of the last lane
-      indexVal = ConstantInt::get(Type::getInt32Ty(ctx), vectorWidth() - 1);
-    } else {
-      auto * nativeIntTy = Type::getInt32Ty(ctx);
+    auto * nativeIntTy = Type::getInt32Ty(ctx);
 
-      // SExt to full width int
-      auto * vecLaneTy = FixedVectorType::get(nativeIntTy, vectorWidth());
-      auto * sxMask = builder.CreateSExt(vecMask.getPred(), vecLaneTy);
+  // use the potentially slower but generic max lane code
+#define NAT_GENERIC_MAXLANE
 
-      // AND with lane index vector
-      auto * laneIdxConst = createContiguousVector(vectorWidth(), nativeIntTy, 0, 1);
-      auto * activeLaneVec = builder.CreateAnd(sxMask, laneIdxConst);
+#ifndef NAT_GENERIC_MAXLANE
+  // create guard cde
+  // extract the mask as an integer
+    //
+    // FIXME (llvm): the code below really should work but it does not:
+    // auto * bitIntTy = IntegerType::getIntNTy(ctx, vectorWidth());
+    // auto * bitIntVecTy = VectorType::get(bitIntTy, 1);
 
-      // horizontal MAX reduction
-      indexVal = &CreateVectorReduce(config, builder, RedKind::UMax, *activeLaneVec, nullptr);
+    // auto * maskIntVec = builder.CreateBitCast(mask, bitIntVecTy); // FIXME this extracts the first byte of the vector register that holds %mask (inspect the assembly)
+    // auto * maskInt = builder.CreateExtractElement(maskIntVec, ConstantInt::get(nativeIntTy, 0));
+    // auto * regMaskInt = builder.CreateZExt(maskInt, nativeIntTy);
+
+    Module *mod = vecInfo.getMapping().vectorFn->getParent();
+
+    // AVX specific code
+    Intrinsic::ID movMaskID;
+    Type * laneTy = nullptr;
+    switch(vectorWidth()) {
+      case 8: { movMaskID = Intrinsic::x86_avx_movmsk_ps_256; laneTy = nativeIntTy; break; }
+      case 4: { movMaskID =  Intrinsic::x86_sse_movmsk_ps; laneTy = nativeIntTy; break; }
     }
+    auto * movMaskFunc = Intrinsic::getDeclaration(mod, movMaskID);
+    auto * movMaskTy = movMaskFunc->getFunctionType()->getParamType(0);
 
-    // extract and materialize store
-    auto * lastLaneVal = builder.CreateExtractElement(values, indexVal, "xt.lastlane");
-    auto * vecMem = builder.CreateStore(lastLaneVal, addr);
-    cast<StoreInst>(vecMem)->setAlignment(Align(alignment));
-    return vecMem;
-  });
+    // cast to argument type
+    auto * vecLaneTy = VectorType::get(laneTy, vectorWidth());
+    auto * sxMask = builder.CreateSExt(mask, vecLaneTy);
+    auto * castMask = builder.CreateBitCast(sxMask, movMaskTy);
+    auto * regMaskInt = builder.CreateCall(movMaskFunc, castMask);
+#endif
+
+    // create two new basic blocks
+    BasicBlock *memBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "mem_block",
+                                              &vecInfo.getVectorFunction());
+    continueBlock = BasicBlock::Create(vecInfo.getVectorFunction().getContext(), "cont_block",
+                                                   &vecInfo.getVectorFunction());
+
+
+  // branch to mem_block if any lane stores
+#ifndef NAT_GENERIC_MAXLANE
+    Value * branchMask = builder.CreateICmpNE(regMaskInt, ConstantInt::getNullValue(nativeIntTy)); // createPTest(mask, false); //
+#else
+    // rather use a ptest to allow folding with outer stores
+    Value * branchMask = createPTest(mask, false);
+#endif
+
+    builder.CreateCondBr(branchMask, memBlock, continueBlock);
+
+  // insert store in guarded block
+    builder.SetInsertPoint(memBlock);
+    auto * origBlock = inst->getParent();
+    mapVectorValue(origBlock, continueBlock);
+
+#ifdef NAT_GENERIC_MAXLANE
+    // generic but slow implementation
+    // SExt to full width int
+    auto * vecLaneTy = FixedVectorType::get(nativeIntTy, vectorWidth());
+    auto * sxMask = builder.CreateSExt(mask, vecLaneTy);
+
+    // AND with lane index vector
+    auto * laneIdxConst = createContiguousVector(vectorWidth(), nativeIntTy, 0, 1);
+    auto * activeLaneVec = builder.CreateAnd(sxMask, laneIdxConst);
+
+    // horizontal MAX reduction
+    indexVal = &CreateVectorReduce(config, builder, RedKind::UMax, *activeLaneVec, nullptr);
+#else
+  // compute MSB from leading zeros
+    // determine the MS (using the ctlz intrinsic)
+    // llvm.ctlz.i32 (i32  <src>, i1 <is_zero_undef == false>)
+    auto * ctlzFunc = Intrinsic::getDeclaration(mod, Intrinsic::ctlz, nativeIntTy);
+    auto * leadingZerosVal = builder.CreateCall(ctlzFunc, {regMaskInt, ConstantInt::getTrue(ctx) });
+
+    auto * constFullVal = ConstantInt::getSigned(nativeIntTy, 31);
+    indexVal = builder.CreateSub(constFullVal, leadingZerosVal);
+#endif
+
+  }
+
+  // extract and materialize store
+  auto * lastLaneVal = builder.CreateExtractElement(values, indexVal, "xt.lastlane");
+  auto * vecMem = builder.CreateStore(lastLaneVal, addr);
+  cast<StoreInst>(vecMem)->setAlignment(llvm::Align(alignment));
+
+  // proceed in continue block (if any)
+  if (continueBlock) {
+    builder.CreateBr(continueBlock);
+    builder.SetInsertPoint(continueBlock);
+  }
+
+  return vecMem;
 }
 
-Value *NatBuilder::createUniformMaskedMemory(Instruction *scaInst,
-                                             Type *accessedType,
-                                             MaybeAlign AlignOpt,
-                                             Value *vecBasePtr, Value *vecValues) {
-  vecValues ? ++numUniMaskedStores : ++numUniMaskedLoads;
+Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedType, llvm::Align alignment,
+                                             Value *addr, Value * scalarMask, Value * vectorMask, Value *values) {
+  values ? ++numUniMaskedStores : ++numUniMaskedLoads;
 
   // emit a scalar memory acccess within a any-guarded section
-  bool needsGuard = !EnableUnsafeOptimizations; // FIXME
-  return &createAnyGuard(needsGuard, *scaInst->getParent(), isa<LoadInst>(scaInst),
+  bool needsGuard = true;
+  return &createAnyGuard(needsGuard, *inst->getParent(), *inst, isa<LoadInst>(inst),
       [=](IRBuilder<> & builder)
   {
     Instruction* vecMem;
-    if (vecValues) {
-      vecMem = builder.CreateStore(vecValues, vecBasePtr);
-      cast<StoreInst>(vecMem)->setAlignment(AlignOpt.valueOrOne());
+    if (values) {
+      vecMem = builder.CreateStore(values, addr);
+      cast<StoreInst>(vecMem)->setAlignment(llvm::Align(alignment));
     } else {
-      vecMem = builder.CreateLoad(accessedType, vecBasePtr, "scal_mask_mem");
-      cast<LoadInst>(vecMem)->setAlignment(AlignOpt.valueOrOne());
+      vecMem = builder.CreateLoad(addr->getType()->getPointerElementType(), addr, "scal_mask_mem");
+      cast<LoadInst>(vecMem)->setAlignment(llvm::Align(alignment));
     }
     return vecMem;
   });
 }
 
-Value *NatBuilder::createVaryingMemory(Type *vecType, Align alignment, Value *addr, Mask mask, Value *values) {
+Value *NatBuilder::createVaryingMemory(Type *vecType, llvm::Align alignment, Value *addr, Value *mask,
+                                       Value *values) {
   bool scatter(values != nullptr);
-  bool maskNonConst = !mask.knownAllTrue();
+  bool maskNonConst(!isa<ConstantVector>(mask));
   maskNonConst ? (scatter ? ++numMaskedScatter : ++numMaskedGather) : (scatter ? ++numScatter : ++numGather);
 
-#ifdef LLVM_HAVE_VP
-  if (config.enableVP) {
-    VPBuilder vpBuilder(builder);
-    vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-    vpBuilder.setMask(mask.getPred());
-    vpBuilder.setEVL(mask.getAVL());
-    if (scatter) {
-       return &vpBuilder.CreateScatter(*values, *addr, alignment);
+  if (config.useScatterGatherIntrinsics) {
+    auto * vecPtrTy = addr->getType();
+
+    std::vector<Value *> args;
+    if (scatter) args.push_back(values);
+    args.push_back(addr);
+    args.push_back(ConstantInt::get(i32Ty, alignment.value()));
+    args.push_back(mask);
+    if (!scatter) args.push_back(UndefValue::get(vecType));
+    Module *mod = vecInfo.getMapping().vectorFn->getParent();
+    Function *intr = scatter ? Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, {vecType, vecPtrTy})
+                             : Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, {vecType, vecPtrTy});
+    assert(intr && "scatter/gather not found!");
+    return builder.CreateCall(intr, args);
+
+  } else
+    return scatter ? requestCascadeStore(values, addr, alignment.value(), mask) : requestCascadeLoad(addr, alignment.value(), mask);
+}
+
+void NatBuilder::createInterleavedMemory(Type *vecType, llvm::Align alignment, std::vector<Value *> *addr, std::vector<Value *> *masks,
+                                         std::vector<Value *> *values, std::vector<Value *> *srcs) {
+
+  unsigned stride = (unsigned) addr->size();
+  bool needsMask = masks->size() > 0;
+  bool load = values == nullptr;
+
+  // tranpose mask and values if needed
+  ShuffleBuilder maskTransposer(vectorWidth());
+  if (needsMask)
+    maskTransposer.add(*masks);
+
+  // build interleaved loads/stores
+  Value *vecMem;
+  ShuffleBuilder transposer(vectorWidth());
+  if (!load)
+    transposer.add(*values);
+
+  for (unsigned i = 0; i < stride; ++i) {
+    Value *ptr = (*addr)[i];
+    Value *mask = needsMask ? maskTransposer.shuffleToInterleaved(builder, stride, i) : nullptr;
+
+    if (masks->size() == 1 && i == (stride - 1)) {
+      needsMask = true;
+      mask = masks->front();
+    }
+
+    if (load) {
+      vecMem = createContiguousLoad(ptr, alignment, mask, UndefValue::get(vecType));
+      transposer.add(vecMem);
     } else {
-       return &vpBuilder.CreateGather(vecType, *addr, alignment);
+      Value *val = transposer.shuffleToInterleaved(builder, stride, i);
+      vecMem = createContiguousStore(val, ptr, alignment, mask);
+      if (i < srcs->size())
+        mapVectorValue((*srcs)[i], vecMem);
     }
   }
-#endif
-
-  auto * vecPtrTy = addr->getType();
-
-  std::vector<Value *> args;
-  if (scatter) args.push_back(values);
-  args.push_back(addr);
-  args.push_back(ConstantInt::get(i32Ty, alignment.value()));
-  args.push_back(mask.getPred());
-  if (!scatter) args.push_back(UndefValue::get(vecType));
-  Module *mod = vecInfo.getMapping().vectorFn->getParent();
-  Function *intr = scatter ? Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, {vecType, vecPtrTy})
-                           : Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, {vecType, vecPtrTy});
-  assert(intr && "scatter/gather not found!");
-  return builder.CreateCall(intr, args);
-}
-
-Value *NatBuilder::createStridedStore(Value *vecVal, Value *elemPtr, Align alignment, Mask vecMask, int64_t Stride) {
-  assert(config.enableVP);
-  VPBuilder vpBuilder(builder);
-  vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-  vpBuilder.setMask(vecMask.getPred());
-  vpBuilder.setEVL(vecMask.getAVL());
-  return &vpBuilder.CreateStridedStore(*vecVal, *elemPtr, alignment, Stride);
-}
-
-Value *NatBuilder::createContiguousStore(Value *vecVal, Value *elemPtr, Align alignment, Mask vecMask) {
-#ifdef LLVM_HAVE_VP
-  if (config.enableVP) {
-    VPBuilder vpBuilder(builder);
-    vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-    vpBuilder.setMask(vecMask.getPred());
-    vpBuilder.setEVL(vecMask.getAVL());
-    return &vpBuilder.CreateContiguousStore(*vecVal, *elemPtr, alignment);
+  if (load) {
+    // de-interleave and map
+    for (unsigned i = 0; i < stride; ++i) {
+      vecMem = transposer.shuffleFromInterleaved(builder, stride, i);
+      if (i < srcs->size())
+        mapVectorValue((*srcs)[i], vecMem);
+    }
   }
-#endif
+}
 
-  auto vecPtr = builder.CreatePointerCast(elemPtr, vecVal->getType()->getPointerTo(cast<PointerType>(elemPtr->getType())->getAddressSpace()));
-  if (!vecMask.knownAllTrue()) {
-    return builder.CreateMaskedStore(vecVal, vecPtr, alignment, vecMask.getPred());
+Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, llvm::Align alignment, Value *mask) {
+  if (mask) {
+    return builder.CreateMaskedStore(val, ptr, alignment, mask);
 
   } else {
-    StoreInst *store = builder.CreateStore(vecVal, vecPtr);
-    store->setAlignment(Align(alignment));
+    StoreInst *store = builder.CreateStore(val, ptr);
+    store->setAlignment(llvm::Align(alignment));
     return store;
   }
 }
 
-llvm::Value *NatBuilder::createStridedLoad(llvm::Value *elemPtr, llvm::Align alignment,
-                               Mask vecMask, llvm::Value *passThru,
-                               int64_t Stride) {
-  assert (config.enableVP);
-  VPBuilder vpBuilder(builder);
-  vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-  vpBuilder.setMask(vecMask.getPred());
-  vpBuilder.setEVL(vecMask.getAVL());
-  return &vpBuilder.CreateStridedLoad(passThru->getType(), *elemPtr, alignment, Stride);
-}
+Value *NatBuilder::createContiguousLoad(Value *ptr, llvm::Align alignment, Value *mask, Value *passThru) {
+  auto target_type = ptr->getType()->getPointerElementType();
 
-Value *NatBuilder::createContiguousLoad(Value *elemPtr, Align alignment, Mask vecMask, Value *passThru) {
-#ifdef LLVM_HAVE_VP
-  if (config.enableVP) {
-    VPBuilder vpBuilder(builder);
-    vpBuilder.setStaticVL(vecInfo.getVectorWidth());
-    vpBuilder.setMask(vecMask.getPred());
-    vpBuilder.setEVL(vecMask.getAVL());
-    return &vpBuilder.CreateContiguousLoad(passThru->getType(), *elemPtr, alignment);
-  }
-#endif
-
-  auto ElemPtrTy = elemPtr->getType();
-  auto ScaElemTy = ElemPtrTy->getPointerElementType();
-  auto VecElemPtrTy = ScaElemTy->getPointerTo(ElemPtrTy->getPointerAddressSpace());
-  auto VecPtr = builder.CreatePointerCast(elemPtr, VecElemPtrTy);
-  if (!vecMask.knownAllTrue()) {
-    return builder.CreateMaskedLoad(passThru->getType(), VecPtr, alignment, vecMask.getPred(), passThru, "cont_load");
-
+  if (mask) {
+    return builder.CreateMaskedLoad(target_type, ptr, alignment, mask, passThru, "cont_load");
   } else {
-    LoadInst *load = builder.CreateLoad(passThru->getType(), VecPtr, "cont_load");
-    load->setAlignment(Align(alignment));
+    LoadInst *load = builder.CreateLoad(target_type, ptr, "cont_load");
+    load->setAlignment(llvm::Align(alignment));
     return load;
   }
+}
+
+void NatBuilder::addLazyInstruction(Instruction *const instr) {
+  lazyInstructions.push_back(instr);
+  ++numLazy;
 }
 
 llvm::Type*
@@ -2008,6 +2163,64 @@ GetPointerElementType(Type * ptrTy) {
     return innerArrTy->getElementType();
   }
   return innerTy;
+}
+
+void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
+  assert(!lazyInstructions.empty() && "no lazy instructions to generate!");
+
+  IF_DEBUG_NAT errs() << " --- reqLazy: " << upToInstruction->getName() << " --\n";
+
+  Instruction *lazyInstr = lazyInstructions.front();
+  lazyInstructions.pop_front();
+
+  while (lazyInstr != upToInstruction) {
+    // skip if already generated (only happens for interleaving)
+    if (getVectorValue(*lazyInstr)) {
+      lazyInstr = lazyInstructions.front();
+      lazyInstructions.pop_front();
+      continue;
+    }
+
+    assert(!getVectorValue(*lazyInstr) && !getScalarValue(*lazyInstr) && "instruction already generated!");
+
+    if (isa<CallInst>(lazyInstr)) {
+      if (shouldVectorize(lazyInstr))
+        vectorizeCallInstruction(cast<CallInst>(lazyInstr));
+      else
+        copyCallInstruction(cast<CallInst>(lazyInstr));
+    } else if (canVectorize(lazyInstr))
+        vectorizeMemoryInstruction(lazyInstr);
+    else if (shouldVectorize(lazyInstr))
+      replicateInstruction(lazyInstr);
+    else
+      copyInstruction(lazyInstr);
+
+    // interleaved memory generation might cause the queue to empty already at this point
+    if (lazyInstructions.empty())
+      return;
+
+    lazyInstr = lazyInstructions.front();
+    lazyInstructions.pop_front();
+  }
+
+  IF_DEBUG_NAT errs() << " --- DONE reqLazy: " << upToInstruction->getName() << " --\n";
+
+  // if we reach this point this should be guaranteed:
+  assert(lazyInstr == upToInstruction && "something went wrong during lazy generation!");
+
+  // skip if already generated (only happens for interleaving, therefore only getVectorValue needed)
+  if (getVectorValue(*lazyInstr))
+    return;
+
+  assert(!getVectorValue(*lazyInstr) && !getScalarValue(*lazyInstr) && "instruction already generated!");
+
+  if (isa<CallInst>(lazyInstr)) {
+    if (shouldVectorize(lazyInstr))
+      vectorizeCallInstruction(cast<CallInst>(lazyInstr));
+    else
+      copyCallInstruction(cast<CallInst>(lazyInstr));
+  } else
+    vectorizeMemoryInstruction(lazyInstr);
 }
 
 static
@@ -2026,6 +2239,12 @@ NatBuilder::requestVectorValue(Value *const value) {
 
   if (isa<BitCastInst>(value)) {
     return requestVectorBitCast(cast<BitCastInst>(value));
+  }
+
+  if (isa<Instruction>(value)) {
+    Instruction *lazyMemInstr = cast<Instruction>(value);
+    if (std::find(lazyInstructions.begin(), lazyInstructions.end(), lazyMemInstr) != lazyInstructions.end())
+      requestLazyInstructions(lazyMemInstr);
   }
 
   // check if already mapped
@@ -2101,8 +2320,7 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
       if (vecShape.getStride() % scalarBytes == 0) {
         // stride aligned with object size
         Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride() / scalarBytes);
-        auto *VecTy = vectorizeType(scaValue.getType());
-        vecValue = builder.CreateGEP(VecTy, vecValue, contVec, "expand_strided_ptr");
+        vecValue = builder.CreateGEP(scalarPtrTy->getPointerElementType(), vecValue, contVec, "expand_strided_ptr");
       } else {
         // sub element stride
         auto * charPtrTy = builder.getInt8PtrTy(AddrSpace);
@@ -2151,6 +2369,12 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
   if (isa<BitCastInst>(value))
     return requestScalarBitCast(cast<BitCastInst>(value), laneIdx, false);
 
+  if (isa<Instruction>(value)) {
+    Instruction *lazyMemInstr = cast<Instruction>(value);
+    if (std::find(lazyInstructions.begin(), lazyInstructions.end(), lazyMemInstr) != lazyInstructions.end())
+      requestLazyInstructions(lazyMemInstr);
+  }
+
   Value *mappedVal = getScalarValue(*value, laneIdx);
   if (mappedVal) return mappedVal;
 
@@ -2167,8 +2391,17 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
       auto oldIP = builder.GetInsertPoint();
       auto oldIB = builder.GetInsertBlock();
       Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
-      if (mappedInst){
+      Argument *mappedArg = dyn_cast<Argument>(mappedVal);
+      if (mappedInst) {
         SetInsertPointAfterMappedInst(builder, mappedInst);
+      } else if (mappedArg) {
+        Function *insertFunction = mappedArg->getParent();
+        BasicBlock &insertBlock = insertFunction->getEntryBlock();
+        Instruction *firstInst = insertBlock.getFirstNonPHIOrDbg();
+        if (firstInst)
+          builder.SetInsertPoint(firstInst);
+        else
+          builder.SetInsertPoint(&insertBlock);
       }
 
       Constant *laneInt = type->isFloatingPointTy() ? ConstantFP::get(type, laneIdx * shape.getStride())
@@ -2177,7 +2410,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
                                                               value->getName() + "lane" + std::to_string(laneIdx))
                                          : builder.CreateAdd(mappedVal, laneInt,
                                                              value->getName() + "_lane" + std::to_string(laneIdx));
-      if (mappedInst)
+      if (mappedInst || mappedArg)
         builder.SetInsertPoint(oldIB, oldIP);
     }
   }
@@ -2188,10 +2421,19 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     skipMapping = true;
     mappedVal = getVectorValue(*value);
     Instruction *mappedInst = dyn_cast<Instruction>(mappedVal);
+    Argument *mappedArg = dyn_cast<Argument>(mappedVal);
     auto oldIP = builder.GetInsertPoint();
     auto oldIB = builder.GetInsertBlock();
     if (mappedInst) {
       SetInsertPointAfterMappedInst(builder, mappedInst);
+    } else if (mappedArg) {
+      Function *insertFunction = mappedArg->getParent();
+      BasicBlock &insertBlock = insertFunction->getEntryBlock();
+      Instruction *firstInst = insertBlock.getFirstNonPHIOrDbg();
+      if (firstInst)
+        builder.SetInsertPoint(firstInst);
+      else
+        builder.SetInsertPoint(&insertBlock);
     }
     IF_DEBUG {
       errs() << "Extracting a scalar value from a vector:\n";
@@ -2204,12 +2446,12 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     // if the mappedVal is a alloca instruction, create a GEP instruction
     if (isa<AllocaInst>(mappedVal)) {
       auto indexTy = getIndexTy(mappedVal);
-      reqVal = builder.CreateGEP(value->getType(), mappedVal, ConstantInt::get(indexTy, laneIdx));
+      reqVal = builder.CreateGEP(value->getType()->getPointerElementType(), mappedVal, ConstantInt::get(indexTy, laneIdx));
     } else {
       // extract from GEPs are not allowed. in that case recreate the scalar instruction and get that new value
       if (isa<GetElementPtrInst>(mappedVal) && isa<GetElementPtrInst>(value)) {
         auto indexTy = getIndexTy(mappedVal);
-        reqVal = builder.CreateGEP(value->getType(), mappedVal, ConstantInt::get(indexTy, laneIdx));
+        reqVal = builder.CreateGEP(value->getType()->getPointerElementType(), mappedVal, ConstantInt::get(indexTy, laneIdx));
       } else {
         reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
       }
@@ -2220,7 +2462,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
       reqVal = builder.CreateBitCast(reqVal, value->getType(), "bc");
     }
 
-    if (mappedInst)
+    if (mappedInst || mappedArg)
       builder.SetInsertPoint(oldIB, oldIP);
   }
 
@@ -2265,9 +2507,7 @@ NatBuilder::buildGEP(GetElementPtrInst *const gep, bool buildScalar, unsigned la
     idxList.push_back(vecIdx);
   }
 
-  auto *ScaTy = gep->getSourceElementType();
-  Value *vecGEP =
-      builder.CreateGEP(ScaTy, vecBasePtr, idxList, gep->getName());
+  Value * vecGEP = builder.CreateGEP(vecBasePtr->getType()->getScalarType()->getPointerElementType(), vecBasePtr, idxList, gep->getName());
   auto * vecGEPInst = dyn_cast<GetElementPtrInst>(vecGEP);
   if (vecGEPInst) {
     vecGEPInst->setIsInBounds(gep->isInBounds());
@@ -2353,6 +2593,269 @@ Value *NatBuilder::requestScalarBitCast(llvm::BitCastInst *const bc, unsigned la
   return mapped;
 }
 
+llvm::Value*
+NatBuilder::requestInterleavedGEP(GetElementPtrInst *const gep, unsigned interleavedIdx) {
+  assert(gep->getNumOperands() - 1 == gep->getNumIndices() && "llvm implementation for GEP changed!");
+
+  // first, we need a vectorized base vecValue (or scalar if all_uniform). then, we have to calculate the indices
+  // we need vector values if something is not all_uniform. we need to extract an dimension if !buildAllDimensions
+  Value *scalBasePtr = gep->getPointerOperand();
+  Value *basePtr = requestScalarValue(scalBasePtr);
+  Type *st = isStructAccess(gep);
+
+  std::vector<Value *> idxList;
+  idxList.reserve(gep->getNumIndices());
+  for (unsigned i = 0; i < gep->getNumIndices(); ++i) {
+    Value *idx = gep->getOperand(i + 1);
+    Value *interIdx = requestScalarValue(idx);
+    VectorShape idxShape = getVectorShape(*idx);
+
+    if (st && !idxShape.isUniform() && interleavedIdx > 0) {
+      // calculate total offset from base and size of struct (1 if no struct)
+      unsigned offset = vectorWidth() * interleavedIdx + getStructOffset(gep);
+      unsigned structSize = getNumLeafElements(st, gep->getResultElementType(), layout);
+      unsigned k = offset / structSize;
+      if (k > 0)
+        interIdx = builder.CreateAdd(interIdx, ConstantInt::get(interIdx->getType(), k), "inter_struct_idx");
+
+      idxList.push_back(interIdx);
+
+      // create the actual struct access indices
+      for (++i; i < gep->getNumIndices(); ++i) {
+        idx = gep->getOperand(i + 1);
+        assert(isa<ConstantInt>(idx) && "element access with non-constant!");
+
+        unsigned idxValue = (unsigned) cast<ConstantInt>(idx)->getLimitedValue();
+        offset %= structSize;
+        st = st->getContainedType(idxValue);
+        structSize = getNumLeafElements(st, gep->getResultElementType(), layout);
+        k = offset / structSize;
+
+        idxList.push_back(ConstantInt::get(idx->getType(), k));
+      }
+      break;
+
+    } else if (interleavedIdx > 0 && !idxShape.isUniform()) {
+      interIdx = builder.CreateAdd(interIdx, ConstantInt::get(interIdx->getType(), vectorWidth() * interleavedIdx), "inter_idx");
+    }
+
+    idxList.push_back(interIdx);
+  }
+
+  auto *interGEP = builder.CreateGEP(basePtr->getType()->getPointerElementType(), basePtr, idxList, "inter_gep");
+  auto * interGEPInst = dyn_cast<GetElementPtrInst>(interGEP);
+  if (interGEPInst) interGEPInst->setIsInBounds(gep->isInBounds());
+
+  return interGEP;
+}
+
+llvm::Value *
+NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, Type *const vecType) {
+  ++numInterGEPs;
+  Value *interAddr = addr;
+
+  if (isa<BitCastInst>(interAddr))
+    interAddr = cast<BitCastInst>(interAddr)->getOperand(0);
+
+  if (isa<GetElementPtrInst>(interAddr))
+    interAddr = requestInterleavedGEP(cast<GetElementPtrInst>(interAddr), interleavedIdx);
+
+  else {
+    Value *ptr = requestScalarValue(addr, 0, true);
+    auto * indexTy = getIndexTy(ptr);
+    interAddr = builder.CreateGEP(ptr->getType()->getPointerElementType(), ptr, ConstantInt::get(indexTy, vectorWidth() * interleavedIdx), "inter_gep");
+  }
+
+  int AddrSpace = cast<PointerType>(addr->getType())->getAddressSpace();
+  PointerType *vecPtrType = vecType->getPointerTo(AddrSpace);
+  return builder.CreatePointerCast(interAddr, vecPtrType, "inter_cast");
+}
+
+llvm::Value *
+NatBuilder::requestCascadeLoad(Value *vecPtr, unsigned alignment, Value *mask) {
+  Type *elementPtrType = cast<VectorType>(vecPtr->getType())->getElementType();
+  Type *accessedType = cast<PointerType>(elementPtrType)->getElementType();
+  unsigned bitWidth = accessedType->getScalarSizeInBits();
+
+  Function *func = getCascadeFunction(bitWidth, false);
+  if (!func) {
+    func = createCascadeMemory(cast<VectorType>(vecPtr->getType()), alignment, cast<VectorType>(mask->getType()),
+                               false);
+    mapCascadeFunction(bitWidth, func, false);
+  }
+
+  // cast call argument to correct type if needed
+  Argument *ptrArg = &*func->arg_begin();
+  Value *callPtr = vecPtr;
+
+  if (ptrArg->getType() != vecPtr->getType()) {
+    callPtr = builder.CreateBitCast(callPtr, ptrArg->getType(), "bc");
+  }
+
+  std::vector<Value *> args;
+  args.push_back(callPtr);
+  args.push_back(mask);
+  Value *ret = builder.CreateCall(func, args, "cascade_load");
+  // cast call result to correct type if needed
+  Type *vecType = getVectorType(accessedType, vectorWidth());
+  if (ret->getType() != vecType) {
+    ret = builder.CreateBitCast(ret, vecType, "bc");
+  }
+  return ret;
+}
+
+Value *NatBuilder::requestCascadeStore(Value *vecVal, Value *vecPtr, unsigned alignment, Value *mask) {
+  unsigned bitWidth = vecVal->getType()->getScalarSizeInBits();
+
+  Function *func = getCascadeFunction(bitWidth, true);
+  if (!func) {
+    func = createCascadeMemory(cast<VectorType>(vecPtr->getType()), alignment, cast<VectorType>(mask->getType()),
+                               true);
+    mapCascadeFunction(bitWidth, func, true);
+  }
+
+  // cast call arguments to correct type if needed
+  auto argIt = func->arg_begin();
+  Argument *valArg = &*argIt++;
+  Argument *ptrArg = &*argIt;
+  Value *callVal = vecVal;
+  Value *callPtr = vecPtr;
+
+  if (valArg->getType() != callVal->getType()) {
+    callVal = builder.CreateBitCast(callVal, valArg->getType());
+  }
+  if (ptrArg->getType() != callPtr->getType()) {
+    callPtr = builder.CreateBitCast(callPtr, ptrArg->getType());
+  }
+
+  std::vector<Value *> args;
+  args.push_back(callVal);
+  args.push_back(callPtr);
+  args.push_back(mask);
+  return builder.CreateCall(func, args);
+}
+
+Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigned alignment, VectorType *maskType,
+                                          bool store) {
+  assert(cast<VectorType>(pointerVectorType)->getElementType()->isPointerTy()
+         && "pointerVectorType must be of type vector of pointer!");
+  assert(cast<VectorType>(maskType)->getElementType()->isIntegerTy(1)
+         && "maskType must be of type vector of i1!");
+
+
+  Module *mod = vecInfo.getScalarFunction().getParent();
+  IRBuilder<> builder(mod->getContext());
+
+  // create function
+  Type *accessedType = cast<PointerType>(pointerVectorType->getElementType())->getElementType();
+  Type *resType = store ? Type::getVoidTy(mod->getContext()) : getVectorType(accessedType, vectorWidth());
+  std::vector<Type *> argTypes;
+  if (store) {
+    Type *valType = getVectorType(accessedType, vectorWidth());
+    argTypes.push_back(valType);
+  }
+  argTypes.push_back(pointerVectorType);
+  argTypes.push_back(maskType);
+
+  std::string name = store ? "nativeCascadeStoreFn" : "nativeCascadeLoadFn";
+  FunctionType *fnType = FunctionType::get(resType, argTypes, false);
+  Function *func = Function::Create(fnType, GlobalValue::LinkageTypes::ExternalLinkage, name, mod);
+
+  auto argIt = func->arg_begin();
+  Argument *valVec = nullptr;
+  if (store) {
+    valVec = &*argIt++;
+    valVec->setName("valVec");
+  }
+  Argument *ptrVec = &*argIt++;
+  Argument *mask = &*argIt;
+
+  ptrVec->setName("ptrVec");
+  mask->setName("mask");
+
+  // create body
+  // following function:
+  // vector a, mask m, vector r = undef
+  // if(m) r = *a; (vector load)
+  // else
+  // if(m.x) r.x = *(a.x);
+  // if(m.y) r.y = *(a.y);
+  // if(m.z) r.z = *(a.z);
+  // if(m.w) r.w = *(a.w);
+  // return r;
+  // example assumes vector width 4 and load. store basically the same
+
+  // create blocks. we need <vectorWidth> load blocks, <vectorWidth> condition blocks and one return block
+  std::vector<BasicBlock *> condBlocks;
+  std::vector<BasicBlock *> loadBlocks;
+  BasicBlock *ret = createCascadeBlocks(func, vectorWidth(), condBlocks, loadBlocks);
+
+  // insert result vector in 1st block
+  BasicBlock *entry = condBlocks[0];
+  builder.SetInsertPoint(entry);
+  Value *resVec = store ? nullptr : UndefValue::get(resType);
+
+  // fill cond and load blocks
+  for (int i = 0; i < vectorWidth(); ++i) {
+    BasicBlock *cond = condBlocks[i];
+    BasicBlock *masked = loadBlocks[i];
+    BasicBlock *nextBlock = i == ((int) vectorWidth()) - 1 ? ret : condBlocks[i + 1];
+
+    // code for cond block: extract mask lane i, branch to masked or next
+    Value *maskLaneVal = builder.CreateExtractElement(mask, ConstantInt::get(i32Ty, i),
+                                                      "mask_lane_" + std::to_string(i));
+    builder.CreateCondBr(maskLaneVal, masked, nextBlock);
+
+    // code for masked block: extract pointer lane i, ...
+    builder.SetInsertPoint(masked);
+    Value *pointerLaneVal = builder.CreateExtractElement(ptrVec, ConstantInt::get(i32Ty, i),
+                                                         "ptr_lane_" + std::to_string(i));
+    Value *insert = nullptr;
+
+    if (store) {
+      // ... extract value lane i, store val to ptr, branch to next
+      Value *storeLaneVal = builder.CreateExtractElement(valVec, ConstantInt::get(i32Ty, i),
+                                                         "val_lane_" + std::to_string(i));
+      builder.CreateStore(storeLaneVal, pointerLaneVal);
+    } else {
+      // ... load from pointer, insert to result vector, branch to next
+      Value *loadInst = builder.CreateLoad(pointerLaneVal->getType()->getPointerElementType(), pointerLaneVal, "load_lane_" + std::to_string(i));
+      cast<LoadInst>(loadInst)->setAlignment(llvm::Align(alignment));
+      insert = builder.CreateInsertElement(resVec, loadInst, ConstantInt::get(i32Ty, i),
+                                           "insert_lane_" + std::to_string(i));
+    }
+    builder.CreateBr(nextBlock);
+    builder.SetInsertPoint(nextBlock);
+
+    // ONLY IF LOAD: code for next block: phi <resVec, cond> <insert, masked>
+    if (!store) {
+      PHINode *phi = builder.CreatePHI(insert->getType(), 2);
+      phi->addIncoming(resVec, cond);
+      phi->addIncoming(insert, masked);
+      resVec = phi;
+    }
+  }
+
+  // fill result block
+  // code for result block: return resVec or return void
+  if (store) builder.CreateRetVoid();
+  else builder.CreateRet(resVec);
+
+  return func;
+}
+
+void NatBuilder::mapCascadeFunction(unsigned bitWidth, Function *function, bool store) {
+  if (store) cascadeStoreMap[bitWidth] = function;
+  else cascadeLoadMap[bitWidth] = function;
+}
+
+Function *NatBuilder::getCascadeFunction(unsigned bitWidth, bool store) {
+  auto mapIt = store ? cascadeStoreMap.find(bitWidth) : cascadeLoadMap.find(bitWidth);
+  auto mapEt = store ? cascadeStoreMap.end() : cascadeLoadMap.end();
+  if (mapIt != mapEt) return mapIt->second;
+  return nullptr;
+}
+
 Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
   assert(vector->getType()->isVectorTy() && "given value is no vector type!");
   assert(cast<VectorType>(vector->getType())->getElementType()->isIntegerTy(1) &&
@@ -2370,7 +2873,9 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
   }
 
   Value * ptest = nullptr;
-  auto * redFunc = platInfo.requestVectorMaskReductionFunc("rv_reduce_or", GetVectorNumElements(vector->getType()));
+  auto *redFunc = platInfo.requestVectorMaskReductionFunc(
+      "rv_reduce_or",
+      cast<FixedVectorType>(vector->getType())->getNumElements());
   ptest = builder.CreateCall(redFunc, vector, "ptest");
 
   if (isRv_all) {
@@ -2382,65 +2887,21 @@ Value *NatBuilder::createPTest(Value *vector, bool isRv_all) {
 
 bool
 NatBuilder::hasUniformPredicate(const BasicBlock & BB) const {
-  // FIXME use getMask instead
   if (!vecInfo.getRegion().contains(&BB) || !vecInfo.getPredicate(BB)) return true;
   else return vecInfo.getVectorShape(*vecInfo.getPredicate(BB)).isUniform();
 }
 
 Value*
-NatBuilder::requestLanePredicate(const BasicBlock &ScaBlock, int Lane) {
-  auto &Ctx = ScaBlock.getContext();
-
-  // FIXME use getMask instead
-  if (!vecInfo.hasMask(ScaBlock) || vecInfo.getMask(ScaBlock).knownAllTrue()) {
-    return ConstantInt::getTrue(builder.getContext());
-  }
-  auto ScaMask = vecInfo.getMask(ScaBlock);
-  auto ItMaskLane = MaskLaneMap.find(std::make_pair<>(ScaMask, Lane));
-  if (ItMaskLane != MaskLaneMap.end()) {
-    return ItMaskLane->second;
-  }
-
-  Value *LaneP = requestScalarValue(&ScaMask.requestPredAsValue(Ctx));
-
-  // Perform a scalar comparision against the AVL (if set)
-  if (ScaMask.getAVL()) {
-    auto *VecAVL = requestScalarValue(ScaMask.getAVL());
-    auto *LaneConst = ConstantInt::get(ScaMask.getAVL()->getType(), Lane, false);
-    auto *LessThanAVL = builder.CreateICmpULT(LaneConst, VecAVL, "avl_check");
-    LaneP =  builder.CreateAnd(LaneP, LessThanAVL, "mask_check");
-  }
-  
-  MaskLaneMap[std::make_pair<>(ScaMask, Lane)] = LaneP;
-  return LaneP;
+NatBuilder::requestVectorPredicate(const BasicBlock& scaBlock) {
+  return requestVectorValue(vecInfo.getPredicate(scaBlock));
 }
 
-Mask
-NatBuilder::requestVectorized(Mask ScaMask) {
-  auto VecPred = ScaMask.getPred() ? requestVectorValue(ScaMask.getPred()) : nullptr;
-  auto VecAVL = ScaMask.getAVL() ? requestScalarValue(ScaMask.getAVL()) : nullptr;
-  return Mask(VecPred, VecAVL);
-}
-
-Mask
-NatBuilder::requestVectorMask(const BasicBlock& ScaBlock) {
-  if (!vecInfo.hasMask(ScaBlock) || vecInfo.getMask(ScaBlock).knownAllTrue()) {
-    return Mask::getAllTrue();
-  }
-  Mask ScaMask = vecInfo.getMask(ScaBlock);
-  return requestVectorized(ScaMask);
-}
-
-Mask
-NatBuilder::maskInactiveLanes(Value &ScaValue, const BasicBlock &Block, bool NegateArg) {
-  Mask VecBlockMask = requestVectorMask(Block);
-  auto VecArgMask = requestVectorized(Mask::inferFromPredicate(ScaValue));
-
-  VectorMaskBuilder MBuilder(vectorWidth());
-  if (NegateArg) {
-    return MBuilder.CreateAnd(builder, MBuilder.CreateNot(builder, VecArgMask), VecBlockMask);
+Value *NatBuilder::maskInactiveLanes(Value *const value, const BasicBlock* const block, bool invert) {
+  auto pred = requestVectorPredicate(*block);
+  if (invert) {
+    return builder.CreateOr(value, builder.CreateNot(pred));
   } else {
-    return MBuilder.CreateAnd(builder, VecArgMask, VecBlockMask);
+    return builder.CreateAnd(value, pred);
   }
 }
 
@@ -2450,7 +2911,7 @@ NatBuilder::repairOutsideUses(Instruction & scaChainInst, std::function<Value& (
 
   // actually used value
   Value * vecUsed = getScalarValue(scaChainInst);
-  if (!vecUsed) vecUsed = getVectorValue(scaChainInst); // FIXME
+  if (!vecUsed) vecUsed = getVectorValue(scaChainInst, 0);
 
   assert(vecUsed && "could not infer vector version of scalar instruction");
 
@@ -2462,8 +2923,7 @@ NatBuilder::repairOutsideUses(Instruction & scaChainInst, std::function<Value& (
     auto & userInst = cast<Instruction>(*use.getUser());
 
     // user is in the region
-    if (vecInfo.inRegion(*userInst.getParent()))
-      continue;
+    if (vecInfo.inRegion(*userInst.getParent())) continue;
 
     auto * userPhi = dyn_cast<PHINode>(&userInst);
     bool isLcssaPhi = userPhi && userPhi->getNumIncomingValues() == 1;
@@ -2544,38 +3004,29 @@ NatBuilder::materializeStridePattern(rv::StridePattern & sp) {
   auto * vecLatch = getVectorBlock(*sp.phi->getIncomingBlock(loopOpIdx), true);
   vecPhi.addIncoming(clonedReductor, vecLatch);
 
-  // Compute the result of the last iteration
-  // * With AVL: multiply with remainder AVL at runtime.
-  // * w/o AVL: multiplu with vectorWidth at compile time.
-  auto RepairFunc = [&](Value &usedVal, BasicBlock &userBlock) -> Value & {
-    auto *insertPt = userBlock.getFirstNonPHI();
-    IRBuilder<> builder(&userBlock, insertPt->getIterator());
+  repairOutsideUses(*sp.phi,
+                    [&](Value& usedVal, BasicBlock& userBlock) ->Value& {
+                      // otw, replace with reduced value
+                      int64_t amount = (vectorWidth - 1) * redShape.getStride();
+                      auto * insertPt = userBlock.getFirstNonPHI();
+                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
 
-    // otw, replace with reduced value
-    Value *Amount;
-    if (vecInfo.getEntryAVL()) {
-      // (avl - 1) * [[STRIDE]]
-      auto *VecAVL = requestScalarValue(vecInfo.getEntryAVL());
-      auto *AdjustedVecAVL = builder.CreateSub(
-          VecAVL, ConstantInt::get(VecAVL->getType(), 1, false));
-      auto *CastVecAVL =
-          builder.CreateZExtOrTrunc(AdjustedVecAVL, usedVal.getType());
-      Amount = builder.CreateMul(
-          CastVecAVL, ConstantInt::get(CastVecAVL->getType(),
-                                       (int64_t)redShape.getStride(), true));
+                      auto * liveOutView = builder.CreateAdd(&usedVal, ConstantInt::getSigned(usedVal.getType(), amount), ".red");
+                      return *liveOutView;
+                    }
+  );
 
-    } else {
-      // (vector_width - 1) * [[STRIDE]]
-      int64_t amount = (vectorWidth - 1) * redShape.getStride();
-      Amount = ConstantInt::getSigned(usedVal.getType(), amount);
-    }
+  repairOutsideUses(*sp.reductor,
+                    [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
+                      // otw, replace with reduced value
+                      int64_t amount = (vectorWidth - 1) * redShape.getStride();
+                      auto * insertPt = userBlock.getFirstNonPHI();
+                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
 
-    auto *liveOutView = builder.CreateAdd(&usedVal, Amount, ".red");
-    return *liveOutView;
-  };
-
-  repairOutsideUses(*sp.phi, RepairFunc);
-  repairOutsideUses(*sp.reductor, RepairFunc);
+                      auto * liveOutView = builder.CreateAdd(&usedVal, ConstantInt::getSigned(usedVal.getType(), amount), ".red");
+                      return *liveOutView;
+                    }
+  );
 }
 
 void
@@ -2705,99 +3156,6 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
 
 
 void
-NatBuilder::materializeVaryingReduction_AVL(Reduction & red, PHINode & scaPhi) {
-  assert((red.kind != RedKind::Top) && (red.kind != RedKind::Bot));
-
-  const auto vectorWidth = vecInfo.getVectorWidth();
-  auto * vecPhi = getVectorValueAs<PHINode>(scaPhi);
-  auto redShape = red.getShape(vectorWidth);
-  assert(redShape.isVarying()); (void) redShape;
-
-// construct new (vectorized) initial value
-  // TODO generalize to multi phi reductions
-  Value * vecNeutral = getSplat(&GetNeutralElement(red.kind, *scaPhi.getType()));
-
-  auto * inAtZero = dyn_cast<Instruction>(scaPhi.getIncomingValue(0));
-  int latchIdx = (inAtZero && vecInfo.inRegion(*inAtZero)) ? 0 : 1;
-  int initIdx = 1 - latchIdx;
-
-  BasicBlock * vecInitInputBlock = scaPhi.getIncomingBlock(initIdx);
-  BasicBlock * vecLoopInputBlock = getVectorBlock(*scaPhi.getIncomingBlock(latchIdx), true);
-
-// materialize initial input (insert init value into last lane)
-  Value * scaInitValue = scaPhi.getIncomingValue(initIdx);
-  IRBuilder<> phBuilder(vecInitInputBlock, vecInitInputBlock->getTerminator()->getIterator());
-  auto * intTy = Type::getInt32Ty(scaPhi.getContext());
-  auto * vecInitVal = phBuilder.CreateInsertElement(vecNeutral, scaInitValue, ConstantInt::get(intTy, vectorWidth - 1, false));
-
-// attach inputs (neutral elem and reduction inst)
-  vecPhi->addIncoming(vecInitVal, vecInitInputBlock);
-
-// add latch update
-  Instruction * scaLatchInst = cast<Instruction>(scaPhi.getIncomingValue(latchIdx));
-  auto * vecLatchInst = getVectorValueAs<Instruction>(*scaLatchInst);
-
-// AVL: Keep the existing incoming value in the tail
-  // TODO: As for the non-AVL path, we really should do this tranformation in
-  // P-LLVM using intrinsics (eg rv_select_avl, rv_reduce_avl) and strip all
-  // code paths that treat loop-vectorization and their reductions specially
-  // from the system.
-  auto ItInst = vecLatchInst->getIterator();
-  ++ItInst;
-  IRBuilder<> LatchBuilder(&*ItInst);
-  VPBuilder VecBuilder(LatchBuilder);
-  VecBuilder
-      .setStaticVL(vecInfo.getVectorWidth())
-      .setEVL(nullptr);
-
-  auto &VecAVL = *requestScalarValue(vecInfo.getEntryAVL());
-  auto &vecRedSelect = VecBuilder.createSelect(
-      *vecLatchInst, *vecPhi, *VecBuilder.getAllTrueMask(), VecAVL);
-
-  vecPhi->addIncoming(&vecRedSelect, vecLoopInputBlock);
-
-// reduce reduction phi for outside users
-  repairOutsideUses(*scaLatchInst,
-                    [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
-                      // otw, replace with reduced value
-                      auto * insertPt = userBlock.getFirstNonPHI();
-                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
-                      auto & reducedVector = CreateVectorReduce(config, builder, red.kind, vecRedSelect, nullptr);
-                      return reducedVector;
-                    }
-  );
-
-
-  // construct a 1...10 mask
-  std::vector<Constant*> selElems;
-  for (size_t i = 1; i < vectorWidth; ++i) {
-    selElems.push_back(ConstantInt::getTrue(vecPhi->getContext()));
-  }
-  selElems.push_back(ConstantInt::getFalse(vecPhi->getContext()));
-  auto * selMask = ConstantVector::get(selElems); // 1...10
-
-  // create reduced outside views for external users
-  for (auto * elem : red.elements) {
-    if (elem == scaLatchInst) continue; // already reduced that one
-    if (!vecInfo.inRegion(*cast<Instruction>(elem))) continue;
-
-    auto& vecElem = *getVectorValueAs<Instruction>(*elem);
-
-    // reduce outside uses on demand
-    repairOutsideUses(*elem,
-                      [&](Value & usedVal, BasicBlock& userBlock) ->Value& {
-                      auto * insertPt = userBlock.getFirstNonPHI();
-                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
-                      // reduce all end-of-iteration values and request value of last iteration
-                      auto & foldVec = *builder.CreateSelect(selMask, &vecRedSelect, &vecElem, ".red");
-                      auto & reducedVector = CreateVectorReduce(config, builder, red.kind, foldVec, nullptr);
-                      return reducedVector;
-                    }
-    );
-  }
-}
-
-void
 NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
   assert((red.kind != RedKind::Top) && (red.kind != RedKind::Bot));
 
@@ -2903,8 +3261,6 @@ void NatBuilder::addValuesToPHINodes() {
       IF_DEBUG_NAT { errs() << "-- materializing "; red->dump(); errs() << "\n"; }
       if (CheckFlag("RV_RED_ORDER")) {
         materializeOrderedReduction(*red, *scalPhi);
-      } else if (vecInfo.getEntryAVL()) {
-        materializeVaryingReduction_AVL(*red, *scalPhi);
       } else {
         materializeVaryingReduction(*red, *scalPhi);
       }
@@ -2917,15 +3273,14 @@ void NatBuilder::addValuesToPHINodes() {
     } else {
       // default phi handling (includes fully uniform recurrences)
       for (unsigned lane = 0; lane < loopEnd; ++lane) {
-        PHINode *phi = 
-            (!shape.isVarying() || replicate) ? getScalarValueAs<PHINode>(*scalPhi, lane) : getVectorValueAs<PHINode>(*scalPhi);
+        PHINode *phi = !shape.isVarying() || replicate ? getScalarValueAs<PHINode>(*scalPhi, lane) : getVectorValueAs<PHINode>(*scalPhi);
         for (unsigned i = 0; i < scalPhi->getNumIncomingValues(); ++i) {
           // set insertion point to before Terminator of incoming block
           BasicBlock *incVecBlock = getVectorBlock(*scalPhi->getIncomingBlock(i), true);
           builder.SetInsertPoint(incVecBlock->getTerminator());
 
-          Value *val = (!shape.isVarying() || replicate) ? requestScalarValue(scalPhi->getIncomingValue(i), lane)
-                                                         : requestVectorValue(scalPhi->getIncomingValue(i));
+          Value *val = !shape.isVarying() || replicate ? requestScalarValue(scalPhi->getIncomingValue(i), lane)
+                                                       : requestVectorValue(scalPhi->getIncomingValue(i));
           phi->addIncoming(val, incVecBlock);
         }
       }
@@ -2942,32 +3297,38 @@ void NatBuilder::mapVectorValue(const Value *const value, Value *vecValue) {
     BasicBlock *vecBlock = cast<BasicBlock>(vecValue);
     BasicBlockVector &vectorBlocks = basicBlockMap[block];
     vectorBlocks.push_back(vecBlock);
-  } else {
+  } else
     vectorValueMap[value] = vecValue;
-  }
 }
 
-Value *NatBuilder::getVectorValue(Value &ScaValue, bool getLastBlock) const {
+Value *NatBuilder::getVectorValue(Value& ScaValue, bool getLastBlock) {
   if (isa<BasicBlock>(ScaValue)) {
-    return getVectorBlock(cast<BasicBlock>(ScaValue), getLastBlock);
+    if (!vecInfo.inRegion(cast<BasicBlock>(ScaValue))) {
+      return &ScaValue; // preserve BBs outside of the region
+    }
+
+    BasicBlock *const block = cast<BasicBlock>(&ScaValue);
+    auto blockIt = basicBlockMap.find(block);
+    if (blockIt != basicBlockMap.end()) {
+      BasicBlockVector &blocks = blockIt->second;
+      return getLastBlock ? blocks.back() : blocks.front();
+    }
   }
 
   auto vecIt = vectorValueMap.find(&ScaValue);
-  if (vecIt != vectorValueMap.end())
-    return vecIt->second;
-  else
-    return nullptr;
+  if (vecIt != vectorValueMap.end()) return vecIt->second;
+  else return nullptr;
 }
 
-BasicBlock *NatBuilder::getVectorBlock(BasicBlock &ScaBlock,
-                                       bool ReturnLastBlock) const {
+BasicBlock*
+NatBuilder::getVectorBlock(BasicBlock & ScaBlock, bool ReturnLastBlock) {
   if (!vecInfo.inRegion(ScaBlock)) {
     return &ScaBlock; // preserve BBs outside of the region
   }
 
   auto blockIt = basicBlockMap.find(&ScaBlock);
   if (blockIt != basicBlockMap.end()) {
-    const BasicBlockVector &blocks = blockIt->second;
+    BasicBlockVector &blocks = blockIt->second;
     return ReturnLastBlock ? blocks.back() : blocks.front();
   }
   return nullptr;
@@ -2979,7 +3340,7 @@ void NatBuilder::mapScalarValue(const Value *const value, Value *mapValue, unsig
   laneValues.insert(laneValues.begin() + laneIdx, mapValue);
 }
 
-Value *NatBuilder::getScalarValue(Value & ScaValue, unsigned laneIdx) const {
+Value *NatBuilder::getScalarValue(Value & ScaValue, unsigned laneIdx) {
   if (isa<MetadataAsValue>(ScaValue)) {
     // as used in "llvm.dbg.value" calls
     return &ScaValue;
@@ -3004,7 +3365,7 @@ Value *NatBuilder::getScalarValue(Value & ScaValue, unsigned laneIdx) const {
       if (shape.isUniform()) laneIdx = 0;
     }
 
-    const LaneValueVector &laneValues = scalarIt->second;
+    LaneValueVector &laneValues = scalarIt->second;
     if (laneValues.size() > laneIdx) return laneValues[laneIdx];
     else return nullptr;
   } else return nullptr;
@@ -3115,6 +3476,60 @@ bool NatBuilder::shouldVectorize(Instruction *inst) {
   }
 
   return false;
+}
+
+bool NatBuilder::isInterleaved(Instruction *inst, Value *accessedPtr, int byteSize, std::vector<Value *> &srcs) {
+  if (!config.enableInterleaved)
+    return false;
+
+  StructType *st;
+  if ((st = isStructAccess(accessedPtr)) && !isHomogeneousStruct(st, layout))
+    return false;
+
+  // group memory instructions based on their dependencies
+  InstructionGrouper instructionGrouper;
+  instructionGrouper.add(inst, memDepRes);
+  for (Instruction *instr : lazyInstructions) {
+    instructionGrouper.add(instr, memDepRes);
+  }
+
+  InstructionGroup instrGroup = instructionGrouper.getInstructionGroup(inst);
+  if (instrGroup.size() <= 1)
+    return false;
+
+  const VectorShape &addrShape = getVectorShape(*accessedPtr);
+
+  // group our group based on memory layout next
+  MemoryAccessGrouper memoryGrouper(SE, static_cast<unsigned>(byteSize));
+  std::map<Value *, const SCEV *> addrSCEVMap;
+  std::map<const SCEV *, Value *> scevInstrMap;
+  for (Instruction *instr : instrGroup) {
+    Value *addrVal = getPointerOperand(instr);
+    assert(addrVal && "grouped instruction was not a memory instruction!!");
+    // only group strided accesses
+    VectorShape shape = getVectorShape(*addrVal);
+    bool groupByteContiguous = shape.isStrided(static_cast<int>(layout.getTypeStoreSize(cast<PointerType>(addrVal->getType())->getElementType())));
+    if (!shape.isStrided() || groupByteContiguous)
+      continue;
+    const SCEV *scev = memoryGrouper.add(addrVal);
+    addrSCEVMap[addrVal] = scev;
+    scevInstrMap[scev] = instr;
+  }
+
+  // check if there is an interleaved memory group for our base address
+  const MemoryGroup &memGroup = memoryGrouper.getMemoryGroup(addrSCEVMap[accessedPtr]);
+  int stride = addrShape.getStride() / byteSize;
+  bool hasGaps = false;
+  for (unsigned i = 0; i < memGroup.size(); ++i) {
+    if (!memGroup[i]) {
+      hasGaps = true;
+      break;
+    }
+    srcs.push_back(scevInstrMap[memGroup[i]]);
+  }
+
+  // we have found a memory group if it has no gaps and the size is bigger than 1
+  return !hasGaps && memGroup.size() > 1 && static_cast<int>(memGroup.size()) == stride;
 }
 
 void NatBuilder::visitMemInstructions() {

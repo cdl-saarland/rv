@@ -45,7 +45,7 @@ namespace llvm {
 namespace rv {
   typedef std::unordered_map<const llvm::BasicBlock*, int> BlockIndex;
   typedef std::pair<llvm::BasicBlock*, llvm::BasicBlock*> Edge;
-  typedef llvm::DenseMap<Edge, Mask> EdgeMaskCache;
+  typedef llvm::DenseMap<Edge, llvm::WeakVH> EdgeMaskCache;
   class MaskExpander;
 
   // internal helper class that tunnels values leaving on divergent loop exits through tracker PHI nodes
@@ -293,21 +293,21 @@ namespace rv {
   // edge masks
     // these are cached before the transformation so we can query them eventhough the CFG changes
     EdgeMaskCache edgeMasks; // if true for an edge A->B control proceeds from block A to block B both being executed
-    Mask * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) {
+    llvm::Value * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) {
       Edge edge(&start, &dest);
       auto it = edgeMasks.find(edge);
       if (it == edgeMasks.end())
         return nullptr;
-      else return &it->second;
+      else return it->second;
     }
 
-    void setEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest, Mask * M) {
-      if (!M) {
+    void setEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest, llvm::Value * val) {
+      if (!val) {
         edgeMasks.erase(Edge(&start, &dest));
         return;
       }
-      // assert(val->getType() == llvm::Type::getInt1Ty(val->getContext()) && "expected i1 mask type");
-      edgeMasks[Edge(&start, &dest)] = *M;
+      assert(val->getType() == llvm::Type::getInt1Ty(val->getContext()) && "expected i1 mask type");
+      edgeMasks[Edge(&start, &dest)] = val;
     }
 
   // SSA repair
@@ -324,10 +324,6 @@ namespace rv {
     /// \brief promotes a definition from @defBlockId to @blockId (returns intermediate definitions on the interval between @defBlockId an @destBlockID
     llvm::Value & promoteDefinitionExt(llvm::SmallVector<llvm::Value*, 16> & defs, llvm::Value & inst, llvm::Value & defaultDef, int defBlockId, int destBlockId);
 
-    // Create a merge block (if required for this phi node). 
-    llvm::BasicBlock * requestBlendBlock(llvm::PHINode & phi, SuperInput & superInput);
-
-    // Materialize the merging code (after \p requestBlendBlock has created the merge block itself).
     llvm::Value * createSuperInput(llvm::PHINode & phi, SuperInput & superInput);
 
   // analysis structures
@@ -390,6 +386,9 @@ namespace rv {
     // repair the data flow graph denoted by repairPhis
     // we run SSA repair with these definitions and replace all uses of the repairPhi with the new value
     void resolveRepairPhis();
+
+  // re-establish SSA form by inserting phis + undef
+    void fixSSA();
 
   // simplify blend code
     size_t simplifyBlends();

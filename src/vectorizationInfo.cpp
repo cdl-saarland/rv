@@ -32,6 +32,14 @@ bool VectorizationInfo::inRegion(const Instruction &inst) const {
   return region.contains(inst.getParent());
 }
 
+void VectorizationInfo::remapPredicate(Value &dest, Value &old) {
+  for (auto it : predicates) {
+    if (it.second == &old) {
+      predicates[it.first] = &dest;
+    }
+  }
+}
+
 void VectorizationInfo::dump(const Value *val) const { print(val, errs()); }
 
 void VectorizationInfo::print(const Value *val, llvm::raw_ostream &out) const {
@@ -70,6 +78,8 @@ void VectorizationInfo::dumpBlockInfo(const BasicBlock &block) const {
 
 void VectorizationInfo::printBlockInfo(const BasicBlock &block,
                                        llvm::raw_ostream &out) const {
+  const Value *predicate = getPredicate(block);
+
   // block name
   out << "Block ";
   block.printAsOperand(out, false);
@@ -77,28 +87,18 @@ void VectorizationInfo::printBlockInfo(const BasicBlock &block,
   // block annotations
   out << " [";
   {
-    bool needsComma = false;
     bool hasVaryingPredicate = false;
     if (getVaryingPredicateFlag(block, hasVaryingPredicate)) {
-      if (hasVaryingPredicate) out << "var-pred";
-      else out << "uni-pred";
-      needsComma = true;
+      if (hasVaryingPredicate) out << ", var-pred";
+      else out << ", uni-pred";
     }
 
-    if (hasMask(block)) {
-      if (needsComma) {
-        out << ", ";
-      }
-      getMask(block).print(out);
-      needsComma = true;
+    if (predicate) {
+      out << ", predicate: " << *predicate;
     }
 
     if (isDivergentLoopExit(block)) {
-      if (needsComma) {
-        out << ", ";
-      }
-      out << "divLoopExit";
-      needsComma = true;
+      out << ", divLoopExit";
     }
   }
   out << "]";
@@ -135,10 +135,6 @@ void VectorizationInfo::print(llvm::raw_ostream &out) const {
 
   printArguments(out);
 
-  if (EntryAVL) {
-    out << "Entry AVL: " << *EntryAVL << "\n";
-  }
-
   for (const BasicBlock &block : *mapping.scalarFn) {
     if (!inRegion(block))
       continue;
@@ -150,9 +146,9 @@ void VectorizationInfo::print(llvm::raw_ostream &out) const {
 
 VectorizationInfo::VectorizationInfo(llvm::Function &parentFn,
                                      unsigned vectorWidth, Region &_region)
-    : DL(parentFn.getParent()->getDataLayout()), EntryAVL(nullptr),
-      region(_region), mapping(&parentFn, &parentFn, vectorWidth,
-                               CallPredicateMode::SafeWithoutPredicate) {
+    : DL(parentFn.getParent()->getDataLayout()), region(_region),
+      mapping(&parentFn, &parentFn, vectorWidth,
+              CallPredicateMode::SafeWithoutPredicate) {
   mapping.resultShape = VectorShape::uni();
   for (auto &arg : parentFn.args()) {
     RV_UNUSED(arg);
@@ -162,8 +158,8 @@ VectorizationInfo::VectorizationInfo(llvm::Function &parentFn,
 
 // VectorizationInfo
 VectorizationInfo::VectorizationInfo(Region &_region, VectorMapping _mapping)
-    : DL(_region.getFunction().getParent()->getDataLayout()),
-      EntryAVL(nullptr), region(_region), mapping(_mapping) {
+    : DL(_region.getFunction().getParent()->getDataLayout()), region(_region),
+      mapping(_mapping) {
   assert(mapping.argShapes.size() == mapping.scalarFn->arg_size());
   auto it = mapping.scalarFn->arg_begin();
   for (auto argShape : mapping.argShapes) {
@@ -205,14 +201,6 @@ VectorShape VectorizationInfo::getObservedShape(const LoopInfo &LI,
 
   return valShape;
 }
-
-VectorShape
-VectorizationInfo::getVectorShape(const Mask &M) const {
-  VectorShape avlMaskingShape = M.knownAllTrueAVL() ? VectorShape::uni() : VectorShape::varying();
-  VectorShape predMaskingShape = M.getPred() ? getVectorShape(*M.getPred()) : VectorShape::uni();
-  return VectorShape::join(predMaskingShape, avlMaskingShape);
-}
-
 
 VectorShape VectorizationInfo::getVectorShape(const llvm::Value &val) const {
   // Undef short-cut
@@ -269,27 +257,6 @@ void VectorizationInfo::dropVectorShape(const Value &val) {
   shapes.erase(it);
 }
 
-// does not make sense since the mask shape is a join of two value shapes..
-// which value to ascribe the shape to?
-#if 0
-void VectorizationInfo::setVectorShape(const Mask &M,
-                                       VectorShape S) {
-  // Check that M does have a predicate if S is a non-uniform shape
-  if (!S.isUniform() && S.isDefined()) {
-    assert(M.getPred());
-  }
-
-  // set the AVL to uniform (if it has not happened yet)
-  if (M.getAVL() && !getVectorShape(*M.getAVL()).isDefined()) {
-    setVectorShape(*M.getAVL(), VectorShape::uni());
-  }
-
-  // Otw, set the shape on the mask predicate
-  if (!M.getPred()) return;
-  setVectorShape(*M.getPred(), S);
-}
-#endif
-
 void VectorizationInfo::setVectorShape(const llvm::Value &val,
                                        VectorShape shape) {
   shapes[&val] = shape;
@@ -314,62 +281,27 @@ VectorizationInfo::removeVaryingPredicateFlag(const llvm::BasicBlock & BB) {
   VaryingPredicateBlocks.erase(&BB);
 }
 
-bool
-VectorizationInfo::hasMask(const BasicBlock & block) const {
-  auto it = masks.find(&block);
-  return it != masks.end();
+// predicate handling
+void VectorizationInfo::dropPredicate(const BasicBlock &block) {
+  auto it = predicates.find(&block);
+  if (it == predicates.end())
+    return;
+  predicates.erase(it);
 }
 
-Mask&
-VectorizationInfo::requestMask(const llvm::BasicBlock & block) {
-  auto it = masks.find(&block);
-  if (it == masks.end()) {
-    auto ItInserted = masks.insert(std::pair<const BasicBlock*, Mask>(&block, Mask()));
-    return ItInserted.first->second;
-
+llvm::Value *
+VectorizationInfo::getPredicate(const llvm::BasicBlock &block) const {
+  auto it = predicates.find(&block);
+  if (it == predicates.end()) {
+    return nullptr;
   } else {
     return it->second;
   }
 }
 
-const Mask&
-VectorizationInfo::getMask(const llvm::BasicBlock & block) const {
-  auto it = masks.find(&block);
-  assert(it != masks.end());
-  return it->second;
-}
-
-// predicate handling
-void VectorizationInfo::dropMask(const BasicBlock &block) {
-  auto it = masks.find(&block);
-  if (it == masks.end())
-    return;
-  masks.erase(it);
-}
-
-void VectorizationInfo::setMask(const llvm::BasicBlock &block, Mask NewMask) {
-  requestMask(block) = NewMask;
-}
-
-llvm::Value*
-VectorizationInfo::getPredicate(const llvm::BasicBlock &block) const {
-  if (hasMask(block)) {
-    return getMask(block).getPred();
-  }
-  return nullptr;
-}
-
 void VectorizationInfo::setPredicate(const llvm::BasicBlock &block,
-                                     llvm::Value &NewPred) {
-  requestMask(block).setPred(&NewPred);
-}
-
-void VectorizationInfo::remapPredicate(Value &Dest, Value &Old) {
-  for (auto it : masks) {
-    if (it.second.getPred() == &Old) {
-      it.second.setPred(&Dest);
-    }
-  }
+                                     llvm::Value &predicate) {
+  predicates[&block] = &predicate;
 }
 
 // loop divergence

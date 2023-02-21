@@ -28,7 +28,6 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Transforms/Utils/ValueMapper.h>
 #include <llvm/ADT/SmallVector.h>
-#include "llvm/Support/Alignment.h"
 
 
 namespace rv {
@@ -61,11 +60,11 @@ namespace rv {
     llvm::Type *i32Ty;
 
     // the predicate argument in the vector function (WFV mode)
-    llvm::Value * vecMaskArg; // TODO use a Mask
+    llvm::Value * vecMaskArg;
 
     void printStatistics();
 
-    rv::VectorShape getVectorShape(const llvm::Value &val) const;
+    rv::VectorShape getVectorShape(const llvm::Value &val);
 
     // get the appropriate integer ty to index into the ptr-typed \p val.
     llvm::Type* getIndexTy(llvm::Value * val) const;
@@ -74,7 +73,6 @@ namespace rv {
     void repairOutsideUses(llvm::Instruction & scaChainInst, std::function<llvm::Value& (llvm::Value &,llvm::BasicBlock &)> repairFunc);
 
     // generate reduction code (after all other instructions have been vectorized)
-    void materializeVaryingReduction_AVL(rv::Reduction & red, llvm::PHINode & scaPhi);
     void materializeVaryingReduction(rv::Reduction & red, llvm::PHINode & scaPhi);
     void materializeOrderedReduction(rv::Reduction & red, llvm::PHINode & scaPhi);
 
@@ -106,21 +104,20 @@ namespace rv {
     void mapScalarValue(const llvm::Value *const value, llvm::Value *mapValue, unsigned laneIdx = 0);
 
     llvm::BasicBlock *getVectorBlock(llvm::BasicBlock &ScaBlock,
-                                     bool LastBlock) const;
+                                     bool LastBlock);
     llvm::Value *getVectorValue(llvm::Value &ScaValue,
-                                bool getLastBlock = false) const;
+                                bool getLastBlock = false);
     template <typename CastType>
     CastType *getVectorValueAs(llvm::Value &ScaValue,
-                               bool getLastBlock = false) const {
+                               bool getLastBlock = false) {
       auto *VecVal = getVectorValue(ScaValue, getLastBlock);
       if (!VecVal)
         return nullptr;
       return llvm::cast<CastType>(VecVal);
     }
-    llvm::Value *getScalarValue(llvm::Value &ScaValue, unsigned laneIdx = 0) const;
+    llvm::Value *getScalarValue(llvm::Value &ScaValue, unsigned laneIdx = 0);
     template <typename CastClass>
-    CastClass *getScalarValueAs(llvm::Value &ScaValue,
-                                unsigned laneIdx = 0) const {
+    CastClass *getScalarValueAs(llvm::Value &ScaValue, unsigned laneIdx = 0) {
       auto VecVal = getScalarValue(ScaValue, laneIdx);
       if (!VecVal)
         return nullptr;
@@ -130,13 +127,12 @@ namespace rv {
     BasicBlockVector getMappedBlocks(llvm::BasicBlock *const bb);
 
   private:
-    llvm::Type* vectorizeType(llvm::Type *ScaTy);
     void vectorize(llvm::BasicBlock *const bb, llvm::BasicBlock *vecBlock);
     void vectorizeInstruction(llvm::Instruction *const inst);
     void vectorizePHIInstruction(llvm::PHINode *const scalPhi);
     void vectorizeMemoryInstruction(llvm::Instruction *const inst);
     void vectorizeCallInstruction(llvm::CallInst *const scalCall);
-    void vectorizeMaskReductionCall(llvm::CallInst *rvCall, RVIntrinsic MaskIntrin);
+    void vectorizeReductionCall(llvm::CallInst *rvCall, bool isRv_all);
     void vectorizeExtractCall(llvm::CallInst *rvCall);
     void vectorizeInsertCall(llvm::CallInst *rvCall);
     void vectorizeLoadCall(llvm::CallInst *rvCall);
@@ -147,6 +143,8 @@ namespace rv {
     void vectorizeAlignCall(llvm::CallInst *rvCall);
     void vectorizeIndexCall(llvm::CallInst & rvCall);
     void vectorizeCompactCall(llvm::CallInst * rvCall);
+    void vectorizeLaneIDCall(llvm::CallInst *rvCall);
+    void vectorizeNumLanesCall(llvm::CallInst *rvCall);
 
     void vectorizeAtomicRMW(llvm::AtomicRMWInst *const atomicrmw);
 
@@ -156,7 +154,7 @@ namespace rv {
     void vectorizeAlloca(llvm::AllocaInst *const allocaInst);
 
     // implement the mask summary function @mode (ballot/popcount) of @vecVal with @builder
-    llvm::Value* createVectorMaskSummary(Mask vecMask, rv::RVIntrinsic mode, llvm::Type * indexTy = nullptr);
+    llvm::Value* createVectorMaskSummary(llvm::Type & indexTy, llvm::Value * vecVal, llvm::IRBuilder<> & builder, rv::RVIntrinsic mode);
 
     void copyInstruction(llvm::Instruction *const inst, unsigned laneIdx = 0);
     void copyCallInstruction(llvm::CallInst *const scalCall, unsigned laneIdx = 0);
@@ -170,20 +168,18 @@ namespace rv {
                          unsigned laneIdx = 0);
 
     llvm::SmallPtrSet<llvm::Instruction *, 16> keepScalar;
+    llvm::DenseMap<unsigned, llvm::Function *> cascadeLoadMap;
+    llvm::DenseMap<unsigned, llvm::Function *> cascadeStoreMap;
     llvm::DenseMap<const llvm::Value *, llvm::Value *> vectorValueMap;
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
     std::map<const llvm::Type *, rv::MemoryAccessGrouper> grouperMap;
-    std::map<std::pair<Mask, int>, llvm::Value*> MaskLaneMap;
     std::vector<llvm::PHINode *> phiVector;
+    std::deque<llvm::Instruction *> lazyInstructions;
 
-    // request the vector version of a given mask
-    Mask requestVectorized(Mask ScaMask);
-
-    // request the mask bit for lane \p Lane in block \p ScaBlock.
-    llvm::Value* requestLanePredicate(const llvm::BasicBlock &ScaBlock, int Lane);
-    // request a vector bit mask for block \p ScaBlock.
-    Mask requestVectorMask(const llvm::BasicBlock& ScaBlock);
+    void addLazyInstruction(llvm::Instruction *const instr);
+    void requestLazyInstructions(llvm::Instruction *const upToInstruction);
+    llvm::Value* requestVectorPredicate(const llvm::BasicBlock& scaBlock);
     llvm::Value *requestVectorValue(llvm::Value *const value);
     void SetInsertPointAfterMappedInst(llvm::IRBuilder<> & builder, llvm::Instruction * mappedInst);
     llvm::Value *requestScalarValue(llvm::Value *const value, unsigned laneIdx = 0,
@@ -194,6 +190,14 @@ namespace rv {
     llvm::Value *requestVectorBitCast(llvm::BitCastInst *const bc);
     llvm::Value *requestScalarBitCast(llvm::BitCastInst *const bc, unsigned laneIdx, bool skipMapping);
 
+    llvm::Value *requestInterleavedGEP(llvm::GetElementPtrInst *const gep, unsigned interleavedIdx);
+    llvm::Value *requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, llvm::Type *const vecType);
+
+    llvm::Value *requestCascadeLoad(llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
+    llvm::Value *requestCascadeStore(llvm::Value *vecVal, llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
+    llvm::Function *createCascadeMemory(llvm::VectorType *pointerVectorType, unsigned alignment,
+                                        llvm::VectorType *maskType, bool store);
+
     llvm::Value* getSplat(llvm::Constant* Elt);
     void mapCascadeFunction(unsigned bitWidth, llvm::Function *function, bool store);
     llvm::Function *getCascadeFunction(unsigned bitWidth, bool store);
@@ -201,7 +205,7 @@ namespace rv {
     llvm::Value& widenScalar(llvm::Value & scaValue, VectorShape vecShape);
     bool hasUniformPredicate(const llvm::BasicBlock & BB) const;
     llvm::Value *createPTest(llvm::Value *vector, bool isRv_all);
-    Mask maskInactiveLanes(llvm::Value &ScaPredValue, const llvm::BasicBlock  &Block, bool InvertArg);
+    llvm::Value *maskInactiveLanes(llvm::Value *const value, const llvm::BasicBlock* const block, bool invert);
 
     int vectorWidth() const;
 
@@ -213,34 +217,24 @@ namespace rv {
     void requestVectorCallArgs(llvm::CallInst & scaCall, llvm::Function & vecCall, int maskPos, std::vector<llvm::Value*> & vectorArgs);
 
     // a varying value is stored to a uniform ptr (under a predicate)
-    llvm::Value *createVaryingToUniformStore(llvm::Instruction *inst, llvm::Type *accessedType, unsigned int alignment, llvm::Value *addr, Mask vecMask, llvm::Value *values);
+    llvm::Value *createVaryingToUniformStore(llvm::Instruction *inst, llvm::Type *accessedType, llvm::Align alignment, llvm::Value *addr, llvm::Value *mask, llvm::Value *values);
 
     // guard the code generated by @genFunc in a rv_any(ptest) on the predicate (if required).
     // if (p) { %phi = <genFunc> };
     // this will omit the guard if \p instNeedsGuard is false.
-    llvm::Value &
-    createAnyGuard(bool instNeedsGuard, llvm::BasicBlock &SrcBlock,
-                   bool producesValue,
-                   std::function<llvm::Value *(llvm::IRBuilder<> &)> genFunc);
+    llvm::Value &createAnyGuard(bool instNeedsGuard, llvm::BasicBlock & srcBlock, llvm::Instruction & inst, bool producesValue, std::function<llvm::Value*(llvm::IRBuilder<>&)> genFunc);
 
     // a uniform value is stored to a uniform ptr (with a predicate)
-    llvm::Value *createUniformMaskedMemory(llvm::Instruction *scaInst,
-                                           llvm::Type *accessedType,
-                                           llvm::MaybeAlign AlignOpt,
-                                           llvm::Value *vecBasePtr,
-                                           llvm::Value *vecValues);
+    llvm::Value *createUniformMaskedMemory(llvm::Instruction *inst, llvm::Type *accessedType, llvm::Align alignment,
+                                           llvm::Value *addr, llvm::Value * scalarMask, llvm::Value *vectorMask, llvm::Value *values);
 
-    llvm::Value *createVaryingMemory(llvm::Type *vecType, llvm::Align alignment, llvm::Value *addr, Mask vecMask,
+    llvm::Value *createVaryingMemory(llvm::Type *vecType, llvm::Align alignment, llvm::Value *addr, llvm::Value *mask,
                                      llvm::Value *values);
+    void createInterleavedMemory(llvm::Type *vecType, llvm::Align alignment, std::vector<llvm::Value *> *addr, std::vector<llvm::Value *> *mask,
+                                     std::vector<llvm::Value *> *values, std::vector<llvm::Value *> *srcs);
 
-    llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, llvm::Align alignment, Mask vecMask);
-    llvm::Value *createStridedStore(llvm::Value *val, llvm::Value *ptr,
-                                    llvm::Align alignment, Mask vecMask,
-                                    int64_t Stride);
-    llvm::Value *createContiguousLoad(llvm::Value *ptr, llvm::Align alignment, Mask vecMask, llvm::Value *passThru);
-    llvm::Value *createStridedLoad(llvm::Value *ptr, llvm::Align alignment,
-                                   Mask vecMask, llvm::Value *passThru,
-                                   int64_t Stride);
+    llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, llvm::Align alignment, llvm::Value *mask);
+    llvm::Value *createContiguousLoad(llvm::Value *ptr, llvm::Align alignment, llvm::Value *mask, llvm::Value *passThru);
 
     void visitMemInstructions();
 

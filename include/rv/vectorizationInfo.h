@@ -11,18 +11,19 @@
 #define INCLUDE_RV_VECTORIZATIONINFO_H_
 
 namespace llvm {
-  class LLVMContext;
-  class BasicBlock;
-  class Instruction;
-  class Value;
+class LLVMContext;
+class BasicBlock;
+class Instruction;
+class Value;
 } // namespace llvm
 
 #include "region/Region.h"
-#include "rv/Mask.h"
 #include "rv/shape/vectorShape.h"
 #include "rv/vectorMapping.h"
+
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/ValueHandle.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <set>
@@ -37,9 +38,6 @@ class Region;
 class VectorizationInfo {
   const llvm::DataLayout &DL;
 
-  // TODO infer AVL from guard branch in the future.
-  llvm::Value * EntryAVL;
-
   // analysis context
   Region &region;
   VectorMapping mapping;
@@ -52,7 +50,8 @@ class VectorizationInfo {
 
   // basic block properties // TODO fuse into struct
   // materialized basic block predicates
-  std::unordered_map<const llvm::BasicBlock*, Mask> masks;
+  std::unordered_map<const llvm::BasicBlock *, llvm::TrackingVH<llvm::Value>>
+      predicates;
   // whether the block is the exit of a divergent loop exit
   std::set<const llvm::BasicBlock *> DivergentLoopExits;
   // whether the block is a join point of disjoint paths from a varying branch
@@ -62,9 +61,6 @@ class VectorizationInfo {
 
   // fixed shapes (will be preserved through VA)
   std::set<const llvm::Value *> pinned;
-
-  // internal helper
-  Mask& requestMask(const llvm::BasicBlock & block);
 
 public:
   VectorizationInfo(Region &region, VectorMapping _mapping);
@@ -80,9 +76,6 @@ public:
   bool inRegion(const llvm::Instruction &inst) const;
   bool inRegion(const llvm::BasicBlock &block) const;
   llvm::BasicBlock &getEntry() const;
-
-  void setEntryAVL(llvm::Value * NewAVL) { EntryAVL = NewAVL; }
-  llvm::Value* getEntryAVL() const { return EntryAVL; }
 
   // disjoin path divergence
   bool isJoinDivergent(const llvm::BasicBlock &JoinBlock) const {
@@ -125,11 +118,9 @@ public:
   // get the shape of @val observerd in the defining block of @val (if it is an
   // instruction).
   VectorShape getVectorShape(const llvm::Value &val) const;
-  VectorShape getVectorShape(const Mask &M) const;
   bool hasKnownShape(const llvm::Value &val) const;
 
   void setVectorShape(const llvm::Value &val, VectorShape shape);
-  // void setVectorShape(const Mask &M, VectorShape S); // does not make sense, cannot ascribe shape
   void dropVectorShape(const llvm::Value &val);
 
   // drop all inferred information (everything except block predicated and pinned shapes)
@@ -142,20 +133,15 @@ public:
 
   // tentative block predicate shapes (whether the basic block predicate will be
   // varying or uniform)
-  // state can be unknown <returns false, flag& unaltered>, varying (returns true, oIsVarying is true or uniform (returns true, oIsVarying is false)
-  bool getVaryingPredicateFlag(const llvm::BasicBlock &BB, bool & oIsVarying) const; // TODO rename to setCMaskShape()
-  void setVaryingPredicateFlag(const llvm::BasicBlock &, bool toVarying); // TODO rename to getCMaskShape()
-  void removeVaryingPredicateFlag(const llvm::BasicBlock &); // TODO rename to dropCMaskShape() == unknown control mask
-
-  // mask == i1 predicate X avl
-  bool hasMask(const llvm::BasicBlock & block) const;
-  const Mask& getMask(const llvm::BasicBlock & block) const;
-  void dropMask(const llvm::BasicBlock &block);
+  // state can be unknown <returns false>, varying (returns true, oIsVarying is true or uniform (returns true, oIsVarying is false)
+  bool getVaryingPredicateFlag(const llvm::BasicBlock &BB, bool & oIsVarying) const;
+  void setVaryingPredicateFlag(const llvm::BasicBlock &, bool toVarying);
+  void removeVaryingPredicateFlag(const llvm::BasicBlock &);
 
   // actual basic block predicates
-  void setMask(const llvm::BasicBlock &block, Mask NewMask);
   llvm::Value *getPredicate(const llvm::BasicBlock &block) const;
   void setPredicate(const llvm::BasicBlock &block, llvm::Value &predicate);
+  void dropPredicate(const llvm::BasicBlock &block);
   void remapPredicate(llvm::Value &dest, llvm::Value &old);
 
   // print
