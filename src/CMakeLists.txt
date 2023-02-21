@@ -64,7 +64,6 @@ set (RV_LIBRARY_OBJECTS
   native/Utils.cpp
   passes/AutoMathPass.cpp
   passes/LoopVectorizer.cpp
-  passes/OMPDeclutter.cpp
   passes/WFVPass.cpp
   passes/irPolisher.cpp
   passes/loopExitCanonicalizer.cpp

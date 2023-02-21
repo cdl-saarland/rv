@@ -30,7 +30,6 @@ using namespace llvm;
 namespace rv {
 
 void addPreparatoryLegacyPasses(legacy::PassManagerBase &PM) {
-  if (!CheckFlag("RV_NO_DECLUTTER")) PM.add(createOMPDeclutterLegacyPass());
   PM.add(createLICMPass());
   PM.add(createPromoteMemoryToRegisterPass());
   PM.add(createLoopSimplifyPass());

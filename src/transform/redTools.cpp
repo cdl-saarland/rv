@@ -47,12 +47,10 @@ CreateReductInst(IRBuilder<> & builder, RedKind redKind, Value & firstArg, Value
         return *cast<Instruction>(builder.CreateMul(&firstArg, &secondArg, secondArg.getName() + ".r"));
       }
 
-    case RedKind::FMax:
     case RedKind::UMax:
     case RedKind::SMax:
       return CreateMinMax(builder, firstArg, secondArg, false, redKind == RedKind::SMax);
 
-    case RedKind::FMin:
     case RedKind::UMin:
     case RedKind::SMin:
       return CreateMinMax(builder, firstArg, secondArg, true, redKind == RedKind::SMin);
@@ -76,7 +74,6 @@ GetScalarType(Value & val) {
   else return *valTy;
 }
 
-// TODO deprecate
 static
 Intrinsic::ID
 GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal) {
@@ -107,78 +104,6 @@ GetIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal) {
     case RedKind::SMin: return elemTy.isFloatingPointTy() ? Intrinsic::vector_reduce_fmin : Intrinsic::vector_reduce_smin;
     case RedKind::UMin: return elemTy.isFloatingPointTy() ? Intrinsic::vector_reduce_fmin : Intrinsic::vector_reduce_umin;
   }
-}
-
-
-static
-Intrinsic::ID
-GetMaskedIntrinsicID(RedKind kind, Type & elemTy, bool &oHasInitVal, bool & oRequiresRetTy) {
-  oHasInitVal = true;
-  oRequiresRetTy = false;
-  switch (kind) {
-    default:
-      return Intrinsic::not_intrinsic;
-    case RedKind::Add: {
-     if (elemTy.isFloatingPointTy()) {
-       oRequiresRetTy = true;
-       return Intrinsic::vp_reduce_fadd;
-     } else {
-       return Intrinsic::vp_reduce_add;
-     }
-    }
-    case RedKind::Mul: {
-     if (elemTy.isFloatingPointTy()) {
-       oRequiresRetTy = true;
-       return Intrinsic::vp_reduce_fadd;
-     } else {
-       return Intrinsic::vp_reduce_add;
-     }
-    }
-    case RedKind::And: return Intrinsic::vp_reduce_and;
-    case RedKind::Or: return Intrinsic::vp_reduce_or;
-    case RedKind::SMax: return elemTy.isFloatingPointTy() ? Intrinsic::vp_reduce_fmax : Intrinsic::vp_reduce_smax;
-    case RedKind::UMax: return elemTy.isFloatingPointTy() ? Intrinsic::vp_reduce_fmax : Intrinsic::vp_reduce_umax;
-    case RedKind::SMin: return elemTy.isFloatingPointTy() ? Intrinsic::vp_reduce_fmin : Intrinsic::vp_reduce_smin;
-    case RedKind::UMin: return elemTy.isFloatingPointTy() ? Intrinsic::vp_reduce_fmin : Intrinsic::vp_reduce_umin;
-  }
-}
-
-Value &
-CreateMaskedVectorReduce(Config & config, IRBuilder<> & builder, Mask vecMask, RedKind redKind, Value & vecVal, Value * initVal) {
-  unsigned vecWidth = cast<FixedVectorType>(vecVal.getType())->getNumElements();
-  auto & vecTy = *vecVal.getType();
-  auto & elemTy = *cast<VectorType>(vecTy).getElementType();
-
-// use LLVM's experimental intrinsics where possible
-  bool hasInitValArg = false; // whether the intrinsic has an initial value argument
-  bool requiresRetTy = false; // whether a disambiguating elem type token is required
-  Intrinsic::ID VPID = GetMaskedIntrinsicID(redKind, elemTy, hasInitValArg, requiresRetTy);
-  assert (VPID != Intrinsic::not_intrinsic);
-  auto & mod = *builder.GetInsertBlock()->getParent()->getParent();
-  
-  std::vector<Type*> reduceTypeVec;
-  if (requiresRetTy) reduceTypeVec.push_back(&elemTy); // return value
-  reduceTypeVec.push_back(&vecTy);
-  
-  auto & redFunc = *Intrinsic::getDeclaration(&mod, VPID, reduceTypeVec);
-  
-  Value * redVal = nullptr;
-  auto &vecPred = vecMask.requestPredAsValue(builder.getContext(), vecWidth);
-  auto &vecAVL = vecMask.requestAVLAsValue(builder.getContext());
-
-  if (hasInitValArg) {
-    Value * initArg = initVal ? initVal : &GetNeutralElement(redKind, elemTy);
-    return *builder.CreateCall(&redFunc, {initArg, &vecVal, &vecPred, &vecAVL}, "red" + to_string(redKind));
-  }
-  
-  assert(!hasInitValArg);
-  redVal = builder.CreateCall(&redFunc, {&vecVal, &vecPred, &vecAVL}, "red" + to_string(redKind));
-  // add init val (if applicable)
-  if (initVal && initVal != &GetNeutralElement(redKind, elemTy)) {
-    return CreateReductInst(builder, redKind, *redVal, *initVal);
-  }
-  
-  return *redVal;
 }
 
 // reduce the vector @vectorVal to a scalar value (using redKind)
@@ -271,12 +196,12 @@ CreateVectorReduce(Config & config, IRBuilder<> & builder, RedKind redKind, Valu
 
 Value &
 CreateExtract(IRBuilder<> & builder, Value & vecVal, int laneOffset) {
-  auto * vecTy = dyn_cast<FixedVectorType>(vecVal.getType());
+  auto * vecTy = dyn_cast<VectorType>(vecVal.getType());
   if (!vecTy) {
     return vecVal; //uniform value
   }
 
-  const int vectorWidth = vecTy->getNumElements();
+  const int vectorWidth = vecTy->getElementCount().getFixedValue();
   int laneIdx = laneOffset >= 0 ? laneOffset : vectorWidth + laneOffset;
   assert(laneIdx >= 0 && laneIdx < vectorWidth);
 

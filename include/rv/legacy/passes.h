@@ -28,7 +28,6 @@ void addCleanupLegacyPasses(llvm::legacy::PassManagerBase &);
 llvm::FunctionPass *createIRPolisherLegacyPass();
 llvm::FunctionPass *createLoopVectorizerLegacyPass();
 llvm::FunctionPass *createLowerRVIntrinsicsLegacyPass();
-llvm::FunctionPass *createOMPDeclutterLegacyPass();
 llvm::FunctionPass *createLoopExitCanonicalizerLegacyPass();
 llvm::ModulePass *createAutoMathLegacyPass();
 llvm::ModulePass *createWFVLegacyPass();

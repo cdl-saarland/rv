@@ -15,7 +15,6 @@
 
 #include "rv/passes/AutoMathPass.h"
 #include "rv/passes/LoopVectorizer.h"
-#include "rv/passes/OMPDeclutter.h"
 #include "rv/passes/WFVPass.h"
 #include "rv/passes/loopExitCanonicalizer.h"
 #include "rv/passes/lowerRVIntrinsics.h"
@@ -37,7 +36,6 @@ void addPreparatoryPasses(FunctionPassManager &FPM) {
   FPM.addPass(LCSSAPass());
   FPM.addPass(
       LoopExitCanonicalizerWrapperPass()); // required for divLoopTrans
-  if (!CheckFlag("RV_NO_DECLUTTER")) FPM.addPass(OMPDeclutterWrapperPass());
   // FPM.addPass(LICMPass());
 }
 

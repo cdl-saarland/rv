@@ -14,7 +14,6 @@
 #include <llvm/IR/Instruction.h>
 
 #include "rv/analysis/reductionAnalysis.h"
-#include "rv/Mask.h"
 
 namespace rv {
 
@@ -25,7 +24,6 @@ llvm::Instruction& CreateReductInst(llvm::IRBuilder<> & builder, RedKind redKind
 
 // reduce the vector @vectorVal to a scalar value (using redKind)
 llvm::Value & CreateVectorReduce(Config & config, llvm::IRBuilder<> & builder, RedKind redKind, llvm::Value & vectorVal, llvm::Value * initVal);
-llvm::Value & CreateMaskedVectorReduce(Config & config, llvm::IRBuilder<> & builder, Mask vecMask, RedKind redKind, llvm::Value & vectorVal, llvm::Value * initVal);
 
 // if laneOffset is >= 0 create an extract from that offset, if laneOffset < 0 add the vector width first
 // will return @vecVal if it is not a vector (uniform value)
