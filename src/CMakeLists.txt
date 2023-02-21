@@ -33,8 +33,6 @@ IF (RV_REBUILD_GENBC)
 endif()
 
 set (RV_LIBRARY_OBJECTS
-  ./Mask.cpp
-  ./MaskBuilder.cpp
   ./PlatformInfo.cpp
   ./annotations.cpp
   ./config.cpp
