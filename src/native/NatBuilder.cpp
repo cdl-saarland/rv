@@ -1754,7 +1754,8 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   bool needsMask = predicate && !vecInfo.getVectorShape(*predicate).isUniform();
 
   // uniform loads from allocations do not need a mask!
-  if (needsMask && load && GetUnderlyingAlloca(accessedPtr)) {
+  auto alloca = GetUnderlyingAlloca(accessedPtr);
+  if (needsMask && load && alloca && vecInfo.getVectorShape(*alloca).isUniform()) {
     needsMask = false;
   }
 

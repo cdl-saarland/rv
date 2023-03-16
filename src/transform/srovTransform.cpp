@@ -482,10 +482,11 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
   if (ptrElemTy->isStructTy()) {
     auto * intTy = Type::getInt32Ty(builder.getContext());
     size_t n = ptrElemTy->getStructNumElements();
+
     for (size_t i = 0; i < n; i++) {
       // load every member
       auto *ElemTy = ptrElemTy->getStructElementType(i);
-      auto * elemGep = builder.CreateGEP(ElemTy, ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
+      auto * elemGep = builder.CreateGEP(ptrElemTy, ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
       vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
       flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
     }

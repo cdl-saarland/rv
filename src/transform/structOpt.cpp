@@ -228,7 +228,7 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       auto ptrType = cast<PointerType>(vecBasePtr->getType()->getScalarType());
       Type * pointeeType = nullptr;
       if (!ptrType->isOpaque())
-          ptrType->getElementType();
+          pointeeType = ptrType->getElementType();
 
       auto * vecGep = GetElementPtrInst::Create(pointeeType, vecBasePtr, indexVec, gep->getName(), gep);
 
