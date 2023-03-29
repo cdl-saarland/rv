@@ -1562,7 +1562,9 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
 
     auto & vecCall = createAnyGuard(needsGuardedCall, *scalCall->getParent(), *scalCall, producesValue,
       [&](IRBuilder<> & builder) {
-        return builder.CreateCall(&simdFunc, vectorArgs, callName);
+        auto *call = builder.CreateCall(&simdFunc, vectorArgs, callName);
+        call->setCallingConv(simdFunc.getCallingConv());
+        return call;
       });
 
     if (producesValue) { vecCall.setName(scalCall->getName() + ".mapped"); }
@@ -1605,6 +1607,7 @@ NatBuilder::vectorizeCallInstruction(CallInst *const scalCall) {
         CallInst *call = cast<CallInst>(scalCall->clone());
         call->mutateType(simdFunc.getReturnType());
         call->setCalledFunction(&simdFunc);
+        call->setCallingConv(simdFunc.getCallingConv());
 
         // insert arguments into call
         for (unsigned j = 0; j < scalCall->arg_size(); ++j) {
