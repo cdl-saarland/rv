@@ -112,7 +112,7 @@ if (RV_REBUILD_GENBC AND LLVM_RVPLUG_LINK_INTO_TOOLS)
   message(FATAL_ERROR "Cannot set RV_REBUILD_GENBC and LLVM_RVPLUG_LINK_INTO_TOOLS at the same time. If you want to update the vecmath bitcode files and buffers, (temporarily) disable LLVM_RVPLUG_LINK_INTO_TOOLS, compile LLVM and copy the BUILD/tools/rv/lib/*.gen.cpp files to rv/vecmath/prebuilt_genbc/.")
 endif()
 
-OPTION(RV_ENABLE_VP "(experimental) Use LLVM-VP (Vector Predication) (https://reviews.llvm.org/D57504)." ON)
+OPTION(RV_ENABLE_VP "(experimental) Use LLVM-VP (Vector Predication) (https://reviews.llvm.org/D57504)." OFF)
 
 set(RV_TARGETS_TO_BUILD "Native" CACHE STRING "Semicolon-separated list of targets to build, or 'Native'.")
 string(REPLACE "Native" ${LLVM_NATIVE_ARCH} RV_TARGETS_TO_BUILD "${RV_TARGETS_TO_BUILD}")
