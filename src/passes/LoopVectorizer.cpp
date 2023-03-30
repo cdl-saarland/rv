@@ -775,9 +775,6 @@ LoopVectorizer::LoopVectorizer(Function &F, TargetTransformInfo &PassTTI,
 bool LoopVectorizer::run() {
   if (getenv("RV_DISABLE"))
     return false;
-  // Only ever use RV for VE.
-  if (!RVConfig.useVE)
-    return false;
 
   if (enableDiagOutput)
     Report() << "loopVecPass: run on " << F.getName() << "\n";
@@ -889,6 +886,5 @@ LoopVectorizerWrapperPass::run(llvm::Function &F,
   LoopVectorizer LoopVec(F, TTI, TLI, ORE);
   if (LoopVec.run())
     return llvm::PreservedAnalyses::none();
-  else
-    return llvm::PreservedAnalyses::all();
+  return llvm::PreservedAnalyses::all();
 }
