@@ -149,7 +149,7 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
   }
 
   // cast *<8 x float> to * float
-  auto * vecElemTy = cast<VectorType>(vecPtrVal->getType()->getPointerElementType());
+  auto * vecElemTy = FixedVectorType::get(scalarTy, vecInfo.getVectorWidth());
   auto * plainElemTy = vecElemTy->getElementType();
 
   auto * castElemTy = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
@@ -212,7 +212,8 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       assert (transformMap.count(ptrVal));
       Value * vecPtrVal = transformMap[ptrVal];
 
-      transformLoadStore(builder, true, inst, ptrVal->getType()->getPointerElementType(), vecPtrVal, storeVal);
+      auto targetType = load ? load->getType() : store->getValueOperand()->getType();
+      transformLoadStore(builder, true, inst, targetType, vecPtrVal, storeVal);
 
       continue; // don't step across load/store
 
@@ -225,10 +226,7 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
         indexVec.push_back(gep->getOperand(i));
       }
 
-      auto ptrType = cast<PointerType>(vecBasePtr->getType()->getScalarType());
-      Type * pointeeType = nullptr;
-      if (!ptrType->isOpaque())
-          pointeeType = ptrType->getElementType();
+      auto * pointeeType = vectorizeType(*gep->getSourceElementType());
 
       auto * vecGep = GetElementPtrInst::Create(pointeeType, vecBasePtr, indexVec, gep->getName(), gep);
 
@@ -501,7 +499,7 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
 
 bool
 StructOpt::shouldPromote(llvm::AllocaInst & allocaInst) {
-  if (!IsDecomposable(*allocaInst.getType()->getPointerElementType())) return false;
+  if (!IsDecomposable(*allocaInst.getAllocatedType())) return false;
 
 // check that the alloca is only ever accessed as a whole (no GEPs)
   for (auto & use : allocaInst.uses()) {
@@ -587,7 +585,7 @@ StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
 
   // align at least to vector size
   vecAlloc->setAlignment(
-      Align(vecInfo.getVectorWidth() * allocaInst.getAlignment()));
+      Align(vecInfo.getVectorWidth() * allocaInst.getAlign().value()));
 
   const unsigned alignment = layout.getPrefTypeAlignment(vecAllocTy); // TODO should enfore a stricter alignment at this point
   vecInfo.setVectorShape(*vecAlloc, VectorShape::uni(alignment));

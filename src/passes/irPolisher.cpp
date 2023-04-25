@@ -453,7 +453,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     auto newValue = getConditionFromMask(builder, valueMask);
     auto newStore = builder.CreateStore(newValue, storeInst->getOperand(1));
 //
-    newStore->setAlignment(llvm::Align(storeInst->getAlignment()));
+    newStore->setAlignment(llvm::Align(storeInst->getAlign()));
     newStore->setVolatile(storeInst->isVolatile());
     newStore->setOrdering(storeInst->getOrdering());
     newStore->setSyncScopeID(storeInst->getSyncScopeID());
@@ -463,7 +463,7 @@ Value *IRPolisher::getMaskForInst(Instruction *inst, unsigned bitWidth) {
     auto ptr = loadInst->getOperand(0);
     auto newLoad = builder.CreateLoad(loadInst->getType(), ptr);
 
-    newLoad->setAlignment(llvm::Align(loadInst->getAlignment()));
+    newLoad->setAlignment(llvm::Align(loadInst->getAlign()));
     newLoad->setVolatile(loadInst->isVolatile());
     newLoad->setOrdering(loadInst->getOrdering());
     newLoad->setSyncScopeID(loadInst->getSyncScopeID());

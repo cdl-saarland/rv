@@ -783,8 +783,8 @@ bool IsVectorizableTy(const Type & ty) {
 }
 
 void NatBuilder::vectorizeAlloca(AllocaInst *const allocaInst) {
-  auto allocAlign = allocaInst->getAlignment();
-  auto * allocTy = allocaInst->getType()->getElementType();
+  auto allocAlign = allocaInst->getAlign();
+  auto * allocTy = allocaInst->getAllocatedType();
 
   ++numSlowAllocas;
 
@@ -1114,7 +1114,8 @@ NatBuilder::vectorizeLoadCall(CallInst *rvCall) {
 // non-uniform arg
     auto * vecVal = requestVectorValue(vecPtr);
     auto * lanePtr = builder.CreateExtractElement(vecVal, laneId, "rv_load");
-    laneVal = builder.CreateLoad(lanePtr->getType()->getPointerElementType(), lanePtr, "rv_load");
+    auto * targetType = rvCall->getType();
+    laneVal = builder.CreateLoad(targetType, lanePtr, "rv_load");
   }
 
   if (vecInfo.getVectorShape(*rvCall).isUniform()) {
@@ -1445,8 +1446,10 @@ NatBuilder::vectorizeCompactCall(CallInst *rvCall) {
   auto vecWidth = cast<FixedVectorType>(maskVal->getType())->getNumElements();
   auto tableIndex = createVectorMaskSummary(*rvCall->getType(), maskVal, builder, RVIntrinsic::Ballot);
   auto table = createCompactLookupTable(vecWidth);
-  auto gepPtr = builder.CreateInBoundsGEP(table->getType()->getPointerElementType(), table, { builder.getInt32(0), tableIndex });
-  auto indices = builder.CreateLoad(gepPtr->getType()->getPointerElementType(), gepPtr, "rv_compact_indices");
+  auto intVecType = FixedVectorType::get(builder.getInt32Ty(), vecWidth);
+  auto intVecArrayType = ArrayType::get(intVecType, vecWidth * vecWidth);
+  auto gepPtr = builder.CreateInBoundsGEP(intVecArrayType, table, { builder.getInt32(0), tableIndex });
+  auto indices = builder.CreateLoad(intVecType, gepPtr, "rv_compact_indices");
   Value * compacted = UndefValue::get(vecVal->getType());
   for (size_t i = 0; i < vecWidth; ++i) {
     auto index = builder.CreateExtractElement(indices, builder.getInt32(i), "rv_compact_index");
@@ -1745,7 +1748,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     accessedPtr = store->getPointerOperand();
   }
 
-  assert(accessedType == cast<PointerType>(accessedPtr->getType())->getElementType() &&
+  assert(cast<PointerType>(accessedPtr->getType())->isOpaqueOrPointeeTypeMatches(accessedType) &&
          "accessed type and pointed object type differ!");
   assert(vecInfo.hasKnownShape(*accessedPtr) && "no shape for accessed pointer!");
   VectorShape addrShape = getVectorShape(*accessedPtr);
@@ -1774,6 +1777,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   // varying: varying vector GEP
 
   std::vector<Value *> addr;
+  std::vector<Type *> addrTypess;
   std::vector<Value *> srcs;
   std::vector<Value *> masks;
   llvm::Align alignment;
@@ -1783,6 +1787,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   if (addrShape.isUniform()) {
     // scalar access
     addr.push_back(requestScalarValue(accessedPtr));
+    addrTypess.push_back(accessedType);
     alignment = llvm::Align(addrShape.getAlignmentFirst());
 
   } else if ((addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !(needsMask && !config.enableMaskedMove)) {
@@ -1791,6 +1796,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     auto & ptrTy = *cast<PointerType>(ptr->getType());
     PointerType *vecPtrType = vecType->getPointerTo(ptrTy.getAddressSpace());
     addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
+    addrTypess.push_back(vecType);
     alignment = llvm::Align(addrShape.getAlignmentFirst());
 
   } else if ((addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) && !(needsMask && !config.enableMaskedMove)) {
@@ -1799,6 +1805,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     for (unsigned i = 0; i < srcs.size(); ++i) {
       Value *ptr = requestInterleavedAddress(srcPtr, i, vecType);
       addr.push_back(ptr);
+      addrTypess.push_back(accessedType);
       if (needsMask)
         masks.push_back(mask);
     }
@@ -1807,6 +1814,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
   } else {
     addr.push_back(requestVectorValue(accessedPtr));
+    addrTypess.push_back(vecType);
     alignment = llvm::Align(addrShape.getAlignmentGeneral());
   }
 
@@ -1821,13 +1829,16 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
 
     } else if (((addrShape.isUniform() || addrShape.isContiguous() || addrShape.isStrided(byteSize))) && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() == 1 && "multiple addresses for single access!");
-      vecMem = createContiguousLoad(addr[0], alignment, needsMask ? mask : nullptr, UndefValue::get(vecType));
+      assert(addrTypess.size() == 1 && "multiple address types for single access!");
+
+      auto targetType = addrTypess[0];
+      vecMem = createContiguousLoad(targetType, addr[0], alignment, needsMask ? mask : nullptr, UndefValue::get(vecType));
 
       addrShape.isUniform() ? ++numUniLoads : needsMask ? ++numContMaskedLoads : ++numContLoads;
 
     } else if (interleaved && !(needsMask && !config.enableMaskedMove)) {
       assert(addr.size() > 1 && "only one address for multiple accesses!");
-      createInterleavedMemory(vecType, alignment, &addr, &masks, nullptr, &srcs);
+      createInterleavedMemory(load->getType(), vecType, alignment, &addr, &masks, nullptr, &srcs);
 
     } else {
       assert(addr.size() == 1 && "multiple addresses for single access!");
@@ -1887,7 +1898,7 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
         Value *val = requestVectorValue(srcVal);
         vals.push_back(val);
       }
-      createInterleavedMemory(vecType, alignment, &addr, &masks, &vals, &srcs);
+      createInterleavedMemory(store->getValueOperand()->getType(), vecType, alignment, &addr, &masks, &vals, &srcs);
 
     } else {
       assert(addr.size() == 1 && "multiple addresses for single access!");
@@ -2052,7 +2063,7 @@ Value *NatBuilder::createUniformMaskedMemory(Instruction *inst, Type *accessedTy
       vecMem = builder.CreateStore(values, addr);
       cast<StoreInst>(vecMem)->setAlignment(llvm::Align(alignment));
     } else {
-      vecMem = builder.CreateLoad(addr->getType()->getPointerElementType(), addr, "scal_mask_mem");
+      vecMem = builder.CreateLoad(accessedType, addr, "scal_mask_mem");
       cast<LoadInst>(vecMem)->setAlignment(llvm::Align(alignment));
     }
     return vecMem;
@@ -2084,7 +2095,7 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, llvm::Align alignment, Val
     return scatter ? requestCascadeStore(values, addr, alignment.value(), mask) : requestCascadeLoad(addr, alignment.value(), mask);
 }
 
-void NatBuilder::createInterleavedMemory(Type *vecType, llvm::Align alignment, std::vector<Value *> *addr, std::vector<Value *> *masks,
+void NatBuilder::createInterleavedMemory(Type *targetType, Type *vecType, llvm::Align alignment, std::vector<Value *> *addr, std::vector<Value *> *masks,
                                          std::vector<Value *> *values, std::vector<Value *> *srcs) {
 
   unsigned stride = (unsigned) addr->size();
@@ -2112,7 +2123,7 @@ void NatBuilder::createInterleavedMemory(Type *vecType, llvm::Align alignment, s
     }
 
     if (load) {
-      vecMem = createContiguousLoad(ptr, alignment, mask, UndefValue::get(vecType));
+      vecMem = createContiguousLoad(targetType, ptr, alignment, mask, UndefValue::get(vecType));
       transposer.add(vecMem);
     } else {
       Value *val = transposer.shuffleToInterleaved(builder, stride, i);
@@ -2142,13 +2153,11 @@ Value *NatBuilder::createContiguousStore(Value *val, Value *ptr, llvm::Align ali
   }
 }
 
-Value *NatBuilder::createContiguousLoad(Value *ptr, llvm::Align alignment, Value *mask, Value *passThru) {
-  auto target_type = ptr->getType()->getPointerElementType();
-
+Value *NatBuilder::createContiguousLoad(Type *targetType, Value *ptr, llvm::Align alignment, Value *mask, Value *passThru) {
   if (mask) {
-    return builder.CreateMaskedLoad(target_type, ptr, alignment, mask, passThru, "cont_load");
+    return builder.CreateMaskedLoad(targetType, ptr, alignment, mask, passThru, "cont_load_masked");
   } else {
-    LoadInst *load = builder.CreateLoad(target_type, ptr, "cont_load");
+    LoadInst *load = builder.CreateLoad(targetType, ptr, "cont_load");
     load->setAlignment(llvm::Align(alignment));
     return load;
   }
@@ -2487,13 +2496,18 @@ NatBuilder::buildGEP(GetElementPtrInst *const gep, bool buildScalar, unsigned la
   // first, we need a vectorized base vecValue (or scalar if all_uniform). then, we have to calculate the indices
   // we need vector values if something is not all_uniform. we need to extract an dimension if !buildAllDimensions
   Value *basePtr = gep->getPointerOperand();
+  Type *basePtrElementType = gep->getSourceElementType();
   VectorShape basePtrShape = getVectorShape(*basePtr);
 
   Value *vecBasePtr;
-  if (buildScalar || basePtrShape.isUniform())
+  Type *vecBasePtrElementType;
+  if (buildScalar || basePtrShape.isUniform()) {
     vecBasePtr = requestScalarValue(basePtr, laneIdx);
-  else
+    vecBasePtrElementType = basePtrElementType;
+  } else {
     vecBasePtr = requestVectorValue(basePtr);
+    vecBasePtrElementType = basePtrElementType;
+  }
 
   std::vector<Value *> idxList;
   idxList.reserve(gep->getNumIndices());
@@ -2511,7 +2525,7 @@ NatBuilder::buildGEP(GetElementPtrInst *const gep, bool buildScalar, unsigned la
     idxList.push_back(vecIdx);
   }
 
-  Value * vecGEP = builder.CreateGEP(vecBasePtr->getType()->getScalarType()->getPointerElementType(), vecBasePtr, idxList, gep->getName());
+  Value * vecGEP = builder.CreateGEP(vecBasePtrElementType, vecBasePtr, idxList, gep->getName());
   auto * vecGEPInst = dyn_cast<GetElementPtrInst>(vecGEP);
   if (vecGEPInst) {
     vecGEPInst->setIsInBounds(gep->isInBounds());
@@ -2678,7 +2692,7 @@ NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interlea
 llvm::Value *
 NatBuilder::requestCascadeLoad(Value *vecPtr, unsigned alignment, Value *mask) {
   Type *elementPtrType = cast<VectorType>(vecPtr->getType())->getElementType();
-  Type *accessedType = cast<PointerType>(elementPtrType)->getElementType();
+  Type *accessedType = cast<PointerType>(elementPtrType)->getPointerElementType();
   unsigned bitWidth = accessedType->getScalarSizeInBits();
 
   Function *func = getCascadeFunction(bitWidth, false);
@@ -2751,7 +2765,7 @@ Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigne
   IRBuilder<> builder(mod->getContext());
 
   // create function
-  Type *accessedType = cast<PointerType>(pointerVectorType->getElementType())->getElementType();
+  Type *accessedType = cast<PointerType>(pointerVectorType->getElementType())->getPointerElementType();
   Type *resType = store ? Type::getVoidTy(mod->getContext()) : getVectorType(accessedType, vectorWidth());
   std::vector<Type *> argTypes;
   if (store) {

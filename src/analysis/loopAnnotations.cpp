@@ -8,6 +8,7 @@
 
 #include "rv/analysis/loopAnnotations.h"
 
+#include <llvm/IR/Constants.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/Analysis/LoopInfo.h>
 

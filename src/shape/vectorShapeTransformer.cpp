@@ -18,6 +18,7 @@
 #include <llvm/IR/IntrinsicInst.h>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/Operator.h>
 
 using namespace rv;
 using namespace llvm;
@@ -60,10 +61,12 @@ static Type* getElementType(Type* Ty) {
     return VecTy->getElementType();
   }
   if (auto PtrTy = dyn_cast<PointerType>(Ty)) {
-    return PtrTy->getElementType();
+    if (PtrTy->isOpaque())
+        return nullptr;
+    return PtrTy->getNonOpaquePointerElementType();
   }
   if (auto ArrTy = dyn_cast<ArrayType>(Ty)) {
-    return ArrTy->getElementType();
+    return ArrTy->getArrayElementType();
   }
   return nullptr;
 }
@@ -186,9 +189,15 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
       const Value* pointer = gep.getPointerOperand();
 
       VectorShape result = getObservedShape(BB, *pointer);
-      Type* subT = gep.getPointerOperandType();
+      Type* subT = gep.getSourceElementType();
+      auto begin = gep.idx_begin();
+      {
+          const size_t typeSizeInBytes = (size_t)layout.getTypeStoreSize(subT);
+          result = result + typeSizeInBytes * getObservedShape(BB, *begin->get());
+      }
+      begin++;
 
-      for (const Value* index : make_range(gep.idx_begin(), gep.idx_end())) {
+      for (const Value* index : make_range(begin, gep.idx_end())) {
         if (StructType* Struct = dyn_cast<StructType>(subT)) {
           if (!isa<ConstantInt>(index)) return VectorShape::varying();
 

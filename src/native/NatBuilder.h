@@ -230,11 +230,11 @@ namespace rv {
 
     llvm::Value *createVaryingMemory(llvm::Type *vecType, llvm::Align alignment, llvm::Value *addr, llvm::Value *mask,
                                      llvm::Value *values);
-    void createInterleavedMemory(llvm::Type *vecType, llvm::Align alignment, std::vector<llvm::Value *> *addr, std::vector<llvm::Value *> *mask,
+    void createInterleavedMemory(llvm::Type *targetType, llvm::Type *vecType, llvm::Align alignment, std::vector<llvm::Value *> *addr, std::vector<llvm::Value *> *mask,
                                      std::vector<llvm::Value *> *values, std::vector<llvm::Value *> *srcs);
 
     llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, llvm::Align alignment, llvm::Value *mask);
-    llvm::Value *createContiguousLoad(llvm::Value *ptr, llvm::Align alignment, llvm::Value *mask, llvm::Value *passThru);
+    llvm::Value *createContiguousLoad(llvm::Type *targetType, llvm::Value *ptr, llvm::Align alignment, llvm::Value *mask, llvm::Value *passThru);
 
     void visitMemInstructions();
 

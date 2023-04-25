@@ -510,7 +510,7 @@ MaskExpander::expandRegionMasks() {
   for (auto & BB : vecInfo.getScalarFunction()) {
     auto blockMask = vecInfo.getPredicate(BB);
     if (blockMask && isa<Instruction>(blockMask)) {
-      auto simplMask = SimplifyInstruction(cast<Instruction>(blockMask), Q);
+      auto simplMask = simplifyInstruction(cast<Instruction>(blockMask), Q);
       if (simplMask) {
         vecInfo.setPredicate(BB, *simplMask);
 
