@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import print_function
 
+import asyncio
 
 from glob import glob
 from binaries import *
@@ -160,7 +161,7 @@ class TestFailure(Exception):
 class Toolchain(object):
 
     # @returns a runner for this test case (eg lambda function that returns a result on invocation)
-    def buildTestRunner(self, testCase, profileMode):
+    async def buildTestRunner(self, testCase, profileMode):
         return None
 
 
@@ -169,11 +170,11 @@ class HostClangToolchain(Toolchain):
     def __init__(self):
       self.clang = LLVMTools("-march=native -Iinclude -Wno-unused-command-line-argument")
 
-    def buildWFVTester(self, testCase, profileMode):
+    async def buildWFVTester(self, testCase, profileMode):
       destFile = testCase.getFilename('wfvLL')
       logPrefix = testCase.getFilename('wfvLogPrefix') + ".rvTool"
       scalarName = "foo"
-      ret = rvToolWFV(testCase.getFilename('scalarLL'), destFile,
+      ret = await rvToolWFV(testCase.getFilename('scalarLL'), destFile,
           scalarName, testCase.options, logPrefix)
       if ret != 0:
           raise TestFailure(rvToolReason, logPrefix)
@@ -187,25 +188,25 @@ class HostClangToolchain(Toolchain):
 
       caseName = primaryName(testBC)
       launcherBin = "./build/" + prefix + "_" + caseName + ".bin"
-      ok = self.clang.compileCPP(launcherBin, [testBC, launcherCpp], launcherCXXFlags) 
+      ok = await self.clang.compileCPP(launcherBin, [testBC, launcherCpp], launcherCXXFlags) 
       if not ok:
         raise TestFailure(launcherReason, None)
 
       return lambda: runWFVTester(launcherBin, profileMode)
 
 
-    def buildOuterLoopTester(self, testCase, profileMode):
+    async def buildOuterLoopTester(self, testCase, profileMode):
       prefix = "loopprofile" if profileMode else "loopverify"
 
       scalarLL = testCase.getFilename('scalarLL')
       vectorizedLL =  testCase.getFilename('loopLL')
       logPrefix = testCase.getFilename('loopLogPrefix') + ".rvTool"
       scalarName = "foo"
-      ret = rvToolOuterLoop(scalarLL, vectorizedLL, scalarName, testCase.options, logPrefix)
+      ret = await rvToolOuterLoop(scalarLL, vectorizedLL, scalarName, testCase.options, logPrefix)
       if 0 != ret: raise TestFailure(rvToolReason, logPrefix)
     
       optScalarLL = scalarLL[:-2] + "opt.ll"
-      ret = self.clang.optimizeIR(optScalarLL, scalarLL, "")
+      ret = await self.clang.optimizeIR(optScalarLL, scalarLL, "")
       if 0 != ret: raise TestFailure("optimizeIR failed", None)
     
       launcherCpp, launcherCXXFlags = testCase.requestLauncher(prefix, profileMode)
@@ -214,12 +215,12 @@ class HostClangToolchain(Toolchain):
 
       # build launcher binaries
       vecLauncherBin = "./build/" + prefix + "_" + caseName + ".rv.bin"
-      ok = self.clang.compileCPP(vecLauncherBin, [vectorizedLL, launcherCpp], launcherCXXFlags) # clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
+      ok = await self.clang.compileCPP(vecLauncherBin, [vectorizedLL, launcherCpp], launcherCXXFlags) # clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
       if not ok:
           raise TestFailure("compileCPP for vectorizedLL+launcher", None)
 
       scaLauncherBin = "./build/" + prefix + "_" + caseName + ".scalar.bin"
-      ok = self.clang.compileCPP(scaLauncherBin, [scalarLL, launcherCpp], launcherCXXFlags) # clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
+      ok = await self.clang.compileCPP(scaLauncherBin, [scalarLL, launcherCpp], launcherCXXFlags) # clangLine + " " + testBC + " " + launcherLL + " -o " + launcherBin)
       if not ok:
           raise TestFailure("compileCPP for scalarLL+launcher", None)
 
@@ -227,14 +228,14 @@ class HostClangToolchain(Toolchain):
       return lambda: runOuterLoopTester(scaLauncherBin, vecLauncherBin, profileMode)
     
 
-    def buildTestRunner(self, testCase, profileMode):
+    async def buildTestRunner(self, testCase, profileMode):
       scalarLL = testCase.getFilename('scalarLL')
-      self.clang.compileToIR(testCase.srcFile, scalarLL)
+      await self.clang.compileToIR(testCase.srcFile, scalarLL)
 
-      if test.mode == "wfv":
-        return self.buildWFVTester(testCase, profileMode)
-      elif test.mode == "loop":
-        return self.buildOuterLoopTester(testCase, profileMode)
+      if testCase.mode == "wfv":
+        return await self.buildWFVTester(testCase, profileMode)
+      elif testCase.mode == "loop":
+        return await self.buildOuterLoopTester(testCase, profileMode)
 
 
 
@@ -360,47 +361,84 @@ printRule()
 # run stuff
 AllPassed = True
 
+async def build_test(test, profileMode):
+  try:
+    runner = await toolchain.buildTestRunner(test, profileMode)
+    print("{:60}".format("- {}".format(test.baseName)), end="")
+    print("built")
+    return runner
+  except TestFailure as err:
+    print("{:60}".format("- {}".format(test.baseName)), end="")
+    print("ERROR: {}".format(err))
+    return None
+  except Unsupported as err:
+    print("{:60}".format("- {}".format(test.baseName)), end="")
+    print("({})".format(err))
+    return None
+
+async def build_tests():
+  test_runners_promise = []
+
+  for test in test_cases:
+    runner = build_test(test, profileMode)
+    test_runners_promise.append(runner)
+
+  runners_awaited = await asyncio.gather(*test_runners_promise)
+
+  for runner in runners_awaited:
+    test_runners.append(runner)
+
 for pattern in patterns:
   tests = [testCase for testCase in glob(pattern)]
   tests.sort()
+
+  test_cases = [TestCase(test) for test in tests]
+  test_runners = []
+
   results = [["Test", "Speedup"]]
-  for testCase in tests:
-    test = TestCase(testCase)
+  for test in test_cases:
+    # parse test case line ("// A: x, B: y .." line in test source file)
+    test.parseOptions()
+
+  asyncio.run(build_tests())
+
+  num_tests = len(test_cases)
+  num_run_tests = 0
+  num_success_tests = 0
+
+  for test, runner in zip(test_cases, test_runners):
+    if runner is None:
+        continue
 
     if profileMode:
       os.environ["NAT_STAT_DUMP"] = test.getFilename('csv')
 
     print("{:60}".format("- {}".format(test.baseName)), end="")
 
-    # parse test case line ("// A: x, B: y .." line in test source file)
-    test.parseOptions()
-
-    # build a launcher
-    try:
-      runner = toolchain.buildTestRunner(test, profileMode)
-    except TestFailure as err:
-      print("ERROR: {}".format(err))
-      # skip to next test
-      continue
-    except Unsupported as err:
-      print("({})".format(err))
-      continue
+    num_run_tests += 1
 
     # run the test
     try:
       if profileMode:
         rvTime, defTime = profileTest(numSamples, runner)
         success = not (rvTime is None or defTime is None)
+        if success:
+            num_success_tests += 1
         print("{:5.3f}".format(float(defTime) / rvTime) if success else "failed!")
         results.append([test.baseName, "{:5.3f}".format(defTime / rvTime) if success else "0"])
 
       else:
         success = runner()
+        if success:
+            num_success_tests += 1
         print("passed" if success else "failed! <-")
 
     except TestFailure as testFail:
       AllPassed = False
       print("failed! {}".format(testFail))
+
+  print("{} of {} tests run; {} ok, {} failed".format(num_run_tests, num_tests, num_success_tests, num_run_tests - num_success_tests))
+
 
 # flush out results numbers
 if profileMode:

@@ -1,5 +1,7 @@
 from __future__ import print_function
 
+import asyncio
+
 import os
 from os import path
 import shlex, subprocess, sys, errno
@@ -20,6 +22,7 @@ assureDir("logs")
 assureDir("build")
 
 def shellCmd(cmdText, envModifier=None, logPrefix=None):
+    print("CMD {}".format(cmdText))
     if Debug:
       print("CMD {}".format(cmdText))
     processEnv=os.environ
@@ -32,9 +35,32 @@ def shellCmd(cmdText, envModifier=None, logPrefix=None):
     else:
       # write to log streams
       with open(logPrefix + ".out", "w") as fOut:
-        with open(logPrefix + ".err", "w") as fErr:   
+        with open(logPrefix + ".err", "w") as fErr:
           proc = subprocess.Popen(cmd, stdout=fOut, stderr=fErr, env=processEnv)
     retCode=proc.wait()
+    if retCode != 0:
+        print("")
+        print(cmdText)
+    return retCode
+
+async def shellCmdAsync(cmdText, envModifier=None, logPrefix=None):
+    if Debug:
+      print("CMD {}".format(cmdText))
+    processEnv=os.environ
+    if envModifier:
+        processEnv=dict(os.environ, **envModifier)
+    cmd = shlex.split(cmdText)
+    if logPrefix is None:
+      # stdout
+      proc = await asyncio.create_subprocess_shell(" ".join(cmd), env=processEnv)
+    else:
+      # write to log streams
+      with open(logPrefix + ".out", "w") as fOut:
+        with open(logPrefix + ".err", "w") as fErr:
+          proc = await asyncio.create_subprocess_shell(" ".join(cmd), stdout=fOut, stderr=fErr, env=processEnv)
+
+    retCode = await proc.wait()
+
     if retCode != 0:
         print("")
         print(cmdText)
@@ -61,7 +87,7 @@ def rvClang(clangArgs):
 def primaryName(fileName):
     return path.basename(fileName).split(".")[0]
 
-def rvToolOuterLoop(scalarLL, destFile, scalarName = "foo", options = {}, logPrefix=None):
+async def rvToolOuterLoop(scalarLL, destFile, scalarName = "foo", options = {}, logPrefix=None):
     baseName = primaryName(scalarLL)
     cmd = rvToolLine + " -loopvec -i " + scalarLL
     if destFile:
@@ -77,9 +103,9 @@ def rvToolOuterLoop(scalarLL, destFile, scalarName = "foo", options = {}, logPre
     if 0 < len(options['extraShapes'].items()):
       cmd = cmd + " -x " + ",".join("{}={}".format(k,v) for k,v in options['extraShapes'].items())
 
-    return shellCmd(cmd,  None, logPrefix)
+    return await shellCmdAsync(cmd,  None, logPrefix)
 
-def rvToolWFV(scalarLL, destFile, scalarName = "foo", options = {}, logPrefix=None):
+async def rvToolWFV(scalarLL, destFile, scalarName = "foo", options = {}, logPrefix=None):
     cmd = rvToolLine + " -wfv -lower -i " + scalarLL
     if destFile:
       cmd = cmd + " -o " + destFile
@@ -96,7 +122,7 @@ def rvToolWFV(scalarLL, destFile, scalarName = "foo", options = {}, logPrefix=No
 
     cmd += " --math-prec {}".format(testULPBound)
 
-    return shellCmd(cmd,  None, logPrefix)
+    return await shellCmdAsync(cmd,  None, logPrefix)
 
 
 
@@ -113,12 +139,12 @@ class LLVMTools(object):
   def compileC(self, destFile, srcFiles, extraFlags=""):
     return 0 == shellCmd(self.cClangLine + " " + (" ".join(srcFiles)) + " " + extraFlags + " -o " + destFile)
   
-  def compileCPP(self, destFile, srcFiles, extraFlags=""):
-    return 0 == shellCmd(self.clangLine + " " + (" ".join(srcFiles)) + " " + extraFlags + " -o " + destFile)
+  async def compileCPP(self, destFile, srcFiles, extraFlags=""):
+    return 0 == await shellCmdAsync(self.clangLine + " " + (" ".join(srcFiles)) + " " + extraFlags + " -o " + destFile)
   
   
-  def optimizeIR(self, destFile, srcFile, extraFlags=""):
-    return shellCmd(self.optClangLine + " " + srcFile + " -S -o " + destFile)
+  async def optimizeIR(self, destFile, srcFile, extraFlags=""):
+    return await shellCmdAsync(self.optClangLine + " " + srcFile + " -S -o " + destFile)
   
   def compileOptimized(self, srcFile, destFile, extraFlags=""):
     if not path.exists(srcFile):
@@ -142,14 +168,14 @@ class LLVMTools(object):
   
   
   
-  def compileToIR(self, srcFile, destFile, extraFlags=""):
+  async def compileToIR(self, srcFile, destFile, extraFlags=""):
     if not path.exists(srcFile):
       return False
   
     if srcFile[-2:] == ".c":
-      retCode = shellCmd(self.cClangLine + " " + srcFile + " -fno-unroll-loops -S -emit-llvm -c " + extraFlags + " -o " + destFile)
+      retCode = await shellCmdAsync(self.cClangLine + " " + srcFile + " -fno-unroll-loops -S -emit-llvm -c " + extraFlags + " -o " + destFile)
     else:
-      retCode = shellCmd(self.clangLine + " " + srcFile + " -fno-unroll-loops -S -emit-llvm -c " + extraFlags + "-o " + destFile)
+      retCode = await shellCmdAsync(self.clangLine + " " + srcFile + " -fno-unroll-loops -S -emit-llvm -c " + extraFlags + "-o " + destFile)
     return retCode == 0
   
   def disassemble(self, bcFile, suffix):
