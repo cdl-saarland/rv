@@ -107,7 +107,7 @@ static std::pair<Type *, unsigned> UnvectorizeType(Type *Ty) {
 
     auto ScaFuncTy =
         FunctionType::get(ScaRetTy, ScaArgTypeVec, FuncTy->isVarArg());
-    return std::make_pair<>(ScaFuncTy, FuncVecWidth.getValueOr(1));
+    return std::make_pair<>(ScaFuncTy, FuncVecWidth.value_or(1));
   }
   return std::make_pair<>(Ty, 1);
 }

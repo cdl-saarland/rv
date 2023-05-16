@@ -239,7 +239,7 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       IF_DEBUG_SO { errs() << "\t- transform phi " << *phi << "\n"; }
       postProcessPhis.insert(phi);
       auto * orgPhiTy = phi->getIncomingValue(0)->getType();
-      auto * vecPhiTy = PointerType::get(vectorizeType(*orgPhiTy->getPointerElementType()), orgPhiTy->getPointerAddressSpace());
+      auto * vecPhiTy = PointerType::get(phi->getContext(), orgPhiTy->getPointerAddressSpace());
       auto * vecPhi = PHINode::Create(vecPhiTy, phi->getNumIncomingValues(), phi->getName(), phi);
       IF_DEBUG_SO { errs() << "\t\t result: " << *vecPhi << "\n"; }
 
@@ -254,24 +254,14 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       continue; // skip lifetime/BC users
 
     } else if (IsLoadStoreIntrinsicUse(inst)) {
-      IRBuilder<> builder(inst->getParent(), inst->getIterator());
-      for (size_t i = 0, n = inst->getNumOperands(); i < n; ++i) {
-        if (transformMap.count(inst->getOperand(i)) == 0) continue;
-        auto vecPtrVal = transformMap[inst->getOperand(i)];
-        auto * vecElemTy = cast<VectorType>(vecPtrVal->getType()->getPointerElementType());
-        auto * plainElemTy = vecElemTy->getElementType();
-        auto * castElemVal = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
-        const unsigned alignment = (unsigned) layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
-        vecInfo.setVectorShape(*castElemVal, VectorShape::uni(alignment));
-        inst->setOperand(i, castElemVal);
-      }
+      //Casting pointer types is not needed with opaque pointers.
+      //TODO: However, the instruction itself might now contain type information that needs to be updated.
 
       RemapLoadStoreIntrinsicShape(inst, vecInfo);
       continue;
 
     } else if (castInst) {
-      auto vecTy = vectorizeType(*castInst->getDestTy()->getPointerElementType());
-      auto vecPtrTy = PointerType::get(vecTy, castInst->getDestTy()->getPointerAddressSpace());
+      auto vecPtrTy = PointerType::get(castInst->getContext(), castInst->getDestTy()->getPointerAddressSpace());
       auto vecBitCast = CastInst::CreatePointerCast(transformMap[castInst->getOperand(0)], vecPtrTy, castInst->getName(), castInst);
       vecInfo.setVectorShape(*vecBitCast, VectorShape::cont()); // TODO alignment
       transformMap[castInst] = vecBitCast;
@@ -425,36 +415,22 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
           return false;
         }
 
-        bool needCompatibleType = false;
         // TODO only accept a BC+store pattern (since we are here, the GEP itself seems to be valie)
         for (auto & bcUse : userInst->uses()) {
           auto * subInst = dyn_cast<Instruction>(bcUse.getUser());
           IF_DEBUG_SO { errs() << "sub use: " << *subInst << "\n"; }
           if (isa<StoreInst>(subInst)) {
             IF_DEBUG_SO { errs() << "sub store!\n"; }
-            needCompatibleType = true;
             if (bcUse.getOperandNo() != 1) { // leaking the value!
               IF_DEBUG_SO { errs() << "skip: (BC guarded use) store leaks value: " << *subInst << "\n";  }
               return false;
             }
           }
-          else if (isa<LoadInst>(subInst)) { IF_DEBUG_SO { errs() << "sub load!\n"; } needCompatibleType = true; continue; }
+          else if (isa<LoadInst>(subInst)) { IF_DEBUG_SO { errs() << "sub load!\n"; } continue; }
           else if (IsLifetimeUse(*subInst)) { IF_DEBUG_SO { errs() << "sub lifetime use!\n"; } continue; }
-          else if (IsLoadStoreIntrinsicUse(subInst)) { IF_DEBUG_SO { errs() << "sub load/store intrinsic use!\n"; } needCompatibleType = true; continue; }
+          else if (IsLoadStoreIntrinsicUse(subInst)) { IF_DEBUG_SO { errs() << "sub load/store intrinsic use!\n"; } continue; }
           else {
             IF_DEBUG_SO { errs() << "skip: (BC guarded use) will not accept other uses than loads and stores : " << *subInst << "\n"; }
-            return false;
-          }
-        }
-
-        // if the pointer is used to access data make sure that the store size is identical
-        if (needCompatibleType) {
-          auto * bcDestTy = userInst->getType()->getPointerElementType();
-          auto * actualTy = inst->getType()->getPointerElementType();
-
-          if (
-              !IsGEPByBitcast(actualTy, bcDestTy)) {
-            IF_DEBUG_SO { errs() << "skip: casting to non-aligned type (that is accessed) : " << *userInst << "\n"; }
             return false;
           }
         }
@@ -527,7 +503,7 @@ StructOpt::promoteAlloca(llvm::AllocaInst & allocaInst) {
   SmallVector<PHINode*, 8> phiVec;
 
   SSAUpdater ssaUpdater(&phiVec);
-  ssaUpdater.Initialize(allocaInst.getType()->getPointerElementType(), allocaInst.getName());
+  ssaUpdater.Initialize(allocaInst.getAllocatedType(), allocaInst.getName());
 
   SmallVector<Instruction*, 8> instVec;
   LoadAndStorePromoter promoter(instVec, ssaUpdater, allocaInst.getName());

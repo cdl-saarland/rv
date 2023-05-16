@@ -66,9 +66,6 @@ getExitingBlocks(BasicBlock*                  exitBlock,
                       const LoopInfo&              loopInfo,
                       SmallVector<BasicBlock*, 2>& exitingBlocks);
 
-bool
-returnsVoidPtr(const Instruction& inst);
-
 Module*
 createModuleFromFile(const std::string & fileName, LLVMContext & context);
 

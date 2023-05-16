@@ -96,11 +96,8 @@ typesMatch(Type* t1, Type* t2)
         }
         case Type::PointerTyID:
         {
-            // if one of the types is a void pointer, any pointer is allowed to match.
-            if (t1->getPointerElementType()->isIntegerTy(8)) return true;
-            if (t2->getPointerElementType()->isIntegerTy(8)) return true;
-
-            MATCH_RETURN(typesMatch(t1->getPointerElementType(), t2->getPointerElementType()))
+            //Opaque pointer types always match.
+            MATCH_RETURN(true);
         }
         case Type::ArrayTyID:
         {
@@ -208,15 +205,6 @@ getExitingBlocks(BasicBlock*                  exitBlock,
         assert (loopInfo.getLoopFor(exitingBB) == commonLoop);
         assert (commonLoop->contains(exitingBB));
     }
-}
-
-bool
-returnsVoidPtr(const Instruction& inst)
-{
-    if (!isa<CastInst>(inst)) return false;
-    if (!inst.getType()->isPointerTy()) return false;
-
-    return inst.getType()->getPointerElementType()->isIntegerTy(8);
 }
 
 ///// defaulting phi semantics /////

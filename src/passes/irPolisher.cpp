@@ -37,11 +37,6 @@
 using namespace llvm;
 using namespace rv;
 
-static const Type*
-GetVectorElementType(const Type* Ty) {
-  return cast<FixedVectorType>(Ty)->getElementType();
-}
-
 static unsigned
 GetVectorNumElements(const Type* Ty) {
   return cast<FixedVectorType>(Ty)->getNumElements();
@@ -201,7 +196,7 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
       baseGep = dyn_cast<GetElementPtrInst>(basePtr);
       if (!baseGep || baseGep->getNumIndices() != 2 || !gepVal->hasAllConstantIndices())
         return nullptr;
-      auto structTy = GetVectorElementType(basePtr->getType())->getPointerElementType();
+      auto structTy = gepVal->getSourceElementType();
       if (!structTy->isStructTy() || !cast<Constant>(baseGep->getOperand(1))->isNullValue())
         return nullptr;
 

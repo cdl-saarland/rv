@@ -512,7 +512,7 @@ VectorShapeTransformer::computeShapeForCastInst(const CastInst& castI) const {
   const VectorShape& castOpShape = getObservedShape(BB, *castOp);
   const int castOpStride = castOpShape.getStride();
 
-  const int aligned = !rv::returnsVoidPtr(castI) ? castOpShape.getAlignmentFirst() : 1;
+  const int aligned = castOpShape.getAlignmentFirst();
 
   const DataLayout & layout = vecInfo.getDataLayout();
 

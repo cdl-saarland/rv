@@ -2092,7 +2092,7 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, llvm::Align alignment, Val
     return builder.CreateCall(intr, args);
 
   } else
-    return scatter ? requestCascadeStore(values, addr, alignment.value(), mask) : requestCascadeLoad(addr, alignment.value(), mask);
+    return scatter ? requestCascadeStore(values, addr, alignment.value(), mask) : requestCascadeLoad(vecType, addr, alignment.value(), mask);
 }
 
 void NatBuilder::createInterleavedMemory(Type *targetType, Type *vecType, llvm::Align alignment, std::vector<Value *> *addr, std::vector<Value *> *masks,
@@ -2459,12 +2459,12 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     // if the mappedVal is a alloca instruction, create a GEP instruction
     if (isa<AllocaInst>(mappedVal)) {
       auto indexTy = getIndexTy(mappedVal);
-      reqVal = builder.CreateGEP(value->getType()->getPointerElementType(), mappedVal, ConstantInt::get(indexTy, laneIdx));
+      reqVal = builder.CreateGEP(cast<AllocaInst>(mappedVal)->getAllocatedType(), mappedVal, ConstantInt::get(indexTy, laneIdx));
     } else {
       // extract from GEPs are not allowed. in that case recreate the scalar instruction and get that new value
       if (isa<GetElementPtrInst>(mappedVal) && isa<GetElementPtrInst>(value)) {
         auto indexTy = getIndexTy(mappedVal);
-        reqVal = builder.CreateGEP(value->getType()->getPointerElementType(), mappedVal, ConstantInt::get(indexTy, laneIdx));
+        reqVal = builder.CreateGEP(cast<GetElementPtrInst>(mappedVal)->getSourceElementType(), mappedVal, ConstantInt::get(indexTy, laneIdx));
       } else {
         reqVal = builder.CreateExtractElement(mappedVal, ConstantInt::get(i32Ty, laneIdx), "extract");
       }
@@ -2660,7 +2660,7 @@ NatBuilder::requestInterleavedGEP(GetElementPtrInst *const gep, unsigned interle
     idxList.push_back(interIdx);
   }
 
-  auto *interGEP = builder.CreateGEP(basePtr->getType()->getPointerElementType(), basePtr, idxList, "inter_gep");
+  auto *interGEP = builder.CreateGEP(gep->getSourceElementType(), basePtr, idxList, "inter_gep");
   auto * interGEPInst = dyn_cast<GetElementPtrInst>(interGEP);
   if (interGEPInst) interGEPInst->setIsInBounds(gep->isInBounds());
 
@@ -2681,7 +2681,7 @@ NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interlea
   else {
     Value *ptr = requestScalarValue(addr, 0, true);
     auto * indexTy = getIndexTy(ptr);
-    interAddr = builder.CreateGEP(ptr->getType()->getPointerElementType(), ptr, ConstantInt::get(indexTy, vectorWidth() * interleavedIdx), "inter_gep");
+    interAddr = builder.CreateGEP(vecType->getScalarType(), ptr, ConstantInt::get(indexTy, vectorWidth() * interleavedIdx), "inter_gep");
   }
 
   int AddrSpace = cast<PointerType>(addr->getType())->getAddressSpace();
@@ -2690,14 +2690,12 @@ NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interlea
 }
 
 llvm::Value *
-NatBuilder::requestCascadeLoad(Value *vecPtr, unsigned alignment, Value *mask) {
-  Type *elementPtrType = cast<VectorType>(vecPtr->getType())->getElementType();
-  Type *accessedType = cast<PointerType>(elementPtrType)->getPointerElementType();
+NatBuilder::requestCascadeLoad(Type *accessedType, Value *vecPtr, unsigned alignment, Value *mask) {
   unsigned bitWidth = accessedType->getScalarSizeInBits();
 
   Function *func = getCascadeFunction(bitWidth, false);
   if (!func) {
-    func = createCascadeMemory(cast<VectorType>(vecPtr->getType()), alignment, cast<VectorType>(mask->getType()),
+    func = createCascadeMemory(accessedType, cast<VectorType>(vecPtr->getType()), alignment, cast<VectorType>(mask->getType()),
                                false);
     mapCascadeFunction(bitWidth, func, false);
   }
@@ -2727,7 +2725,7 @@ Value *NatBuilder::requestCascadeStore(Value *vecVal, Value *vecPtr, unsigned al
 
   Function *func = getCascadeFunction(bitWidth, true);
   if (!func) {
-    func = createCascadeMemory(cast<VectorType>(vecPtr->getType()), alignment, cast<VectorType>(mask->getType()),
+    func = createCascadeMemory(vecVal->getType(), cast<VectorType>(vecPtr->getType()), alignment, cast<VectorType>(mask->getType()),
                                true);
     mapCascadeFunction(bitWidth, func, true);
   }
@@ -2753,7 +2751,7 @@ Value *NatBuilder::requestCascadeStore(Value *vecVal, Value *vecPtr, unsigned al
   return builder.CreateCall(func, args);
 }
 
-Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigned alignment, VectorType *maskType,
+Function *NatBuilder::createCascadeMemory(Type *accessedType, VectorType *pointerVectorType, unsigned alignment, VectorType *maskType,
                                           bool store) {
   assert(cast<VectorType>(pointerVectorType)->getElementType()->isPointerTy()
          && "pointerVectorType must be of type vector of pointer!");
@@ -2765,7 +2763,6 @@ Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigne
   IRBuilder<> builder(mod->getContext());
 
   // create function
-  Type *accessedType = cast<PointerType>(pointerVectorType->getElementType())->getPointerElementType();
   Type *resType = store ? Type::getVoidTy(mod->getContext()) : getVectorType(accessedType, vectorWidth());
   std::vector<Type *> argTypes;
   if (store) {
@@ -2837,7 +2834,7 @@ Function *NatBuilder::createCascadeMemory(VectorType *pointerVectorType, unsigne
       builder.CreateStore(storeLaneVal, pointerLaneVal);
     } else {
       // ... load from pointer, insert to result vector, branch to next
-      Value *loadInst = builder.CreateLoad(pointerLaneVal->getType()->getPointerElementType(), pointerLaneVal, "load_lane_" + std::to_string(i));
+      Value *loadInst = builder.CreateLoad(accessedType, pointerLaneVal, "load_lane_" + std::to_string(i));
       cast<LoadInst>(loadInst)->setAlignment(llvm::Align(alignment));
       insert = builder.CreateInsertElement(resVec, loadInst, ConstantInt::get(i32Ty, i),
                                            "insert_lane_" + std::to_string(i));

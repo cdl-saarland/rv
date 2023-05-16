@@ -135,31 +135,14 @@ bool isHomogeneousStruct(StructType *const type, DataLayout &layout) {
   return true;
 }
 
-StructType *isStructAccess(Value *const address) {
-  assert(address->getType()->isPointerTy() && "not a pointer");
-
-  if (isa<BitCastInst>(address))
-    return isStructAccess(cast<BitCastInst>(address)->getOperand(0));
-
-  Type *type;
-  if (isa<GetElementPtrInst>(address))
-    type = cast<GetElementPtrInst>(address)->getSourceElementType();
-  else
-    type = address->getType();
-
-  return containsStruct(type);
-}
-
-StructType *containsStruct(Type *const type) {
+StructType *isStructAccess(GetElementPtrInst *const address) {
+  Type *type = cast<GetElementPtrInst>(address)->getSourceElementType();
   if (type->isStructTy())
     return cast<StructType>(type);
-
-  if (type->isPointerTy())
-    return containsStruct(cast<PointerType>(type)->getPointerElementType());
-
   else
     return nullptr;
 }
+
 
 unsigned getNumLeafElements(Type *const type, Type *const leafType, DataLayout &layout) {
   return (unsigned) (layout.getTypeStoreSize(type) / layout.getTypeStoreSize(leafType));
