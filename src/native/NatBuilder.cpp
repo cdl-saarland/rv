@@ -2319,7 +2319,6 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
   if (scaValue.getType()->isPointerTy()) {
     auto * scalarPtrTy = cast<PointerType>(scaValue.getType());
     auto * intTy = builder.getInt32Ty();
-    auto * ptrElemTy = GetPointerElementType(scalarPtrTy);
 
     auto AddrSpace = scalarPtrTy->getAddressSpace();
 
@@ -2328,6 +2327,7 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
     auto * actualPtrVecTy = vecValue->getType();
 
     if (!vecShape.isUniform()) { // stride != 0
+      auto * ptrElemTy = GetPointerElementType(scalarPtrTy);
       assert(ptrElemTy->isSized() && "byte-stride shape on unsized element type");
       int scalarBytes = static_cast<int>(layout.getTypeStoreSize(ptrElemTy));
       if (vecShape.getStride() % scalarBytes == 0) {

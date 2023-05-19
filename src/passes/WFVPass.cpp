@@ -116,31 +116,6 @@ WFV::vectorizeFunction(VectorizerInterface & vectorizer, VectorMapping & wfvJob)
   scalarCopy->eraseFromParent();
 }
 
-bool
-WFV::isSaneMapping(VectorMapping & wfvJob) const {
-  DataLayout DL(wfvJob.scalarFn->getParent());
-
-  auto & scaFuncTy = *wfvJob.scalarFn->getFunctionType();
-  for (auto argIdx : seq<int>(0, wfvJob.argShapes.size())) {
-    // uniform shapes are always permissible
-    auto argShape = wfvJob.argShapes[argIdx];
-    if (argShape.isUniform()) continue;
-
-    // do not allow strided pointers with overlapping element types
-    auto * argPtrTy = dyn_cast<PointerType>(scaFuncTy.getParamType(argIdx));
-    if (!argPtrTy) continue;
-    size_t elemByteSize = DL.getTypeStoreSize(argPtrTy->getPointerElementType());
-
-    if (argShape.hasStridedShape() &&
-       ((size_t) std::abs(argShape.getStride())) < elemByteSize) {
-      return false;
-    }
-  }
-
-  // passed all tests
-  return true;
-}
-
 void
 WFV::collectJobs(Function & F) {
   auto attribSet = F.getAttributes().getFnAttrs();
@@ -152,7 +127,6 @@ WFV::collectJobs(Function & F) {
 
     VectorMapping vecMapping;
     if (!parseVectorMapping(F, attribText, vecMapping, true)) continue;
-    if (!isSaneMapping(vecMapping)) continue;
 
     wfvJobs.push_back(vecMapping);
   }
