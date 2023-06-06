@@ -211,6 +211,21 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
         return nullptr;
     }
 
+    else if (baseGep->getSourceElementType()->isArrayTy()) {
+      if (!baseGep || baseGep->getNumIndices() != 2 || !gepVal->hasAllConstantIndices())
+        return nullptr;
+      auto elem = cast<ConstantInt>(gepVal->getOperand(2))->getZExtValue();
+      DataLayout dataLayout(callInst->getModule());
+      auto arrayElementType = baseGep->getSourceElementType()->getArrayElementType();
+      auto elementSize = dataLayout.getTypeSizeInBits(arrayElementType);
+      multiplier *= elementSize / 32;
+      offset = elem;
+      scale = 1;
+      basePtr = baseGep->getOperand(0);
+      if (basePtr->getType()->isVectorTy())
+        return nullptr;
+    }
+
     // Only support 32bit indices
     auto idxVal = baseGep->getOperand(2);
     if (idxVal->getType()->getScalarSizeInBits() > 32) {
@@ -230,14 +245,13 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
     auto func = Intrinsic::getDeclaration(callInst->getModule(), Intrinsic::x86_avx2_gather_d_ps_256);
     auto idxTy = FixedVectorType::get(builder.getInt32Ty(), 8);
     auto valTy = FixedVectorType::get(builder.getFloatTy(), 8);
-    auto ptrTy = PointerType::get(builder.getInt8Ty(), 0);
     auto maskVal = builder.CreateBitCast(getMaskForValueOrInst(builder, callInst->getOperand(2), 32), valTy);
     auto extIdx = idxVal->getType()->getScalarSizeInBits() != 32
       ? builder.CreateSExt(idxVal, idxTy)
       : idxVal;
     auto gatherVal = builder.CreateCall(func, {
       UndefValue::get(valTy),
-      builder.CreatePointerCast(basePtr, ptrTy),
+      basePtr,
       builder.CreateAdd(
         builder.CreateMul(extIdx, builder.CreateVectorSplat(8, builder.getInt32(multiplier))),
         builder.CreateVectorSplat(8, builder.getInt32(offset))),
