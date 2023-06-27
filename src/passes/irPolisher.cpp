@@ -242,6 +242,9 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
 
     // Convert to an AVX2 gather
     IRBuilder<> builder(callInst);
+    if (cast<PointerType>(basePtr->getType())->getAddressSpace() != 0) {
+        basePtr = builder.CreateAddrSpaceCast(basePtr, builder.getPtrTy());
+    }
     auto func = Intrinsic::getDeclaration(callInst->getModule(), Intrinsic::x86_avx2_gather_d_ps_256);
     auto idxTy = FixedVectorType::get(builder.getInt32Ty(), 8);
     auto valTy = FixedVectorType::get(builder.getFloatTy(), 8);
