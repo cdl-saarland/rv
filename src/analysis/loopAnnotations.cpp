@@ -149,7 +149,7 @@ ClearLoopVectorizeAnnotations(llvm::Loop & L) {
   auto & ctx = L.getHeader()->getContext();
 
   // empty loop metadata
-  llvm::Metadata* tmpNode        = llvm::MDNode::getTemporary(ctx, llvm::None).release();
+  llvm::Metadata* tmpNode        = llvm::MDNode::getTemporary(ctx, std::nullopt).release();
 
   // build loopID
   llvm::MDNode *emptyLoopMetadata = llvm::MDNode::get(ctx, {tmpNode});

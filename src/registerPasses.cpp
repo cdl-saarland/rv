@@ -107,18 +107,6 @@ static void registerLastRVLegacyPasses(const llvm::PassManagerBuilder &Builder,
     PM.add(rv::createAutoMathLegacyPass());
 }
 
-static llvm::RegisterStandardPasses
-    RegisterRV_MidPipeline(llvm::PassManagerBuilder::EP_VectorizerStart,
-                           registerLegacyRVPasses);
-
-static llvm::RegisterStandardPasses
-    RegisterRV_Late(llvm::PassManagerBuilder::EP_ScalarOptimizerLate,
-                    registerLateRVLegacyPasses);
-
-static llvm::RegisterStandardPasses
-    RegisterRV_Last(llvm::PassManagerBuilder::EP_OptimizerLast,
-                    registerLastRVLegacyPasses);
-
 
 ///// New PM setup /////
 

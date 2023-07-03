@@ -167,7 +167,7 @@ Linearizer::scheduleLoop(Loop * loop, std::string padStr, RPOT::rpo_iterator itS
 
 void
 Linearizer::buildBlockIndex() {
-  relays.reserve(func.getBasicBlockList().size());
+  relays.reserve(func.size());
 
   RPOT rpot(&func);
 
@@ -419,7 +419,7 @@ Linearizer::needsFolding(Instruction & termInst) {
 
 static void
 InsertAtFront(BasicBlock & block, Instruction & inst) {
-  block.getInstList().insert(block.begin(), &inst);
+  inst.insertBefore(&*block.begin());
 }
 
 

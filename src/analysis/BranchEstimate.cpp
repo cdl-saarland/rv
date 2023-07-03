@@ -34,6 +34,8 @@
 #include "rv/rvDebug.h"
 #include "rvConfig.h"
 
+#include <math.h>
+
 #if 1
 #define IF_DEBUG_BRANCH IF_DEBUG
 #else

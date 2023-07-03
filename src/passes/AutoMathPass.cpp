@@ -53,6 +53,7 @@
 #include "report.h"
 #include <cassert>
 #include <map>
+#include <optional>
 #include <sstream>
 
 using namespace rv;
@@ -76,7 +77,7 @@ static std::pair<Type *, unsigned> UnvectorizeType(Type *Ty) {
   if (auto FuncTy = dyn_cast<FunctionType>(Ty)) {
     // scalarize all argument types (succeeding with the entire function type if
     // all types gree)
-    Optional<unsigned> FuncVecWidth;
+      std::optional<unsigned> FuncVecWidth;
     unsigned NumParams = FuncTy->getNumParams();
     std::vector<Type *> ScaArgTypeVec;
     for (unsigned i = 0; i < NumParams; ++i) {

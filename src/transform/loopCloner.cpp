@@ -118,7 +118,7 @@ struct LoopCloner {
       clonedBlockVec.push_back(clonedBlock);
 
       // add to block list
-      F.getBasicBlockList().insert(loopHead->getIterator(), clonedBlock);
+      F.insert(loopHead->getIterator(), clonedBlock);
     }
 
     remapInstructionsInBlocks(clonedBlockVec, valueMap);
