@@ -323,10 +323,7 @@ lowerIntrinsicCall(CallInst* call) {
         // FIXME: Re-use the intrinsic types.
         IRBuilder<> builder(call);
         auto *DataTy = builder.getFloatTy();
-        auto *ptrTy = PointerType::get(
-            DataTy, call->getOperand(0)->getType()->getPointerAddressSpace());
-        auto *ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-        auto *gep = builder.CreateGEP(DataTy, ptrCast, call->getOperand(1));
+        auto *gep = builder.CreateGEP(DataTy, call->getOperand(0), call->getOperand(1));
         return builder.CreateLoad(builder.getFloatTy(), gep);
       });
     } break;
@@ -335,10 +332,7 @@ lowerIntrinsicCall(CallInst* call) {
       lowerIntrinsicCall(call, [] (CallInst* call) {
         IRBuilder<> builder(call);
         auto *DataTy = builder.getFloatTy();
-        auto *ptrTy = PointerType::get(
-            DataTy, call->getOperand(0)->getType()->getPointerAddressSpace());
-        auto *ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-        auto *gep = builder.CreateGEP(DataTy, ptrCast, call->getOperand(1));
+        auto *gep = builder.CreateGEP(DataTy, call->getOperand(0), call->getOperand(1));
         return builder.CreateStore(call->getOperand(2), gep);
       });
     } break;

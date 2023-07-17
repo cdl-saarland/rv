@@ -1107,8 +1107,7 @@ NatBuilder::vectorizeLoadCall(CallInst *rvCall) {
   if (getVectorShape(*vecPtr).isUniform()) {
     auto * uniVal = requestScalarValue(vecPtr);
     auto addressSpace = uniVal->getType()->getPointerAddressSpace();
-    auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
-    auto * gepPtr = builder.CreateGEP(builder.getFloatTy(), castPtr, laneId);
+    auto * gepPtr = builder.CreateGEP(builder.getFloatTy(), uniVal, laneId);
     laneVal = builder.CreateLoad(builder.getFloatTy(), gepPtr);
   } else {
 // non-uniform arg
@@ -1141,8 +1140,7 @@ NatBuilder::vectorizeStoreCall(CallInst *rvCall) {
   if (getVectorShape(*vecPtr).isUniform()) {
     auto * uniVal = requestScalarValue(vecPtr);
     auto addressSpace = uniVal->getType()->getPointerAddressSpace();
-    auto * castPtr = builder.CreatePointerCast(uniVal, PointerType::get(builder.getFloatTy(), addressSpace));
-    auto * gepPtr = builder.CreateGEP(builder.getFloatTy(), castPtr, laneId );
+    auto * gepPtr = builder.CreateGEP(builder.getFloatTy(), uniVal, laneId );
     auto * store = builder.CreateStore(elemVal, gepPtr);
     mapScalarValue(rvCall, store);
     return;
@@ -1795,10 +1793,9 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     Value *ptr = requestScalarValue(accessedPtr);
     auto & ptrTy = *cast<PointerType>(ptr->getType());
     PointerType *vecPtrType = vecType->getPointerTo(ptrTy.getAddressSpace());
-    addr.push_back(builder.CreatePointerCast(ptr, vecPtrType, "vec_cast"));
+    addr.push_back(ptr);
     addrTypess.push_back(vecType);
     alignment = llvm::Align(addrShape.getAlignmentFirst());
-
   } else if ((addrShape.isStrided() && isInterleaved(inst, accessedPtr, byteSize, srcs)) && !(needsMask && !config.enableMaskedMove)) {
     // interleaved access. ptrs: base, base+vector, base+2vector, ...
     Value *srcPtr = getPointerOperand(cast<Instruction>(srcs[0]));
@@ -2337,10 +2334,8 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
       } else {
         // sub element stride
         auto * charPtrTy = builder.getInt8PtrTy(AddrSpace);
-        auto * charPtrVec = builder.CreatePointerCast(vecValue, FixedVectorType::get(charPtrTy, vectorWidth()), "byte_ptr");
         Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride());
-        auto * bytePtrVec = builder.CreateGEP(builder.getInt8Ty(), charPtrVec, contVec, "expand_byte_ptr");
-        vecValue = builder.CreatePointerCast(bytePtrVec, actualPtrVecTy);
+        vecValue = builder.CreateGEP(builder.getInt8Ty(), vecValue, contVec, "expand_byte_ptr");
       }
     }
 
@@ -2686,7 +2681,7 @@ NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interlea
 
   int AddrSpace = cast<PointerType>(addr->getType())->getAddressSpace();
   PointerType *vecPtrType = vecType->getPointerTo(AddrSpace);
-  return builder.CreatePointerCast(interAddr, vecPtrType, "inter_cast");
+  return interAddr;
 }
 
 llvm::Value *

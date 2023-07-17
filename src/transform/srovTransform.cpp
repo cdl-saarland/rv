@@ -514,8 +514,7 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, Type * ptrElemTy, 
     size_t n = cast<FixedVectorType>(ptrElemTy)->getNumElements();
     auto *ElemTy = cast<VectorType>(ptrElemTy)->getElementType();
     auto *ptrTy = cast<PointerType>(ptr->getType());
-    auto *scaPtrTy = PointerType::get(ElemTy, ptrTy->getPointerAddressSpace());
-    auto *scaPtr = builder.CreatePointerCast(ptr, scaPtrTy);
+    auto *scaPtr = builder.CreateGEP(ElemTy, ptr, { builder.getInt32(0) });
     vecInfo.setVectorShape(*scaPtr, ptrShape);
 
     for (size_t i = 0; i < n; i++) {

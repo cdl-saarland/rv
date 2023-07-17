@@ -114,11 +114,6 @@ MemCopyElision::lowerMemCopy(llvm::Value * destBase, llvm::Value * srcBase, llvm
   unsigned AddrSpace = cast<PointerType>(srcBase->getType())->getAddressSpace();
   auto *CommonPtrTy = commonTy->getPointerTo(AddrSpace);
 
-  auto *commonSrcBase =
-      builder.CreatePointerCast(srcBase, CommonPtrTy);
-  auto *commonDestBase =
-      builder.CreatePointerCast(destBase, CommonPtrTy);
-
   const size_t elemSize = layout.getTypeStoreSize(commonTy);
   assert(numBytes % elemSize == 0);
   const size_t numElems = numBytes / elemSize;
@@ -127,8 +122,8 @@ MemCopyElision::lowerMemCopy(llvm::Value * destBase, llvm::Value * srcBase, llvm
   for (size_t i = 0; i < numElems; ++i) {
     auto * idxConst = ConstantInt::get(intTy, i, false);
   // gep to elemens
-    auto * srcElemPtr = builder.CreateGEP(commonTy, commonSrcBase, idxConst);
-    auto * destElemPtr = builder.CreateGEP(commonTy, commonDestBase, idxConst);
+    auto * srcElemPtr = builder.CreateGEP(commonTy, srcBase, idxConst);
+    auto * destElemPtr = builder.CreateGEP(commonTy, destBase, idxConst);
     vecInfo.setVectorShape(*srcElemPtr, varShape);
     vecInfo.setVectorShape(*destElemPtr, varShape);
 

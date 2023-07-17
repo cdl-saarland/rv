@@ -603,6 +603,8 @@ bool IRPolisher::polish() {
     // The same instruction might have been replaced with 2 polished
     // instructions (32 and 64 bits), and we must only remove it once
     if (extInst.first.bitWidth == 64 && visitedInsts.count(ExtInst(inst, 32))) continue;
+    if (extInst.first.bitWidth == 64 && visitedInsts.count(ExtInst(inst, 16))) continue;
+    if (extInst.first.bitWidth == 32 && visitedInsts.count(ExtInst(inst, 16))) continue;
 
 #ifdef RV_DEBUG
     // Check that all the users of this instruction have been processed before removing it

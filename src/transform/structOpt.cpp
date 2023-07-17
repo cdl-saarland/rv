@@ -152,14 +152,14 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
   auto * vecElemTy = FixedVectorType::get(scalarTy, vecInfo.getVectorWidth());
   auto * plainElemTy = vecElemTy->getElementType();
 
-  auto * castElemTy = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
+  auto * castElemVal = builder.CreateGEP(plainElemTy, vecPtrVal, { builder.getInt32(0) });
 
   const unsigned alignment = (unsigned) layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
-  vecInfo.setVectorShape(*castElemTy, VectorShape::cont(alignment));
+  vecInfo.setVectorShape(*castElemVal, VectorShape::cont(alignment));
 
   if (load)  {
     auto *vecLoad =
-        builder.CreateLoad(plainElemTy, castElemTy, load->getName());
+        builder.CreateLoad(plainElemTy, castElemVal, load->getName());
     vecInfo.setVectorShape(*vecLoad, vecInfo.getVectorShape(*load));
     vecLoad->setAlignment(llvm::Align(alignment));
 
@@ -168,7 +168,7 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
     IF_DEBUG_SO { errs() << "\t\t result: " << *vecLoad << "\n"; }
     return vecLoad;
   } else {
-    auto * vecStore = builder.CreateStore(storeVal, castElemTy, store->isVolatile());
+    auto * vecStore = builder.CreateStore(storeVal, castElemVal, store->isVolatile());
     vecStore->setAlignment(llvm::Align(alignment));
     vecInfo.setVectorShape(*vecStore, vecInfo.getVectorShape(*store));
 
@@ -261,8 +261,10 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       continue;
 
     } else if (castInst) {
-      auto vecPtrTy = PointerType::get(castInst->getContext(), castInst->getDestTy()->getPointerAddressSpace());
-      auto vecBitCast = CastInst::CreatePointerCast(transformMap[castInst->getOperand(0)], vecPtrTy, castInst->getName(), castInst);
+      IRBuilder<> builder(inst->getParent(), inst->getIterator());
+
+      auto * vecBitCast = builder.CreateGEP(castInst->getDestTy(), transformMap[castInst->getOperand(0)], { builder.getInt32(0) });
+
       vecInfo.setVectorShape(*vecBitCast, VectorShape::cont()); // TODO alignment
       transformMap[castInst] = vecBitCast;
     } else {

@@ -275,7 +275,7 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
       }
 
       // known LLVM intrinsic shapes
-      if (allArgsUniform && (id == Intrinsic::lifetime_start || id == Intrinsic::lifetime_end)) {
+      if (allArgsUniform && (id != Intrinsic::not_intrinsic)) {
         return VectorShape::uni();
       }
 
