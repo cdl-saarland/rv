@@ -132,6 +132,7 @@ if (NOT RV_COMPONENT_BUILD)
       LLVMSupport
       LLVMCore
       LLVMScalarOpts
+      LLVMInstCombine
       LLVMAggressiveInstCombine
       LLVMTransformUtils
       LLVMAnalysis
@@ -145,6 +146,7 @@ if (NOT RV_COMPONENT_BUILD)
       LLVMObject
       LLVMProfileData
       LLVMTarget
+      LLVMTargetParser
       LLVMVectorize
     )
     link_directories(

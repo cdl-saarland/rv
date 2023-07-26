@@ -15,6 +15,7 @@ ELSE()
     LLVMCore
     LLVMScalarOpts
     LLVMInstCombine
+    LLVMAggressiveInstCombine
     LLVMTransformUtils
     LLVMAnalysis
     LLVMipo
@@ -27,6 +28,7 @@ ELSE()
     LLVMObject
     LLVMProfileData
     LLVMTarget
+    LLVMTargetParser
     LLVMVectorize)
 ENDIF()
 
