@@ -123,7 +123,7 @@ ENDIF()
 
 # Make sure BC buffer cpp files are available before linking libRV
 IF (RV_REBUILD_GENBC)
-  add_dependencies(${RV_LIBRARY_NAME} sleef_genbc)
+  add_dependencies(${RV_LIBRARY_NAME} vecmath)
 endif()
 
 if (NOT RV_COMPONENT_BUILD)
