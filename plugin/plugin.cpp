@@ -5,7 +5,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "rv/registerPasses.h"
-#include "rv/passes.h"
 
 using namespace llvm;
 

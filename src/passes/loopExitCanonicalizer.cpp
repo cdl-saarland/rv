@@ -12,8 +12,6 @@
 
 #include <stdexcept>
 
-#include "rv/legacy/passes.h"
-#include "rv/legacy/LinkAllPasses.h"
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/Instructions.h>
 #include "llvm/InitializePasses.h"
@@ -28,37 +26,6 @@ using namespace rv;
 
 LoopExitCanonicalizer::LoopExitCanonicalizer(LoopInfo &loopInfo)
     : mLoopInfo(loopInfo) {}
-
-char LoopExitCanonicalizerLegacyPass::ID = 0;
-// NOTE: The order of initialized dependencies is important
-//       to prevent 'Unable to schedule' errors!
-INITIALIZE_PASS_BEGIN(LoopExitCanonicalizerLegacyPass,
-                      "loop-exit-canonicalizer", "LoopExitCanonicalizer", false,
-                      false)
-INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
-INITIALIZE_PASS_END(LoopExitCanonicalizerLegacyPass, "loop-exit-canonicalizer",
-                    "LoopExitCanonicalizer", false, false)
-
-// Public interface to the LoopExitCanonicalizer pass
-FunctionPass *rv::createLoopExitCanonicalizerLegacyPass() {
-  return new LoopExitCanonicalizerLegacyPass();
-}
-
-LoopExitCanonicalizerLegacyPass::LoopExitCanonicalizerLegacyPass()
-    : FunctionPass(ID) {}
-
-void LoopExitCanonicalizerLegacyPass::getAnalysisUsage(
-    AnalysisUsage &AU) const {
-  AU.addRequired<LoopInfoWrapperPass>();
-  AU.addPreserved<LoopInfoWrapperPass>();
-}
-
-bool LoopExitCanonicalizerLegacyPass::runOnFunction(Function &F) {
-  LoopInfo &loopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-
-  LoopExitCanonicalizer canonicalizer(loopInfo);
-  return canonicalizer.canonicalize(F);
-}
 
 ///// New PM Pass /////
 

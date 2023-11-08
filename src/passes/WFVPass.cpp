@@ -8,7 +8,6 @@
 //
 
 #include "rv/passes/WFVPass.h"
-#include "rv/legacy/LinkAllPasses.h"
 
 #include "rv/rv.h"
 #include "rv/vectorMapping.h"
@@ -171,36 +170,6 @@ bool WFV::run(Module &M) {
 
   return true;
 }
-
-///// Legacy PM Wrapper /////
-
-bool WFVLegacyPass::runOnModule(Module &M) {
-  WFV WFVImpl;
-  return WFVImpl.run(M);
-}
-
-/// Register all analyses and transformation required.
-void
-WFVLegacyPass::getAnalysisUsage(AnalysisUsage &AU) const {
-}
-
-char WFVLegacyPass::ID = 0;
-
-ModulePass *rv::createWFVLegacyPass() { return new WFVLegacyPass(); }
-
-INITIALIZE_PASS_BEGIN(WFVLegacyPass, "rv-function-vectorize",
-                      "RV - Vectorize functions", false, false)
-INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(MemoryDependenceWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(BranchProbabilityInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
-// PlatformInfo
-INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
-INITIALIZE_PASS_END(WFVLegacyPass, "rv-function-vectorize", "RV - Vectorize functions",
-                    false, false)
 
 ///// New PM Pass /////
 

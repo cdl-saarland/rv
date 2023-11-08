@@ -11,7 +11,6 @@
 #define RV_TRANSFORM_AUTOMATHPASS_H
 
 #include "llvm/Pass.h"
-#include "rv/legacy/passes.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallSet.h"
@@ -69,16 +68,6 @@ class AutoMathPass {
 public:
   AutoMathPass();
   bool run(llvm::Module & M);
-};
-
-class AutoMathLegacyPass : public llvm::ModulePass {
-public:
-  static char ID;
-
-  AutoMathLegacyPass() : ModulePass(ID) {}
-
-  void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
-  bool runOnModule(llvm::Module &M) override;
 };
 
 class AutoMathWrapperPass : public llvm::PassInfoMixin<AutoMathWrapperPass> {

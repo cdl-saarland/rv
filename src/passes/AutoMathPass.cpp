@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "rv/legacy/LinkAllPasses.h"
 #include "rv/passes/AutoMathPass.h"
 
 #include "rv/analysis/costModel.h"
@@ -343,19 +342,3 @@ AutoMathWrapperPass::run(llvm::Module &M, llvm::ModuleAnalysisManager &MAM) {
   else
     return PreservedAnalyses::all();
 }
-
-///// Old PM Pass /////
-void AutoMathLegacyPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {}
-bool AutoMathLegacyPass::runOnModule(llvm::Module &M) {
-  AutoMathPass AMP;
-  return AMP.run(M);
-}
-
-char AutoMathLegacyPass::ID = 0;
-
-ModulePass *rv::createAutoMathLegacyPass() { return new AutoMathLegacyPass(); }
-
-INITIALIZE_PASS_BEGIN(AutoMathLegacyPass, "rv-automath",
-                      "RV - Auto-vectorize math functions", false, false)
-INITIALIZE_PASS_END(AutoMathLegacyPass, "rv-automath",
-                    "RV - Auto-vectorize math functions", false, false)

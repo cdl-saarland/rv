@@ -27,8 +27,6 @@
 #include "report.h"
 
 #include "rv/passes/PassManagerSession.h"
-#include "rv/legacy/LinkAllPasses.h"
-#include "rv/passes.h"
 #include "rv/config.h"
 
 #include "rvConfig.h"
@@ -643,29 +641,6 @@ bool IRPolisher::polish() {
 
   return visitedInsts.size() > 0;
 }
-
-///// Old PM Pass /////
-namespace {
-class IRPolisherLegacyPass : public FunctionPass {
-public:
-  static char ID;
-  IRPolisherLegacyPass() : FunctionPass(ID) {}
-
-  bool runOnFunction(Function &F) override {
-    IRPolisher IRPolisherImpl(F);
-    return IRPolisherImpl.polish();
-  }
-};
-} // namespace
-
-char IRPolisherLegacyPass::ID = 0;
-
-FunctionPass *rv::createIRPolisherLegacyPass() { return new IRPolisherLegacyPass(); }
-
-INITIALIZE_PASS_BEGIN(IRPolisherLegacyPass, "rv-irpolish",
-                      "RV - Polish Vector IR", false, false)
-INITIALIZE_PASS_END(IRPolisherLegacyPass, "rv-irpolish", "RV - Polish Vector IR",
-                    false, false)
 
 ///// New PM Pass /////
 

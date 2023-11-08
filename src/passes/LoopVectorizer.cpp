@@ -11,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "rv/passes/LoopVectorizer.h"
-#include "rv/legacy/LinkAllPasses.h"
 
 #include "rv/analysis/costModel.h"
 #include "rv/analysis/loopAnnotations.h"
@@ -837,43 +836,6 @@ bool LoopVectorizer::run() {
   vectorizer.reset();
   return Changed;
 }
-
-///// OldPM Wrapper Pass /////
-
-void LoopVectorizerLegacyPass::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.addRequired<TargetTransformInfoWrapperPass>();
-  AU.addRequired<TargetLibraryInfoWrapperPass>();
-  AU.addRequired<OptimizationRemarkEmitterWrapperPass>();
-}
-
-bool LoopVectorizerLegacyPass::runOnFunction(Function &F) {
-  auto &TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
-  auto &TLI = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(F);
-  auto &ORE = getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE();
-
-  LoopVectorizer LoopVec(F, TTI, TLI, ORE);
-  return LoopVec.run();
-}
-
-char LoopVectorizerLegacyPass::ID = 0;
-
-FunctionPass *rv::createLoopVectorizerLegacyPass() { return new LoopVectorizerLegacyPass(); }
-
-INITIALIZE_PASS_BEGIN(LoopVectorizerLegacyPass, "rv-loop-vectorize",
-                      "RV - Vectorize loops", false, false)
-INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(MemoryDependenceWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(BranchProbabilityInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(OptimizationRemarkEmitterWrapperPass)
-// PlatformInfo
-INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
-INITIALIZE_PASS_END(LoopVectorizerLegacyPass, "rv-loop-vectorize", "RV - Vectorize loops",
-                    false, false)
-
 
 ///// NewPM Wrapper Pass /////
 

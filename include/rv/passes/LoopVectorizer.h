@@ -19,7 +19,6 @@
 #include "llvm/IR/PassManager.h"
 #include "rv/transform/remTransform.h"
 #include "rv/rv.h"
-#include "rv/legacy/passes.h"
 #include "rv/passes/PassManagerSession.h"
 
 namespace llvm {
@@ -128,17 +127,6 @@ private:
                   llvm::Loop &TheLoop, llvm::Instruction *I = nullptr) const;
   //  void remarkAnalysis(const llvm::StringRef OREMsg, const llvm::StringRef ORETag,
   //              llvm::Loop &TheLoop) const;
-};
-
-class LoopVectorizerLegacyPass : public llvm::FunctionPass {
-public:
-  static char ID;
-  LoopVectorizerLegacyPass() : llvm::FunctionPass(ID) {}
-
-  bool runOnFunction(llvm::Function &F) override;
-
-  /// Register all analyses and transformation required.
-  void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 };
 
 struct LoopVectorizerWrapperPass

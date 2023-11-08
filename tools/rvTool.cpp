@@ -39,7 +39,6 @@
 
 #include "ArgumentReader.h"
 
-#include "rv/passes.h"
 #include "rv/resolver/resolvers.h"
 #include "rv/rv.h"
 #include "rv/rvDebug.h"

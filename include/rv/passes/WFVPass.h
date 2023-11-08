@@ -20,7 +20,6 @@
 #include "rv/config.h"
 #include "rv/analysis/reductionAnalysis.h"
 #include "llvm/ADT/StringRef.h"
-#include "rv/legacy/passes.h"
 
 #include <limits>
 #include <vector>
@@ -60,16 +59,6 @@ class WFV {
 public:
   WFV();
   bool run(llvm::Module &);
-};
-
-class WFVLegacyPass : public llvm::ModulePass {
-public:
-  static char ID;
-
-  WFVLegacyPass() : ModulePass(ID) {}
-
-  void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
-  bool runOnModule(llvm::Module &M) override;
 };
 
 struct WFVWrapperPass : llvm::PassInfoMixin<WFVWrapperPass> {

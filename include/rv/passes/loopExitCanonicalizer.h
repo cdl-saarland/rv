@@ -32,16 +32,6 @@ public:
 
 // namespace {
 
-class LoopExitCanonicalizerLegacyPass : public llvm::FunctionPass {
-public:
-  static char ID; // Pass identification, replacement for typeid.
-
-  LoopExitCanonicalizerLegacyPass();
-
-  void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
-  bool runOnFunction(llvm::Function &F) override;
-};
-
 class LoopExitCanonicalizer {
 public:
   LoopExitCanonicalizer(llvm::LoopInfo &loopInfo);

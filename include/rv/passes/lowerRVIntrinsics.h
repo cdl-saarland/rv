@@ -8,23 +8,10 @@
 //===----------------------------------------------------------------------===//
 //
 
-#include "rv/legacy/passes.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Pass.h"
 
 namespace rv {
-
-//// Old PM Impl /////
-class LowerRVIntrinsicsLegacyPass : public llvm::FunctionPass {
-public:
-  static char ID;
-  LowerRVIntrinsicsLegacyPass();
-
-  bool runOnFunction(llvm::Function &F) override;
-
-  /// Register all analyses and transformation required.
-  void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
-};
 
 ///// New PM Impl /////
 struct LowerRVIntrinsicsWrapperPass
