@@ -48,8 +48,6 @@ struct Config {
   bool enableStructOpt;
   bool enableSROV;
   bool enableIRPolish;
-  bool enableHeuristicBOSCC;
-  bool enableCoherentIF;
   bool enableOptimizedBlends;
 
 // greedy inter-procedural vectorizatoin

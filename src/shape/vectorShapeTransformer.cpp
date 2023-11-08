@@ -111,16 +111,7 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
   switch (I.getOpcode()) {
     case Instruction::Alloca:
     {
-      const int alignment = vecInfo.getMapping().vectorWidth;
-      auto* AllocatedType = I.getType()->getPointerElementType();
-      const bool Vectorizable = false;
-
-      if (Vectorizable) {
-        int typeStoreSize = (int)(layout.getTypeStoreSize(AllocatedType));
-        return VectorShape::strided(typeStoreSize, alignment);
-      }
-
-      return VectorShape::varying();
+        assert(false);
     }
     case Instruction::Br:
     {
@@ -510,7 +501,6 @@ VectorShapeTransformer::computeShapeForCastInst(const CastInst& castI) const {
   const auto & BB = *castI.getParent();
   const Value* castOp = castI.getOperand(0);
   const VectorShape& castOpShape = getObservedShape(BB, *castOp);
-  const int castOpStride = castOpShape.getStride();
 
   const int aligned = castOpShape.getAlignmentFirst();
 
@@ -521,27 +511,12 @@ VectorShapeTransformer::computeShapeForCastInst(const CastInst& castI) const {
   switch (castI.getOpcode()) {
     case Instruction::IntToPtr:
     {
-      PointerType* DestType = cast<PointerType>(castI.getDestTy());
-      Type* DestPointsTo = DestType->getPointerElementType();
-
-      // FIXME: void pointers are char pointers (i8*), but what
-      // difference is there between a real i8* and a void pointer?
-      if (DestPointsTo->isIntegerTy(8)) return VectorShape::varying();
-
-      unsigned typeSize = (unsigned) layout.getTypeStoreSize(DestPointsTo);
-
-      if (castOpStride % typeSize != 0) return VectorShape::varying();
-
-      return VectorShape::strided(castOpStride / typeSize, 1);
+        assert(false);
     }
 
     case Instruction::PtrToInt:
     {
-      Type* SrcElemType = castI.getSrcTy()->getPointerElementType();
-
-      unsigned typeSize = (unsigned) layout.getTypeStoreSize(SrcElemType);
-
-      return VectorShape::strided(typeSize * castOpStride, aligned);
+        assert(false);
     }
 
       // Truncation reinterprets the stride modulo the target type width

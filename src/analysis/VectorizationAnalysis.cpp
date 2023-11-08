@@ -274,27 +274,6 @@ void VectorizationAnalysis::propagateBranchDivergence(const Instruction &Term) {
   propagateControlDivergence(BranchLoop, termSuccVec, Term, termBlock);
 }
 
-void VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
-  IF_DEBUG_VA { errs() << "VA: propLoopDiv " << ExitingLoop.getName() << "\n"; }
-
-  // don't propagate beyond region
-  if (!vecInfo.inRegion(*ExitingLoop.getHeader()))
-    return;
-
-  const auto &loopHeader = *ExitingLoop.getHeader();
-  // const auto *BranchLoop = ExitingLoop.getParentLoop();
-
-  // Uses of loop-carried values could occur anywhere
-  // within the dominance region of the definition. All loop-carried
-  // definitions are dominated by the loop header (reducible control).
-  // Thus all users have to be in the dominance region of the loop header,
-  // except PHI nodes that can also live at the fringes of the dom region
-  // (incoming defining value).
-  if (!IsLCSSAForm) {
-    taintLoopLiveOuts(loopHeader); // FIXME AllocaSSA
-  }
-}
-
 void VectorizationAnalysis::compute(const Function &F) {
   IF_DEBUG_VA { errs() << "\n\n-- VA::compute() log -- \n"; }
 
@@ -387,21 +366,6 @@ void VectorizationAnalysis::analyze() {
     errs() << "VecInfo after VA:\n";
     vecInfo.dump();
   }
-}
-
-static bool AllUniformOrUndefCall(const VectorizationInfo & VecInfo, const Instruction &I) {
-  const auto *C = dyn_cast<CallInst>(&I);
-  if (!C) return false;
-  for (auto &ArgUse : C->args()) {
-    auto &Op = *ArgUse;
-    if (!VecInfo.hasKnownShape(Op))
-      continue;
-    auto OpShape = VecInfo.getVectorShape(Op);
-    if (OpShape.isUniform() || !OpShape.isDefined())
-      continue;
-    return false;
-  }
-  return true;
 }
 
 void VectorizationAnalysis::promoteUndefShapesToUniform(const Function &F) {

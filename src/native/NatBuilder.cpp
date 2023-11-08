@@ -202,7 +202,6 @@ NatBuilder::NatBuilder(Config _config, PlatformInfo &_platInfo, VectorizationInf
     vectorValueMap(),
     scalarValueMap(),
     basicBlockMap(),
-    grouperMap(),
     phiVector(),
     lazyInstructions() {}
 
@@ -1106,7 +1105,6 @@ NatBuilder::vectorizeLoadCall(CallInst *rvCall) {
   Value * laneVal = nullptr;
   if (getVectorShape(*vecPtr).isUniform()) {
     auto * uniVal = requestScalarValue(vecPtr);
-    auto addressSpace = uniVal->getType()->getPointerAddressSpace();
     auto * gepPtr = builder.CreateGEP(builder.getFloatTy(), uniVal, laneId);
     laneVal = builder.CreateLoad(builder.getFloatTy(), gepPtr);
   } else {
@@ -1139,7 +1137,6 @@ NatBuilder::vectorizeStoreCall(CallInst *rvCall) {
 // uniform arg
   if (getVectorShape(*vecPtr).isUniform()) {
     auto * uniVal = requestScalarValue(vecPtr);
-    auto addressSpace = uniVal->getType()->getPointerAddressSpace();
     auto * gepPtr = builder.CreateGEP(builder.getFloatTy(), uniVal, laneId );
     auto * store = builder.CreateStore(elemVal, gepPtr);
     mapScalarValue(rvCall, store);
@@ -1791,8 +1788,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
   } else if ((addrShape.isContiguous() || addrShape.isStrided(byteSize)) && !(needsMask && !config.enableMaskedMove)) {
     // cast pointer to vector-width pointer
     Value *ptr = requestScalarValue(accessedPtr);
-    auto & ptrTy = *cast<PointerType>(ptr->getType());
-    PointerType *vecPtrType = vecType->getPointerTo(ptrTy.getAddressSpace());
     addr.push_back(ptr);
     addrTypess.push_back(vecType);
     alignment = llvm::Align(addrShape.getAlignmentFirst());
@@ -2165,16 +2160,6 @@ void NatBuilder::addLazyInstruction(Instruction *const instr) {
   ++numLazy;
 }
 
-llvm::Type*
-GetPointerElementType(Type * ptrTy) {
-  auto* innerTy = ptrTy->getPointerElementType();
-  auto * innerArrTy = dyn_cast<ArrayType>(innerTy);
-  if (innerArrTy && innerArrTy->getNumElements() == 0) {
-    return innerArrTy->getElementType();
-  }
-  return innerTy;
-}
-
 void NatBuilder::requestLazyInstructions(Instruction *const upToInstruction) {
   assert(!lazyInstructions.empty() && "no lazy instructions to generate!");
 
@@ -2314,29 +2299,11 @@ NatBuilder::widenScalar(Value & scaValue, VectorShape vecShape) {
   // create a vector GEP to widen pointers
   Value * vecValue = nullptr;
   if (scaValue.getType()->isPointerTy()) {
-    auto * scalarPtrTy = cast<PointerType>(scaValue.getType());
-    auto * intTy = builder.getInt32Ty();
-
-    auto AddrSpace = scalarPtrTy->getAddressSpace();
-
     // vecValue is a single pointer and has to be broadcasted to a vector of pointers first
     vecValue = builder.CreateVectorSplat(vectorWidth(), &scaValue);
-    auto * actualPtrVecTy = vecValue->getType();
 
     if (!vecShape.isUniform()) { // stride != 0
-      auto * ptrElemTy = GetPointerElementType(scalarPtrTy);
-      assert(ptrElemTy->isSized() && "byte-stride shape on unsized element type");
-      int scalarBytes = static_cast<int>(layout.getTypeStoreSize(ptrElemTy));
-      if (vecShape.getStride() % scalarBytes == 0) {
-        // stride aligned with object size
-        Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride() / scalarBytes);
-        vecValue = builder.CreateGEP(scalarPtrTy->getPointerElementType(), vecValue, contVec, "expand_strided_ptr");
-      } else {
-        // sub element stride
-        auto * charPtrTy = builder.getInt8PtrTy(AddrSpace);
-        Value *contVec = createContiguousVector(vectorWidth(), intTy, 0, vecShape.getStride());
-        vecValue = builder.CreateGEP(builder.getInt8Ty(), vecValue, contVec, "expand_byte_ptr");
-      }
+      assert(false);
     }
 
   } else {
@@ -2679,8 +2646,6 @@ NatBuilder::requestInterleavedAddress(llvm::Value *const addr, unsigned interlea
     interAddr = builder.CreateGEP(vecType->getScalarType(), ptr, ConstantInt::get(indexTy, vectorWidth() * interleavedIdx), "inter_gep");
   }
 
-  int AddrSpace = cast<PointerType>(addr->getType())->getAddressSpace();
-  PointerType *vecPtrType = vecType->getPointerTo(AddrSpace);
   return interAddr;
 }
 

@@ -54,8 +54,6 @@ Config::Config()
 , enableStructOpt(!CheckFlag("RV_DISABLE_STRUCTOPT"))
 , enableSROV(!CheckFlag("RV_DISABLE_SROV"))
 , enableIRPolish(CheckFlag("RV_ENABLE_POLISH"))
-, enableHeuristicBOSCC(CheckFlag("RV_EXP_BOSCC"))
-, enableCoherentIF(CheckFlag("RV_EXP_CIF"))
 , enableOptimizedBlends(!CheckFlag("RV_NO_BLENDOPT"))
 
 // enable greedy inter-procedural vectorization
@@ -214,8 +212,6 @@ printOptFlags(const Config & config, llvm::raw_ostream & out) {
     out << "opts: enableSplitAllocas = " << config.enableSplitAllocas
         << ", enableStructOpt = " << config.enableStructOpt
         << ", enableSROV = " << config.enableSROV
-        << ", enableHeuristicBOSCC = " << config.enableHeuristicBOSCC
-        << ", enableCoherentIF = " << config.enableCoherentIF
         << ", enableOptimizedBlends = " << config.enableOptimizedBlends
         << ", enableIRPolish = " << config.enableIRPolish
         << ", greedyIPV = " << config.enableGreedyIPV

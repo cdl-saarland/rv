@@ -30,12 +30,6 @@ public:
                llvm::TargetLibraryInfo *TLI);
   ~PlatformInfo();
 
-  void setTTI(llvm::TargetTransformInfo *TTI);
-  void setTLI(llvm::TargetLibraryInfo *TLI);
-
-  llvm::TargetTransformInfo *getTTI();
-  llvm::TargetLibraryInfo *getTLI();
-
   // insert a new function resolver into the resolver chain
   void addResolverService(std::unique_ptr<ResolverService>&& newResolver, bool givePrecedence);
 

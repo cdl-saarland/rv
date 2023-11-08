@@ -47,9 +47,6 @@ class VectorizerInterface {
 public:
     VectorizerInterface(PlatformInfo & _platform, Config config = Config());
 
-    // try to inline common math functions (compiler-rt) before the analysis
-    void lowerRuntimeCalls(VectorizationInfo & vecInfo, llvm::FunctionAnalysisManager & FAM);
-
     //
     // Analyze properties of the scalar function that are needed later in transformations
     // towards its SIMD equivalent.
@@ -84,9 +81,6 @@ public:
     void finalize();
 
     PlatformInfo & getPlatformInfo() const { return platInfo; }
-    llvm::Module & getModule() const { return getPlatformInfo().getModule(); }
-
-    const Config & getConfig() const { return config; }
 
 private:
     Config config;

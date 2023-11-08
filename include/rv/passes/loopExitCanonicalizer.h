@@ -21,15 +21,6 @@ class Loop;
 class BasicBlock;
 } // namespace llvm
 
-namespace rv {
-class RVInfo;
-
-struct LoopExitCanonicalizerWrapperPass : llvm::PassInfoMixin<LoopExitCanonicalizerWrapperPass> {
-public:
-  llvm::PreservedAnalyses run(llvm::Function &F, llvm::FunctionAnalysisManager &FAM);
-};
-}
-
 // namespace {
 
 class LoopExitCanonicalizer {

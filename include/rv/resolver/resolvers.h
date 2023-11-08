@@ -15,12 +15,6 @@
 namespace rv {
   // Use the SLEEF library to implement math functions.
   void addSleefResolver(const Config & config, PlatformInfo & platInfo);
-
-  // Vectorize functions that are declares with "pragma omp declare simd".
-  void addOpenMPResolver(const Config & config, PlatformInfo & platInfo);
-
-  // use recursive vectorization.
-  void addRecursiveResolver(const Config & config, PlatformInfo & platInfo);
 }
 
 #endif

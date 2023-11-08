@@ -148,9 +148,6 @@ private:
   // .. for divergent branches (really any degree > 1 terminator)
   // propagates control divergence caused by immediate divergence in \p Term.
   void propagateBranchDivergence(const llvm::Instruction &Term);
-  // .. for divergent loops
-  // propagates control divergence caused by divergent loop exits of \p ExitingLoops.
-  void propagateLoopDivergence(const llvm::Loop &ExitingLoop);
 
   // Cast undefined instruction shapes to uniform shapes
   void promoteUndefShapesToUniform(const llvm::Function &F);

@@ -116,14 +116,6 @@ PlatformInfo::PlatformInfo(Module &_mod, TargetTransformInfo *TTI,
 
 PlatformInfo::~PlatformInfo() {}
 
-void PlatformInfo::setTTI(TargetTransformInfo *TTI) { mTTI = TTI; }
-
-void PlatformInfo::setTLI(TargetLibraryInfo *TLI) { mTLI = TLI; }
-
-TargetTransformInfo *PlatformInfo::getTTI() { return mTTI; }
-
-TargetLibraryInfo *PlatformInfo::getTLI() { return mTLI; }
-
 void
 PlatformInfo::addResolverService(std::unique_ptr<ResolverService>&& newResolver, bool givePrecedence) {
   auto itInsert = givePrecedence ? resolverServices.begin() : resolverServices.end();

@@ -32,9 +32,7 @@
 #include "rv/analysis/reductionAnalysis.h"
 
 // RV internal transformations.
-#include "rv/transform/CoherentIFTransform.h"
 #include "rv/transform/Linearizer.h"
-#include "rv/transform/bosccTransform.h"
 #include "rv/transform/guardedDivLoopTrans.h"
 #include "rv/transform/lowerDivergentSwitches.h"
 #include "rv/transform/memCopyElision.h"
@@ -63,89 +61,6 @@ VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo, Config _confi
         : config(_config)
         , platInfo(_platInfo)
 { }
-
-static void
-EmbedInlinedCode(BasicBlock & entry, Loop & hostLoop, LoopInfo & loopInfo, std::set<BasicBlock*> & funcBlocks) {
-  for (auto itSucc : successors(&entry)) {
-    auto & succ = *itSucc;
-
-    // block was newly inserted -> embed in loopInfo
-    if (funcBlocks.insert(&succ).second) {
-      hostLoop.addBasicBlockToLoop(&succ, loopInfo);
-      EmbedInlinedCode(succ, hostLoop, loopInfo, funcBlocks);
-    }
-  }
-}
-
-#define IF_DEBUG_CRT IF_DEBUG
-
-void
-VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, FunctionAnalysisManager & FAM)
-{
-  auto & scalarFn = vecInfo.getScalarFunction();
-  auto & mod = *scalarFn.getParent();
-
-  std::vector<CallInst*> callSites;
-
-  // blocks that are known to be in the function
-  std::set<BasicBlock*> funcBlocks;
-  for (auto & BB : scalarFn) {
-    funcBlocks.insert(&BB);
-  }
-
-  for (auto & BB : scalarFn) {
-    if (!vecInfo.inRegion(BB)) continue;
-
-    for (auto & Inst : BB) {
-      auto * call = dyn_cast<CallInst>(&Inst);
-      if (!call) continue;
-      auto * callee = call->getCalledFunction();
-      if (!callee) continue;
-      if (callee->isIntrinsic() || !callee->isDeclaration()) continue;
-
-      Function * implFunc = requestScalarImplementation(callee->getName(), *callee->getFunctionType(), mod);
-      IF_DEBUG_CRT { if (!implFunc) errs() << "CRT: could not find implementation for " << callee->getName() << "\n"; }
-
-      if (!implFunc) continue;
-
-      IF_DEBUG_CRT { errs() << "CRT: implementing " << callee->getName() << " with " << implFunc->getName() << "\n"; }
-
-      // replaced called function and prepare for inlining
-      auto itStart = callee->use_begin();
-      auto itEnd = callee->use_end();
-      for (auto itUse = itStart; itUse != itEnd; ) {
-        auto & userInst = *itUse->getUser();
-        itUse++;
-        auto * caller = dyn_cast<CallInst>(&userInst);
-        if (!caller) continue;
-        if (!vecInfo.inRegion(*caller->getParent())) continue;
-        callSites.push_back(caller);
-        caller->setCalledFunction(implFunc);
-      }
-    }
-  }
-
-  // TODO repair loopInfo
-
-  // must not invalidate LI
-  auto & LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
-  bool Changed = !callSites.empty();
-  for (auto * call : callSites) {
-    auto & entryBB = *call->getParent();
-    auto * hostLoop = LI.getLoopFor(&entryBB);
-    InlineFunctionInfo IFI;
-    InlineFunction(*call, IFI);
-
-    if (hostLoop) EmbedInlinedCode(entryBB, *hostLoop, LI, funcBlocks);
-  }
-  if (Changed) {
-    auto PA = PreservedAnalyses::all();
-    PA.abandon<DominatorTreeAnalysis>();
-    PA.abandon<PostDominatorTreeAnalysis>();
-    FAM.invalidate(vecInfo.getScalarFunction(), PA);
-  }
-}
-
 
 void
 VectorizerInterface::analyze(VectorizationInfo& vecInfo,
@@ -196,17 +111,6 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     GuardedDivLoopTrans guardedDLT(platInfo, vecInfo, FAM);
     guardedDLT.transformDivergentLoops();
 
-    // insert CIF branches if desired
-    if (config.enableCoherentIF) {
-      CoherentIFTransform CoherentIFTrans(vecInfo, platInfo, maskEx, FAM);
-      CoherentIFTrans.run();
-    }
-
-    // insert BOSCC branches if desired
-    if (config.enableHeuristicBOSCC) {
-      BOSCCTransform bosccTrans(vecInfo, platInfo, maskEx, FAM);
-      bosccTrans.run();
-    }
     // expand masks after BOSCC
     maskEx.expandRegionMasks();
 

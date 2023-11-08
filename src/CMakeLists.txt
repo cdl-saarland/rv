@@ -34,7 +34,6 @@ endif()
 
 set (RV_LIBRARY_OBJECTS
   ./PlatformInfo.cpp
-  ./annotations.cpp
   ./config.cpp
   ./intrinsics.cpp
   ./report.cpp
@@ -45,52 +44,36 @@ set (RV_LIBRARY_OBJECTS
   ./vectorMapping.cpp
   ./vectorizationInfo.cpp
   analysis/AllocaSSA.cpp
-  analysis/BranchEstimate.cpp
-  analysis/DFG.cpp
   analysis/UndeadMaskAnalysis.cpp
   analysis/VectorizationAnalysis.cpp
-  analysis/costModel.cpp
-  analysis/loopAnnotations.cpp
   analysis/predicateAnalysis.cpp
   analysis/reductionAnalysis.cpp
   analysis/reductions.cpp
-  native/MemoryAccessGrouper.cpp
   native/NatBuilder.cpp
   native/ShuffleBuilder.cpp
   native/Utils.cpp
-  passes/AutoMathPass.cpp
-  passes/LoopVectorizer.cpp
-  passes/WFVPass.cpp
   passes/irPolisher.cpp
   passes/loopExitCanonicalizer.cpp
-  passes/lowerRVIntrinsics.cpp
   passes/PassManagerSession.cpp
   region/FunctionRegion.cpp
-  region/LoopRegion.cpp
   region/Region.cpp
   resolver/listResolver.cpp
-  resolver/recResolver.cpp
   resolver/resolver.cpp
   resolver/sleefResolver.cpp
   shape/vectorShape.cpp
   shape/vectorShapeTransformer.cpp
-  transform/CoherentIFTransform.cpp
   transform/Linearizer.cpp
-  transform/bosccTransform.cpp
   transform/crtLowering.cpp
   transform/guardedDivLoopTrans.cpp
-  transform/loopCloner.cpp
   transform/lowerDivergentSwitches.cpp
   transform/maskExpander.cpp
   transform/memCopyElision.cpp
   transform/redOpt.cpp
   transform/redTools.cpp
-  transform/remTransform.cpp
   transform/singleReturnTrans.cpp
   transform/splitAllocas.cpp
   transform/srovTransform.cpp
   transform/structOpt.cpp
-  utils/llvmDomination.cpp
   utils/llvmDuplication.cpp
   utils/rvLinking.cpp
   utils/rvTools.cpp

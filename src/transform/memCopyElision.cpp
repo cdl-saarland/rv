@@ -111,9 +111,6 @@ MemCopyElision::lowerMemCopy(llvm::Value * destBase, llvm::Value * srcBase, llvm
   // TODO this code is highly specific to Coord<D> lowering
   auto * intTy = IntegerType::getInt32Ty(builder.getContext());
 
-  unsigned AddrSpace = cast<PointerType>(srcBase->getType())->getAddressSpace();
-  auto *CommonPtrTy = commonTy->getPointerTo(AddrSpace);
-
   const size_t elemSize = layout.getTypeStoreSize(commonTy);
   assert(numBytes % elemSize == 0);
   const size_t numElems = numBytes / elemSize;

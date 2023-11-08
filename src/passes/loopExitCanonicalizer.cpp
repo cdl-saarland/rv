@@ -22,22 +22,10 @@
 using namespace llvm;
 using namespace rv;
 
-///// Old PM Pass /////
+///// New PM Pass /////
 
 LoopExitCanonicalizer::LoopExitCanonicalizer(LoopInfo &loopInfo)
     : mLoopInfo(loopInfo) {}
-
-///// New PM Pass /////
-
-llvm::PreservedAnalyses rv::LoopExitCanonicalizerWrapperPass::run(Function &F, FunctionAnalysisManager &FAM) {
-  LoopInfo &loopInfo = FAM.getResult<LoopAnalysis>(F);
-
-  LoopExitCanonicalizer canonicalizer(loopInfo);
-  if (canonicalizer.canonicalize(F))
-    return llvm::PreservedAnalyses::none();
-  else
-    return llvm::PreservedAnalyses::all();
-}
 
 bool LoopExitCanonicalizer::canonicalize(Function &F) {
 

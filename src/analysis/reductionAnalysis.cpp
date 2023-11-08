@@ -16,7 +16,6 @@
 
 #include "rvConfig.h"
 #include "rv/shape/vectorShape.h"
-#include "rv/annotations.h"
 
 #if 1
 #define IF_DEBUG_RED IF_DEBUG
@@ -441,13 +440,7 @@ ReductionAnalysis::analyze(Loop & hostLoop) {
     auto * red = new Reduction(elements);
 
     // infer reduction kind
-    RedKind userHint = ReadReductionHint(*seedPhi);
-    if (userHint != RedKind::Bot) {
-      IF_DEBUG_RED { errs() << "Using provided reduction hint " << to_string(userHint) << "\n"; }
-      red->kind = userHint;
-    } else {
-      red->kind = ClassifyReduction(*red);
-    }
+    red->kind = ClassifyReduction(*red);
     red->levelLoop = &hostLoop;
 
     // register with the analysis

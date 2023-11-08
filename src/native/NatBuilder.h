@@ -10,8 +10,6 @@
 #define NATIVE_NATBUILDER_H
 
 
-#include "MemoryAccessGrouper.h"
-
 #include <vector>
 
 #include "rv/vectorizationInfo.h"
@@ -173,7 +171,6 @@ namespace rv {
     llvm::DenseMap<const llvm::Value *, llvm::Value *> vectorValueMap;
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
-    std::map<const llvm::Type *, rv::MemoryAccessGrouper> grouperMap;
     std::vector<llvm::PHINode *> phiVector;
     std::deque<llvm::Instruction *> lazyInstructions;
 

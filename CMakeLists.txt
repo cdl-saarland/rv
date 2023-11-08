@@ -203,15 +203,5 @@ endif()
 # links RV_SLEEF_OBJECTS into libRV
 add_subdirectory(src)
 
-# RV integrated tests
-add_subdirectory(test)
-
-# rvTool, ..
-add_subdirectory(tools)
-
-if ((NOT RV_COMPONENT_BUILD) AND RV_ENABLE_PLUGIN)
-  add_subdirectory(plugin)
-endif()
-
 # Add target to check formatting of RV files
 file( GLOB_RECURSE files *.h src/*.cpp src/*.c tools/*.cpp tools/*.c tools/*.h)

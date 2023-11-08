@@ -513,7 +513,6 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, Type * ptrElemTy, 
     auto *intTy = Type::getInt32Ty(builder.getContext());
     size_t n = cast<FixedVectorType>(ptrElemTy)->getNumElements();
     auto *ElemTy = cast<VectorType>(ptrElemTy)->getElementType();
-    auto *ptrTy = cast<PointerType>(ptr->getType());
     auto *scaPtr = builder.CreateGEP(ElemTy, ptr, { builder.getInt32(0) });
     vecInfo.setVectorShape(*scaPtr, ptrShape);
 
