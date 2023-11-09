@@ -50,8 +50,6 @@
 
 #include "rv/transform/maskExpander.h"
 
-#include "rv/transform/crtLowering.h"
-
 
 using namespace llvm;
 
@@ -85,19 +83,15 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     
     // TODO make this part of a new optimization phase
     // Scalar-Replication-Of-Varying-(Aggregates): split up structs of vectorizable elements to promote use of vector registers
-    if (config.enableSROV) {
-      SROVTransform srovTransform(vecInfo, platInfo);
-      bool Changed = srovTransform.run();
-      while (Changed) {
-        // re-run DA
-        vecInfo.forgetInferredProperties();
-        analyze(vecInfo, FAM);
+    SROVTransform srovTransform(vecInfo, platInfo);
+    bool Changed = srovTransform.run();
+    while (Changed) {
+      // re-run DA
+      vecInfo.forgetInferredProperties();
+      analyze(vecInfo, FAM);
 
-        // re-run SROV
-        Changed = srovTransform.run();
-      }
-    } else {
-      Report() << "SROV opt disabled (RV_DISABLE_SROV != 0)\n";
+      // re-run SROV
+      Changed = srovTransform.run();
     }
   
     // early lowering of divergent switch statements
@@ -148,23 +142,13 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, FunctionAnalysisManag
   MemCopyElision mce(platInfo, vecInfo);
   mce.run();
 
-  // split structural allocas
-  if (config.enableSplitAllocas) {
-    SplitAllocas split(vecInfo);
-    split.run();
-  } else {
-    Report() << "Split allocas opt disabled (RV_DISABLE_SPLITALLOCAS != 0)\n";
-  }
+  SplitAllocas split(vecInfo);
+  split.run();
 
   // transform allocas from Array-of-struct into Struct-of-vector where possibe
   // FIXME Cannot happen before DA re-run because StructOpt modifies ptr shapes to created contiguous stack accesses!
-  if (config.enableStructOpt) {
-    StructOpt sopt(vecInfo, platInfo.getDataLayout());
-    sopt.run();
-  } else {
-    Report() << "Struct opt disabled (RV_DISABLE_STRUCTOPT != 0)\n";
-  }
-
+  StructOpt sopt(vecInfo, platInfo.getDataLayout());
+  sopt.run();
 
   auto &LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
   auto * hostLoop = LI.getLoopFor(&vecInfo.getEntry());
@@ -185,11 +169,6 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, FunctionAnalysisManag
   IF_DEBUG verifyFunction(vecInfo.getVectorFunction());
 
   return true;
-}
-
-void
-VectorizerInterface::finalize() {
-  // TODO strip finalize
 }
 
 template <typename Impl>

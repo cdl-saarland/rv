@@ -97,10 +97,7 @@ PlatformInfo::addIntrinsicMappings() {
 PlatformInfo::PlatformInfo(Module &_mod, TargetTransformInfo *TTI,
                            TargetLibraryInfo *TLI)
 : mod(_mod)
-, mTTI(TTI)
-, mTLI(TLI)
 , resolverServices()
-, listResolver(nullptr)
 {
   resolverServices.push_back(std::unique_ptr<ResolverService>(new ListResolver(mod)));
   listResolver = static_cast<ListResolver*>(&*resolverServices[0]);
@@ -176,20 +173,6 @@ PlatformInfo::requestVectorMaskReductionFunc(const std::string &name, size_t wid
   redFunc->setConvergent();
   redFunc->setDoesNotRecurse();
   return redFunc; // TODO add SIMD mapping
-}
-
-size_t
-PlatformInfo::getMaxVectorWidth() const {
-  return getMaxVectorBits() / 8;
-}
-
-size_t PlatformInfo::getMaxVectorBits() const {
-  // Bypass TTI for VE since we want to enable RV vectorization while disabling
-  // LLVM vectorization via TTI.
-  llvm::Triple Triple(getModule().getTargetTriple());
-  if (Triple.getArch() == Triple::ve)
-    return 256 * 64;
-  return mTTI->getRegisterBitWidth(TargetTransformInfo::RGK_FixedWidthVector);
 }
 
 void

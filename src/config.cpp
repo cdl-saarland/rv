@@ -36,46 +36,27 @@ ulp_to_string(int ulp) {
 namespace rv {
 
 
-Config::Config()
-: vaMethod(VA_Full)
-
-  // should all (non-loop exiting) branches be folded regardless of VA result?
-  // set to false for partial linearization
-, foldAllBranches(CheckFlag("RV_FOLD_BRANCHES"))
-
+Config::Config() :
 // backend defaults
-, scalarizeIndexComputation(true)
+  scalarizeIndexComputation(true)
 , useScatterGatherIntrinsics(true)
 , enableMaskedMove(true)
 , useSafeDivisors(true)
 
 // optimization defaults
-, enableSplitAllocas(!CheckFlag("RV_DISABLE_SPLITALLOCAS"))
-, enableStructOpt(!CheckFlag("RV_DISABLE_STRUCTOPT"))
-, enableSROV(!CheckFlag("RV_DISABLE_SROV"))
 , enableIRPolish(CheckFlag("RV_ENABLE_POLISH"))
-, enableOptimizedBlends(!CheckFlag("RV_NO_BLENDOPT"))
 
 // enable greedy inter-procedural vectorization
-, enableGreedyIPV(CheckFlag("RV_IPV"))
-#ifdef LLVM_HAVE_VP
-, enableVP(!CheckFlag("RV_DISABLE_VP"))
-#else
-, enableVP(false)
-#endif
 , maxULPErrorBound(10)
 
 // feature flags
-, useVE(false)
 , useSSE(false)
 , useAVX(false)
 , useAVX2(false)
 , useAVX512(false)
-, useNEON(false)
 , useADVSIMD(false)
 
 // codegen flags
-, useAVL(CheckFlag("RV_FORCE_AVL")) 
 {
   const char *ULP = getenv("RV_ACCURACY");
   if (ULP) {
@@ -106,13 +87,6 @@ Config::createDefaultConfig() {
     } else if (arch == "advsimd") {
       Report() << "RV_ARCH: configured for arm advsimd!\n";
       config.useADVSIMD = true;
-#if 0
-    // LLVM upstream VP implementation is diverged from NEC sx-aurora-dev/llvm-project. Disable AVL for now
-    } else if (arch == "ve") {
-      Report() << "RV_ARCH: configured for NEC SX-Aurora!\n";
-      config.useVE = true;
-      config.useAVL = !CheckFlag("RV_DISABLE_AVL");
-#endif
     }
   }
 
@@ -141,20 +115,13 @@ Config
 Config::createForFunction(Function & F) {
   Config config = createDefaultConfig();
 
-  std::string triple = F.getParent()->getTargetTriple();
-  if (StringRef(triple).startswith("ve-")) {
-    config.useVE = true;
-    config.useAVL = true;
-    return config;
-  }
-
   // maps a target-feature entry to a handler
   const std::map<std::string, std::function<void()>> handlerMap = {
       {"+sse2", [&config]() { config.useSSE = true; } },
       {"+avx", [&config]() { config.useAVX = true; } },
       {"+avx2", [&config]() { config.useAVX2 = true; } },
       {"+avx512f", [&config]() { config.useAVX512 = true; } },
-      {"+neon", [&config]() { config.useADVSIMD = true; config.useNEON = true; } }
+      {"+neon", [&config]() { config.useADVSIMD = true; } }
   };
 
   auto attribSet = F.getAttributes().getFnAttrs();
@@ -184,23 +151,6 @@ Config::createForFunction(Function & F) {
   return config;
 }
 
-std::string
-to_string(Config::VAMethod vam) {
-  switch(vam) {
-    case Config::VA_Full: return "sa-lattice";
-    case Config::VA_TopBot: return "topbot-lattice";
-    case Config::VA_Karrenberg: return "karrenberg-lattice";
-    case Config::VA_Coutinho: return "coutinho-lattice";
-    default:
-        abort(); // invalid lattice argument
-  }
-}
-
-static void
-printVAFlags(const Config & config, llvm::raw_ostream & out) {
-    out << "VA:   " << to_string(config.vaMethod) << ", foldAllBranches = " << config.foldAllBranches;
-}
-
 static void
 printNativeFlags(const Config & config, llvm::raw_ostream & out) {
    out << "nat:  useScatterGather = " << config.useScatterGatherIntrinsics
@@ -209,32 +159,22 @@ printNativeFlags(const Config & config, llvm::raw_ostream & out) {
 
 static void
 printOptFlags(const Config & config, llvm::raw_ostream & out) {
-    out << "opts: enableSplitAllocas = " << config.enableSplitAllocas
-        << ", enableStructOpt = " << config.enableStructOpt
-        << ", enableSROV = " << config.enableSROV
-        << ", enableOptimizedBlends = " << config.enableOptimizedBlends
-        << ", enableIRPolish = " << config.enableIRPolish
-        << ", greedyIPV = " << config.enableGreedyIPV
-        << ", maxULPErrorBound = " << ulp_to_string(config.maxULPErrorBound)
-        << ", useAVL = " << config.useAVL << "\n";
+    out << "opts: enableIRPolish = " << config.enableIRPolish
+        << ", maxULPErrorBound = " << ulp_to_string(config.maxULPErrorBound) << "\n";
 }
 
 static void
 printFeatureFlags(const Config & config, llvm::raw_ostream & out) {
-  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << ", useADVSIMD = " << config.useADVSIMD << ", useVE = " << config.useVE << "\n";
+  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useADVSIMD = " << config.useADVSIMD << "\n";
 }
 
 
 void
 Config::print(llvm::raw_ostream & out) const {
   out << "RVConfig {\n\t";
-  printVAFlags(*this, out);
-  out << "\n\t";
   printOptFlags(*this, out);
   out << "\n\t";
   printNativeFlags(*this, out);
-  out << "\n\t";
-  if (this->enableVP) out << "using LLVM-VP.\n";
   out << "\n\t";
   printFeatureFlags(*this, out);
   out << "\n}\n";

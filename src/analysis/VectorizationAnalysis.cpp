@@ -341,27 +341,6 @@ void VectorizationAnalysis::analyze() {
   // replace undef instruction shapes with uniform
   promoteUndefShapesToUniform(F);
 
-  // mark all non-loop exiting branches as divergent to trigger a full
-  // linearization
-  // FIXME factor this out into a separate transformation
-  if (config.foldAllBranches) {
-    for (auto &BB : F) {
-      auto &term = *BB.getTerminator();
-      if (term.getNumSuccessors() <= 1)
-        continue; // uninteresting
-
-      if (!vecInfo.inRegion(BB))
-        continue; // no begin vectorized
-
-      auto *loop = LI.getLoopFor(&BB);
-      bool keepShape = loop && loop->isLoopExiting(&BB);
-
-      if (!keepShape) {
-        vecInfo.setVectorShape(term, VectorShape::varying());
-      }
-    }
-  }
-
   IF_DEBUG_VA {
     errs() << "VecInfo after VA:\n";
     vecInfo.dump();

@@ -18,36 +18,6 @@ using namespace llvm;
 
 namespace rv {
 
-void MaterializeEntryMask(Function &F, rv::PlatformInfo &platInfo) {
-  auto &entryMaskFunc =
-      platInfo.requestRVIntrinsicFunc(rv::RVIntrinsic::EntryMask);
-  auto &entry = F.getEntryBlock();
-
-  // create a new dedicated entry block
-  auto *guardedEntry = entry.splitBasicBlock(entry.begin());
-  entry.getTerminator()->eraseFromParent();
-
-  // insert a dedicated exit block right after @entry.
-  auto itInsertBlock = F.begin();
-  itInsertBlock++;
-  auto &exitBlock =
-      *BasicBlock::Create(F.getContext(), "", &F, &*itInsertBlock);
-
-  IRBuilder<> builder(&entry);
-  auto *entryMask = builder.CreateCall(&entryMaskFunc, {}, "implicit_wfv_mask");
-  builder.CreateCondBr(entryMask, guardedEntry, &exitBlock);
-
-  // return <undef>
-  auto &retTy = *F.getFunctionType()->getReturnType();
-  builder.SetInsertPoint(&exitBlock);
-  if (retTy.isVoidTy()) {
-    builder.CreateRetVoid();
-  } else {
-    builder.CreateRet(UndefValue::get(&retTy));
-  }
-  // TODO update DT, PDF (in FAM)
-}
-
 bool
 parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & mapping, bool createMissingDecl) {
   // FIXME use LLVM VectorUtils

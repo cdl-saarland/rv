@@ -41,8 +41,6 @@ public:
               bool hasPredicate) const;
 
   llvm::Module &getModule() const { return mod; }
-  llvm::LLVMContext &getContext() const { return mod.getContext(); }
-
   const llvm::DataLayout &getDataLayout() const { return mod.getDataLayout(); }
 
   // FIXME use RVIntrinsic instead
@@ -50,11 +48,7 @@ public:
   llvm::Function &requestRVIntrinsicFunc(RVIntrinsic rvIntrin);
   llvm::Function *requestVectorMaskReductionFunc(const std::string &name, size_t width);
 
-  size_t getMaxVectorWidth() const;
-  size_t getMaxVectorBits() const;
-
   // allow quick access to the builtin resolver
-  ListResolver& getListResolver() { return *listResolver; }
   void addMapping(VectorMapping&& mapping);
   void addMapping(const VectorMapping& mapping) { addMapping(VectorMapping(mapping)); }
   void forgetAllMappingsFor(const llvm::Function & scaFunc);
@@ -72,8 +66,7 @@ public:
 private:
   // Direct access to builtin list resolver.
   llvm::Module &mod;
-  llvm::TargetTransformInfo *mTTI;
-  llvm::TargetLibraryInfo *mTLI;
+
   std::vector<std::unique_ptr<ResolverService>> resolverServices;
   ListResolver * listResolver;
 };

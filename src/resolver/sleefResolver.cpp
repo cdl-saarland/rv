@@ -654,7 +654,6 @@ struct SleefVLAResolver : public FunctionResolver {
     vectorizer.analyze(vecInfo, PMS.FAM);
     vectorizer.linearize(vecInfo, PMS.FAM);
     vectorizer.vectorize(vecInfo, PMS.FAM, nullptr);
-    vectorizer.finalize();
 
     // discard temporary mapping
     vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);

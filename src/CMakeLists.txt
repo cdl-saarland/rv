@@ -63,7 +63,6 @@ set (RV_LIBRARY_OBJECTS
   shape/vectorShape.cpp
   shape/vectorShapeTransformer.cpp
   transform/Linearizer.cpp
-  transform/crtLowering.cpp
   transform/guardedDivLoopTrans.cpp
   transform/lowerDivergentSwitches.cpp
   transform/maskExpander.cpp

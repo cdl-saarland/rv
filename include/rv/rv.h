@@ -74,12 +74,6 @@ public:
               llvm::FunctionAnalysisManager& FAM,
               llvm::ValueToValueMapTy * vecInstMap);
 
-    //
-    // Ends the vectorization process on this function, removes metadata and
-    // writes the function to a file
-    //
-    void finalize();
-
     PlatformInfo & getPlatformInfo() const { return platInfo; }
 
 private:
@@ -88,11 +82,12 @@ private:
 };
 
 
-   // implement all rv_* intrinsics
-   // this is necessary to make scalar functions with predicate intrinsics executable
-   // the SIMS semantics of the function will change if @scalar func used any mask intrinsics
-  bool lowerIntrinsics(llvm::Function & scalarFunc);
-  bool lowerIntrinsics(llvm::Module & mod);
+// implement all rv_* intrinsics
+// this is necessary to make scalar functions with predicate intrinsics executable
+// the SIMS semantics of the function will change if @scalar func used any mask intrinsics
+bool lowerIntrinsics(llvm::Function & scalarFunc);
+bool lowerIntrinsics(llvm::Module & mod);
+
 }
 
 #endif // RV_RV_H

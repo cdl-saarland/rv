@@ -14,7 +14,6 @@
 
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/Instructions.h>
-#include "llvm/InitializePasses.h"
 
 #include "rvConfig.h"
 #include "utils/rvTools.h"
@@ -22,13 +21,10 @@
 using namespace llvm;
 using namespace rv;
 
-///// New PM Pass /////
-
 LoopExitCanonicalizer::LoopExitCanonicalizer(LoopInfo &loopInfo)
     : mLoopInfo(loopInfo) {}
 
 bool LoopExitCanonicalizer::canonicalize(Function &F) {
-
   for (auto &L : mLoopInfo) {
     canonicalizeLoop(L);
   }

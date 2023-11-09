@@ -11,17 +11,14 @@
 #ifndef _LOOPEXITCANONICALIZER_H
 #define _LOOPEXITCANONICALIZER_H
 
-#include "llvm/Pass.h"
 #include "llvm/IR/BasicBlock.h"
-#include "llvm/IR/PassManager.h"
 
 namespace llvm {
+
 class LoopInfo;
 class Loop;
-class BasicBlock;
-} // namespace llvm
 
-// namespace {
+} // namespace llvm
 
 class LoopExitCanonicalizer {
 public:
@@ -39,7 +36,5 @@ private:
   void replaceTarget(llvm::BasicBlock *source, llvm::BasicBlock *target,
                      llvm::BasicBlock *newTarget) const;
 };
-
-//} // unnamed namespace
 
 #endif /* _LOOPEXITCANONICALIZER_H */

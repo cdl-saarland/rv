@@ -17,7 +17,6 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
-#include "llvm/Pass.h"
 
 #include "rv/config.h"
 
@@ -79,14 +78,6 @@ class IRPolisher {
 public:
   IRPolisher(llvm::Function &f);
   bool polish();
-};
-
-struct IRPolisherWrapperPass : llvm::PassInfoMixin<IRPolisherWrapperPass> {
-public:
-  IRPolisherWrapperPass();
-
-  llvm::PreservedAnalyses run(llvm::Function &F,
-                              llvm::FunctionAnalysisManager &FAM);
 };
 
 }

@@ -641,17 +641,3 @@ bool IRPolisher::polish() {
 
   return visitedInsts.size() > 0;
 }
-
-///// New PM Pass /////
-
-IRPolisherWrapperPass::IRPolisherWrapperPass() {}
-
-llvm::PreservedAnalyses
-IRPolisherWrapperPass::run(llvm::Function &F,
-                               llvm::FunctionAnalysisManager &FAM) {
-  IRPolisher IRPolisherImpl(F);
-  if (IRPolisherImpl.polish())
-    return llvm::PreservedAnalyses::none();
-  else
-    return llvm::PreservedAnalyses::all();
-}
