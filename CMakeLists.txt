@@ -6,8 +6,10 @@ if (NOT DEFINED LLVM_MAIN_SRC_DIR)
   project(RV)
   cmake_minimum_required(VERSION 3.4.3)
 
+  find_package(LLVM REQUIRED)
+
   # Where is LLVM installed?
-  set(LLVM_INSTALL_ROOT "" CACHE PATH "Root of LLVM install.")
+  set(LLVM_INSTALL_ROOT ${LLVM_INSTALL_PREFIX} CACHE PATH "Root of LLVM install.")
   # Check if the LLVM_INSTALL_ROOT valid.
   if( NOT EXISTS ${LLVM_INSTALL_ROOT}/include/llvm )
     message(FATAL_ERROR "LLVM_INSTALL_ROOT (${LLVM_INSTALL_ROOT}) is not a valid LLVM installation.")
@@ -106,7 +108,6 @@ OPTION(RV_REBUILD_GENBC "Build the builtin BC library (SLEEF, SIMD random, ..) f
 OPTION(RV_ENABLE_SLEEF "Generate RV's builtin vector-math library" ON)
 OPTION(RV_ENABLE_CRT "Implement complex math functions using BC-compiler compiler-rt" OFF)
 OPTION(RV_DEBUG "Enable verbose debug output and expensive internal checks." OFF)
-OPTION(RV_ENABLE_PLUGIN "Build the RVPLUG pass plugin." ON)
 
 if (RV_REBUILD_GENBC AND LLVM_RVPLUG_LINK_INTO_TOOLS)
   message(FATAL_ERROR "Cannot set RV_REBUILD_GENBC and LLVM_RVPLUG_LINK_INTO_TOOLS at the same time. If you want to update the vecmath bitcode files and buffers, (temporarily) disable LLVM_RVPLUG_LINK_INTO_TOOLS, compile LLVM and copy the BUILD/tools/rv/lib/*.gen.cpp files to rv/vecmath/prebuilt_genbc/.")
@@ -164,6 +165,7 @@ SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 include_directories(
   BEFORE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${ISL_INCLUDE_DIRS}
   ${CMAKE_CURRENT_SOURCE_DIR}/lib/External/JSON/include
   ${CMAKE_CURRENT_SOURCE_DIR}/lib/External/pet/include
