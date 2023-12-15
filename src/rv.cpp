@@ -296,6 +296,22 @@ lowerIntrinsics(Function & func) {
   return changed;
 }
 
+bool
+cloneFunctionAndLowerIntrinsics(Function & kernel_func, Function & simd_kernel_func) {
+        llvm::ValueToValueMapTy argMap;
+        auto itCalleeArgs = simd_kernel_func.args().begin();
+        auto itSourceArgs = kernel_func.args().begin();
+        auto endSourceArgs = kernel_func.args().end();
 
+        for (; itSourceArgs != endSourceArgs; ++itCalleeArgs, ++itSourceArgs) {
+            argMap[&*itSourceArgs] = &*itCalleeArgs;
+        }
+
+        llvm::SmallVector<llvm::ReturnInst*,4> retVec;
+        llvm::CloneFunctionInto(&simd_kernel_func, &kernel_func, argMap, llvm::CloneFunctionChangeType::LocalChangesOnly, retVec);
+
+        // lower mask intrinsics for scalar code (vector_length == 1)
+        return lowerIntrinsics(simd_kernel_func);
+}
 
 } // namespace rv

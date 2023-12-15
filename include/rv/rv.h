@@ -88,6 +88,8 @@ private:
 bool lowerIntrinsics(llvm::Function & scalarFunc);
 bool lowerIntrinsics(llvm::Module & mod);
 
+bool cloneFunctionAndLowerIntrinsics(llvm::Function & kernel_func, llvm::Function & simd_kernel_func);
+
 }
 
 #endif // RV_RV_H
