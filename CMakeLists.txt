@@ -205,5 +205,9 @@ endif()
 # links RV_SLEEF_OBJECTS into libRV
 add_subdirectory(src)
 
+if (NOT RV_COMPONENT_BUILD)
+    export(TARGETS RV FILE ${CMAKE_BINARY_DIR}/share/rv/cmake/rv-exports.cmake)
+endif()
+
 # Add target to check formatting of RV files
 file( GLOB_RECURSE files *.h src/*.cpp src/*.c tools/*.cpp tools/*.c tools/*.h)
