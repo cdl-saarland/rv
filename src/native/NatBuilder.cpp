@@ -1743,8 +1743,6 @@ void NatBuilder::vectorizeMemoryInstruction(Instruction *const inst) {
     accessedPtr = store->getPointerOperand();
   }
 
-  assert(cast<PointerType>(accessedPtr->getType())->isOpaqueOrPointeeTypeMatches(accessedType) &&
-         "accessed type and pointed object type differ!");
   assert(vecInfo.hasKnownShape(*accessedPtr) && "no shape for accessed pointer!");
   VectorShape addrShape = getVectorShape(*accessedPtr);
   Type *vecType = getVectorType(accessedType, vectorWidth());

@@ -20,16 +20,18 @@
 #include "rv/vectorMapping.h"
 #include "rv/vectorizationInfo.h"
 
+#include "llvm/Analysis/CycleAnalysis.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/Analysis/SyncDependenceAnalysis.h"
+#include "llvm/ADT/GenericUniformityImpl.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/SSAContext.h"
 #include "llvm/IR/Use.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Pass.h"
@@ -62,9 +64,10 @@ class VectorizationAnalysis {
   const llvm::DataLayout &layout;
   const llvm::LoopInfo &LI; // Preserves LoopInfo
   const llvm::DominatorTree &DT;
+  const llvm::CycleInfo &CI;
 
   // Divergence computation:
-  llvm::SyncDependenceAnalysis SDA;
+  llvm::GenericSyncDependenceAnalysis<llvm::SSAContext> SDA;
   PredicateAnalysis PredA;
 
   FunctionRegion funcRegion;
