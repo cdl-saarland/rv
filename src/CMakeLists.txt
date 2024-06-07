@@ -95,6 +95,8 @@ IF (RV_COMPONENT_BUILD)
     TransformUtils
   )
 ELSE()
+  set(LLVM_LINK_COMPONENTS core analysis)
+
   add_rv_library(${RV_LIBRARY_NAME} ${RV_LIBRARY_OBJECTS})
 ENDIF()
 
@@ -103,36 +105,36 @@ IF (RV_REBUILD_GENBC)
   add_dependencies(${RV_LIBRARY_NAME} vecmath)
 endif()
 
-if (NOT RV_COMPONENT_BUILD)
-  if (LLVM_LINK_LLVM_DYLIB)
-    target_link_libraries(RV PUBLIC LLVM)
-    link_directories(
-      ${LLVM_LIBRARY_DIR}
-    )
-  elseif (BUILD_SHARED_LIBS)
-    target_link_libraries(RV PUBLIC
-      LLVMSupport
-      LLVMCore
-      LLVMScalarOpts
-      LLVMInstCombine
-      LLVMAggressiveInstCombine
-      LLVMTransformUtils
-      LLVMAnalysis
-      LLVMipo
-      LLVMMC
-      LLVMIRReader
-      LLVMPasses
-  # The libraries below are required for darwin: http://PR26392
-      LLVMBitReader
-      LLVMMCParser
-      LLVMObject
-      LLVMProfileData
-      LLVMTarget
-      LLVMTargetParser
-      LLVMVectorize
-    )
-    link_directories(
-      ${LLVM_LIBRARY_DIR}
-    )
-  endif()
-endif()
+#if (NOT RV_COMPONENT_BUILD)
+#  if (LLVM_LINK_LLVM_DYLIB)
+#    target_link_libraries(RV PUBLIC LLVM)
+#    link_directories(
+#      ${LLVM_LIBRARY_DIR}
+#    )
+#  elseif (BUILD_SHARED_LIBS)
+#    target_link_libraries(RV PUBLIC
+#      LLVMSupport
+#      LLVMCore
+#      LLVMScalarOpts
+#      LLVMInstCombine
+#      LLVMAggressiveInstCombine
+#      LLVMTransformUtils
+#      LLVMAnalysis
+#      LLVMipo
+#      LLVMMC
+#      LLVMIRReader
+#      LLVMPasses
+#  # The libraries below are required for darwin: http://PR26392
+#      LLVMBitReader
+#      LLVMMCParser
+#      LLVMObject
+#      LLVMProfileData
+#      LLVMTarget
+#      LLVMTargetParser
+#      LLVMVectorize
+#    )
+#    link_directories(
+#      ${LLVM_LIBRARY_DIR}
+#    )
+#  endif()
+#endif()
