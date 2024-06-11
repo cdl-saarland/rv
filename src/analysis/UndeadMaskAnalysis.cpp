@@ -1,4 +1,4 @@
-//===- src/analysis/UndeadMaskAnalysis.cpp - at-least-one-thread-live analysis\
+//===- src/analysis/UndeadMaskAnalysis.cpp - at-least-one-thread-live analysis
 //--*- C++ -*-===//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.

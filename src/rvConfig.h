@@ -50,6 +50,7 @@
 
 #endif // _RVCONFIG_H
 
+#if 0
 namespace rv {
 
 template<typename N>
@@ -57,3 +58,4 @@ extern N
 GetValue(const char * name, N defVal);
 
 }
+#endif

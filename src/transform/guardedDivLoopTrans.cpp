@@ -241,10 +241,10 @@ GuardedTransformSession::transformLoop() {
     auto & exitingBr = *cast<BranchInst>(exitingBlock->getTerminator());
     bool exitOnFalse = exitingBr.getSuccessor(1) == &exitBlock;
 
-// Rebound the exiting edge and create mask updates (loop live mask AND exit mask tracker)
+    // Rebound the exiting edge and create mask updates (loop live mask AND exit mask tracker)
     // fold the exiting edge back into the loop by the sending it to the latch
     // exitingBlock // original exitingBlock
-    //   |     \
+    //   |      |
     //   |      reboundBlock (likely ==pureLatchBlock) // skip to loop latch
     //   |
     // continueBlock // in-loop successor of exitingBlock

@@ -1,4 +1,4 @@
-set(LLVM_NO_RTTI 1)
+#set(LLVM_NO_RTTI 1)
 
 set(RV_HEADER_FILES)
 if (MSVC_IDE OR XCODE)
@@ -32,13 +32,13 @@ IF (RV_REBUILD_GENBC)
   set_source_files_properties(${RV_SLEEF_OBJECTS} PROPERTIES GENERATED On)
 endif()
 
-set (RV_LIBRARY_OBJECTS
+set (RV_SOURCES
   ./PlatformInfo.cpp
   ./config.cpp
   ./intrinsics.cpp
   ./report.cpp
   ./rv.cpp
-  ./rvConfig.cpp
+  #./rvConfig.cpp
   ./rvDebug.cpp
   ./utils.cpp
   ./vectorMapping.cpp
@@ -76,65 +76,46 @@ set (RV_LIBRARY_OBJECTS
   utils/llvmDuplication.cpp
   utils/rvLinking.cpp
   utils/rvTools.cpp
-  ${RV_HEADER_FILES}
-  ${RV_SLEEF_OBJECTS}
+
+  native/NatBuilder.h
+  native/ShuffleBuilder.h
+  native/Utils.h
+  report.h
+  rvConfig.h
+  utils/llvmDuplication.h
+  utils/mathUtils.h
+  utils/rvLinking.h
+  utils/rvTools.h
 )
 
-IF (RV_COMPONENT_BUILD)
-  add_llvm_component_library(
-    ${RV_LIBRARY_NAME} ${RV_LIBRARY_OBJECTS}
 
-    DEPENDS
-    intrinsics_gen
+#cmake_parse_arguments(ARG "" "" "" ${ARGN})
+#set(srcs ${ARG_UNPARSED_ARGUMENTS})
 
-    LINK_COMPONENTS
-    Analysis
-    Core
-    Support
-    ScalarOpts
-    TransformUtils
-  )
-ELSE()
-  set(LLVM_LINK_COMPONENTS core analysis)
+#  if(MSVC_IDE OR XCODE)
+#    file( GLOB_RECURSE headers *.h *.td *.def)
+#    set(RV_SOURCES ${RV_SOURCES} ${headers})
+#    string( REGEX MATCHALL "/[^/]+" split_path ${CMAKE_CURRENT_SOURCE_DIR})
+#    list( GET split_path -1 dir)
+#    file( GLOB_RECURSE headers ../../include/rv${dir}/*.h)
+#    set(RV_SOURCES ${RV_SOURCES} ${headers})
+#  endif(MSVC_IDE OR XCODE)
 
-  add_rv_library(${RV_LIBRARY_NAME} ${RV_LIBRARY_OBJECTS})
-ENDIF()
+#  if (MODULE)
+#    set(libkind MODULE)
+#  elseif (SHARED_LIBRARY)
+#    set(libkind SHARED)
+#  else()
+#    set(libkind)
+#  endif()
+
+add_library( RV ${RV_SOURCES} ${RV_HEADER_FILES} ${RV_SLEEF_OBJECTS} )
+target_include_directories( RV SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS} )
+target_include_directories( RV PRIVATE ${RV_SOURCE_DIR}/include ${RV_SOURCE_DIR}/src )
+
+llvm_config(RV core analysis)
 
 # Make sure BC buffer cpp files are available before linking libRV
 IF (RV_REBUILD_GENBC)
-  add_dependencies(${RV_LIBRARY_NAME} vecmath)
+    add_dependencies(RV vecmath)
 endif()
-
-#if (NOT RV_COMPONENT_BUILD)
-#  if (LLVM_LINK_LLVM_DYLIB)
-#    target_link_libraries(RV PUBLIC LLVM)
-#    link_directories(
-#      ${LLVM_LIBRARY_DIR}
-#    )
-#  elseif (BUILD_SHARED_LIBS)
-#    target_link_libraries(RV PUBLIC
-#      LLVMSupport
-#      LLVMCore
-#      LLVMScalarOpts
-#      LLVMInstCombine
-#      LLVMAggressiveInstCombine
-#      LLVMTransformUtils
-#      LLVMAnalysis
-#      LLVMipo
-#      LLVMMC
-#      LLVMIRReader
-#      LLVMPasses
-#  # The libraries below are required for darwin: http://PR26392
-#      LLVMBitReader
-#      LLVMMCParser
-#      LLVMObject
-#      LLVMProfileData
-#      LLVMTarget
-#      LLVMTargetParser
-#      LLVMVectorize
-#    )
-#    link_directories(
-#      ${LLVM_LIBRARY_DIR}
-#    )
-#  endif()
-#endif()
