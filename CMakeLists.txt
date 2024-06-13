@@ -5,6 +5,13 @@ project(RV)
 cmake_minimum_required(VERSION 3.4.3)
 
 find_package(LLVM REQUIRED)
+if (LLVM_LINK_LLVM_DYLIB)
+    set(RV_LLVM_LINK_SHARED "USE_SHARED")
+else()
+    if (BUILD_SHARED_LIBS)
+        message(SEND_ERROR "Cannot build RV as a shared library with the current build of LLVM. Build LLVM with LLVM_LINK_LLVM_DYLIB or change BUILD_SHARED_LIBS to off.")
+    endif()
+endif()
 
 # Where is LLVM installed?
 set(LLVM_INSTALL_ROOT ${LLVM_INSTALL_PREFIX} CACHE PATH "Root of LLVM install.")
