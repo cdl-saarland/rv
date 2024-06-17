@@ -4,7 +4,6 @@
 # RV_INCLUDE_DIRS (including dependencies to LLVM/RV/Half)
 # RV_LIBRARIES (including dependencies to LLVM/RV)
 # RV_FOUND
-# AnyDSL_LLVM_LINK_SHARED
 
 cmake_minimum_required(VERSION 3.13.4)
 
