@@ -119,8 +119,6 @@ set(RV_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 #  "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
 #  )
 
-  #include("rv_macros")
-
 # Add appropriate flags for GCC
 if (CMAKE_COMPILER_IS_GNUCXX)
   # FIXME: Turn off exceptions, RTTI:
