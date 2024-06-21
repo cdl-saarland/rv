@@ -46,6 +46,12 @@ using namespace llvm;
 
 namespace rv {
 
+// total operation annotation
+// This operation is not subject to predication.
+void setTotalOperationTag(Instruction & inst);
+void dropTotalOperationTag(Instruction & inst);
+bool hasTotalOperationTag(Instruction & inst);
+
 // defaulting phi semantics
 //
 // set the shadow input of \p phi to \p defInput
@@ -59,9 +65,6 @@ void
 getExitingBlocks(BasicBlock*                  exitBlock,
                       const LoopInfo&              loopInfo,
                       SmallVector<BasicBlock*, 2>& exitingBlocks);
-
-bool
-returnsVoidPtr(const Instruction& inst);
 
 Module*
 createModuleFromFile(const std::string & fileName, LLVMContext & context);

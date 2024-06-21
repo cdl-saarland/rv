@@ -18,15 +18,18 @@
 #include <llvm/Analysis/MemoryDependenceAnalysis.h>
 #include <llvm/Analysis/BranchProbabilityInfo.h>
 #include <llvm/Passes/PassBuilder.h>
+#include "llvm/Transforms/Utils/LCSSA.h"
 
 #include "rv/PlatformInfo.h"
 #include "utils/rvTools.h"
+#include "utils/rvLinking.h"
 #include "rvConfig.h"
 #include "rv/rv.h"
 #include "rv/utils.h"
 #include "rv/region/FunctionRegion.h"
 #include "rv/transform/singleReturnTrans.h"
-#include "rv/transform/loopExitCanonicalizer.h"
+#include "rv/passes/loopExitCanonicalizer.h"
+#include "rv/passes/PassManagerSession.h"
 #include "report.h"
 
 #include <llvm/IR/Verifier.h>
@@ -47,114 +50,65 @@ using namespace llvm;
 // vector-length agnostic
 extern "C" {
 
+#define EXTERNAL_GENBC_BUFFER(NAME) \
+extern const unsigned char * NAME##_Buffer; \
+extern const size_t NAME##_BufferLen;
+
+#define EMPTY_GENBC_BUFFER(NAME) \
+const unsigned char * NAME##_Buffer = nullptr; \
+const size_t NAME##_BufferLen = 0;
+
+
 #ifdef RV_ENABLE_SLEEF
-extern const unsigned char * vla_sp_Buffer;
-extern const size_t vla_sp_BufferLen;
-
-extern const unsigned char * vla_dp_Buffer;
-extern const size_t vla_dp_BufferLen;
+EXTERNAL_GENBC_BUFFER(rempitab)
+EXTERNAL_GENBC_BUFFER(vla_sp)
+EXTERNAL_GENBC_BUFFER(vla_dp)
 #else
-const unsigned char * vla_sp_Buffer = nullptr;
-const size_t vla_sp_BufferLen = 0;
-
-const unsigned char * vla_dp_Buffer = nullptr;
-const size_t vla_dp_BufferLen = 0;
+EMPTY_GENBC_BUFFER(rempitab)
+EMPTY_GENBC_BUFFER(vla_sp)
+EMPTY_GENBC_BUFFER(vla_dp)
 #endif
 
 #ifdef RV_ENABLE_ADVSIMD
-extern const unsigned char * advsimd_sp_Buffer;
-extern const size_t advsimd_sp_BufferLen;
-
-extern const unsigned char * advsimd_dp_Buffer;
-extern const size_t advsimd_dp_BufferLen;
-
-extern const unsigned char * advsimd_extras_Buffer;
-extern const size_t advsimd_extras_BufferLen;
-
+EXTERNAL_GENBC_BUFFER(advsimd_extras)
+EXTERNAL_GENBC_BUFFER(advsimd_sp)
+EXTERNAL_GENBC_BUFFER(advsimd_dp)
 #else
-const unsigned char * advsimd_sp_Buffer = nullptr;
-const size_t advsimd_sp_BufferLen = 0;
-
-const unsigned char * advsimd_dp_Buffer = nullptr;
-const size_t advsimd_dp_BufferLen = 0;
-
-const unsigned char * advsimd_extras_Buffer = nullptr;
-const size_t advsimd_extras_BufferLen = 0;
+EMPTY_GENBC_BUFFER(advsimd_extras)
+EMPTY_GENBC_BUFFER(advsimd_sp)
+EMPTY_GENBC_BUFFER(advsimd_dp)
 #endif
 
 #ifdef RV_ENABLE_X86
-extern const unsigned char * avx512_sp_Buffer;
-extern const size_t avx512_sp_BufferLen;
-
-extern const unsigned char * avx2_sp_Buffer;
-extern const size_t avx2_sp_BufferLen;
-
-extern const unsigned char * avx_sp_Buffer;
-extern const size_t avx_sp_BufferLen;
-
-extern const unsigned char * sse_sp_Buffer;
-extern const size_t sse_sp_BufferLen;
-
-extern const unsigned char * avx512_dp_Buffer;
-extern const size_t avx512_dp_BufferLen;
-
-extern const unsigned char * avx2_dp_Buffer;
-extern const size_t avx2_dp_BufferLen;
-
-extern const unsigned char * avx_dp_Buffer;
-extern const size_t avx_dp_BufferLen;
-
-extern const unsigned char * sse_dp_Buffer;
-extern const size_t sse_dp_BufferLen;
-
-extern const unsigned char * avx2_extras_Buffer;
-extern const size_t avx2_extras_BufferLen;
-
-extern const unsigned char * avx512_extras_Buffer;
-extern const size_t avx512_extras_BufferLen;
+EXTERNAL_GENBC_BUFFER(avx512_extras)
+EXTERNAL_GENBC_BUFFER(avx512_sp)
+EXTERNAL_GENBC_BUFFER(avx512_dp)
+EXTERNAL_GENBC_BUFFER(avx2_extras)
+EXTERNAL_GENBC_BUFFER(avx2_sp)
+EXTERNAL_GENBC_BUFFER(avx2_dp)
+EXTERNAL_GENBC_BUFFER(avx_sp)
+EXTERNAL_GENBC_BUFFER(avx_dp)
+EXTERNAL_GENBC_BUFFER(sse_sp)
+EXTERNAL_GENBC_BUFFER(sse_dp)
 
 #else
-const unsigned char * avx512_sp_Buffer = nullptr;
-const size_t avx512_sp_BufferLen = 0;
-
-const unsigned char * avx2_sp_Buffer = nullptr;
-const size_t avx2_sp_BufferLen = 0;
-
-const unsigned char * avx_sp_Buffer = nullptr;
-const size_t avx_sp_BufferLen = 0;
-
-const unsigned char * sse_sp_Buffer = nullptr;
-const size_t sse_sp_BufferLen = 0;
-
-const unsigned char * avx512_dp_Buffer = nullptr;
-const size_t avx512_dp_BufferLen = 0;
-
-const unsigned char * avx2_dp_Buffer = nullptr;
-const size_t avx2_dp_BufferLen = 0;
-
-const unsigned char * avx_dp_Buffer = nullptr;
-const size_t avx_dp_BufferLen = 0;
-
-const unsigned char * sse_dp_Buffer = nullptr;
-const size_t sse_dp_BufferLen = 0;
-
-const unsigned char * avx2_extras_Buffer = nullptr;
-const size_t avx2_extras_BufferLen = 0;
-
-const unsigned char * avx512_extras_Buffer = nullptr;
-const size_t avx512_extras_BufferLen = 0;
+EMPTY_GENBC_BUFFER(avx512_extras)
+EMPTY_GENBC_BUFFER(avx512_sp)
+EMPTY_GENBC_BUFFER(avx512_dp)
+EMPTY_GENBC_BUFFER(avx2_extras)
+EMPTY_GENBC_BUFFER(avx2_sp)
+EMPTY_GENBC_BUFFER(avx2_dp)
+EMPTY_GENBC_BUFFER(avx_sp)
+EMPTY_GENBC_BUFFER(avx_dp)
+EMPTY_GENBC_BUFFER(sse_sp)
+EMPTY_GENBC_BUFFER(sse_dp)
 #endif
-
 } // extern "C"
 
+#undef EMPTY_GENBC_BUFFER
+#undef EXTERNAL_GENBC_BUFFER
+
 namespace rv {
-
-  // forward decls
-  GlobalValue & cloneGlobalIntoModule(GlobalValue &gv, Module &cloneInto);
-  Constant & cloneConstant(Constant& constVal, Module & cloneInto);
-  Function &cloneFunctionIntoModule(Function &func, Module &cloneInto, StringRef name);
-
-
 
 
 // internal structures for named mappings (without fancily shaped arguments)
@@ -246,6 +200,46 @@ static const unsigned char** extraModuleBuffers[] = {
 static Module *sleefModules[SLEEF_Enum_Entries * 2];
 static Module *extraModules[SLEEF_Enum_Entries * 2];
 
+static Module &requestSharedModule(LLVMContext &Ctx) {
+  static Module *SharedModule = nullptr;
+  if (!SharedModule)
+    SharedModule =
+        createModuleFromBuffer(reinterpret_cast<const char *>(&rempitab_Buffer),
+                               rempitab_BufferLen, Ctx);
+  assert(SharedModule);
+  return *SharedModule;
+}
+
+const LinkerCallback SharedModuleLookup = [](GlobalValue& GV, Module& M) -> Value * {
+  IF_DEBUG_SLEEF {
+    errs() << "SharedModuleLookup: " << GV.getName() << "\n";
+  }
+
+  // Definition available
+  if (!GV.isDeclaration())
+    return &GV;
+
+  // Ignore intrinsic decls
+  auto *F = dyn_cast<Function>(&GV);
+  if (F && F->getIntrinsicID() != Intrinsic::not_intrinsic)
+    return nullptr;
+
+  // Lookup symbol in shared 'rempitab' module
+  auto &SharedMod = requestSharedModule(M.getContext());
+  auto *SharedGV = SharedMod.getNamedValue(GV.getName());
+  // N/a in the shared module -> back to the original source.
+  if (!SharedGV)
+    return nullptr;
+  IF_DEBUG_SLEEF {
+    errs() << "Pulling shared global: " << SharedGV->getName() << "\n";
+  }
+  // Don't recurse into lookup
+  GlobalVariable * ClonedGV = cast<GlobalVariable>(&cloneGlobalIntoModule(*SharedGV, M, nullptr));
+  // Uniquify the 'rempitab' constant globals.
+  ClonedGV->setLinkage(GlobalVariable::LinkOnceODRLinkage);
+  return ClonedGV;
+};
+
 static
 void
 InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleWidth) {
@@ -303,34 +297,49 @@ InitSleefMappings(PlainVecDescVector & archMappings, int floatWidth, int doubleW
           {"drand48", "vrand_extra_vla", 2},
           {"frand48", "vrand_extra_vla", 4}
 #endif
-            {"sinf", "xsinf", floatWidth},
-            {"cosf", "xcosf", floatWidth},
-            {"tanf", "xtanf", floatWidth},
-            {"asinf", "xasinf", floatWidth},
-            {"acosf", "xacosf", floatWidth},
-            {"atanf", "xatanf", floatWidth},
-            {"atan2f", "xatan2f", floatWidth},
-            {"logf", "xlogf", floatWidth},
-            {"cbrtf", "xcbrtf", floatWidth},
-            {"expf", "xexpf", floatWidth},
-            {"powf", "xpowf", floatWidth},
-            {"sinhf", "xsinhf", floatWidth},
-            {"coshf", "xcoshf", floatWidth},
-            {"tanhf", "xtanhf", floatWidth},
-            {"asinhf", "xasinhf", floatWidth},
-            {"acoshf", "xacoshf", floatWidth},
-            {"atanhf", "xatanhf", floatWidth},
-            {"exp2f", "xexp2f", floatWidth},
-            {"exp10f", "xexp10f", floatWidth},
-            {"expm1f", "xexpm1f", floatWidth},
-            {"log10f", "xlog10f", floatWidth},
-            {"log1pf", "xlog1pf", floatWidth},
-            {"sqrtf", "xsqrtf", floatWidth},
-            {"hypotf", "xhypotf",  floatWidth},
-            {"lgammaf", "xlgammaf", floatWidth},
-            {"tgammaf", "xtgammaf", floatWidth},
-            {"erff", "xerff",       floatWidth},
-            {"erfcf", "xerfcf",    floatWidth},
+#define ALSO_FINITE(IRNAME, SLEEFNAME, WIDTH) \
+            {#IRNAME, #SLEEFNAME, WIDTH}, \
+            {"__" #IRNAME "_finite", #SLEEFNAME, floatWidth}
+#define ALSO_FINITE_ULP(IRNAME, ULP, SLEEFNAME, WIDTH) \
+            {#IRNAME, #SLEEFNAME, WIDTH}, \
+            {"__" #IRNAME "_" #ULP "_finite", #SLEEFNAME, floatWidth}
+//            EXPORT CONST vfloat __atan2f_finite    (vfloat, vfloat) __attribute__((weak, alias(str_xatan2f_u1 )));
+//            EXPORT CONST vfloat __fmodf_finite     (vfloat, vfloat) __attribute__((weak, alias(str_xfmodf     )));
+//            EXPORT CONST vfloat __modff_finite      (vfloat, vfloat *) __attribute__((weak, alias(str_xmodff  )));
+//            EXPORT CONST vfloat __hypotf_u05_finite(vfloat, vfloat) __attribute__((weak, alias(str_xhypotf_u05)));
+
+            // TODO: Auto-generate this from some API header/description file.
+            ALSO_FINITE(acosf,xacosf, floatWidth),
+            ALSO_FINITE(acoshf,xacoshf, floatWidth),
+            ALSO_FINITE(acoshf,xacoshf,floatWidth),
+            ALSO_FINITE(asinf,xasinf, floatWidth),
+            ALSO_FINITE(asinhf, xasinhf, floatWidth),
+            ALSO_FINITE(atan2f,xatan2f, floatWidth),
+            ALSO_FINITE(atanf,xatanf, floatWidth),
+            ALSO_FINITE(atanhf,xatanhf,floatWidth),
+            ALSO_FINITE(cbrtf,xcbrtf, floatWidth),
+            ALSO_FINITE(cosf,xcosf, floatWidth),
+            ALSO_FINITE(coshf, xcoshf, floatWidth),
+            ALSO_FINITE(erfcf,xerfcf,    floatWidth),
+            ALSO_FINITE(erff,xerff,       floatWidth),
+            ALSO_FINITE(exp10f,xexp10f, floatWidth),
+            ALSO_FINITE(exp2f,xexp2f, floatWidth),
+            ALSO_FINITE(expf,xexpf,floatWidth),
+            ALSO_FINITE(expm1f,xexpm1f, floatWidth),
+            ALSO_FINITE(log10f,xlog10f,floatWidth),
+            ALSO_FINITE(log1pf,xlog1pf,floatWidth),
+            ALSO_FINITE(logf,xlogf, floatWidth),
+            ALSO_FINITE(powf,xpowf,floatWidth),
+            ALSO_FINITE(sinf,xsinf, floatWidth),
+            ALSO_FINITE(sinhf,xsinhf, floatWidth),
+            ALSO_FINITE(sqrtf,xsqrtf,floatWidth),
+            ALSO_FINITE(tanf,xtanf, floatWidth),
+            ALSO_FINITE(tanhf, xtanhf, floatWidth),
+            ALSO_FINITE_ULP(hypotf,u05,xhypotf,floatWidth),
+            ALSO_FINITE_ULP(lgammaf,u1,xlgammaf, floatWidth),
+            ALSO_FINITE_ULP(tgammaf,u1,xtgammaf, floatWidth),
+#undef ALSO_FINITE
+#undef ALSO_FINITE_ULP
 
             {"sin", "xsin",   doubleWidth},
             {"cos", "xcos",   doubleWidth},
@@ -515,7 +524,9 @@ class SleefLookupResolver : public FunctionResolver {
       return *existingFunc;
     }
 
-    Function & clonedVecFunc = cloneFunctionIntoModule(vecFunc, targetModule, destFuncName);
+    // Picks 'Sleef_rempitab' from the shared module.
+    Function &clonedVecFunc = cloneFunctionIntoModule(
+        vecFunc, targetModule, destFuncName, SharedModuleLookup);
     clonedVecFunc.setDoesNotRecurse(); // SLEEF math does not recurse
     return clonedVecFunc;
   }
@@ -581,7 +592,8 @@ struct SleefVLAResolver : public FunctionResolver {
     requestResultShape();
 
     // prepare scalar copy for transforming
-    clonedFunc = &cloneFunctionIntoModule(scaFunc, targetModule, vecFuncName + ".tmp");
+    clonedFunc = &cloneFunctionIntoModule(
+        scaFunc, targetModule, vecFuncName + ".tmp", SharedModuleLookup);
     assert(clonedFunc);
 
     // create SIMD declaration
@@ -593,8 +605,9 @@ struct SleefVLAResolver : public FunctionResolver {
     vecFunc->copyAttributesFrom(&scaFunc);
     vecFunc->setDoesNotRecurse();
 
-    // TODO move prefered CC into (some) target descriptor class
-    if (vectorizer.getConfig().useVE) { vecFunc->setCallingConv(CallingConv::X86_RegCall); }
+    // Use fastest possible CC.
+    vecFunc->setCallingConv(CallingConv::Fast);
+    vecFunc->setLinkage(GlobalValue::LinkOnceAnyLinkage);
 
     VectorMapping mapping(clonedFunc, vecFunc, vectorWidth, maskPos, resShape, argShapes, CallPredicateMode::SafeWithoutPredicate);
     vectorizer.getPlatformInfo().addMapping(mapping); // prevent recursive vectorization
@@ -608,27 +621,39 @@ struct SleefVLAResolver : public FunctionResolver {
     SingleReturnTrans::run(funcRegion);
 
     // compute anlaysis results
-    PassBuilder PB;
-    FunctionAnalysisManager FAM;
-    PB.registerFunctionAnalyses(FAM);
+    PassManagerSession PMS;
+
+    // compute DT, PDT, LI
+    PMS.FAM.getResult<DominatorTreeAnalysis>(*clonedFunc);
+    PMS.FAM.getResult<PostDominatorTreeAnalysis>(*clonedFunc);
+    PMS.FAM.getResult<LoopAnalysis>(*clonedFunc);
+    PMS.FAM.getResult<ScalarEvolutionAnalysis>(*clonedFunc);
+    PMS.FAM.getResult<MemoryDependenceAnalysis>(*clonedFunc);
+    PMS.FAM.getResult<BranchProbabilityAnalysis>(*clonedFunc);
+
+    // re-establish LCSSA
+    FunctionPassManager FPM;
+    FPM.addPass<LCSSAPass>(LCSSAPass());
+    FPM.run(*clonedFunc, PMS.FAM);
 
     // normalize loop exits (TODO make divLoopTrans work without this)
     {
-      LoopInfo &LI = FAM.getResult<LoopAnalysis>(*clonedFunc);
+      LoopInfo &LI = PMS.FAM.getResult<LoopAnalysis>(*clonedFunc);
       LoopExitCanonicalizer canonicalizer(LI);
       canonicalizer.canonicalize(*clonedFunc);
-      FAM.invalidate<DominatorTreeAnalysis>(*clonedFunc);
-      FAM.invalidate<PostDominatorTreeAnalysis>(*clonedFunc);
+      auto PA = PreservedAnalyses::all();
+      PA.abandon<DominatorTreeAnalysis>();
+      PA.abandon<PostDominatorTreeAnalysis>();
       // invalidate & recompute LI
-      FAM.invalidate<LoopAnalysis>(*clonedFunc);
-      FAM.getResult<LoopAnalysis>(*clonedFunc);
+      PA.abandon<LoopAnalysis>();
+      PMS.FAM.invalidate(*clonedFunc, PA);
+      PMS.FAM.getResult<LoopAnalysis>(*clonedFunc);
     }
 
     // run pipeline
-    vectorizer.analyze(vecInfo, FAM);
-    vectorizer.linearize(vecInfo, FAM);
-    vectorizer.vectorize(vecInfo, FAM, nullptr);
-    vectorizer.finalize();
+    vectorizer.analyze(vecInfo, PMS.FAM);
+    vectorizer.linearize(vecInfo, PMS.FAM);
+    vectorizer.vectorize(vecInfo, PMS.FAM, nullptr);
 
     // discard temporary mapping
     vectorizer.getPlatformInfo().forgetAllMappingsFor(*clonedFunc);
@@ -747,13 +772,15 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
   IF_DEBUG_SLEEF { errs() << "\tsleef: n/a\n"; }
   if (!archList) return nullptr;
 
+  // Make sure the shared module is available
+  auto & Ctx = destModule.getContext();
+
   // decode bitwidth (for module lookup)
   bool doublePrecision = false;
   for (const auto * argTy : scaFuncTy.params()) {
     doublePrecision |= argTy->isDoubleTy();
   }
 
-  auto & context = destModule.getContext();
 
   // remove the trailing isa specifier (_avx2/_avx/_sse/..)
   SleefISA isa = archList->isaIndex;
@@ -765,7 +792,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
   if (isExtraFunc) {
     int modIdx = (int) isa;
     auto *& mod = extraModules[modIdx];
-    if (!mod) mod = createModuleFromBuffer(reinterpret_cast<const char*>(extraModuleBuffers[modIdx]), extraModuleBufferLens[modIdx], context);
+    if (!mod) mod = createModuleFromBuffer(reinterpret_cast<const char*>(extraModuleBuffers[modIdx]), extraModuleBufferLens[modIdx], Ctx);
     Function *vecFunc = mod->getFunction(sleefName);
     assert(vecFunc && "mapped extra function not found in module!");
     return std::make_unique<SleefLookupResolver>(destModule, /* RNG result */ VectorShape::varying(), *vecFunc, funcDesc.vectorFnName);
@@ -785,7 +812,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
   auto modIndex = sleefModuleIndex(isa, doublePrecision);
   llvm::Module*& mod = sleefModules[modIndex]; // TODO const Module
   if (!mod) {
-    mod = createModuleFromBuffer(reinterpret_cast<const char*>(sleefModuleBuffers[modIndex]), sleefModuleBufferLens[modIndex], context);
+    mod = createModuleFromBuffer(reinterpret_cast<const char*>(sleefModuleBuffers[modIndex]), sleefModuleBufferLens[modIndex], Ctx);
 
     IF_DEBUG {
       bool brokenMod = verifyModule(*mod, &errs());

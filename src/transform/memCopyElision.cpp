@@ -40,7 +40,12 @@ llvm::Value *
 MemCopyElision::deriveBase(llvm::Value * ptr, size_t numBytes) {
   IF_DEBUG_MCE { errs() << "derive " << *ptr << " size " << numBytes << "\n"; }
 
-  auto * dataTy = ptr->getType()->getPointerElementType();
+  //TODO: Due to opaque pointers, reconstructing the base dataTy has become somewhat more complex.
+  auto * gep = llvm::dyn_cast<llvm::GetElementPtrInst>(ptr);
+  if (!gep)
+    return nullptr;
+
+  auto * dataTy = gep->getSourceElementType();
   size_t allocSize = layout.getTypeAllocSize(dataTy);
   if (numBytes % allocSize == 0) {
     IF_DEBUG_MCE { errs() << "\thit: pointer aligns with type!\n"; }
@@ -63,13 +68,13 @@ llvm::Type *
 MemCopyElision::deriveCommonType(llvm::Type * aTy, llvm::Type * bTy, size_t numBytes) {
   IF_DEBUG_MCE { errs() << "\t\t derive common type for " << *aTy << " and " << *bTy << "\n"; }
 
-  if (aTy->isStructTy()) {
+  if (aTy == bTy) {
+    // TODO check datalayout for object size
+    return aTy;
+  } else if (aTy->isStructTy()) {
     return deriveCommonType(aTy->getStructElementType(0), bTy, numBytes);
   } else if (bTy->isStructTy()) {
     return deriveCommonType(aTy, bTy->getStructElementType(0), numBytes);
-  } else if (aTy == bTy) {
-    // TODO check datalayout for object size
-    return aTy;
   }
 
 
@@ -85,7 +90,8 @@ MemCopyElision::createBaseGEP(llvm::Value * ptrVal, llvm::Type * baseTy, llvm::I
   SmallVector<llvm::Value*, 4> idxList;
   auto * nullInt = ConstantInt::getNullValue(intTy);
 
-  auto * dataTy = ptrVal->getType()->getPointerElementType();
+  auto * gep = llvm::cast<llvm::GetElementPtrInst>(ptrVal);
+  auto * dataTy = gep->getSourceElementType();
   idxList.push_back(nullInt);
 
   while (dataTy != baseTy) {
@@ -94,7 +100,7 @@ MemCopyElision::createBaseGEP(llvm::Value * ptrVal, llvm::Type * baseTy, llvm::I
   }
   if (idxList.size() == 1) return ptrVal;
   else {
-    auto * baseGep = builder.CreateGEP(ptrVal, idxList, "basegep");
+    auto * baseGep = builder.CreateGEP(dataTy, ptrVal, idxList, "basegep");
     vecInfo.setVectorShape(*baseGep, VectorShape::varying());
     return baseGep;
   }
@@ -104,22 +110,22 @@ void
 MemCopyElision::lowerMemCopy(llvm::Value * destBase, llvm::Value * srcBase, llvm::Type * commonTy, llvm::IRBuilder<> & builder, size_t numBytes) {
   // TODO this code is highly specific to Coord<D> lowering
   auto * intTy = IntegerType::getInt32Ty(builder.getContext());
-  auto * nullInt = ConstantInt::getNullValue(intTy);
 
-  const size_t elemSize = 8;
+  const size_t elemSize = layout.getTypeStoreSize(commonTy);
+  assert(numBytes % elemSize == 0);
   const size_t numElems = numBytes / elemSize;
 
   auto varShape = VectorShape::varying();
   for (size_t i = 0; i < numElems; ++i) {
     auto * idxConst = ConstantInt::get(intTy, i, false);
   // gep to elemens
-    auto * srcElemPtr = builder.CreateGEP(srcBase, {nullInt, idxConst});
-    auto * destElemPtr = builder.CreateGEP(destBase, {nullInt, idxConst});
+    auto * srcElemPtr = builder.CreateGEP(commonTy, srcBase, idxConst);
+    auto * destElemPtr = builder.CreateGEP(commonTy, destBase, idxConst);
     vecInfo.setVectorShape(*srcElemPtr, varShape);
     vecInfo.setVectorShape(*destElemPtr, varShape);
 
   // element transfer
-    auto * elem = builder.CreateLoad(srcElemPtr);
+    auto * elem = builder.CreateLoad(commonTy, srcElemPtr);
     vecInfo.setVectorShape(*elem, VectorShape::varying());
     auto * store = builder.CreateStore(elem, destElemPtr);
     vecInfo.setVectorShape(*store, varShape);
@@ -157,7 +163,9 @@ MemCopyElision::run() {
       }
 
     // derive a common field-aligned type of both base pointers
-      auto * commonTy = deriveCommonType(srcBase->getType()->getPointerElementType(), destBase->getType()->getPointerElementType(), numBytes);
+      auto * srcGep = llvm::cast<llvm::GetElementPtrInst>(srcBase);
+      auto * dstGep = llvm::cast<llvm::GetElementPtrInst>(destBase);
+      auto * commonTy = deriveCommonType(srcGep->getSourceElementType(), dstGep->getSourceElementType(), numBytes);
       if (!commonTy) {
         IF_DEBUG_MCE  { errs() << "\tskip: could not derive a common base type!\n"; }
         continue;
@@ -190,4 +198,3 @@ MemCopyElision::run() {
 
   return changed;
 }
-

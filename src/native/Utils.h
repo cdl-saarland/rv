@@ -37,8 +37,7 @@ bool isSupportedOperation(llvm::Instruction *const inst);
 
 bool isHomogeneousStruct(llvm::StructType *const type, llvm::DataLayout &layout);
 
-llvm::StructType * isStructAccess(llvm::Value *const address);
-llvm::StructType * containsStruct(llvm::Type *const type);
+llvm::StructType * isStructAccess(llvm::GetElementPtrInst *const address);
 
 unsigned getNumLeafElements(llvm::Type *const type, llvm::Type *const leafType, llvm::DataLayout &layout);
 unsigned getStructOffset(llvm::GetElementPtrInst *const gep);

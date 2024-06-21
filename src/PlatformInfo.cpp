@@ -18,6 +18,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TypeSize.h>
+#include <llvm/ADT/Triple.h>
 
 #include "rvConfig.h"
 
@@ -56,7 +57,7 @@ GetBuiltinMapping(Function & F, VectorMapping & KnownMapping) {
 
 void
 PlatformInfo::registerDeclareSIMDFunction(Function & F) {
-  auto attribSet = F.getAttributes().getFnAttributes();
+  auto attribSet = F.getAttributes().getFnAttrs();
   // parse SIMD signatures
   std::vector<VectorMapping> wfvJobs;
   for (auto attrib : attribSet) {
@@ -96,10 +97,7 @@ PlatformInfo::addIntrinsicMappings() {
 PlatformInfo::PlatformInfo(Module &_mod, TargetTransformInfo *TTI,
                            TargetLibraryInfo *TLI)
 : mod(_mod)
-, mTTI(TTI)
-, mTLI(TLI)
 , resolverServices()
-, listResolver(nullptr)
 {
   resolverServices.push_back(std::unique_ptr<ResolverService>(new ListResolver(mod)));
   listResolver = static_cast<ListResolver*>(&*resolverServices[0]);
@@ -114,14 +112,6 @@ PlatformInfo::PlatformInfo(Module &_mod, TargetTransformInfo *TTI,
 }
 
 PlatformInfo::~PlatformInfo() {}
-
-void PlatformInfo::setTTI(TargetTransformInfo *TTI) { mTTI = TTI; }
-
-void PlatformInfo::setTLI(TargetLibraryInfo *TLI) { mTLI = TLI; }
-
-TargetTransformInfo *PlatformInfo::getTTI() { return mTTI; }
-
-TargetLibraryInfo *PlatformInfo::getTLI() { return mTLI; }
 
 void
 PlatformInfo::addResolverService(std::unique_ptr<ResolverService>&& newResolver, bool givePrecedence) {
@@ -183,16 +173,6 @@ PlatformInfo::requestVectorMaskReductionFunc(const std::string &name, size_t wid
   redFunc->setConvergent();
   redFunc->setDoesNotRecurse();
   return redFunc; // TODO add SIMD mapping
-}
-
-size_t
-PlatformInfo::getMaxVectorWidth() const {
-  return getMaxVectorBits() / 8;
-}
-
-size_t
-PlatformInfo::getMaxVectorBits() const {
-  return mTTI->getRegisterBitWidth(true);
 }
 
 void

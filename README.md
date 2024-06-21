@@ -1,19 +1,16 @@
-# The Region Vectorizer (LLVM trunk version)
+# The Region Vectorizer for SX-Aurora
 
-Compiler Design Lab / Saarland University / Saarland Informatics Campus
+NEC Deutschland
 
 
 The Region Vectorizer (RV) is a general-purpose vectorization framework for LLVM.
 RV provides a unified interface to vectorize code regions, such as inner and outer loops, up to whole functions.
 
-We had a poster on RV at the 2016 US LLVM Developers' Meeting (docs/poster_rv.pdf).
-The initial version of RV was a fork of the Whole-Function Vectorizer by Ralf Karrenberg (http://www.cdl.uni-saarland.de/projects/wfv/).
-
-For any questions, please get in touch with Simon Moll (moll@cs.uni-saarland.de).
-
 ## Features
 
+* Support for tail-predicated OLV through [LLVM-VP](https://reviews.llvm.org/D57504).
 * Support for OpenMP 4.5 `#pragma omp simd` **and** `#pragma omp declare simd` (pass `-fopenmp -fplugin=libRV.so -mllvm -rv` to Clang and you are set).
+* Automatic outer-loop vectorization (preview feature) (pass `-mllvm -rv-autovec` to enable).
 * Support for inter-procedural/recursive vectorization.
 * Implements [*Partial Control-Flow Linearization*](http://compilers.cs.uni-saarland.de/papers/moll_parlin_pldi18.pdf), S. Moll and S. Hack (PLDI '18).
 * Automatically uses [SLEEF](https://github.com/shibatch/sleef) vector math functions.

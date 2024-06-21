@@ -10,8 +10,6 @@
 #define NATIVE_NATBUILDER_H
 
 
-#include "MemoryAccessGrouper.h"
-
 #include <vector>
 
 #include "rv/vectorizationInfo.h"
@@ -173,7 +171,6 @@ namespace rv {
     llvm::DenseMap<const llvm::Value *, llvm::Value *> vectorValueMap;
     std::map<const llvm::Value *, LaneValueVector> scalarValueMap;
     std::map<const llvm::BasicBlock *, BasicBlockVector> basicBlockMap;
-    std::map<const llvm::Type *, rv::MemoryAccessGrouper> grouperMap;
     std::vector<llvm::PHINode *> phiVector;
     std::deque<llvm::Instruction *> lazyInstructions;
 
@@ -193,9 +190,9 @@ namespace rv {
     llvm::Value *requestInterleavedGEP(llvm::GetElementPtrInst *const gep, unsigned interleavedIdx);
     llvm::Value *requestInterleavedAddress(llvm::Value *const addr, unsigned interleavedIdx, llvm::Type *const vecType);
 
-    llvm::Value *requestCascadeLoad(llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
+    llvm::Value *requestCascadeLoad(llvm::Type *accessedType, llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
     llvm::Value *requestCascadeStore(llvm::Value *vecVal, llvm::Value *vecPtr, unsigned alignment, llvm::Value *mask);
-    llvm::Function *createCascadeMemory(llvm::VectorType *pointerVectorType, unsigned alignment,
+    llvm::Function *createCascadeMemory(llvm::Type *accessedType, llvm::VectorType *pointerVectorType, unsigned alignment,
                                         llvm::VectorType *maskType, bool store);
 
     llvm::Value* getSplat(llvm::Constant* Elt);
@@ -230,11 +227,11 @@ namespace rv {
 
     llvm::Value *createVaryingMemory(llvm::Type *vecType, llvm::Align alignment, llvm::Value *addr, llvm::Value *mask,
                                      llvm::Value *values);
-    void createInterleavedMemory(llvm::Type *vecType, llvm::Align alignment, std::vector<llvm::Value *> *addr, std::vector<llvm::Value *> *mask,
+    void createInterleavedMemory(llvm::Type *targetType, llvm::Type *vecType, llvm::Align alignment, std::vector<llvm::Value *> *addr, std::vector<llvm::Value *> *mask,
                                      std::vector<llvm::Value *> *values, std::vector<llvm::Value *> *srcs);
 
     llvm::Value *createContiguousStore(llvm::Value *val, llvm::Value *ptr, llvm::Align alignment, llvm::Value *mask);
-    llvm::Value *createContiguousLoad(llvm::Value *ptr, llvm::Align alignment, llvm::Value *mask, llvm::Value *passThru);
+    llvm::Value *createContiguousLoad(llvm::Type *targetType, llvm::Value *ptr, llvm::Align alignment, llvm::Value *mask, llvm::Value *passThru);
 
     void visitMemInstructions();
 

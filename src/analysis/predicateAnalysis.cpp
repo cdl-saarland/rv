@@ -10,7 +10,8 @@
 #include "rv/vectorizationInfo.h"
 #include "rvConfig.h"
 
-#include <llvm/Support/raw_ostream.h>
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/IR/CFG.h"
 
 #if 1
 #define IF_DEBUG_PREDA IF_DEBUG
@@ -53,5 +54,10 @@ PredicateAnalysis::addDivergentBranch(const llvm::BasicBlock & rootBlock, llvm::
     // Otw, signal the varying block
     vecInfo.setVaryingPredicateFlag(*reachableBlock, true);
     BlockCallback(*reachableBlock);
+
+    // Descend into successors
+    for (auto *Succ : successors(reachableBlock)) {
+      if (!taintedBlocks.count(Succ)) taintStack.push_back(Succ);
+    }
   }
 }

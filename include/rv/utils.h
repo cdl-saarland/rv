@@ -13,18 +13,13 @@
 
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Type.h>
-#include <llvm/Transforms/Utils/ValueMapper.h>
 
 namespace rv {
 
 struct VectorMapping;
-class PlatformInfo;
-
-void
-MaterializeEntryMask(llvm::Function &F, rv::PlatformInfo &platInfo);
 
 llvm::Type*
-vectorizeType(llvm::Type* scalarTy, rv::VectorShape shape, unsigned vectorWidth);
+vectorizeType(llvm::Type* scalarTy, VectorShape shape, unsigned vectorWidth);
 
 llvm::Function*
 createVectorDeclaration(llvm::Function& scalarFn, VectorShape resShape,
@@ -34,13 +29,6 @@ createVectorDeclaration(llvm::Function& scalarFn, VectorShape resShape,
 // parse an omp 4 X86DeclareSIMD signature
 bool
 parseVectorMapping(llvm::Function & scalarFn, llvm::StringRef & attribText, VectorMapping & mapping, bool createMissingDecl);
-
-template<class T>
-inline
-T&
-LookUp(llvm::ValueToValueMapTy & valMap, T& key) {
-  return *llvm::cast<T>(valMap[&key]);
-}
 
 } // namespace rv
 

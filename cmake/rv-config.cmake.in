@@ -1,0 +1,52 @@
+# Provides RV library and include path.
+# Once done this will define
+#
+# RV_INCLUDE_DIRS (including dependencies to LLVM/RV/Half)
+# RV_LIBRARIES (including dependencies to LLVM/RV)
+# RV_FOUND
+
+cmake_minimum_required(VERSION 3.13.4)
+
+find_path(RV_DIR
+    NAMES rv-config.cmake
+    PATHS
+        ${RV_DIR} ${AnyDSL_rv_DIR} $ENV{RV_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}
+        "@CMAKE_CURRENT_BINARY_DIR@"
+        "@CMAKE_INSTALL_PREFIX@"
+    PATH_SUFFIXES
+        share/anydsl/cmake
+)
+
+find_package(LLVM REQUIRED CONFIG PATHS ${LLVM_DIR} $ENV{LLVM_DIR} "@LLVM_DIR@" NO_DEFAULT_PATH)
+
+find_path(RV_ROOT_DIR
+    NAMES cmake/rv-config.cmake.in src/rvConfig.h
+    PATHS ${RV_DIR} $ENV{RV_DIR} ${RV_ROOT_DIR} "@CMAKE_CURRENT_SOURCE_DIR@" "@RV_ROOT_DIR@" "@CMAKE_SOURCE_DIR@")
+
+find_path(RV_INCLUDE_DIR NAMES rv/config.h PATHS ${RV_ROOT_DIR}/include)
+#find_path(RV_CONFIG_DIR NAMES rv/config.h
+#    PATHS
+#        ${RV_DIR} ${AnyDSL_rv_DIR} $ENV{RV_DIR}
+#        ${CMAKE_CURRENT_LIST_DIR}
+#        "@CMAKE_CURRENT_BINARY_DIR@"
+#        "@CMAKE_INSTALL_PREFIX@"
+#    PATH_SUFFIXES
+#        include
+#        ../../../include
+#)
+
+if(NOT TARGET RV)
+    include(${RV_DIR}/rv-exports.cmake)
+endif()
+
+set(RV_DEPS_INCLUDE_DIRS ${RV_INCLUDE_DIR})
+list(APPEND RV_DEPS_INCLUDE_DIRS ${LLVM_INCLUDE_DIRS})
+
+set(RV_LIBRARIES RV)
+set(RV_INCLUDE_DIRS ${RV_INCLUDE_DIR} ${RV_DEPS_INCLUDE_DIRS})
+
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(RV DEFAULT_MSG RV_DIR RV_INCLUDE_DIR)
+
+mark_as_advanced(RV_INCLUDE_DIR RV_ROOT_DIR)

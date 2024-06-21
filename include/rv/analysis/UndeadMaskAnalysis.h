@@ -48,6 +48,7 @@ class UndeadMaskAnalysis {
 public:
   UndeadMaskAnalysis(VectorizationInfo & vecInfo, llvm::FunctionAnalysisManager &FAM);
   bool isUndead(const llvm::Value & mask, const llvm::BasicBlock & where);
+  void print(llvm::raw_ostream &);
 };
 
 } // namespace rv

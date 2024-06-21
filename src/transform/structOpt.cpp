@@ -126,7 +126,8 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
     }
 
     for (size_t i = 0; i < scalarTy->getStructNumElements(); ++i) {
-      auto * vecGEP = builder.CreateGEP(vecPtrVal, { builder.getInt32(0), builder.getInt32(i) });
+      auto *vecGEP = builder.CreateGEP(
+          scalarTy->getStructElementType(i), vecPtrVal, {builder.getInt32(0), builder.getInt32(i)});
       auto * structElem = storeVal ? builder.CreateExtractValue(storeVal, i) : nullptr;
       auto * elemTy = scalarTy->getStructElementType(i);
 
@@ -148,16 +149,17 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
   }
 
   // cast *<8 x float> to * float
-  auto * vecElemTy = cast<VectorType>(vecPtrVal->getType()->getPointerElementType());
+  auto * vecElemTy = FixedVectorType::get(scalarTy, vecInfo.getVectorWidth());
   auto * plainElemTy = vecElemTy->getElementType();
 
-  auto * castElemTy = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
+  auto * castElemVal = builder.CreateGEP(plainElemTy, vecPtrVal, { builder.getInt32(0) });
 
   const unsigned alignment = (unsigned) layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
-  vecInfo.setVectorShape(*castElemTy, VectorShape::cont(alignment));
+  vecInfo.setVectorShape(*castElemVal, VectorShape::cont(alignment));
 
   if (load)  {
-    auto * vecLoad = builder.CreateLoad(castElemTy, load->getName());
+    auto *vecLoad =
+        builder.CreateLoad(plainElemTy, castElemVal, load->getName());
     vecInfo.setVectorShape(*vecLoad, vecInfo.getVectorShape(*load));
     vecLoad->setAlignment(llvm::Align(alignment));
 
@@ -166,7 +168,7 @@ StructOpt::transformLoadStore(IRBuilder<> & builder,
     IF_DEBUG_SO { errs() << "\t\t result: " << *vecLoad << "\n"; }
     return vecLoad;
   } else {
-    auto * vecStore = builder.CreateStore(storeVal, castElemTy, store->isVolatile());
+    auto * vecStore = builder.CreateStore(storeVal, castElemVal, store->isVolatile());
     vecStore->setAlignment(llvm::Align(alignment));
     vecInfo.setVectorShape(*vecStore, vecInfo.getVectorShape(*store));
 
@@ -210,7 +212,8 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       assert (transformMap.count(ptrVal));
       Value * vecPtrVal = transformMap[ptrVal];
 
-      transformLoadStore(builder, true, inst, ptrVal->getType()->getPointerElementType(), vecPtrVal, storeVal);
+      auto targetType = load ? load->getType() : store->getValueOperand()->getType();
+      transformLoadStore(builder, true, inst, targetType, vecPtrVal, storeVal);
 
       continue; // don't step across load/store
 
@@ -223,7 +226,9 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
         indexVec.push_back(gep->getOperand(i));
       }
 
-      auto * vecGep = GetElementPtrInst::Create(nullptr, vecBasePtr, indexVec, gep->getName(), gep);
+      auto * pointeeType = vectorizeType(*gep->getSourceElementType());
+
+      auto * vecGep = GetElementPtrInst::Create(pointeeType, vecBasePtr, indexVec, gep->getName(), gep);
 
       vecInfo.setVectorShape(*vecGep, VectorShape::uni());
 
@@ -234,7 +239,7 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       IF_DEBUG_SO { errs() << "\t- transform phi " << *phi << "\n"; }
       postProcessPhis.insert(phi);
       auto * orgPhiTy = phi->getIncomingValue(0)->getType();
-      auto * vecPhiTy = PointerType::get(vectorizeType(*orgPhiTy->getPointerElementType()), orgPhiTy->getPointerAddressSpace());
+      auto * vecPhiTy = PointerType::get(phi->getContext(), orgPhiTy->getPointerAddressSpace());
       auto * vecPhi = PHINode::Create(vecPhiTy, phi->getNumIncomingValues(), phi->getName(), phi);
       IF_DEBUG_SO { errs() << "\t\t result: " << *vecPhi << "\n"; }
 
@@ -249,25 +254,17 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       continue; // skip lifetime/BC users
 
     } else if (IsLoadStoreIntrinsicUse(inst)) {
-      IRBuilder<> builder(inst->getParent(), inst->getIterator());
-      for (size_t i = 0, n = inst->getNumOperands(); i < n; ++i) {
-        if (transformMap.count(inst->getOperand(i)) == 0) continue;
-        auto vecPtrVal = transformMap[inst->getOperand(i)];
-        auto * vecElemTy = cast<VectorType>(vecPtrVal->getType()->getPointerElementType());
-        auto * plainElemTy = vecElemTy->getElementType();
-        auto * castElemVal = builder.CreatePointerCast(vecPtrVal, PointerType::getUnqual(plainElemTy));
-        const unsigned alignment = (unsigned) layout.getTypeStoreSize(plainElemTy) * vecInfo.getVectorWidth();
-        vecInfo.setVectorShape(*castElemVal, VectorShape::uni(alignment));
-        inst->setOperand(i, castElemVal);
-      }
+      //Casting pointer types is not needed with opaque pointers.
+      //TODO: However, the instruction itself might now contain type information that needs to be updated.
 
       RemapLoadStoreIntrinsicShape(inst, vecInfo);
       continue;
 
     } else if (castInst) {
-      auto vecTy = vectorizeType(*castInst->getDestTy()->getPointerElementType());
-      auto vecPtrTy = PointerType::get(vecTy, castInst->getDestTy()->getPointerAddressSpace());
-      auto vecBitCast = CastInst::CreatePointerCast(transformMap[castInst->getOperand(0)], vecPtrTy, castInst->getName(), castInst);
+      IRBuilder<> builder(inst->getParent(), inst->getIterator());
+
+      auto * vecBitCast = builder.CreateGEP(castInst->getDestTy(), transformMap[castInst->getOperand(0)], { builder.getInt32(0) });
+
       vecInfo.setVectorShape(*vecBitCast, VectorShape::cont()); // TODO alignment
       transformMap[castInst] = vecBitCast;
     } else {
@@ -420,36 +417,22 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
           return false;
         }
 
-        bool needCompatibleType = false;
         // TODO only accept a BC+store pattern (since we are here, the GEP itself seems to be valie)
         for (auto & bcUse : userInst->uses()) {
           auto * subInst = dyn_cast<Instruction>(bcUse.getUser());
           IF_DEBUG_SO { errs() << "sub use: " << *subInst << "\n"; }
           if (isa<StoreInst>(subInst)) {
             IF_DEBUG_SO { errs() << "sub store!\n"; }
-            needCompatibleType = true;
             if (bcUse.getOperandNo() != 1) { // leaking the value!
               IF_DEBUG_SO { errs() << "skip: (BC guarded use) store leaks value: " << *subInst << "\n";  }
               return false;
             }
           }
-          else if (isa<LoadInst>(subInst)) { IF_DEBUG_SO { errs() << "sub load!\n"; } needCompatibleType = true; continue; }
+          else if (isa<LoadInst>(subInst)) { IF_DEBUG_SO { errs() << "sub load!\n"; } continue; }
           else if (IsLifetimeUse(*subInst)) { IF_DEBUG_SO { errs() << "sub lifetime use!\n"; } continue; }
-          else if (IsLoadStoreIntrinsicUse(subInst)) { IF_DEBUG_SO { errs() << "sub load/store intrinsic use!\n"; } needCompatibleType = true; continue; }
+          else if (IsLoadStoreIntrinsicUse(subInst)) { IF_DEBUG_SO { errs() << "sub load/store intrinsic use!\n"; } continue; }
           else {
             IF_DEBUG_SO { errs() << "skip: (BC guarded use) will not accept other uses than loads and stores : " << *subInst << "\n"; }
-            return false;
-          }
-        }
-
-        // if the pointer is used to access data make sure that the store size is identical
-        if (needCompatibleType) {
-          auto * bcDestTy = userInst->getType()->getPointerElementType();
-          auto * actualTy = inst->getType()->getPointerElementType();
-
-          if (
-              !IsGEPByBitcast(actualTy, bcDestTy)) {
-            IF_DEBUG_SO { errs() << "skip: casting to non-aligned type (that is accessed) : " << *userInst << "\n"; }
             return false;
           }
         }
@@ -494,7 +477,7 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
 
 bool
 StructOpt::shouldPromote(llvm::AllocaInst & allocaInst) {
-  if (!IsDecomposable(*allocaInst.getType()->getPointerElementType())) return false;
+  if (!IsDecomposable(*allocaInst.getAllocatedType())) return false;
 
 // check that the alloca is only ever accessed as a whole (no GEPs)
   for (auto & use : allocaInst.uses()) {
@@ -522,7 +505,7 @@ StructOpt::promoteAlloca(llvm::AllocaInst & allocaInst) {
   SmallVector<PHINode*, 8> phiVec;
 
   SSAUpdater ssaUpdater(&phiVec);
-  ssaUpdater.Initialize(allocaInst.getType()->getPointerElementType(), allocaInst.getName());
+  ssaUpdater.Initialize(allocaInst.getAllocatedType(), allocaInst.getName());
 
   SmallVector<Instruction*, 8> instVec;
   LoadAndStorePromoter promoter(instVec, ssaUpdater, allocaInst.getName());
@@ -580,7 +563,7 @@ StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
 
   // align at least to vector size
   vecAlloc->setAlignment(
-      Align(vecInfo.getVectorWidth() * allocaInst.getAlignment()));
+      Align(vecInfo.getVectorWidth() * allocaInst.getAlign().value()));
 
   const unsigned alignment = layout.getPrefTypeAlignment(vecAllocTy); // TODO should enfore a stricter alignment at this point
   vecInfo.setVectorShape(*vecAlloc, VectorShape::uni(alignment));

@@ -169,11 +169,27 @@ typedef SmallSet<const Value*, 32> ConstValSet;
 
 bool
 canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
+  if (replMap.hasReplicate(val))
+    return true;
+
+  TypeVec replTyVec;
+  replicateType(*val.getType(), replTyVec);
+
+  if(replTyVec.size() == 0)
+    return false; //un-replictable type
+
   auto * constVal = dyn_cast<Constant>(&val);
   auto * selInst = dyn_cast<SelectInst>(&val);
   auto * phiInst = dyn_cast<PHINode>(&val);
   auto * insertValInst = dyn_cast<InsertValueInst>(&val);
   auto * insertElemInst = dyn_cast<InsertElementInst>(&val);
+  auto * extractValInst = dyn_cast<ExtractValueInst>(&val);
+  auto * extractElemInst = dyn_cast<ExtractElementInst>(&val);
+  auto * shuffleVectorInst = dyn_cast<ShuffleVectorInst>(&val);
+
+  // replication of atoms (unless this is an extract)
+  if ((replTyVec.size() == 1) && !isa<StructType, ArrayType, VectorType>(val.getType()) && !extractValInst && !extractElemInst)
+    return true;
 
   // remark: checkedSet makes every value appear replicable on the second query
   // However, a single negative reponse for a recursive constituent makes canReplicate fail anyway
@@ -187,6 +203,7 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
 
   // check whether the instruction itself is replicatable
   if (constVal) return true;
+
   if (phiInst) {
     for (size_t i = 0; i < phiInst->getNumIncomingValues(); ++i) {
       if (!canReplicate(*phiInst->getIncomingValue(i), checkedSet)) {
@@ -196,17 +213,41 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
     return true;
 
   } else if (selInst) {
-    return canReplicate(*selInst->getTrueValue(), checkedSet) && canReplicate(*selInst->getFalseValue(), checkedSet);
+    bool IsMaskSelect = isa<VectorType>(selInst->getCondition()->getType());
+    bool CanReplResults = canReplicate(*selInst->getTrueValue(), checkedSet) &&
+                          canReplicate(*selInst->getFalseValue(), checkedSet);
+    if (IsMaskSelect) {
+      return CanReplResults &&
+             canReplicate(*selInst->getCondition(), checkedSet);
+    }
+    return CanReplResults;
 
   } else if (insertValInst) {
-    return canReplicate(*insertValInst->getAggregateOperand(), checkedSet);
+    auto & aggVal = *insertValInst->getAggregateOperand();
+    auto & elemVal = *insertValInst->getOperand(1);
+    return canReplicate(aggVal, checkedSet) && canReplicate(elemVal, checkedSet);
+
   } else if (insertElemInst) {
-    auto * vecOp = insertElemInst->getOperand(0);
-    return canReplicate(*vecOp, checkedSet);
-  } else if (isa<ExtractValueInst>(val)) {
+    auto & vecVal = *insertElemInst->getOperand(0);
+    return canReplicate(vecVal, checkedSet);
+
+  } else if (extractValInst) {
+    auto & aggVal = *extractValInst->getAggregateOperand();
+    return canReplicate(aggVal, checkedSet);
+
+  } else if (extractElemInst) {
+    auto & vecVal = *extractElemInst->getVectorOperand();
+    canReplicate(vecVal, checkedSet);
+
+  } else if (shuffleVectorInst) {
+    return canReplicate(*shuffleVectorInst->getOperand(0), checkedSet) && canReplicate(*shuffleVectorInst->getOperand(1), checkedSet);
+
+  } else if (isa<LoadInst>(val)) {
     return true;
-  } else if (isa<LoadInst>(val) || isa<StoreInst>(val)) {
-    return true;
+
+  } else if (isa<StoreInst>(val)) {
+    return canReplicate(*cast<StoreInst>(val).getValueOperand(), checkedSet);
+
   } else if (isa<VectorType>(val.getType())) {
     return cast<Instruction>(val).isBinaryOp(); // allow replication of binary SIMD operators
   }
@@ -326,7 +367,7 @@ void
 replicateType(Type & type, TypeVec & oTypes) {
   auto * structTy = dyn_cast<StructType>(&type);
   auto * arrTy = dyn_cast<ArrayType>(&type);
-  auto * vecTy = dyn_cast<VectorType>(&type);
+  auto * vecTy = dyn_cast<FixedVectorType>(&type);
 
   if (structTy) {
     size_t numElems = structTy->getNumElements();
@@ -403,7 +444,7 @@ GetNumReplicates(const Type & type) {
 
   auto * structTy = dyn_cast<const StructType>(&type);
   auto * arrTy = dyn_cast<const ArrayType>(&type);
-  auto * vecTy = dyn_cast<const VectorType>(&type);
+  auto * vecTy = dyn_cast<const FixedVectorType>(&type);
 
 // check if this struct is composed entirely of int/bool or fp types
   int flatSize = 0;
@@ -434,34 +475,60 @@ GetNumReplicates(const Type & type) {
   return flatSize;
 }
 
-size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, size_t flatIdx, LoadInst * load, StoreInst * store) {
+size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, Type * ptrElemTy, ValVec & replVec, size_t flatIdx, LoadInst * load, StoreInst * store) {
+  assert(ptrElemTy);
   auto ptrShape = vecInfo.getVectorShape(*ptr);
-  auto * ptrElemTy = ptr->getType()->getPointerElementType();
 
   if (ptrElemTy->isStructTy()) {
     auto * intTy = Type::getInt32Ty(builder.getContext());
     size_t n = ptrElemTy->getStructNumElements();
+
     for (size_t i = 0; i < n; i++) {
       // load every member
-      auto * elemGep = builder.CreateGEP(ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
+      auto * elemGep = builder.CreateGEP(ptrElemTy, ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
       vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
-      flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
+
+      Type * elemTy = ptrElemTy->getStructElementType(i);
+
+      flatIdx = flattenedLoadStore(builder, elemGep, elemTy, replVec, flatIdx, load, store);
+    }
+    return flatIdx;
+
+  } else if (ptrElemTy->isArrayTy()) {
+    auto * intTy = Type::getInt32Ty(builder.getContext());
+    size_t n = ptrElemTy->getArrayNumElements();
+
+    for (size_t i = 0; i < n; i++) {
+      // load every member
+      auto * elemGep = builder.CreateGEP(ptrElemTy, ptr, {ConstantInt::get(intTy, 0, true), ConstantInt::get(intTy, i, true)}, "srov_gep");
+      vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
+
+      Type * elemTy = ptrElemTy->getArrayElementType();
+
+      flatIdx = flattenedLoadStore(builder, elemGep, elemTy, replVec, flatIdx, load, store);
     }
     return flatIdx;
 
   } else if (ptrElemTy->isVectorTy()) {
-    auto * intTy = Type::getInt32Ty(builder.getContext());
+    auto *intTy = Type::getInt32Ty(builder.getContext());
     size_t n = cast<FixedVectorType>(ptrElemTy)->getNumElements();
-    auto * ptrTy = cast<PointerType>(ptr->getType());
-    auto * scaPtrTy = PointerType::get(cast<FixedVectorType>(ptrTy->getPointerElementType())->getElementType(), ptrTy->getPointerAddressSpace());
-    auto * scaPtr = builder.CreatePointerCast(ptr, scaPtrTy);
+    auto *ElemTy = cast<VectorType>(ptrElemTy)->getElementType();
+    auto *scaPtr = builder.CreateGEP(ElemTy, ptr, { builder.getInt32(0) });
     vecInfo.setVectorShape(*scaPtr, ptrShape);
 
     for (size_t i = 0; i < n; i++) {
       // load every member
-      auto * elemGep = i > 0 ? builder.CreateGEP(scaPtr, ConstantInt::get(intTy, i, true), "srov_gep") : scaPtr;
+      auto *elemGep =
+          i > 0
+              ? builder.CreateGEP(ElemTy, scaPtr,
+                                  ConstantInt::get(intTy, i, true), "srov_gep")
+              : scaPtr;
       vecInfo.setVectorShape(*elemGep, ptrShape); // FIXME alignment
-      flatIdx = flattenedLoadStore(builder, elemGep, replVec, flatIdx, load, store);
+
+      Type * elemTy = ElemTy;
+
+      flatIdx =
+          flattenedLoadStore(builder, elemGep, elemTy, replVec, flatIdx, load, store);
     }
     return flatIdx;
 
@@ -470,7 +537,7 @@ size_t flattenedLoadStore(IRBuilder<> & builder, Value * ptr, ValVec & replVec, 
     if (load) {
       // for a load, replVec will be filled with the loaded data
       assert(replVec.size() == flatIdx);
-      auto * flatLoad = builder.CreateLoad(ptr, load->isVolatile());
+      auto * flatLoad = builder.CreateLoad(ptrElemTy, ptr, load->isVolatile());
       vecInfo.setVectorShape(*flatLoad, vecInfo.getVectorShape(*load));
       replVec.push_back(flatLoad);
     }
@@ -505,7 +572,7 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
   IRBuilder<> builder(inst.getParent(), inst.getIterator());
   std::string oldInstName = inst.getName().str();
 
-  auto * vecTy = dyn_cast<VectorType>(inst.getType());
+  auto * vecTy = dyn_cast<FixedVectorType>(inst.getType());
 
 // phi replication logic (attach inputs later)
   if (phi) {
@@ -538,8 +605,19 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
     auto * load = dyn_cast<LoadInst>(&inst);
     auto * store = dyn_cast<StoreInst>(&inst);
     auto * ptr = load ? load->getPointerOperand() : store->getPointerOperand();
+
     if (store) replVec = requestReplicate(*store->getValueOperand());
-    flattenedLoadStore(builder, ptr, replVec, 0, load, store);
+
+    Type * ptrElemTy;
+
+    if (store) {
+        ptrElemTy = store->getValueOperand()->getType();
+    } else {
+      assert(load);
+      ptrElemTy = load->getType();
+    }
+
+    flattenedLoadStore(builder, ptr, ptrElemTy, replVec, 0, load, store);
   } else if (isa<SelectInst>(inst)) {
     auto & selectInst = cast<SelectInst>(inst);
     auto & selMask = *selectInst.getOperand(0);
@@ -548,11 +626,17 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
 
     auto replTrueVec = requestReplicate(selTrue);
     auto replFalseVec = requestReplicate(selFalse);
+    ValVec replCondVec;
+    bool IsMaskSelect = isa<VectorType>(selMask.getType());
+    if (IsMaskSelect)
+      replCondVec = requestReplicate(selMask);
 
     for (size_t i = 0; i < replTyVec.size(); ++i) {
       std::stringstream ss;
       ss << oldInstName << ".repl." << i;
-      auto * replSelect = builder.CreateSelect(&selMask, replTrueVec[i], replFalseVec[i], ss.str());
+      auto *SelElem = IsMaskSelect ? replCondVec[i] : &selMask;
+      auto *replSelect = builder.CreateSelect(SelElem, replTrueVec[i],
+                                              replFalseVec[i], ss.str());
       replVec.push_back(replSelect);
     }
 
@@ -667,7 +751,7 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
 ValVec
 requestConstVectorReplicate(Constant & val) {
   ValVec res;
-  auto & vecTy = cast<VectorType>(*val.getType());
+  auto & vecTy = cast<FixedVectorType>(*val.getType());
   auto & elemTy = *vecTy.getElementType();
   const size_t width = vecTy.getNumElements();
 

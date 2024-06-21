@@ -1,6 +1,0 @@
-logs/*
-build/*
-__pycache__/*
-*.bc
-*.pyc
-Output/*

@@ -47,9 +47,6 @@ class VectorizerInterface {
 public:
     VectorizerInterface(PlatformInfo & _platform, Config config = Config());
 
-    // try to inline common math functions (compiler-rt) before the analysis
-    void lowerRuntimeCalls(VectorizationInfo & vecInfo, llvm::FunctionAnalysisManager & FAM);
-
     //
     // Analyze properties of the scalar function that are needed later in transformations
     // towards its SIMD equivalent.
@@ -77,16 +74,7 @@ public:
               llvm::FunctionAnalysisManager& FAM,
               llvm::ValueToValueMapTy * vecInstMap);
 
-    //
-    // Ends the vectorization process on this function, removes metadata and
-    // writes the function to a file
-    //
-    void finalize();
-
     PlatformInfo & getPlatformInfo() const { return platInfo; }
-    llvm::Module & getModule() const { return getPlatformInfo().getModule(); }
-
-    const Config & getConfig() const { return config; }
 
 private:
     Config config;
@@ -94,11 +82,14 @@ private:
 };
 
 
-   // implement all rv_* intrinsics
-   // this is necessary to make scalar functions with predicate intrinsics executable
-   // the SIMS semantics of the function will change if @scalar func used any mask intrinsics
-  bool lowerIntrinsics(llvm::Function & scalarFunc);
-  bool lowerIntrinsics(llvm::Module & mod);
+// implement all rv_* intrinsics
+// this is necessary to make scalar functions with predicate intrinsics executable
+// the SIMS semantics of the function will change if @scalar func used any mask intrinsics
+bool lowerIntrinsics(llvm::Function & scalarFunc);
+bool lowerIntrinsics(llvm::Module & mod);
+
+bool cloneFunctionAndLowerIntrinsics(llvm::Function & kernel_func, llvm::Function & simd_kernel_func);
+
 }
 
 #endif // RV_RV_H

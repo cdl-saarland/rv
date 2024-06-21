@@ -153,18 +153,18 @@ public:
   , mapping(mapping)
   {}
 
-  CallPredicateMode getCallSitePredicateMode() { return mapping.predMode; }
+  CallPredicateMode getCallSitePredicateMode() override { return mapping.predMode; }
 
   // mask position (if any)
-  int getMaskPos() { return mapping.maskPos; }
+  int getMaskPos() override { return mapping.maskPos; }
 
   // materialized the vectorized function in the module @insertInto and returns a reference to it.
-  llvm::Function& requestVectorized() {
+  llvm::Function& requestVectorized() override {
     return *mapping.vectorFn;
   }
 
   // result shape of function @funcName in target module @module.
-  VectorShape requestResultShape() {
+  VectorShape requestResultShape() override {
     return mapping.resultShape;
   }
 };

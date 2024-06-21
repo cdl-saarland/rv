@@ -1,4 +1,4 @@
-set(LLVM_NO_RTTI 1)
+#set(LLVM_NO_RTTI 1)
 
 set(RV_HEADER_FILES)
 if (MSVC_IDE OR XCODE)
@@ -15,6 +15,11 @@ if (RV_ENABLE_SLEEF)
   endif()
 endif()
 
+IF (RV_ENABLE_VP)
+  Message("-- rv: Using the LLVM-VP extension (experimental)")
+  add_definitions( "-DLLVM_HAVE_VP" )
+ENDIF()
+
 if (RV_ENABLE_CRT)
   add_definitions( "-DRV_ENABLE_CRT" )
 endif()
@@ -23,123 +28,94 @@ if (RV_DEBUG)
   add_definitions( "-DRV_DEBUG" )
 endif()
 
-add_rv_library(RV
+IF (RV_REBUILD_GENBC)
+  set_source_files_properties(${RV_SLEEF_OBJECTS} PROPERTIES GENERATED On)
+endif()
+
+set (RV_SOURCES
   ./PlatformInfo.cpp
-  ./annotations.cpp
   ./config.cpp
-  ./init.cpp
   ./intrinsics.cpp
-  ./passes.cpp
-  ./registerPasses.cpp
   ./report.cpp
   ./rv.cpp
-  ./rvConfig.cpp
+  #./rvConfig.cpp
   ./rvDebug.cpp
   ./utils.cpp
   ./vectorMapping.cpp
   ./vectorizationInfo.cpp
   analysis/AllocaSSA.cpp
-  analysis/BranchEstimate.cpp
-  analysis/DFG.cpp
   analysis/UndeadMaskAnalysis.cpp
   analysis/VectorizationAnalysis.cpp
-  analysis/costModel.cpp
-  analysis/loopAnnotations.cpp
   analysis/predicateAnalysis.cpp
   analysis/reductionAnalysis.cpp
   analysis/reductions.cpp
-  native/MemoryAccessGrouper.cpp
   native/NatBuilder.cpp
   native/ShuffleBuilder.cpp
   native/Utils.cpp
+  passes/irPolisher.cpp
+  passes/loopExitCanonicalizer.cpp
+  passes/PassManagerSession.cpp
   region/FunctionRegion.cpp
-  region/LoopRegion.cpp
   region/Region.cpp
-  resolver/TLIResolver.cpp
   resolver/listResolver.cpp
-  resolver/recResolver.cpp
   resolver/resolver.cpp
   resolver/sleefResolver.cpp
   shape/vectorShape.cpp
   shape/vectorShapeTransformer.cpp
-  transform/CoherentIFTransform.cpp
   transform/Linearizer.cpp
-  transform/LoopVectorizer.cpp
-  transform/WFVPass.cpp
-  transform/bosccTransform.cpp
-  # transform/cns/llvmDomination.cpp
-  utils/llvmDuplication.cpp
-  transform/crtLowering.cpp
-  transform/crtLowering.cpp
-  transform/divLoopTrans.cpp
   transform/guardedDivLoopTrans.cpp
-  transform/irPolisher.cpp
-  transform/loopCloner.cpp
-  transform/loopExitCanonicalizer.cpp
   transform/lowerDivergentSwitches.cpp
-  transform/lowerRVIntrinsics.cpp
   transform/maskExpander.cpp
   transform/memCopyElision.cpp
   transform/redOpt.cpp
   transform/redTools.cpp
-  transform/remTransform.cpp
   transform/singleReturnTrans.cpp
   transform/splitAllocas.cpp
   transform/srovTransform.cpp
   transform/structOpt.cpp
+  utils/llvmDuplication.cpp
   utils/rvLinking.cpp
   utils/rvTools.cpp
-  ${RV_HEADER_FILES}
-  ${RV_SLEEF_OBJECTS}
+
+  native/NatBuilder.h
+  native/ShuffleBuilder.h
+  native/Utils.h
+  report.h
+  rvConfig.h
+  utils/llvmDuplication.h
+  utils/mathUtils.h
+  utils/rvLinking.h
+  utils/rvTools.h
 )
 
-target_include_directories(RV PUBLIC ${RV_SOURCE_DIR}/include)
 
-if (BUILD_SHARED_LIBS)
-  target_link_libraries(RV PUBLIC
-    LLVMSupport
-    LLVMCore
-    LLVMScalarOpts
-    LLVMAggressiveInstCombine
-    LLVMTransformUtils
-    LLVMAnalysis
-    LLVMipo
-    LLVMMC
-    LLVMIRReader
-    LLVMPasses
-# The libraries below are required for darwin: http://PR26392
-    LLVMBitReader
-    LLVMMCParser
-    LLVMObject
-    LLVMProfileData
-    LLVMTarget
-    LLVMVectorize
-  )
-  link_directories(
-    ${LLVM_LIBRARY_DIR}
-  )
-elseif (LLVM_LINK_LLVM_DYLIB)
-  target_link_libraries(RV PUBLIC LLVM)
-  link_directories(
-    ${LLVM_LIBRARY_DIR}
-  )
+#cmake_parse_arguments(ARG "" "" "" ${ARGN})
+#set(srcs ${ARG_UNPARSED_ARGUMENTS})
+
+#  if(MSVC_IDE OR XCODE)
+#    file( GLOB_RECURSE headers *.h *.td *.def)
+#    set(RV_SOURCES ${RV_SOURCES} ${headers})
+#    string( REGEX MATCHALL "/[^/]+" split_path ${CMAKE_CURRENT_SOURCE_DIR})
+#    list( GET split_path -1 dir)
+#    file( GLOB_RECURSE headers ../../include/rv${dir}/*.h)
+#    set(RV_SOURCES ${RV_SOURCES} ${headers})
+#  endif(MSVC_IDE OR XCODE)
+
+#  if (MODULE)
+#    set(libkind MODULE)
+#  elseif (SHARED_LIBRARY)
+#    set(libkind SHARED)
+#  else()
+#    set(libkind)
+#  endif()
+
+add_library( RV ${RV_SOURCES} ${RV_HEADER_FILES} ${RV_SLEEF_OBJECTS} )
+target_include_directories( RV SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS} )
+target_include_directories( RV PRIVATE ${RV_SOURCE_DIR}/include ${RV_SOURCE_DIR}/src )
+
+llvm_config(RV ${RV_LLVM_LINK_SHARED} core analysis)
+
+# Make sure BC buffer cpp files are available before linking libRV
+IF (RV_REBUILD_GENBC)
+    add_dependencies(RV vecmath)
 endif()
-
-# Build a monolithic libRV.a and a thin module LLVMRV.moduleext that links to
-# that static library.
-if (MSVC)
-  # Add dummy target, because loadable modules are not supported on Windows
-  add_custom_target(LLVMRV)
-  set_target_properties(LLVMRV PROPERTIES FOLDER "rv")
-else ()
-  add_rv_loadable_module(LLVMRV
-    rv.cpp
-  )
-
-target_link_libraries(LLVMRV PRIVATE RV)
-
-set_target_properties(LLVMRV
-    PROPERTIES
-    LINKER_LANGUAGE CXX
-    PREFIX "")
-endif ()

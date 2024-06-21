@@ -10,7 +10,6 @@
 #include "rv/transform/guardedDivLoopTrans.h"
 
 #include "rv/PlatformInfo.h"
-#include "rv/transform/maskExpander.h"
 #include "utils/rvTools.h"
 
 #include "rvConfig.h"
@@ -18,8 +17,9 @@
 #include "report.h"
 
 #include <llvm/Analysis/LoopInfo.h>
-#include <llvm/IR/Dominators.h>
+#include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/Dominators.h>
 #include <llvm/IR/IRBuilder.h>
 
 #include <llvm/Transforms/Utils/SSAUpdater.h>
@@ -115,6 +115,15 @@ GuardedTransformSession::requestGuardedTrackerDesc(const llvm::Value& val) {
 }
 
 void
+GuardedTransformSession::addInputForHeaderCarryPhis(llvm::BasicBlock& SrcBlock) {
+  assert(pureLatch && "pure latch not yet established!");
+  // Attach undef inputs in the pure latch for this new incoming edge
+  for (PHINode * HeaderCarryPhi : PureDomPhis) {
+    HeaderCarryPhi->addIncoming(UndefValue::get(HeaderCarryPhi->getType()), &SrcBlock);
+  }
+}
+
+void
 GuardedTransformSession::transformLoop() {
   IF_DEBUG_DLT { errs() << "dlt: Transforming loop " << loop.getName() << "\n:"; loop.print(errs()); }
 
@@ -179,6 +188,10 @@ GuardedTransformSession::transformLoop() {
      vecInfo.setVectorShape(liveBr, VectorShape::varying());
    }
 
+   // discard loop carry if reaching pureLatch from offsetHead (thread has
+   // dropped out already)
+   addInputForHeaderCarryPhis(*testHead);
+
    // insert an all-false test on phi_live to exit the loop from the new header
    {
      IRBuilder<> headerBuilder(&loopHeader);
@@ -228,10 +241,10 @@ GuardedTransformSession::transformLoop() {
     auto & exitingBr = *cast<BranchInst>(exitingBlock->getTerminator());
     bool exitOnFalse = exitingBr.getSuccessor(1) == &exitBlock;
 
-// Rebound the exiting edge and create mask updates (loop live mask AND exit mask tracker)
+    // Rebound the exiting edge and create mask updates (loop live mask AND exit mask tracker)
     // fold the exiting edge back into the loop by the sending it to the latch
     // exitingBlock // original exitingBlock
-    //   |     \
+    //   |      |
     //   |      reboundBlock (likely ==pureLatchBlock) // skip to loop latch
     //   |
     // continueBlock // in-loop successor of exitingBlock
@@ -264,6 +277,9 @@ GuardedTransformSession::transformLoop() {
     } else {
       exitingBr.setSuccessor(exitOnFalse, pureLatch);
     }
+
+    // loop carried defs from rebound block are 'undef'
+    addInputForHeaderCarryPhis(*reboundBlock);
 
     // mask out this thread in the live mask when the exit is taken
     liveMaskDesc.updatePhi->addIncoming(ConstantInt::getFalse(exitingBlock->getContext()), reboundBlock);
@@ -398,8 +414,6 @@ GuardedTransformSession::transformLoop() {
        if (!fusedExit.empty()) divExitBuilder.SetInsertPoint(&*fusedExit.begin());
        exitMaskPhi = divExitBuilder.CreatePHI(boolTy, 1, exitBlock.getName().str() + ".xlcssa");
        vecInfo.setVectorShape(*exitMaskPhi, exitShape);
-       // maskEx.setBlockMask(exitBlock, *exitMaskPhi);
-       // vecInfo.setPredicate(exitBlock, *exitMaskPhi);
      }
 
      exitMaskPhi->addIncoming(exitDescs[&exitBlock].trackerPhi, &loopHeader);
@@ -498,8 +512,8 @@ GuardedTransformSession::requestPureLatch() {
   oldLatch = &latchBlock;
 
   // create a mask update in the latch
-  IRBuilder<> builder(pureLatch);
-  liveMaskDesc.updatePhi = builder.CreatePHI(builder.getInt1Ty(), 2, loopName + ".live.upd");
+  IRBuilder<> PureLatchBuilder(pureLatch);
+  liveMaskDesc.updatePhi = PureLatchBuilder.CreatePHI(PureLatchBuilder.getInt1Ty(), 2, loopName + ".live.upd");
   liveMaskDesc.updatePhi->addIncoming(liveMaskDesc.trackerPhi, oldLatch);
   liveMaskDesc.updatePhi->addIncoming(liveMaskDesc.trackerPhi, testHead);
   vecInfo.setVectorShape(*liveMaskDesc.updatePhi, VectorShape::varying()); // TODO join of all exit shapes
@@ -508,7 +522,33 @@ GuardedTransformSession::requestPureLatch() {
   // the pure latch is the dedicated predecessor of the loop header so we can safely use the live.upd mask here
   liveMaskDesc.trackerPhi->addIncoming(liveMaskDesc.updatePhi, pureLatch);
 
-  // insert on the latche edge
+  // Fix the header phi nodes
+  // - later CFG transforms may make some loop-carried defs non-dominating (insert phi nodes in the latch now).
+  // - fix header phi incoming blocks (the pure latch breaks this edge)
+  for (auto & inst : header) {
+    auto * phi = dyn_cast<PHINode>(&inst);
+    if (!phi) break;
+    int latchIdx = phi->getBasicBlockIndex(oldLatch);
+    if (latchIdx < 0) continue; // not a phi node of the original loop.
+
+    // update incoming block
+    phi->setIncomingBlock(latchIdx, pureLatch);
+
+    // create a dominating definition
+    // (reaches if loop was not left in this iteration)
+    auto *InVal = phi->getIncomingValue(latchIdx);
+    auto *InInst = dyn_cast<Instruction>(InVal);
+    if (!InInst) continue;
+
+    auto *PLPhi = PureLatchBuilder.CreatePHI(InInst->getType(), 2, phi->getName() + ".pure.dom");
+    vecInfo.setVectorShape(*PLPhi, vecInfo.getVectorShape(*phi));
+    PLPhi->addIncoming(InVal, oldLatch);
+    PureDomPhis.push_back(PLPhi); // memorize for later attachment of 'undef' inputs for other incoming edges
+    phi->setIncomingValue(latchIdx, PLPhi);
+  }
+
+  // finalize control flow
+  // insert on the latch edge
   auto & latchBr = *cast<BranchInst>(latchBlock.getTerminator());
   if (latchBr.isConditional()) {
     bool latchOnFalse = latchBr.getSuccessor(1) == &header;
@@ -517,21 +557,12 @@ GuardedTransformSession::requestPureLatch() {
     assert(latchBr.getSuccessor(0) == &header);
     latchBr.setSuccessor(0, pureLatch);
   }
-  auto & pureLatchBr = *BranchInst::Create(&header, pureLatch);
+  auto & pureLatchBr = *PureLatchBuilder.CreateBr(&header);
   vecInfo.setVectorShape(pureLatchBr, VectorShape::uni());
 
   // register with LoopInfo & LoopTracker
   loop.addBasicBlockToLoop(pureLatch, loopInfo);
 
-  // fix header phi incoming blocks (the pure latch breaks this edge)
-  for (auto & inst : header) {
-    auto * phi = dyn_cast<PHINode>(&inst);
-    if (!phi) break;
-    int latchIdx = phi->getBasicBlockIndex(oldLatch);
-    if (latchIdx >= 0) {
-      phi->setIncomingBlock(latchIdx, pureLatch);
-    }
-  }
 
   assert((loop.getLoopLatch() == pureLatch) && "latch replacement didn't work");
   return *pureLatch;
@@ -548,35 +579,13 @@ GuardedDivLoopTrans::addLoopInitMasks(llvm::Loop & loop) {
   if (it == sessions.end()) return; // uniform loop
   auto * loopSession = it->second;
 
-// // request entry edge
-//   // this loop has a live mask -> request its live in value
-//   auto & loopPreHead = *loop.getLoopPreheader();
-//   auto & preHeadTerm = *loopPreHead.getTerminator();
-//   auto & loopHead = *loop.getHeader();
-//   IndexSet headerIndices;
-//   // maskEx.getPredecessorEdges(preHeadTerm, loopHead, headerIndices);
-//   // auto & initMask = maskEx.requestJoinedEdgeMask(preHeadTerm, headerIndices);
-//
-//   // attach the missing preheader input to the live mask
-//   auto & liveMaskPhi = *loopSession->liveMaskDesc.trackerPhi;
-//   // auto & liveMaskPhi = cast<PHINode>(*maskEx.getBlockMask(loopHead));
-//   int initIdx = liveMaskPhi.getBasicBlockIndex(&loopPreHead);
-//   assert(initIdx >= 0 && "loop pre-header has changed!");
-//   liveMaskPhi.setIncomingValue(initIdx, &initMask);
-//
-//   auto * divExit = loop.getExitBlock();
-//   assert(divExit);
-//   // maskEx.setBlockMask(*divExit, initMask);
-//   // vecInfo.setPredicate(*divExit, initMask);
-
 // add defaulting definitions on tracker phis
   loopSession->finalizeLiveOutTrackers();
 }
 
-GuardedDivLoopTrans::GuardedDivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, MaskExpander & _maskEx, llvm::FunctionAnalysisManager &FAM)
+GuardedDivLoopTrans::GuardedDivLoopTrans(PlatformInfo & _platInfo, VectorizationInfo & _vecInfo, llvm::FunctionAnalysisManager &FAM)
 : platInfo(_platInfo)
 , vecInfo(_vecInfo)
-, maskEx(_maskEx)
 , FAM(FAM)
 , boolTy(Type::getInt1Ty(vecInfo.getContext()))
 , numUniformLoops(0)
@@ -602,7 +611,7 @@ GuardedDivLoopTrans::transformDivergentLoopControl(LoopInfo & LI, Loop & loop) {
     ++numDivergentLoops;
     hasDivergentLoops = true;
 
-    auto * loopSession = new GuardedTransformSession(loop, LI, vecInfo, platInfo, maskEx);
+    auto * loopSession = new GuardedTransformSession(loop, LI, vecInfo, platInfo);
     loopSession->transformLoop();
     numKillExits += loopSession->numKillExits; // accumulate global stats
     numDivExits += loopSession->numDivExits; // accumulate global stats
@@ -650,8 +659,10 @@ GuardedDivLoopTrans::transformDivergentLoops() {
 
   } else {
     // checkpoint:
-    FAM.invalidate<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
-    FAM.invalidate<PostDominatorTreeAnalysis>(vecInfo.getScalarFunction());
+    auto PA = PreservedAnalyses::all();
+    PA.abandon<DominatorTreeAnalysis>();
+    PA.abandon<PostDominatorTreeAnalysis>();
+    FAM.invalidate(vecInfo.getScalarFunction(), PA);
     IF_DEBUG_DLT {
       Dump(vecInfo.getScalarFunction());
       LI.print(errs());
@@ -667,8 +678,10 @@ GuardedDivLoopTrans::transformDivergentLoops() {
     IF_DEBUG_DLT {
       errs() << "-- divLoopTrans finished. VecInfo::\n";
       vecInfo.dump();
-      errs() << "-- Verifying (non-dom anticipated):\n";
-      verifyFunction(vecInfo.getScalarFunction(), &errs());
+      errs() << "-- Verifying :\n";
+      if (verifyFunction(vecInfo.getScalarFunction(), &errs())) {
+        Error() << " dlt broke the function!\n";
+      }
       // assert(!errorFound);
       errs() << "-- EOF divLoopTrans --\n";
     }
@@ -692,4 +705,3 @@ GuardedDivLoopTrans::transformDivergentLoops() {
 
 
 } // namespace rv
-

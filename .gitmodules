@@ -1,3 +1,4 @@
 [submodule "vecmath/sleef"]
 	path = vecmath/sleef
-	url = https://github.com/shibatch/sleef.git
+	url = https://github.com/sx-aurora-dev/sleef.git
+	branch = hpce/develop

@@ -167,7 +167,7 @@ Linearizer::scheduleLoop(Loop * loop, std::string padStr, RPOT::rpo_iterator itS
 
 void
 Linearizer::buildBlockIndex() {
-  relays.reserve(func.getBasicBlockList().size());
+  relays.reserve(func.size());
 
   RPOT rpot(&func);
 
@@ -419,7 +419,7 @@ Linearizer::needsFolding(Instruction & termInst) {
 
 static void
 InsertAtFront(BasicBlock & block, Instruction & inst) {
-  block.getInstList().insert(block.begin(), &inst);
+  inst.insertBefore(&*block.begin());
 }
 
 
@@ -738,6 +738,13 @@ Linearizer::foldPhis(BasicBlock & block) {
       } else {
         IRBuilder<> preBuilder(&*preHead, preHead->getTerminator()->getIterator());
         foldedInVal = preBuilder.CreateSelect(inMask, preHeaderInput, shadowInput);
+
+        auto inShape = vecInfo.getVectorShape(*inMask);
+        if (inShape.isUniform())
+            vecInfo.setVectorShape(*foldedInVal, VectorShape::uni());
+        else
+            vecInfo.setVectorShape(*foldedInVal, VectorShape::varying());
+
         numFoldedAssignments += 2;
         ++numCDivPhis;
       }
@@ -764,62 +771,33 @@ Linearizer::foldPhis(BasicBlock & block) {
   SmallPtrSet<BasicBlock*, 4> seenPreds;
   SmallPtrSet<BasicBlock*, 4> seenInputs;
 
-  if (config.enableOptimizedBlends) {
-    for (auto * predBlock : predecessors(&block)) {
-      if (!seenPreds.insert(predBlock).second) continue;
+  for (auto * predBlock : predecessors(&block)) {
+    if (!seenPreds.insert(predBlock).second) continue;
 
-      // assert(preservedInputBlocks.count(predBlock) && "assuming that new preds are a subset of old preds");
+    // assert(preservedInputBlocks.count(predBlock) && "assuming that new preds are a subset of old preds");
 
-      IF_DEBUG_LIN { errs() << "\t   inspecting pred " << predBlock->getName() << "\n"; }
+    IF_DEBUG_LIN { errs() << "\t   inspecting pred " << predBlock->getName() << "\n"; }
 
-      assert(hasIndex(*predBlock));
-      auto & predReachingBlocks = getReachingBlocks(getIndex(*predBlock));
+    assert(hasIndex(*predBlock));
+    auto & predReachingBlocks = getReachingBlocks(getIndex(*predBlock));
 
-      // all inputs that are incoming on this edge after folding
-      SuperBlockVec superposedInBlocks;
+    // all inputs that are incoming on this edge after folding
+    SuperBlockVec superposedInBlocks;
 
-      for (size_t i = 0; i < protoPhi->getNumIncomingValues(); ++i) {
-        auto * inBlock = protoPhi->getIncomingBlock(i);
+    for (size_t i = 0; i < protoPhi->getNumIncomingValues(); ++i) {
+      auto * inBlock = protoPhi->getIncomingBlock(i);
 
-        // otw, this value needs blending on any dominated input
-        if (predBlock == inBlock || predReachingBlocks.count(inBlock)) {
-          IF_DEBUG_LIN { errs() <<  "\t      - reaching in block " << inBlock->getName() << "\n";  }
-          superposedInBlocks.push_back(inBlock);
-          seenInputs.insert(inBlock);
-        }
-      }
-
-      assert(superposedInBlocks.size() >= 1 && "no dominating def available on this select block?!");
-      IF_DEBUG_LIN errs() << "phi: superposed incoming value for new inbound block " << predBlock->getName() << " : " << superposedInBlocks.size() << "\n";
-      selectBlockMap[predBlock] = SuperInput(std::move(superposedInBlocks), *predBlock);
-    }
-
-  } else {
-    // unoptimized code path (single blend block)
-    for (auto * predBlock : predecessors(&block)) {
-      if (!seenPreds.insert(predBlock).second) continue;
-
-      // assert(preservedInputBlocks.count(predBlock) && "assuming that new preds are a subset of old preds");
-      IF_DEBUG_LIN { errs() << "\t   inspecting pred " << predBlock->getName() << "\n"; }
-
-      assert(hasIndex(*predBlock));
-
-      // all inputs that are incoming on this edge after folding
-      SuperBlockVec superposedInBlocks;
-
-      for (size_t i = 0; i < protoPhi->getNumIncomingValues(); ++i) {
-        auto * inBlock = protoPhi->getIncomingBlock(i);
-
-        // otw, this value needs blending on any dominated input
+      // otw, this value needs blending on any dominated input
+      if (predBlock == inBlock || predReachingBlocks.count(inBlock)) {
         IF_DEBUG_LIN { errs() <<  "\t      - reaching in block " << inBlock->getName() << "\n";  }
         superposedInBlocks.push_back(inBlock);
         seenInputs.insert(inBlock);
       }
-
-      assert(superposedInBlocks.size() >= 1 && "no dominating def available on this select block?!");
-      IF_DEBUG_LIN errs() << "phi: superposed incoming value for new inbound block " << predBlock->getName() << " : " << superposedInBlocks.size() << "\n";
-      selectBlockMap[predBlock] = SuperInput(std::move(superposedInBlocks), *predBlock);
     }
+
+    assert(superposedInBlocks.size() >= 1 && "no dominating def available on this select block?!");
+    IF_DEBUG_LIN errs() << "phi: superposed incoming value for new inbound block " << predBlock->getName() << " : " << superposedInBlocks.size() << "\n";
+    selectBlockMap[predBlock] = SuperInput(std::move(superposedInBlocks), *predBlock);
   }
 
   assert((protoPhi->getNumIncomingValues() == seenInputs.size()) && "block reachability not promoted down to phi");

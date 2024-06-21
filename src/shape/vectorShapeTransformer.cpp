@@ -18,6 +18,7 @@
 #include <llvm/IR/IntrinsicInst.h>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/Operator.h>
 
 using namespace rv;
 using namespace llvm;
@@ -60,10 +61,12 @@ static Type* getElementType(Type* Ty) {
     return VecTy->getElementType();
   }
   if (auto PtrTy = dyn_cast<PointerType>(Ty)) {
-    return PtrTy->getElementType();
+    if (PtrTy->isOpaque())
+        return nullptr;
+    return PtrTy->getNonOpaquePointerElementType();
   }
   if (auto ArrTy = dyn_cast<ArrayType>(Ty)) {
-    return ArrTy->getElementType();
+    return ArrTy->getArrayElementType();
   }
   return nullptr;
 }
@@ -100,6 +103,7 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
   if (I.isCast()) return computeShapeForCastInst(cast<const CastInst>(I));
   if (isa<PHINode>(I)) return computeShapeForPHINode(cast<const PHINode>(I));
   if (isa<AtomicRMWInst>(I)) return computeShapeForAtomicRMWInst(cast<const AtomicRMWInst>(I));
+  if (isa<AtomicCmpXchgInst>(I)) return VectorShape::varying();
 
   const DataLayout & layout = vecInfo.getDataLayout();
   const BasicBlock & BB = *I.getParent();
@@ -107,16 +111,7 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
   switch (I.getOpcode()) {
     case Instruction::Alloca:
     {
-      const int alignment = vecInfo.getMapping().vectorWidth;
-      auto* AllocatedType = I.getType()->getPointerElementType();
-      const bool Vectorizable = false;
-
-      if (Vectorizable) {
-        int typeStoreSize = (int)(layout.getTypeStoreSize(AllocatedType));
-        return VectorShape::strided(typeStoreSize, alignment);
-      }
-
-      return VectorShape::varying();
+        assert(false);
     }
     case Instruction::Br:
     {
@@ -185,9 +180,15 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
       const Value* pointer = gep.getPointerOperand();
 
       VectorShape result = getObservedShape(BB, *pointer);
-      Type* subT = gep.getPointerOperandType();
+      Type* subT = gep.getSourceElementType();
+      auto begin = gep.idx_begin();
+      {
+          const size_t typeSizeInBytes = (size_t)layout.getTypeStoreSize(subT);
+          result = result + typeSizeInBytes * getObservedShape(BB, *begin->get());
+      }
+      begin++;
 
-      for (const Value* index : make_range(gep.idx_begin(), gep.idx_end())) {
+      for (const Value* index : make_range(begin, gep.idx_end())) {
         if (StructType* Struct = dyn_cast<StructType>(subT)) {
           if (!isa<ConstantInt>(index)) return VectorShape::varying();
 
@@ -253,7 +254,7 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
       // collect required argument shapes
       // bail if any shape was undefined
       bool allArgsUniform = true;
-      size_t numParams = call.getNumArgOperands();
+      size_t numParams = call.arg_size();
       VectorShapeVec callArgShapes;
       for (size_t i = 0; i < numParams; ++i) {
         auto& op = *call.getArgOperand(i);
@@ -265,7 +266,7 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
       }
 
       // known LLVM intrinsic shapes
-      if (allArgsUniform && (id == Intrinsic::lifetime_start || id == Intrinsic::lifetime_end)) {
+      if (allArgsUniform && (id != Intrinsic::not_intrinsic)) {
         return VectorShape::uni();
       }
 
@@ -300,6 +301,12 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
       auto ptrShape = getObservedShape(BB, *storeInst.getPointerOperand());
       if (valShape.isDefined() && !valShape.isUniform())
         taintedOps.push_back(storeInst.getPointerOperand());
+
+      bool varying = false;
+      bool known = vecInfo.getVaryingPredicateFlag(*I.getParent(), varying);
+      if (known && varying)
+          taintedOps.push_back(storeInst.getPointerOperand());
+
       return VectorShape::join(
           ptrShape,
           (valShape.greaterThanUniform() ? VectorShape::varying() : valShape));
@@ -319,6 +326,11 @@ VectorShapeTransformer::computeIdealShapeForInst(const Instruction& I, SmallValV
         return VectorShape::varying();
 
       return VectorShape::join(sel1Shape, sel2Shape);
+    }
+
+    case Instruction::Fence:
+    {
+      return VectorShape::uni();
     }
 
       // use the generic transfer
@@ -489,9 +501,8 @@ VectorShapeTransformer::computeShapeForCastInst(const CastInst& castI) const {
   const auto & BB = *castI.getParent();
   const Value* castOp = castI.getOperand(0);
   const VectorShape& castOpShape = getObservedShape(BB, *castOp);
-  const int castOpStride = castOpShape.getStride();
 
-  const int aligned = !rv::returnsVoidPtr(castI) ? castOpShape.getAlignmentFirst() : 1;
+  const int aligned = castOpShape.getAlignmentFirst();
 
   const DataLayout & layout = vecInfo.getDataLayout();
 
@@ -500,27 +511,12 @@ VectorShapeTransformer::computeShapeForCastInst(const CastInst& castI) const {
   switch (castI.getOpcode()) {
     case Instruction::IntToPtr:
     {
-      PointerType* DestType = cast<PointerType>(castI.getDestTy());
-      Type* DestPointsTo = DestType->getPointerElementType();
-
-      // FIXME: void pointers are char pointers (i8*), but what
-      // difference is there between a real i8* and a void pointer?
-      if (DestPointsTo->isIntegerTy(8)) return VectorShape::varying();
-
-      unsigned typeSize = (unsigned) layout.getTypeStoreSize(DestPointsTo);
-
-      if (castOpStride % typeSize != 0) return VectorShape::varying();
-
-      return VectorShape::strided(castOpStride / typeSize, 1);
+        assert(false);
     }
 
     case Instruction::PtrToInt:
     {
-      Type* SrcElemType = castI.getSrcTy()->getPointerElementType();
-
-      unsigned typeSize = (unsigned) layout.getTypeStoreSize(SrcElemType);
-
-      return VectorShape::strided(typeSize * castOpStride, aligned);
+        assert(false);
     }
 
       // Truncation reinterprets the stride modulo the target type width
@@ -583,13 +579,17 @@ VectorShapeTransformer::computeShapeForAtomicRMWInst(const AtomicRMWInst &RMW) c
 
     const auto & BB = *RMW.getParent();
 
-    const VectorShape& shape1 = getObservedShape(BB, *op1);
+    bool varying = false;
+    bool known = vecInfo.getVaryingPredicateFlag(BB, varying);
+    if (known && !varying) {
+      const VectorShape& shape1 = getObservedShape(BB, *op1);
 
-    const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2);
-    if (shape1.isUniform() && constantOp) {
-      int c = (int) constantOp->getSExtValue();
-      if (RMW.getOperation() == AtomicRMWInst::Sub) c *= -1;
-      return VectorShape::strided(c);
+      const ConstantInt* constantOp = dyn_cast<ConstantInt>(op2);
+      if (shape1.isUniform() && constantOp) {
+        int c = (int) constantOp->getSExtValue();
+        if (RMW.getOperation() == AtomicRMWInst::Sub) c *= -1;
+        return VectorShape::strided(c);
+      }
     }
   }
 

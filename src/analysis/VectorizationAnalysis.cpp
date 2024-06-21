@@ -1,4 +1,4 @@
-//===- src/analysis/VectorizationAnalysis.cpp - analyze divergence -*- C++ -*-===//
+//- src/analysis/VectorizationAnalysis.cpp - divergence analysis --*-- C++ -*-//
 //
 // Part of the RV Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -274,27 +274,6 @@ void VectorizationAnalysis::propagateBranchDivergence(const Instruction &Term) {
   propagateControlDivergence(BranchLoop, termSuccVec, Term, termBlock);
 }
 
-void VectorizationAnalysis::propagateLoopDivergence(const Loop &ExitingLoop) {
-  IF_DEBUG_VA { errs() << "VA: propLoopDiv " << ExitingLoop.getName() << "\n"; }
-
-  // don't propagate beyond region
-  if (!vecInfo.inRegion(*ExitingLoop.getHeader()))
-    return;
-
-  const auto &loopHeader = *ExitingLoop.getHeader();
-  // const auto *BranchLoop = ExitingLoop.getParentLoop();
-
-  // Uses of loop-carried values could occur anywhere
-  // within the dominance region of the definition. All loop-carried
-  // definitions are dominated by the loop header (reducible control).
-  // Thus all users have to be in the dominance region of the loop header,
-  // except PHI nodes that can also live at the fringes of the dom region
-  // (incoming defining value).
-  if (!IsLCSSAForm) {
-    taintLoopLiveOuts(loopHeader); // FIXME AllocaSSA
-  }
-}
-
 void VectorizationAnalysis::compute(const Function &F) {
   IF_DEBUG_VA { errs() << "\n\n-- VA::compute() log -- \n"; }
 
@@ -362,46 +341,10 @@ void VectorizationAnalysis::analyze() {
   // replace undef instruction shapes with uniform
   promoteUndefShapesToUniform(F);
 
-  // mark all non-loop exiting branches as divergent to trigger a full
-  // linearization
-  // FIXME factor this out into a separate transformation
-  if (config.foldAllBranches) {
-    for (auto &BB : F) {
-      auto &term = *BB.getTerminator();
-      if (term.getNumSuccessors() <= 1)
-        continue; // uninteresting
-
-      if (!vecInfo.inRegion(BB))
-        continue; // no begin vectorized
-
-      auto *loop = LI.getLoopFor(&BB);
-      bool keepShape = loop && loop->isLoopExiting(&BB);
-
-      if (!keepShape) {
-        vecInfo.setVectorShape(term, VectorShape::varying());
-      }
-    }
-  }
-
   IF_DEBUG_VA {
     errs() << "VecInfo after VA:\n";
     vecInfo.dump();
   }
-}
-
-static bool AllUniformOrUndefCall(const VectorizationInfo & VecInfo, const Instruction &I) {
-  const auto *C = dyn_cast<CallInst>(&I);
-  if (!C) return false;
-  for (unsigned i = 0; i < C->getNumArgOperands(); ++i) {
-    const auto *Op = C->getArgOperand(i);
-    if (!VecInfo.hasKnownShape(*Op))
-      continue;
-    auto OpShape = VecInfo.getVectorShape(*Op);
-    if (OpShape.isUniform() || !OpShape.isDefined())
-      continue;
-    return false;
-  }
-  return true;
 }
 
 void VectorizationAnalysis::promoteUndefShapesToUniform(const Function &F) {
@@ -470,7 +413,7 @@ void VectorizationAnalysis::init(const Function &F) {
       if (isa<AllocaInst>(&I)) {
         updateShape(I, VectorShape::uni(vecInfo.getMapping().vectorWidth));
       } else if (const CallInst *call = dyn_cast<CallInst>(&I)) {
-        if (call->getNumArgOperands() != 0)
+        if (!call->arg_empty())
           continue;
 
         putOnWorklist(I);

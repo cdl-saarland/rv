@@ -52,7 +52,7 @@ Value * SplitAllocas::AllocaTree::load(IRBuilder<> & builder, VectorizationInfo 
     }
     return loadVal;
   } else {
-    auto load = builder.CreateLoad(leafAlloca);
+    auto load = builder.CreateLoad(type, leafAlloca);
     vecInfo.setVectorShape(*load, vectorShape);
     return load;
   }
@@ -80,8 +80,8 @@ bool SplitAllocas::analyseUses(Instruction * inst, Type * type) {
             }
           }
         }
-        if (!analyseUses(gep, gep->getType())) return false;
-      } else if (!load && !store && type->getPointerElementType()->isStructTy()) {
+        if (!analyseUses(gep, gep->getSourceElementType())) return false;
+      } else if (!load && !store && type->isStructTy()) {
         // not a gep, load or store
         IF_DEBUG_SA { errs() << "skip: unforeseen use" << *userInst << "\n"; }
         return false;
@@ -172,7 +172,7 @@ bool SplitAllocas::run() {
       continue;
 
     IF_DEBUG_SA { errs() << "\n# trying to split alloca " << *allocaInst << "\n"; }
-    if (analyseUses(allocaInst, allocaInst->getType())) {
+    if (analyseUses(allocaInst, allocaInst->getAllocatedType())) {
       IF_DEBUG_SA { errs() << "--members:\n"; }
       auto root = createAllocaTree(allocaInst, allocaInst->getAllocatedType(), vectorShape);
       IF_DEBUG_SA { errs() << "--uses:\n"; }

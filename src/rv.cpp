@@ -23,25 +23,23 @@
 #include "rv/analysis/VectorizationAnalysis.h"
 #include "rv/intrinsics.h"
 
-#include "rv/transform/loopExitCanonicalizer.h"
-#include "rv/transform/divLoopTrans.h"
-#include "rv/transform/guardedDivLoopTrans.h"
+// Transform also exposed as LLVM passes
+#include "rv/passes/irPolisher.h"
+#include "rv/passes/loopExitCanonicalizer.h"
 
 #include "rv/PlatformInfo.h"
 #include "rv/vectorizationInfo.h"
 #include "rv/analysis/reductionAnalysis.h"
 
+// RV internal transformations.
 #include "rv/transform/Linearizer.h"
-
-#include "rv/transform/splitAllocas.h"
-#include "rv/transform/structOpt.h"
-#include "rv/transform/srovTransform.h"
-#include "rv/transform/irPolisher.h"
-#include "rv/transform/bosccTransform.h"
-#include "rv/transform/CoherentIFTransform.h"
-#include "rv/transform/redOpt.h"
-#include "rv/transform/memCopyElision.h"
+#include "rv/transform/guardedDivLoopTrans.h"
 #include "rv/transform/lowerDivergentSwitches.h"
+#include "rv/transform/memCopyElision.h"
+#include "rv/transform/redOpt.h"
+#include "rv/transform/splitAllocas.h"
+#include "rv/transform/srovTransform.h"
+#include "rv/transform/structOpt.h"
 
 #include "native/NatBuilder.h"
 
@@ -52,8 +50,6 @@
 
 #include "rv/transform/maskExpander.h"
 
-#include "rv/transform/crtLowering.h"
-
 
 using namespace llvm;
 
@@ -63,87 +59,6 @@ VectorizerInterface::VectorizerInterface(PlatformInfo & _platInfo, Config _confi
         : config(_config)
         , platInfo(_platInfo)
 { }
-
-static void
-EmbedInlinedCode(BasicBlock & entry, Loop & hostLoop, LoopInfo & loopInfo, std::set<BasicBlock*> & funcBlocks) {
-  for (auto itSucc : successors(&entry)) {
-    auto & succ = *itSucc;
-
-    // block was newly inserted -> embed in loopInfo
-    if (funcBlocks.insert(&succ).second) {
-      hostLoop.addBasicBlockToLoop(&succ, loopInfo);
-      EmbedInlinedCode(succ, hostLoop, loopInfo, funcBlocks);
-    }
-  }
-}
-
-#define IF_DEBUG_CRT IF_DEBUG
-
-void
-VectorizerInterface::lowerRuntimeCalls(VectorizationInfo & vecInfo, FunctionAnalysisManager & FAM)
-{
-  auto & scalarFn = vecInfo.getScalarFunction();
-  auto & mod = *scalarFn.getParent();
-
-  std::vector<CallInst*> callSites;
-
-  // blocks that are known to be in the function
-  std::set<BasicBlock*> funcBlocks;
-  for (auto & BB : scalarFn) {
-    funcBlocks.insert(&BB);
-  }
-
-  for (auto & BB : scalarFn) {
-    if (!vecInfo.inRegion(BB)) continue;
-
-    for (auto & Inst : BB) {
-      auto * call = dyn_cast<CallInst>(&Inst);
-      if (!call) continue;
-      auto * callee = call->getCalledFunction();
-      if (!callee) continue;
-      if (callee->isIntrinsic() || !callee->isDeclaration()) continue;
-
-      Function * implFunc = requestScalarImplementation(callee->getName(), *callee->getFunctionType(), mod);
-      IF_DEBUG_CRT { if (!implFunc) errs() << "CRT: could not find implementation for " << callee->getName() << "\n"; }
-
-      if (!implFunc) continue;
-
-      IF_DEBUG_CRT { errs() << "CRT: implementing " << callee->getName() << " with " << implFunc->getName() << "\n"; }
-
-      // replaced called function and prepare for inlining
-      auto itStart = callee->use_begin();
-      auto itEnd = callee->use_end();
-      for (auto itUse = itStart; itUse != itEnd; ) {
-        auto & userInst = *itUse->getUser();
-        itUse++;
-        auto * caller = dyn_cast<CallInst>(&userInst);
-        if (!caller) continue;
-        if (!vecInfo.inRegion(*caller->getParent())) continue;
-        callSites.push_back(caller);
-        caller->setCalledFunction(implFunc);
-      }
-    }
-  }
-
-  // TODO repair loopInfo
-
-  // must not invalidate LI
-  auto & LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
-  bool Changed = !callSites.empty();
-  for (auto * call : callSites) {
-    auto & entryBB = *call->getParent();
-    auto * hostLoop = LI.getLoopFor(&entryBB);
-    InlineFunctionInfo IFI;
-    InlineFunction(*call, IFI);
-
-    if (hostLoop) EmbedInlinedCode(entryBB, *hostLoop, LI, funcBlocks);
-  }
-  if (Changed) {
-    FAM.invalidate<DominatorTreeAnalysis>(vecInfo.getScalarFunction());
-    FAM.invalidate<PostDominatorTreeAnalysis>(vecInfo.getScalarFunction());
-  }
-}
-
 
 void
 VectorizerInterface::analyze(VectorizationInfo& vecInfo,
@@ -168,19 +83,15 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     
     // TODO make this part of a new optimization phase
     // Scalar-Replication-Of-Varying-(Aggregates): split up structs of vectorizable elements to promote use of vector registers
-    if (config.enableSROV) {
-      SROVTransform srovTransform(vecInfo, platInfo);
-      bool Changed = srovTransform.run();
-      while (Changed) {
-        // re-run DA
-        vecInfo.forgetInferredProperties();
-        analyze(vecInfo, FAM);
+    SROVTransform srovTransform(vecInfo, platInfo);
+    bool Changed = srovTransform.run();
+    while (Changed) {
+      // re-run DA
+      vecInfo.forgetInferredProperties();
+      analyze(vecInfo, FAM);
 
-        // re-run SROV
-        Changed = srovTransform.run();
-      }
-    } else {
-      Report() << "SROV opt disabled (RV_DISABLE_SROV != 0)\n";
+      // re-run SROV
+      Changed = srovTransform.run();
     }
   
     // early lowering of divergent switch statements
@@ -191,27 +102,9 @@ VectorizerInterface::linearize(VectorizationInfo& vecInfo,
     MaskExpander maskEx(vecInfo, FAM);
 
     // convert divergent loops inside the region to uniform loops
-    if (CheckFlag("RV_OLD_DLT")) {
-      Report() << "Using old DLT\n";
-      DivLoopTrans DLT(platInfo, vecInfo, maskEx, FAM);
-      DLT.transformDivergentLoops();
-    } else {
-      Report() << "Using new (guarded) DLT\n";
-      GuardedDivLoopTrans guardedDLT(platInfo, vecInfo, maskEx, FAM);
-      guardedDLT.transformDivergentLoops();
-    }
+    GuardedDivLoopTrans guardedDLT(platInfo, vecInfo, FAM);
+    guardedDLT.transformDivergentLoops();
 
-    // insert CIF branches if desired
-    if (config.enableCoherentIF) {
-      CoherentIFTransform CoherentIFTrans(vecInfo, platInfo, maskEx, FAM);
-      CoherentIFTrans.run();
-    }
-
-    // insert BOSCC branches if desired
-    if (config.enableHeuristicBOSCC) {
-      BOSCCTransform bosccTrans(vecInfo, platInfo, maskEx, FAM);
-      bosccTrans.run();
-    }
     // expand masks after BOSCC
     maskEx.expandRegionMasks();
 
@@ -249,23 +142,13 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, FunctionAnalysisManag
   MemCopyElision mce(platInfo, vecInfo);
   mce.run();
 
-  // split structural allocas
-  if (config.enableSplitAllocas) {
-    SplitAllocas split(vecInfo);
-    split.run();
-  } else {
-    Report() << "Split allocas opt disabled (RV_DISABLE_SPLITALLOCAS != 0)\n";
-  }
+  SplitAllocas split(vecInfo);
+  split.run();
 
   // transform allocas from Array-of-struct into Struct-of-vector where possibe
   // FIXME Cannot happen before DA re-run because StructOpt modifies ptr shapes to created contiguous stack accesses!
-  if (config.enableStructOpt) {
-    StructOpt sopt(vecInfo, platInfo.getDataLayout());
-    sopt.run();
-  } else {
-    Report() << "Struct opt disabled (RV_DISABLE_STRUCTOPT != 0)\n";
-  }
-
+  StructOpt sopt(vecInfo, platInfo.getDataLayout());
+  sopt.run();
 
   auto &LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
   auto * hostLoop = LI.getLoopFor(&vecInfo.getEntry());
@@ -278,19 +161,14 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, FunctionAnalysisManag
 
   // IR Polish phase: promote i1 vectors and perform early instruction (read: intrinsic) selection
   if (config.enableIRPolish) {
-    IRPolisher polisher(vecInfo.getVectorFunction(), config);
-    polisher.polish();
+    IRPolisher Polisher(vecInfo.getVectorFunction());
+    Polisher.polish();
     Report() << "IR Polisher enabled (RV_ENABLE_POLISH != 0)\n";
   }
 
   IF_DEBUG verifyFunction(vecInfo.getVectorFunction());
 
   return true;
-}
-
-void
-VectorizerInterface::finalize() {
-  // TODO strip finalize
 }
 
 template <typename Impl>
@@ -325,20 +203,19 @@ lowerIntrinsicCall(CallInst* call) {
 
     case RVIntrinsic::VecLoad: {
       lowerIntrinsicCall(call, [] (CallInst* call) {
+        // FIXME: Re-use the intrinsic types.
         IRBuilder<> builder(call);
-        auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
-        auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-        auto * gep = builder.CreateGEP(ptrCast, call->getOperand(1));
-        return builder.CreateLoad(gep);
+        auto *DataTy = builder.getFloatTy();
+        auto *gep = builder.CreateGEP(DataTy, call->getOperand(0), call->getOperand(1));
+        return builder.CreateLoad(builder.getFloatTy(), gep);
       });
     } break;
 
     case RVIntrinsic::VecStore: {
       lowerIntrinsicCall(call, [] (CallInst* call) {
         IRBuilder<> builder(call);
-        auto * ptrTy = PointerType::get(builder.getFloatTy(), call->getOperand(0)->getType()->getPointerAddressSpace());
-        auto * ptrCast = builder.CreatePointerCast(call->getOperand(0), ptrTy);
-        auto * gep = builder.CreateGEP(ptrCast, call->getOperand(1));
+        auto *DataTy = builder.getFloatTy();
+        auto *gep = builder.CreateGEP(DataTy, call->getOperand(0), call->getOperand(1));
         return builder.CreateStore(call->getOperand(2), gep);
       });
     } break;
@@ -356,10 +233,24 @@ lowerIntrinsicCall(CallInst* call) {
         return builder.CreateZExt(call->getOperand(0), call->getType());
       });
     } break;
-    case RVIntrinsic::NumLanes:
-      return ConstantInt::get(call->getType(), 1, false);
-    case RVIntrinsic::LaneID:
-      return ConstantInt::get(call->getType(), 0, false);
+
+    case RVIntrinsic::NumLanes: {
+      lowerIntrinsicCall(call, [] (CallInst* call) {
+        return ConstantInt::get(call->getType(), 1, false);
+      });
+    } break;
+
+    case RVIntrinsic::LaneID: {
+      lowerIntrinsicCall(call, [] (CallInst* call) {
+        return ConstantInt::get(call->getType(), 0, false);
+      });
+    } break;
+
+    case RVIntrinsic::Index: {
+      lowerIntrinsicCall(call, [] (CallInst* call) {
+        return ConstantInt::get(call->getType(), 0, false);
+      });
+    } break;
   }
 
   return true;
@@ -369,7 +260,7 @@ bool
 lowerIntrinsics(Module & mod) {
   bool changed = false;
   // TODO re-implement using RVIntrinsic enum
-  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_mask", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align", "rv_popcount", "rv_compact"};
+  const char* names[] = {"rv_any", "rv_all", "rv_extract", "rv_insert", "rv_mask", "rv_load", "rv_store", "rv_shuffle", "rv_ballot", "rv_align", "rv_popcount", "rv_compact", "rv_num_lanes", "rv_lane_id", "rv_index"};
   for (int i = 0, n = sizeof(names) / sizeof(names[0]); i < n; i++) {
     auto func = mod.getFunction(names[i]);
     if (!func) continue;
@@ -405,6 +296,22 @@ lowerIntrinsics(Function & func) {
   return changed;
 }
 
+bool
+cloneFunctionAndLowerIntrinsics(Function & kernel_func, Function & simd_kernel_func) {
+        llvm::ValueToValueMapTy argMap;
+        auto itCalleeArgs = simd_kernel_func.args().begin();
+        auto itSourceArgs = kernel_func.args().begin();
+        auto endSourceArgs = kernel_func.args().end();
 
+        for (; itSourceArgs != endSourceArgs; ++itCalleeArgs, ++itSourceArgs) {
+            argMap[&*itSourceArgs] = &*itCalleeArgs;
+        }
+
+        llvm::SmallVector<llvm::ReturnInst*,4> retVec;
+        llvm::CloneFunctionInto(&simd_kernel_func, &kernel_func, argMap, llvm::CloneFunctionChangeType::LocalChangesOnly, retVec);
+
+        // lower mask intrinsics for scalar code (vector_length == 1)
+        return lowerIntrinsics(simd_kernel_func);
+}
 
 } // namespace rv

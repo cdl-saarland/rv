@@ -9,7 +9,6 @@
 #ifndef RV_ANALYSIS_PREDICATEANALYSIS_H
 #define RV_ANALYSIS_PREDICATEANALYSIS_H
 
-#include "rv/analysis/DFG.h"
 #include <llvm/IR/Dominators.h>
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/ADT/ArrayRef.h>

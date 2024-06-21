@@ -13,7 +13,10 @@
 #include <llvm/IR/Function.h>
 #include <llvm/Target/TargetMachine.h>
 
+#include <cstdlib>
 #include <sstream>
+#include <map>
+#include <functional>
 
 using namespace llvm;
 
@@ -33,73 +36,65 @@ ulp_to_string(int ulp) {
 namespace rv {
 
 
-Config::Config()
-: vaMethod(VA_Full)
-
-  // should all (non-loop exiting) branches be folded regardless of VA result?
-  // set to false for partial linearization
-, foldAllBranches(CheckFlag("RV_FOLD_BRANCHES"))
-
+Config::Config() :
 // backend defaults
-, scalarizeIndexComputation(true)
+  scalarizeIndexComputation(true)
 , useScatterGatherIntrinsics(true)
 , enableMaskedMove(true)
-, enableInterleaved(false)
 , useSafeDivisors(true)
 
 // optimization defaults
-, enableSplitAllocas(!CheckFlag("RV_DISABLE_SPLITALLOCAS"))
-, enableStructOpt(!CheckFlag("RV_DISABLE_STRUCTOPT"))
-, enableSROV(!CheckFlag("RV_DISABLE_SROV"))
 , enableIRPolish(CheckFlag("RV_ENABLE_POLISH"))
-, enableHeuristicBOSCC(CheckFlag("RV_EXP_BOSCC"))
-, enableCoherentIF(CheckFlag("RV_EXP_CIF"))
-, enableOptimizedBlends(!CheckFlag("RV_NO_BLENDOPT"))
 
 // enable greedy inter-procedural vectorization
-, enableGreedyIPV(CheckFlag("RV_IPV"))
 , maxULPErrorBound(10)
 
 // feature flags
-, useVE(false)
 , useSSE(false)
 , useAVX(false)
 , useAVX2(false)
 , useAVX512(false)
-, useNEON(false)
 , useADVSIMD(false)
-{}
+
+// codegen flags
+{
+  const char *ULP = getenv("RV_ACCURACY");
+  if (ULP) {
+    int CustomBound = atoi(ULP);
+    if (CustomBound > 0) maxULPErrorBound = CustomBound;
+    else Report() << "ERROR: Expected an > 0 integer for RV_ACCURACY\n";
+  }
+}
 
 Config
 Config::createDefaultConfig() {
   rv::Config config;
 
+  // override the RV target configuration
   char * rawArch = getenv("RV_ARCH");
-  if (!rawArch) return config;
 
-  std::string arch = rawArch;
-  if (arch == "avx2") {
-    Report() << "RV_ARCH: configured for avx2!\n";
-    config.useAVX2 = true;
-    config.useSSE = true;
-  } else if (arch == "avx512") {
-    Report() << "RV_ARCH: configured for avx512!\n";
-    config.useAVX512 = true;
-    config.useAVX2 = true;
-    config.useSSE = true;
-  } else if (arch == "advsimd") {
-    Report() << "RV_ARCH: configured for arm advsimd!\n";
-    config.useADVSIMD = true;
-  } else if (arch == "ve") {
-    Report() << "RV_ARCH: configured for NEC SX-Aurora!\n";
-    config.useVE = true;
+  if (rawArch) {
+    std::string arch = rawArch;
+    if (arch == "avx2") {
+      Report() << "RV_ARCH: configured for avx2!\n";
+      config.useAVX2 = true;
+      config.useSSE = true;
+    } else if (arch == "avx512") {
+      Report() << "RV_ARCH: configured for avx512!\n";
+      config.useAVX512 = true;
+      config.useAVX2 = true;
+      config.useSSE = true;
+    } else if (arch == "advsimd") {
+      Report() << "RV_ARCH: configured for arm advsimd!\n";
+      config.useADVSIMD = true;
+    }
   }
 
   return config;
 }
 
 void
-for_elems(StringRef listText, std::function<bool(StringRef elem)> UserFunc) {
+for_elems(StringRef listText, std::function<bool(StringRef)> UserFunc) {
   size_t NextPos;
   size_t Start = 0;
 
@@ -118,15 +113,7 @@ for_elems(StringRef listText, std::function<bool(StringRef elem)> UserFunc) {
 
 Config
 Config::createForFunction(Function & F) {
-  Config config;
-
-
-  std::string triple = F.getParent()->getTargetTriple();
-  if (StringRef(triple).startswith("ve-")) {
-    config.useVE = true;
-    return config;
-  }
-
+  Config config = createDefaultConfig();
 
   // maps a target-feature entry to a handler
   const std::map<std::string, std::function<void()>> handlerMap = {
@@ -134,10 +121,10 @@ Config::createForFunction(Function & F) {
       {"+avx", [&config]() { config.useAVX = true; } },
       {"+avx2", [&config]() { config.useAVX2 = true; } },
       {"+avx512f", [&config]() { config.useAVX512 = true; } },
-      {"+neon", [&config]() { config.useADVSIMD = true; config.useNEON = true; } }
+      {"+neon", [&config]() { config.useADVSIMD = true; } }
   };
 
-  auto attribSet = F.getAttributes().getFnAttributes();
+  auto attribSet = F.getAttributes().getFnAttrs();
   // parse SIMD signatures
   for (auto attrib : attribSet) {
     if (!attrib.isStringAttribute()) continue;
@@ -164,54 +151,27 @@ Config::createForFunction(Function & F) {
   return config;
 }
 
-std::string
-to_string(Config::VAMethod vam) {
-  switch(vam) {
-    case Config::VA_Full: return "sa-lattice";
-    case Config::VA_TopBot: return "topbot-lattice";
-    case Config::VA_Karrenberg: return "karrenberg-lattice";
-    case Config::VA_Coutinho: return "coutinho-lattice";
-    default:
-        abort(); // invalid lattice argument
-  }
-}
-
-static void
-printVAFlags(const Config & config, llvm::raw_ostream & out) {
-    out << "VA:   " << to_string(config.vaMethod) << ", foldAllBranches = " << config.foldAllBranches;
-}
-
 static void
 printNativeFlags(const Config & config, llvm::raw_ostream & out) {
    out << "nat:  useScatterGather = " << config.useScatterGatherIntrinsics
-       << ", enableInterleaved = " << config.enableInterleaved
        << ", useSafeDiv = " << config.useSafeDivisors;
 }
 
 static void
 printOptFlags(const Config & config, llvm::raw_ostream & out) {
-    out << "opts: enableSplitAllocas = " << config.enableSplitAllocas
-        << ", enableStructOpt = " << config.enableStructOpt
-        << ", enableSROV = " << config.enableSROV
-        << ", enableHeuristicBOSCC = " << config.enableHeuristicBOSCC
-        << ", enableCoherentIF = " << config.enableCoherentIF
-        << ", enableOptimizedBlends = " << config.enableOptimizedBlends
-        << ", enableIRPolish = " << config.enableIRPolish
-        << ", greedyIPV = " << config.enableGreedyIPV
-        << ", maxULPErrorBound = " << ulp_to_string(config.maxULPErrorBound);
+    out << "opts: enableIRPolish = " << config.enableIRPolish
+        << ", maxULPErrorBound = " << ulp_to_string(config.maxULPErrorBound) << "\n";
 }
 
 static void
 printFeatureFlags(const Config & config, llvm::raw_ostream & out) {
-  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useNEON = " << config.useNEON << ", useADVSIMD = " << config.useADVSIMD << ", useVE = " << config.useVE << "\n";
+  out << "arch: useSSE = " << config.useSSE << ", useAVX = " << config.useAVX << ", useAVX2 = " << config.useAVX2 << ", useAVX512 = " << config.useAVX512 << ", useADVSIMD = " << config.useADVSIMD << "\n";
 }
 
 
 void
 Config::print(llvm::raw_ostream & out) const {
   out << "RVConfig {\n\t";
-  printVAFlags(*this, out);
-  out << "\n\t";
   printOptFlags(*this, out);
   out << "\n\t";
   printNativeFlags(*this, out);
