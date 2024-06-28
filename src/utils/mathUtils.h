@@ -19,6 +19,9 @@
 #endif
 
 
+#ifdef __MINGW32__
+#define ffs __builtin_ffs
+#endif
 
 template<typename N>
 static N gcd(N a, N b) {
