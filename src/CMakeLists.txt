@@ -110,8 +110,14 @@ set (RV_SOURCES
 #  endif()
 
 add_library( RV ${RV_SOURCES} ${RV_HEADER_FILES} ${RV_SLEEF_OBJECTS} )
+set_target_properties(RV PROPERTIES
+  CXX_STANDARD 17
+  CXX_STANDARD_REQUIRED True
+  CXX_EXTENSIONS Off
+)
 target_include_directories( RV SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS} )
-target_include_directories( RV PRIVATE ${RV_SOURCE_DIR}/include ${RV_SOURCE_DIR}/src )
+target_include_directories( RV PRIVATE ${RV_SOURCE_DIR}/src )
+target_include_directories( RV PUBLIC ${RV_SOURCE_DIR}/include )
 
 llvm_config(RV ${RV_LLVM_LINK_SHARED} core analysis)
 
