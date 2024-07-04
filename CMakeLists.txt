@@ -2,8 +2,7 @@
 #set(RV_COMPONENT_BUILD Off)
 
 project(RV)
-cmake_minimum_required(VERSION 3.4.3...3.29.6)
-#TODO: cmake_minimum_required sets some cmake policies. 3.29.6 is the latest version that was tested, but this should probably be updated at some point in the future.
+cmake_minimum_required(VERSION 3.13.4)
 
 find_package(LLVM REQUIRED)
 if (LLVM_LINK_LLVM_DYLIB)
