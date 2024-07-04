@@ -1,8 +1,8 @@
 #set(RV_LIBRARY_NAME RV)
 #set(RV_COMPONENT_BUILD Off)
 
-project(RV)
 cmake_minimum_required(VERSION 3.13.4)
+project(RV)
 
 find_package(LLVM REQUIRED)
 if (LLVM_LINK_LLVM_DYLIB)
@@ -175,8 +175,18 @@ endif()
 # links RV_SLEEF_OBJECTS into libRV
 add_subdirectory(src)
 
+install(TARGETS RV EXPORT RVExport
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    INCLUDES DESTINATION include)
+install(DIRECTORY include/rv DESTINATION include)
+
 export(TARGETS RV FILE ${CMAKE_BINARY_DIR}/share/anydsl/cmake/rv-exports.cmake)
+install(EXPORT RVExport FILE rv-exports.cmake DESTINATION share/anydsl/cmake)
 configure_file(cmake/rv-config.cmake.in ${CMAKE_BINARY_DIR}/share/anydsl/cmake/rv-config.cmake @ONLY)
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/share/anydsl/cmake/rv-config.cmake"
+        DESTINATION share/anydsl/cmake)
 
 # Add target to check formatting of RV files
 #file( GLOB_RECURSE files *.h src/*.cpp src/*.c tools/*.cpp tools/*.c tools/*.h)
