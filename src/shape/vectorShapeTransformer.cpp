@@ -61,9 +61,7 @@ static Type* getElementType(Type* Ty) {
     return VecTy->getElementType();
   }
   if (auto PtrTy = dyn_cast<PointerType>(Ty)) {
-    if (PtrTy->isOpaque())
         return nullptr;
-    return PtrTy->getNonOpaquePointerElementType();
   }
   if (auto ArrTy = dyn_cast<ArrayType>(Ty)) {
     return ArrTy->getArrayElementType();

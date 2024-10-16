@@ -46,9 +46,10 @@ VectorizationAnalysis::VectorizationAnalysis(Config _config,
       layout(platInfo.getDataLayout()),
       LI(*FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction())),
       DT(FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction())),
-      SDA(DT,
-          FAM.getResult<PostDominatorTreeAnalysis>(vecInfo.getScalarFunction()),
-          LI),
+      CI(FAM.getResult<CycleAnalysis>(vecInfo.getScalarFunction())),
+      SDA(CI.getSSAContext(),
+              DT,
+              CI),
       PredA(vecInfo, FAM.getResult<PostDominatorTreeAnalysis>(
                          vecInfo.getScalarFunction())),
       funcRegion(vecInfo.getScalarFunction()),
@@ -240,7 +241,8 @@ void VectorizationAnalysis::propagateControlDivergence(
   // divergent due to divergence in in \p Term.
 
   // Disjoint-paths joins.
-  const auto &DivDesc = SDA.getJoinBlocks(rootNode);
+  auto rootBlock = rootNode.getParent();
+  const auto &DivDesc = SDA.getJoinBlocks(rootBlock);
 
   for (const BasicBlock *JoinBlock : DivDesc.JoinDivBlocks) {
     vecInfo.addJoinDivergentBlock(*JoinBlock);
@@ -249,7 +251,7 @@ void VectorizationAnalysis::propagateControlDivergence(
 
   // Identified divergent loop exits.
   const Loop *L = BranchLoop;
-  for (const BasicBlock *ExitBlock : DivDesc.LoopDivBlocks) {
+  for (const BasicBlock *ExitBlock : DivDesc.CycleDivBlocks) {
     auto ExitLoop = LI.getLoopFor(ExitBlock);
     while (L && L != ExitLoop) {
       vecInfo.addDivergentLoop(*L);
