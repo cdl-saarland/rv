@@ -565,7 +565,7 @@ StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
   vecAlloc->setAlignment(
       Align(vecInfo.getVectorWidth() * allocaInst.getAlign().value()));
 
-  const unsigned alignment = layout.getPrefTypeAlignment(vecAllocTy); // TODO should enfore a stricter alignment at this point
+  const unsigned alignment = layout.getPrefTypeAlign(vecAllocTy).value(); // TODO should enfore a stricter alignment at this point
   vecInfo.setVectorShape(*vecAlloc, VectorShape::uni(alignment));
 
   ValueToValueMapTy transformMap;

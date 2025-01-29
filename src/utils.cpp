@@ -21,7 +21,7 @@ namespace rv {
 bool
 parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & mapping, bool createMissingDecl) {
   // FIXME use LLVM VectorUtils
-  if (!attribText.startswith("_ZGV")) return false;
+  if (!attribText.starts_with("_ZGV")) return false;
 
   if (attribText.size() < 6) return false;
 

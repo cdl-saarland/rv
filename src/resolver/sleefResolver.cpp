@@ -582,7 +582,7 @@ struct SleefVLAResolver : public FunctionResolver {
     if (vecFunc) return *vecFunc;
 
     // FIXME this is a hacky workaround for sqrt
-    if (scaFunc.getName().startswith("xsqrt")) {
+    if (scaFunc.getName().starts_with("xsqrt")) {
       auto funcTy = scaFunc.getFunctionType();
       auto vecTy = FixedVectorType::get(funcTy->getReturnType(), vectorWidth);
       vecFunc = Intrinsic::getDeclaration(&targetModule, Intrinsic::sqrt, {vecTy});
@@ -717,7 +717,7 @@ GetLeastPreciseImpl(Module & mod, const std::string & funcPrefix, const unsigned
   IF_DEBUG_SLEEF { errs() << "SLEEF: impl: " << funcPrefix << "\n"; }
   for (auto & func : mod) {
     if (func.isDeclaration()) continue;
-    if (!func.getName().startswith(funcPrefix)) continue;
+    if (!func.getName().starts_with(funcPrefix)) continue;
 
     // not a complete funcname match (ie "xlog" would otw match "xlog1p")
     if ((func.getName().size() > funcPrefix.size()) &&
@@ -799,7 +799,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
   }
 
   // Skip for fast builtin functions // FIXME should be in its own target-dependent resolver
-  if (StringRef(sleefName).startswith("xsqrt")) {
+  if (StringRef(sleefName).starts_with("xsqrt")) {
     // "every" target has a sqrt instruction of sorts
     auto vecTy = FixedVectorType::get(scaFuncTy.getReturnType(), vectorWidth);
     auto vecFunc = Intrinsic::getDeclaration(&destModule, Intrinsic::sqrt, {vecTy});

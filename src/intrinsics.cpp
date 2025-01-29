@@ -35,7 +35,7 @@ namespace rv {
 RVIntrinsic GetIntrinsicID(const llvm::Function& func) {
   auto funcName = func.getName();
 #define RV_MAP_INTRINSIC(FUNC, VALUE) \
-  if ( funcName.startswith(StringRef(#FUNC)) ) return RVIntrinsic:: VALUE;
+  if ( funcName.starts_with(StringRef(#FUNC)) ) return RVIntrinsic:: VALUE;
 #include "rv/intrinsics.def"
 #undef RV_MAP_INTRINSIC
 
@@ -81,7 +81,7 @@ bool
 IsIntrinsic(const llvm::Value& val, RVIntrinsic id) {
   const auto * func = GetCallee(val);
   if (!func) return false;
-  return func->getName().startswith(GetIntrinsicName(id));
+  return func->getName().starts_with(GetIntrinsicName(id));
 }
 
 
