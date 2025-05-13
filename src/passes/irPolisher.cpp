@@ -13,6 +13,7 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
+#include "llvm/IR/Module.h"
 
 #include "llvm/IR/IntrinsicsX86.h"
 #include "llvm/IR/Instructions.h"
