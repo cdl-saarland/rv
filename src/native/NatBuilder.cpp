@@ -2370,7 +2370,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
       } else if (mappedArg) {
         Function *insertFunction = mappedArg->getParent();
         BasicBlock &insertBlock = insertFunction->getEntryBlock();
-        Instruction *firstInst = insertBlock.getFirstNonPHIOrDbg();
+        Instruction *firstInst = &*insertBlock.getFirstNonPHIOrDbg();
         if (firstInst)
           builder.SetInsertPoint(firstInst);
         else
@@ -2402,7 +2402,7 @@ Value *NatBuilder::requestScalarValue(Value *const value, unsigned laneIdx, bool
     } else if (mappedArg) {
       Function *insertFunction = mappedArg->getParent();
       BasicBlock &insertBlock = insertFunction->getEntryBlock();
-      Instruction *firstInst = insertBlock.getFirstNonPHIOrDbg();
+      Instruction *firstInst = &*insertBlock.getFirstNonPHIOrDbg();
       if (firstInst)
         builder.SetInsertPoint(firstInst);
       else

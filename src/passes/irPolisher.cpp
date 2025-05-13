@@ -198,7 +198,7 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
       if (!structTy->isStructTy() || !cast<Constant>(baseGep->getOperand(1))->isNullValue())
         return nullptr;
 
-      DataLayout dataLayout(callInst->getModule());
+      DataLayout dataLayout = callInst->getModule()->getDataLayout();
       auto structLayout = dataLayout.getStructLayout(cast<StructType>(structTy));
       auto elem = cast<ConstantInt>(gepVal->getOperand(2))->getZExtValue();
       multiplier = structLayout->getSizeInBytes();
@@ -213,7 +213,7 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
       if (!baseGep || baseGep->getNumIndices() != 2 || !gepVal->hasAllConstantIndices())
         return nullptr;
       auto elem = cast<ConstantInt>(gepVal->getOperand(2))->getZExtValue();
-      DataLayout dataLayout(callInst->getModule());
+      DataLayout dataLayout = callInst->getModule()->getDataLayout();
       auto arrayElementType = baseGep->getSourceElementType()->getArrayElementType();
       auto elementSize = dataLayout.getTypeSizeInBits(arrayElementType);
       multiplier *= elementSize / 32;
