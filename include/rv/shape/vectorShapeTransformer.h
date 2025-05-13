@@ -15,6 +15,7 @@
 #include <llvm/IR/Value.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/ADT/SmallVector.h>
+#include <llvm/IR/DataLayout.h>
 
 
 namespace rv {

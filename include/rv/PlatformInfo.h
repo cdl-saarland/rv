@@ -16,6 +16,7 @@
 #include "rv/resolver/resolver.h"
 #include "rv/intrinsics.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/IR/Module.h"
 
 namespace rv {
 

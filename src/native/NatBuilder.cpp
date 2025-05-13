@@ -192,7 +192,7 @@ NatBuilder::NatBuilder(Config _config, PlatformInfo &_platInfo, VectorizationInf
     SE(FAM.getResult<ScalarEvolutionAnalysis>(vecInfo.getScalarFunction())),
     reda(_reda),
     undeadMasks(vecInfo, FAM),
-    layout(_vecInfo.getScalarFunction().getParent()),
+    layout(_vecInfo.getScalarFunction().getParent()->getDataLayout()),
     i1Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 1)),
     i32Ty(IntegerType::get(_vecInfo.getMapping().vectorFn->getContext(), 32)),
     vecMaskArg(nullptr),
