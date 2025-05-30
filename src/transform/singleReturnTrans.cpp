@@ -42,8 +42,7 @@ SingleReturnTrans::run(Region & region) {
     phi.addIncoming(retPair.second, retPair.first);
 
     auto & oldTerm = *retPair.first->getTerminator();
-    BranchInst::Create(singleRetBlock, &oldTerm);
-    oldTerm.eraseFromParent();
+    BranchInst::Create(singleRetBlock, oldTerm.eraseFromParent());
   }
   return true;
 }

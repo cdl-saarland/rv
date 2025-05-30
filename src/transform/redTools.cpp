@@ -128,7 +128,7 @@ CreateVectorReduce(Config & config, IRBuilder<> & builder, RedKind redKind, Valu
 
     std::vector<Type*> reduceTypeVec{&vecTy};
 
-    auto & redFunc = *Intrinsic::getDeclaration(&mod, ID, reduceTypeVec);
+    auto & redFunc = *Intrinsic::getOrInsertDeclaration(&mod, ID, reduceTypeVec);
 
     Value * redVal = nullptr;
 

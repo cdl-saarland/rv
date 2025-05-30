@@ -228,7 +228,7 @@ Linearizer::promoteDefToBlock(BasicBlock & block, SmallVector<Value*, 16> & defs
 
     // Otw, we need a phi node
     if (!localPhi) {
-      localPhi = PHINode::Create(type, 0, "", &*block.getFirstInsertionPt());
+      localPhi = PHINode::Create(type, 0, "", block.getFirstInsertionPt());
       vecInfo.setVectorShape(*localPhi, instShape);
       for (auto itPassedPred = itBegin; itPassedPred != it; ++itPassedPred) {
         localPhi->addIncoming(localDef, *itPassedPred);
@@ -419,7 +419,7 @@ Linearizer::needsFolding(Instruction & termInst) {
 
 static void
 InsertAtFront(BasicBlock & block, Instruction & inst) {
-  inst.insertBefore(&*block.begin());
+  inst.insertBefore(block.begin());
 }
 
 
@@ -806,8 +806,8 @@ Linearizer::foldPhis(BasicBlock & block) {
 
 // phi -> select based on getEdgeMask(start, dest)
   auto itStart = block.begin(), itEnd = block.end();
-  for (auto it = itStart; it != itEnd; ) {
-    auto * phi = dyn_cast<PHINode>(&*it++);
+  for (auto it = itStart; it != itEnd; it++) {
+    auto * phi = dyn_cast<PHINode>(&*it);
     if (!phi) break;
     if (phi->getNumIncomingValues() == 1) continue; // LCSSA
     if (isRepairPhi(*phi)) continue; // only a placeholder for defered SSA repair
@@ -819,7 +819,7 @@ Linearizer::foldPhis(BasicBlock & block) {
 
   // materialize blended inputs
     auto phiShape = vecInfo.getVectorShape(*phi);
-    auto & flatPhi = *PHINode::Create(phi->getType(), 6, phi->getName(), phi);
+    auto & flatPhi = *PHINode::Create(phi->getType(), 6, phi->getName(), it);
     SmallPtrSet<const BasicBlock*, 4>  seenPreds;
     for (auto * predBlock : predecessors(&block)) {
       if (!seenPreds.insert(predBlock).second) continue;
@@ -1116,10 +1116,9 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
 
 
       // replace the control sink with a branch to the exitRelay->block
-      auto * lateBranch = BranchInst::Create(exitRelay->block, &term);
+      auto * lateBranch = BranchInst::Create(exitRelay->block, term.eraseFromParent());
       vecInfo.setVectorShape(*lateBranch, vecInfo.getVectorShape(term));
       vecInfo.dropVectorShape(term);
-      term.eraseFromParent();
 
       // make sure all reaching prefixes are forwarded to reach exitRelay as well
       mergeInReaching(*exitRelay, headRelay);
@@ -1441,10 +1440,9 @@ Linearizer::cleanup() {
     }
 
     if (allSame) {
-      auto * simpleBranch = BranchInst::Create(singleSucc, term);
+      auto * simpleBranch = BranchInst::Create(singleSucc, term->eraseFromParent());
       vecInfo.setVectorShape(*simpleBranch, VectorShape::uni());
       vecInfo.dropVectorShape(*term);
-      term->eraseFromParent();
     }
   }
 }

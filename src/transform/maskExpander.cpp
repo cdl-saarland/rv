@@ -345,7 +345,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
 
   // single join phi for uniform masks
   int numPreds = std::distance(itBegin, itEnd);
-  auto * uniPhi = PHINode::Create(boolTy, numPreds, "inmasks_" + BB.getName(), &*BB.begin());
+  auto * uniPhi = PHINode::Create(boolTy, numPreds, "inmasks_" + BB.getName(), BB.begin());
 
   std::vector<Value*> orVec; // incoming divergent edge masks
 
@@ -398,7 +398,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
       if (!DT.dominates(edgeMaskInst->getParent(), &BB)) {
         std::string defBlockName = edgeMaskInst->getParent()->getName().str();
         auto edgeMaskShape = vecInfo.getVectorShape(*edgeMask);
-        auto itInsert = &*BB.begin();
+        auto itInsert = BB.begin();
         auto * edgePhi = PHINode::Create(boolTy, numPreds, "edgemask_domphi_" + defBlockName, itInsert);
         vecInfo.setVectorShape(*edgePhi, edgeMaskShape);
         for (auto it = itBegin; it != itEnd; ++it) {

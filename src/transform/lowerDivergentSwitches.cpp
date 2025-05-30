@@ -64,9 +64,8 @@ LowerDivergentSwitches::lowerSwitch(SwitchInst & switchInst) {
   }
 
   // finally erase the switch
-  auto * firstBr = BranchInst::Create(defaultBlock, &switchInst);
+  auto * firstBr = BranchInst::Create(defaultBlock, switchInst.eraseFromParent());
   vecInfo.setVectorShape(*firstBr, VectorShape::uni());
-  switchInst.eraseFromParent();
 }
 
 LowerDivergentSwitches::LowerDivergentSwitches(VectorizationInfo & _vecInfo, FunctionAnalysisManager & FAM)

@@ -111,7 +111,7 @@ void LoopExitCanonicalizer::adjustPhis(BasicBlock *source, BasicBlock *target,
     PHINode *phi = cast<PHINode>(&I);
 
     PHINode *newPhi = PHINode::Create(phi->getType(), 2, "lcssa.phi",
-                                      newTarget->getFirstNonPHI());
+                                      newTarget->getFirstNonPHIIt());
 
     newPhi->addIncoming(phi->getIncomingValueForBlock(source), source);
 

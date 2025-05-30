@@ -228,7 +228,7 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
 
       auto * pointeeType = vectorizeType(*gep->getSourceElementType());
 
-      auto * vecGep = GetElementPtrInst::Create(pointeeType, vecBasePtr, indexVec, gep->getName(), gep);
+      auto * vecGep = GetElementPtrInst::Create(pointeeType, vecBasePtr, indexVec, gep->getName(), gep->getIterator());
 
       vecInfo.setVectorShape(*vecGep, VectorShape::uni());
 
@@ -240,7 +240,7 @@ StructOpt::transformLayout(llvm::AllocaInst & allocaInst, ValueToValueMapTy & tr
       postProcessPhis.insert(phi);
       auto * orgPhiTy = phi->getIncomingValue(0)->getType();
       auto * vecPhiTy = PointerType::get(phi->getContext(), orgPhiTy->getPointerAddressSpace());
-      auto * vecPhi = PHINode::Create(vecPhiTy, phi->getNumIncomingValues(), phi->getName(), phi);
+      auto * vecPhi = PHINode::Create(vecPhiTy, phi->getNumIncomingValues(), phi->getName(), phi->getIterator());
       IF_DEBUG_SO { errs() << "\t\t result: " << *vecPhi << "\n"; }
 
       vecInfo.setVectorShape(*vecPhi, VectorShape::uni());
@@ -559,7 +559,7 @@ StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
 // we may transorm the alloc
 
   // replace alloca
-  auto * vecAlloc = new AllocaInst(vecAllocTy, allocaInst.getType()->getAddressSpace(), allocaInst.getName(), &allocaInst);
+  auto * vecAlloc = new AllocaInst(vecAllocTy, allocaInst.getType()->getAddressSpace(), allocaInst.getName(), allocaInst.getIterator());
 
   // align at least to vector size
   vecAlloc->setAlignment(

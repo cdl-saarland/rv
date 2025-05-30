@@ -1236,7 +1236,7 @@ NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> 
         auto * extVal = builder.CreateSExt(vecVal, FixedVectorType::get(builder.getIntNTy(bits), vecWidth), "rv_ballot");
         auto * simdVal = builder.CreateBitCast(extVal, FixedVectorType::get(bits == 32 ? builder.getFloatTy() : builder.getDoubleTy(), vecWidth), "rv_ballot");
 
-        auto movMaskDecl = Intrinsic::getDeclaration(mod, id);
+        auto movMaskDecl = Intrinsic::getOrInsertDeclaration(mod, id);
         result = builder.CreateCall(movMaskDecl, simdVal, "rv_ballot");
 
       } else {
@@ -1266,7 +1266,7 @@ NatBuilder::createVectorMaskSummary(Type & indexTy, Value * vecVal, IRBuilder<> 
         auto maskIntTy = builder.getIntNTy(vectorWidth());
         auto maskBitCast = builder.CreateBitCast(vecVal, maskIntTy);
         auto maskZExt = builder.CreateZExt(maskBitCast, &indexTy);
-        auto ctPopFunc = Intrinsic::getDeclaration(mod, Intrinsic::ctpop, &indexTy); // FIXME use a larger type (what should happen for <4096 x i8>)??
+        auto ctPopFunc = Intrinsic::getOrInsertDeclaration(mod, Intrinsic::ctpop, &indexTy); // FIXME use a larger type (what should happen for <4096 x i8>)??
         result = builder.CreateCall(ctPopFunc, {maskZExt}, "rv_popcount");
 
       } else {
@@ -1326,7 +1326,7 @@ NatBuilder::vectorizeIndexCall(CallInst & rvCall) {
 
     auto * fpValVec = builder.CreateBitCast(contVec, fpVecTy);
 
-    auto * expandDecl = Intrinsic::getDeclaration(rvCall.getParent()->getParent()->getParent(), id, {});
+    auto * expandDecl = Intrinsic::getOrInsertDeclaration(rvCall.getParent()->getParent()->getParent(), id, {});
 
 //flatten mask (<W x i1> --> <iW>)
     auto * flatMaskTy = Type::getIntNTy(rvCall.getContext(), vecWidth);
@@ -1968,7 +1968,7 @@ NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, l
       case 8: { movMaskID = Intrinsic::x86_avx_movmsk_ps_256; laneTy = nativeIntTy; break; }
       case 4: { movMaskID =  Intrinsic::x86_sse_movmsk_ps; laneTy = nativeIntTy; break; }
     }
-    auto * movMaskFunc = Intrinsic::getDeclaration(mod, movMaskID);
+    auto * movMaskFunc = Intrinsic::getOrInsertDeclaration(mod, movMaskID);
     auto * movMaskTy = movMaskFunc->getFunctionType()->getParamType(0);
 
     // cast to argument type
@@ -2016,7 +2016,7 @@ NatBuilder::createVaryingToUniformStore(Instruction *inst, Type *accessedType, l
   // compute MSB from leading zeros
     // determine the MS (using the ctlz intrinsic)
     // llvm.ctlz.i32 (i32  <src>, i1 <is_zero_undef == false>)
-    auto * ctlzFunc = Intrinsic::getDeclaration(mod, Intrinsic::ctlz, nativeIntTy);
+    auto * ctlzFunc = Intrinsic::getOrInsertDeclaration(mod, Intrinsic::ctlz, nativeIntTy);
     auto * leadingZerosVal = builder.CreateCall(ctlzFunc, {regMaskInt, ConstantInt::getTrue(ctx) });
 
     auto * constFullVal = ConstantInt::getSigned(nativeIntTy, 31);
@@ -2076,8 +2076,8 @@ Value *NatBuilder::createVaryingMemory(Type *vecType, llvm::Align alignment, Val
     args.push_back(mask);
     if (!scatter) args.push_back(UndefValue::get(vecType));
     Module *mod = vecInfo.getMapping().vectorFn->getParent();
-    Function *intr = scatter ? Intrinsic::getDeclaration(mod, Intrinsic::masked_scatter, {vecType, vecPtrTy})
-                             : Intrinsic::getDeclaration(mod, Intrinsic::masked_gather, {vecType, vecPtrTy});
+    Function *intr = scatter ? Intrinsic::getOrInsertDeclaration(mod, Intrinsic::masked_scatter, {vecType, vecPtrTy})
+                             : Intrinsic::getOrInsertDeclaration(mod, Intrinsic::masked_gather, {vecType, vecPtrTy});
     assert(intr && "scatter/gather not found!");
     return builder.CreateCall(intr, args);
 
@@ -2981,8 +2981,8 @@ NatBuilder::materializeStridePattern(rv::StridePattern & sp) {
                     [&](Value& usedVal, BasicBlock& userBlock) ->Value& {
                       // otw, replace with reduced value
                       int64_t amount = (vectorWidth - 1) * redShape.getStride();
-                      auto * insertPt = userBlock.getFirstNonPHI();
-                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                      auto insertPt = userBlock.getFirstNonPHIIt();
+                      IRBuilder<> builder(&userBlock, insertPt);
 
                       auto * liveOutView = builder.CreateAdd(&usedVal, ConstantInt::getSigned(usedVal.getType(), amount), ".red");
                       return *liveOutView;
@@ -2993,8 +2993,8 @@ NatBuilder::materializeStridePattern(rv::StridePattern & sp) {
                     [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
                       // otw, replace with reduced value
                       int64_t amount = (vectorWidth - 1) * redShape.getStride();
-                      auto * insertPt = userBlock.getFirstNonPHI();
-                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                      auto insertPt = userBlock.getFirstNonPHIIt();
+                      IRBuilder<> builder(&userBlock, insertPt);
 
                       auto * liveOutView = builder.CreateAdd(&usedVal, ConstantInt::getSigned(usedVal.getType(), amount), ".red");
                       return *liveOutView;
@@ -3043,8 +3043,8 @@ NatBuilder::materializeRecurrence(Reduction & red, PHINode & scaPhi) {
   repairOutsideUses(*scaLatchInst,
                     [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
                       // otw, replace with reduced value
-                      auto * insertPt = userBlock.getFirstNonPHI();
-                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                      auto insertPt = userBlock.getFirstNonPHIIt();
+                      IRBuilder<> builder(&userBlock, insertPt);
                       auto & extracted = CreateExtract(builder, *vecLatchInst, -1);
                       return extracted;
                     }
@@ -3078,7 +3078,7 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
   auto * vecLatchInst = getVectorValueAs<Instruction>(*scaLatchInst);
 
 // create a scalar ordered Phi nodes
-  auto * orderPhi = PHINode::Create(scaPhi.getType(), 2, scaPhi.getName() + ".ord", vecPhi);
+  auto * orderPhi = PHINode::Create(scaPhi.getType(), 2, scaPhi.getName() + ".ord", vecPhi->getIterator());
   orderPhi->addIncoming(scaInitValue, vecInitInputBlock);
 // (orderly) reduce vectors into scalars
   IRBuilder<> latchBuilder(&vecLatchBlock, vecLatchBlock.getTerminator()->getIterator());
@@ -3111,8 +3111,8 @@ NatBuilder::materializeOrderedReduction(Reduction & red, PHINode & scaPhi) {
     // reduce outside uses on demand
     repairOutsideUses(*elem,
                       [&](Value & usedVal, BasicBlock& userBlock) ->Value& {
-                      auto * insertPt = userBlock.getFirstNonPHI();
-                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                      auto insertPt = userBlock.getFirstNonPHIIt();
+                      IRBuilder<> builder(&userBlock, insertPt);
                       // reduce all end-of-iteration values and request value of last iteration
                       auto & foldVec = *builder.CreateSelect(selMask, vecLatchInst, &vecElem, ".red");
                       auto & reducedVector = CreateVectorReduce(config, builder, red.kind, foldVec, orderPhi);
@@ -3166,8 +3166,8 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
   repairOutsideUses(*scaLatchInst,
                     [&](Value & usedVal, BasicBlock & userBlock) ->Value& {
                       // otw, replace with reduced value
-                      auto * insertPt = userBlock.getFirstNonPHI();
-                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
+                      auto insertPt = userBlock.getFirstNonPHIIt();
+                      IRBuilder<> builder(&userBlock, insertPt);
                       auto & reducedVector = CreateVectorReduce(config, builder, red.kind, *vecLatchInst, nullptr);
                       return reducedVector;
                     }
@@ -3192,9 +3192,9 @@ NatBuilder::materializeVaryingReduction(Reduction & red, PHINode & scaPhi) {
     // reduce outside uses on demand
     repairOutsideUses(*elem,
                       [&](Value & usedVal, BasicBlock& userBlock) ->Value& {
-                      auto * insertPt = userBlock.getFirstNonPHI();
-                      IRBuilder<> builder(&userBlock, insertPt->getIterator());
-                      // reduce all end-of-iteration values and request value of last iteration
+                      auto insertPt = userBlock.getFirstNonPHIIt();
+                      IRBuilder<> builder(&userBlock, insertPt);
+                      // reduce all end-eration values and request value of last iteration
                       auto & foldVec = *builder.CreateSelect(selMask, vecLatchInst, &vecElem, ".red");
                       auto & reducedVector = CreateVectorReduce(config, builder, red.kind, foldVec, nullptr);
                       return reducedVector;
