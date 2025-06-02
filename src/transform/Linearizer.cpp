@@ -806,8 +806,8 @@ Linearizer::foldPhis(BasicBlock & block) {
 
 // phi -> select based on getEdgeMask(start, dest)
   auto itStart = block.begin(), itEnd = block.end();
-  for (auto it = itStart; it != itEnd; it++) {
-    auto * phi = dyn_cast<PHINode>(&*it);
+  for (auto it = itStart; it != itEnd; ) {
+    auto * phi = dyn_cast<PHINode>(&*it++);
     if (!phi) break;
     if (phi->getNumIncomingValues() == 1) continue; // LCSSA
     if (isRepairPhi(*phi)) continue; // only a placeholder for defered SSA repair
