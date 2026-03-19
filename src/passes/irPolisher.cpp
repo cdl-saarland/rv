@@ -137,7 +137,7 @@ Value *IRPolisher::mapIntrinsicCall(llvm::IRBuilder<>& builder, llvm::CallInst* 
     auto id = isAVX
       ? (useNot ? Intrinsic::x86_avx_ptestc_256 : Intrinsic::x86_avx_ptestz_256)
       : (useNot ? Intrinsic::x86_sse41_ptestc   : Intrinsic::x86_sse41_ptestz);
-    auto func = Intrinsic::getDeclaration(callInst->getModule(), id);
+    auto func = Intrinsic::getOrInsertDeclaration(callInst->getModule(), id);
 
     auto ptestCall = builder.CreateCall(func, { left, right });
     return isReduceOr
@@ -244,7 +244,7 @@ Value *IRPolisher::lowerIntrinsicCall(llvm::CallInst* callInst) {
     if (cast<PointerType>(basePtr->getType())->getAddressSpace() != 0) {
         basePtr = builder.CreateAddrSpaceCast(basePtr, builder.getPtrTy());
     }
-    auto func = Intrinsic::getDeclaration(callInst->getModule(), Intrinsic::x86_avx2_gather_d_ps_256);
+    auto func = Intrinsic::getOrInsertDeclaration(callInst->getModule(), Intrinsic::x86_avx2_gather_d_ps_256);
     auto idxTy = FixedVectorType::get(builder.getInt32Ty(), 8);
     auto valTy = FixedVectorType::get(builder.getFloatTy(), 8);
     auto maskVal = builder.CreateBitCast(getMaskForValueOrInst(builder, callInst->getOperand(2), 32), valTy);
@@ -311,7 +311,7 @@ Value *IRPolisher::replaceCmpInst(IRBuilder<> &builder, llvm::CmpInst *cmpInst, 
     }
 
     if (id != Intrinsic::not_intrinsic && cmpOp >= 0) {
-      auto func = Intrinsic::getDeclaration(cmpInst->getModule(), id);
+      auto func = Intrinsic::getOrInsertDeclaration(cmpInst->getModule(), id);
       auto cmpCall = builder.CreateCall(func, { invert ? newRight : newLeft, invert ? newLeft : newRight, builder.getInt8(cmpOp) });
       auto vecTy = FixedVectorType::get(builder.getIntNTy(scalarTy->getPrimitiveSizeInBits()), vecLen);
       return builder.CreateBitCast(cmpCall, vecTy);
@@ -379,7 +379,7 @@ Value *IRPolisher::replaceSelectInst(IRBuilder<> &builder, llvm::SelectInst *sel
     }
 
     if (id != Intrinsic::not_intrinsic) {
-      auto func = Intrinsic::getDeclaration(selectInst->getModule(), id);
+      auto func = Intrinsic::getOrInsertDeclaration(selectInst->getModule(), id);
       auto blendArgTy = func->getReturnType();
       auto blendCall = builder.CreateCall(func, {
         builder.CreateBitCast(newS2, blendArgTy),

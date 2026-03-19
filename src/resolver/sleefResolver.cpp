@@ -585,7 +585,7 @@ struct SleefVLAResolver : public FunctionResolver {
     if (scaFunc.getName().starts_with("xsqrt")) {
       auto funcTy = scaFunc.getFunctionType();
       auto vecTy = FixedVectorType::get(funcTy->getReturnType(), vectorWidth);
-      vecFunc = Intrinsic::getDeclaration(&targetModule, Intrinsic::sqrt, {vecTy});
+      vecFunc = Intrinsic::getOrInsertDeclaration(&targetModule, Intrinsic::sqrt, {vecTy});
       return *vecFunc;
     }
 
@@ -802,7 +802,7 @@ SleefResolverService::resolve(llvm::StringRef funcName, llvm::FunctionType & sca
   if (StringRef(sleefName).starts_with("xsqrt")) {
     // "every" target has a sqrt instruction of sorts
     auto vecTy = FixedVectorType::get(scaFuncTy.getReturnType(), vectorWidth);
-    auto vecFunc = Intrinsic::getDeclaration(&destModule, Intrinsic::sqrt, {vecTy});
+    auto vecFunc = Intrinsic::getOrInsertDeclaration(&destModule, Intrinsic::sqrt, {vecTy});
 
     // FIXME abusing the SleefLookupResolver to retrieve an existing declaration...
     return std::make_unique<SleefLookupResolver>(destModule, VectorShape::varying(), *vecFunc, vecFunc->getName().str());
