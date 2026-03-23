@@ -8,6 +8,7 @@
 
 #include <deque>
 
+#include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/ADT/PostOrderIterator.h>
 #include <llvm/ADT/SmallSet.h>
 #include <llvm/IR/Module.h>
