@@ -26,7 +26,7 @@ using namespace llvm;
 #define IF_DEBUG_CNS if (false)
 #endif
 
-// #define CNS_SSA_UPDATER // TODO did not work (defaulting to Store+Load, folloed by mem2reg)
+// #define CNS_SSA_UPDATER // TODO did not work (defaulting to Store+Load, followed by mem2reg)
 
 static void
 simplifyPhis(BasicBlock & block, BasicBlock & predBlock) {
@@ -38,7 +38,7 @@ simplifyPhis(BasicBlock & block, BasicBlock & predBlock) {
 
     auto * liveIn = phi->getIncomingValueForBlock(&predBlock);
     assert(liveIn && "pred is not incoming block!");
-    // turn into a sinle-input phi
+    // turn into a single-input phi
     for (size_t i = 0; i < phi->getNumIncomingValues();) {
       if (phi->getIncomingBlock(i) != &predBlock) {
         phi->removeIncomingValue(i, false);

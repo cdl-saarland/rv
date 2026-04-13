@@ -34,7 +34,7 @@ parseVectorMapping(Function & scalarFn, StringRef & attribText, VectorMapping & 
   char * pos; // = attribText.begin() + 6; // "_ZGV<API><NeedsMask><VectorWidth>"
   unsigned vectorWidth = strtol(attribText.begin() + 6, &pos, 10);
 
-  // process arument shapes
+  // process argument shapes
   VectorShapeVec argShapes;
 
   auto * endText = attribText.end();

@@ -560,7 +560,7 @@ VectorShapeTransformer::computeShapeForCastInst(const CastInst& castI) const {
       // Uniform values stay uniform
       if (castOpShape.isUniform()) return castOpShape;
 
-      // BC from fp<->int/ptr is incomatible -> default to varying shape
+      // BC from fp<->int/ptr is incompatible -> default to varying shape
       return VectorShape::varying();
     }
 

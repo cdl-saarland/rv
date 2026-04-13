@@ -70,7 +70,7 @@ ReductionOptimization::optimize(PHINode & phi, Reduction & red) {
     auto * userInst = dyn_cast<Instruction>(user);
     if (!userInst) continue;
     if (!vecInfo.inRegion(*userInst)){
-      errs() << "Preserving exernal user: \n";
+      errs() << "Preserving external user: \n";
       continue;  // preserve outside uses
     }
 

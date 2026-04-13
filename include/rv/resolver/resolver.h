@@ -34,7 +34,7 @@ FunctionCost {
 
 // Represents a way to vectorize a function.
 //
-// Provides access to a cost esimate, the result value shape and the vectorized function.
+// Provides access to a cost estimate, the result value shape and the vectorized function.
 class
 FunctionResolver {
 protected:

@@ -136,7 +136,7 @@ private:
   // push all users of @V to the worklist.
   void pushUsers(const llvm::Value &V);
 
-  // add all instruction of \p BB to the WL that dependend on the shape of the predicate.
+  // add all instruction of \p BB to the WL that depend on the shape of the predicate.
   // (eg functions with side effects)
   void pushPredicatedInsts(const llvm::BasicBlock & BB);
 

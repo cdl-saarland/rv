@@ -112,7 +112,7 @@ class ReductionAnalysis {
   bool addToGroup(Reduction & redGroup, llvm::Instruction & inst);
   bool changeGroup(Reduction & redGroup, llvm::Instruction & inst);
 
-  // this moves all elements of @srcGropu into @destGroup and replaces all instructions mappings
+  // this moves all elements of @srcGroup into @destGroup and replaces all instructions mappings
   // srcGroup is disconnected from all maps after this operation and can be deleted
   void foldIntoGroup(Reduction & destGroup, Reduction & srcGroup);
 

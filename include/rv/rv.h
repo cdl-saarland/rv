@@ -34,7 +34,7 @@ class VectorizationInfo;
  * The new vectorizer interface.
  *
  * The functionality of this interface relies heavily on prior loop simplification
- * (see LoopExitCanonicalizer), aswell as the elimination of critical edges beforehand.
+ * (see LoopExitCanonicalizer), as well as the elimination of critical edges beforehand.
  *
  * No guarantees are made in case the Function that is handled has critical edges,
  * or loop exits with with more than one predecessor are present.

@@ -117,7 +117,7 @@ bool isSupportedOperation(Instruction *const inst) {
 }
 
 bool isHomogeneousStruct(StructType *const type, DataLayout &layout) {
-  assert(type->getStructNumElements() > 0 && "emptry struct!");
+  assert(type->getStructNumElements() > 0 && "empty struct!");
   Type *prevElTy = nullptr;
   for (Type *elTy : type->elements()) {
     if (!elTy->isStructTy() && !(elTy->isIntegerTy() || elTy->isFloatingPointTy()))

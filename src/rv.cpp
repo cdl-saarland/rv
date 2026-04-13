@@ -145,7 +145,7 @@ VectorizerInterface::vectorize(VectorizationInfo &vecInfo, FunctionAnalysisManag
   SplitAllocas split(vecInfo);
   split.run();
 
-  // transform allocas from Array-of-struct into Struct-of-vector where possibe
+  // transform allocas from Array-of-struct into Struct-of-vector where possible
   // FIXME Cannot happen before DA re-run because StructOpt modifies ptr shapes to created contiguous stack accesses!
   StructOpt sopt(vecInfo, platInfo.getDataLayout());
   sopt.run();

@@ -350,7 +350,7 @@ void VectorizationAnalysis::analyze() {
 }
 
 void VectorizationAnalysis::promoteUndefShapesToUniform(const Function &F) {
-  // Walk through the program and query recursive resolvers for all completly
+  // Walk through the program and query recursive resolvers for all completely
   // unifrom calls we have missed
 
   VectorShapeTransformer vecShapeTrans(layout, LI, platInfo, vecInfo);

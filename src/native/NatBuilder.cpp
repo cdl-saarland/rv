@@ -592,7 +592,7 @@ NatBuilder::scalarizeCascaded(BasicBlock & srcBlock, Instruction & inst, bool pa
    // create <vector_width> scalar calls
    for (int lane = 0; lane < vectorWidth(); ++lane) {
      auto * condBlock = condBlocks[lane];     // the block with the if
-     auto * maskedBlock = maskedBlocks[lane]; // the guarded block (containing the scalarized instructino)
+     auto * maskedBlock = maskedBlocks[lane]; // the guarded block (containing the scalarized instruction)
      auto * nextBlock = condBlocks[lane + 1]; // next guard block
 
      assert(builder.GetInsertBlock() == condBlock);

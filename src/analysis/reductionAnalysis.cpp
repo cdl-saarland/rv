@@ -38,7 +38,7 @@ InferRedKind(Instruction & inst, Reduction & red) {
   }
 
   switch (inst.getOpcode()) {
-  // actually operations folding a reduction input into the chian
+  // actually operations folding a reduction input into the chain
     case Instruction::FAdd:
     case Instruction::Add:
       return RedKind::Add;
@@ -170,7 +170,7 @@ ReductionAnalysis::tryMatchStridePattern(PHINode & headerPhi) {
 // loop carried input must be a instruction (carrying out the reduction)
   auto * redInst = dyn_cast<Instruction>(headerPhi.getIncomingValue(loopIndex));
   if (!redInst) {
-    IF_DEBUG_RED { errs() << "red: loop carried valus is not an instruction " << headerPhi.getName() << "\n"; }
+    IF_DEBUG_RED { errs() << "red: loop carried values is not an instruction " << headerPhi.getName() << "\n"; }
     return nullptr;
   }
 
@@ -199,7 +199,7 @@ ReductionAnalysis::tryMatchStridePattern(PHINode & headerPhi) {
 // the header phi must be used directly (TODO allow Trunc/SExt/ZExt) by the reductor
   int phiIdx = firstConst == redInst->getOperand(0) ? 1 : 0;
   if (redInst->getOperand(phiIdx) != &headerPhi) {
-    REASON("increment does not use phi node direcly")
+    REASON("increment does not use phi node directly")
     return nullptr;
   }
 
@@ -275,7 +275,7 @@ ReductionAnalysis::foldIntoGroup(Reduction & destGroup, Reduction & srcGroup) {
     return;
   }
 
-  // neither loop contains the other -> do not follow this leed
+  // neither loop contains the other -> do not follow this lead
   abort();
 }
 

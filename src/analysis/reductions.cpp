@@ -135,7 +135,7 @@ GetNeutralElement(RedKind redKind, Type & chainTy) {
 RedKind
 InferInstRedKind(Instruction & inst) {
   switch (inst.getOpcode()) {
-  // actually operations folding a reduction input into the chian
+  // actually operations folding a reduction input into the chain
     case Instruction::FAdd:
     case Instruction::Add:
       return RedKind::Add;

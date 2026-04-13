@@ -78,7 +78,7 @@ struct GuardedTransformSession {
   llvm::DenseMap<const llvm::BasicBlock*, GuardedTrackerDesc> exitDescs;
   // maps each live out to a tracker
   llvm::DenseMap<const llvm::Value*, GuardedTrackerDesc> liveOutDescs;
-  GuardedTrackerDesc & requestGuardedTrackerDesc(const llvm::Value& val); // creates an emty tracker if missing
+  GuardedTrackerDesc & requestGuardedTrackerDesc(const llvm::Value& val); // creates an empty tracker if missing
   const GuardedTrackerDesc & getGuardedTrackerDesc(const llvm::Value& val) const; // asserting getter
 
   llvm::BasicBlock*
