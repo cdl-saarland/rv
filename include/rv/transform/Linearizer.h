@@ -61,7 +61,7 @@ namespace rv {
   void scheduleDomRegion(llvm::BasicBlock * domEntry, llvm::Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd);
 
   // statistics
-      // preserved control-unifowm phi ndoes
+      // preserved control-uniform phi nodes
       size_t numCUniPhis;
       // folded control-divergent phi nodes
       size_t numCDivPhis;
@@ -89,7 +89,7 @@ namespace rv {
   // relay logic
     // we need to defer these edges to we can schedule linearized blocks in between
     struct RelayNode {
-      // the next destionation for every branch going to this relaynode
+      // the next destination for every branch going to this relaynode
       llvm::BasicBlock & head;
 
       // block index number
@@ -205,7 +205,7 @@ namespace rv {
 
       oRelayBlock = oldRelay->block;
 
-      // free old relay (this unliks oldRelay from @oRelayBlock)
+      // free old relay (this unlinks oldRelay from @oRelayBlock)
       auto * nextRelay = oldRelay->next;
       oldRelay->finalize();
 
@@ -260,7 +260,7 @@ namespace rv {
     // partially linearize a range of blocks in the blockIndex
     int processRange(int startId, int endId, llvm::Loop * parentLoop);
 
-    // process the terminator in @head subjecting all sucessors to @exitRelay
+    // process the terminator in @head subjecting all successors to @exitRelay
     // if @headId is the header of a loop transform the entire loop
     int processBlock(int headId, llvm::Loop * parentLoop);
 
@@ -291,7 +291,7 @@ namespace rv {
     void foldPhis(llvm::BasicBlock & block);
 
   // edge masks
-    // these are cached before the transformation so we can query them eventhough the CFG changes
+    // these are cached before the transformation so we can query them even though the CFG changes
     EdgeMaskCache edgeMasks; // if true for an edge A->B control proceeds from block A to block B both being executed
     llvm::Value * getEdgeMask(llvm::BasicBlock & start, llvm::BasicBlock & dest) {
       Edge edge(&start, &dest);

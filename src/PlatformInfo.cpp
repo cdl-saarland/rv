@@ -200,7 +200,7 @@ PlatformInfo::print(llvm::raw_ostream & out) const {
 
 std::string
 PlatformInfo::createMangledVectorName(StringRef scalarName, const VectorShapeVec & argShapes, int vectorWidth, int maskPos) {
-  // TODO use VectorABI mangling when aplicable
+  // TODO use VectorABI mangling when applicable
 
   std::stringstream ss;
   ss

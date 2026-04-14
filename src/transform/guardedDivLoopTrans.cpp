@@ -431,7 +431,7 @@ GuardedTransformSession::transformLoop() {
        }
 
      } else {
-       // mask was set explicitely
+       // mask was set explicitly
        assert(!exitBuilder.GetInsertBlock()->getTerminator() && "not in loop exit normal form");
        exitBr = exitBuilder.CreateBr(&exitBlock);
        branchShape = VectorShape::uni(); // single successor
@@ -637,7 +637,7 @@ GuardedDivLoopTrans::transformDivergentLoops() {
   IF_DEBUG_DLT { errs() << "-- divLoopTrans log --\n"; }
   auto &LI = *FAM.getCachedResult<LoopAnalysis>(vecInfo.getScalarFunction());
 
-  // verify incoming analysis sructures
+  // verify incoming analysis structures
   IF_DEBUG_DLT {
     errs() << "dlt: Verifying LI:\n";
     auto & DT = FAM.getResult<DominatorTreeAnalysis>(vecInfo.getScalarFunction());

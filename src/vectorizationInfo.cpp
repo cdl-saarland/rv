@@ -264,7 +264,7 @@ void VectorizationInfo::setVectorShape(const llvm::Value &val,
   shapes[&val] = shape;
 }
 
-// tenative predicate handling
+// tentative predicate handling
 bool
 VectorizationInfo::getVaryingPredicateFlag(const llvm::BasicBlock &BB, bool & oIsVarying) const {
   auto it = VaryingPredicateBlocks.find(&BB);
@@ -365,7 +365,7 @@ bool VectorizationInfo::isTemporalDivergent(const LoopInfo &LI,
     return false;
   }
 
-  // FIXME this is imprecise (liveouts of uniform exits appear varying, eventhough they are uniform)
+  // FIXME this is imprecise (liveouts of uniform exits appear varying, even though they are uniform)
   if (!IsLCSSA) {
     // check whether any divergent loop carrying Val terminates before control
     // proceeds to ObservingBlock

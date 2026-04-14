@@ -99,7 +99,7 @@ public:
   bool addDivergentLoopExit(const llvm::BasicBlock &block);
   void removeDivergentLoopExit(const llvm::BasicBlock &block);
 
-  /// Disable recomputation of this value's shape and make it effectvely final
+  /// Disable recomputation of this value's shape and make it effectively final
   const decltype(pinned) &pinned_values() const { return pinned; }
   void setPinned(const llvm::Value &);
   void setPinnedShape(const llvm::Value &v, VectorShape shape) {
@@ -115,7 +115,7 @@ public:
                                const llvm::BasicBlock &observerBlock,
                                const llvm::Value &val) const;
 
-  // get the shape of @val observerd in the defining block of @val (if it is an
+  // get the shape of @val observed in the defining block of @val (if it is an
   // instruction).
   VectorShape getVectorShape(const llvm::Value &val) const;
   bool hasKnownShape(const llvm::Value &val) const;

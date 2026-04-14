@@ -337,7 +337,7 @@ getCompositeNumElements(Type *Ty) {
   if (FixedVecTy) return FixedVecTy->getNumElements();
   auto StructTy = dyn_cast<StructType>(Ty);
   if (StructTy) return StructTy->getNumElements();
-  llvm_unreachable("unpexpected datatype");
+  llvm_unreachable("unexpected datatype");
 }
 
 bool
@@ -371,7 +371,7 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
   // have seen this user
     if (!seen.insert(inst).second) continue;
 
-  // dont touch this alloca if its used on the outside (unless its the alloca itself)
+  // don't touch this alloca if its used on the outside (unless its the alloca itself)
     if (&allocaInst != inst && !vecInfo.inRegion(*inst)) {
       IF_DEBUG_SO { errs() << "skip: has user outside of region: " << *inst << "\n";  }
       return false;
@@ -397,7 +397,7 @@ StructOpt::allUniformGeps(llvm::AllocaInst & allocaInst) {
         }
       }
 
-      // we dont care about (indirect) alloc loads
+      // we don't care about (indirect) alloc loads
       else if (isa<LoadInst>(userInst)) {
         if (!VectorizableType(*cast<LoadInst>(userInst)->getType())) {
           IF_DEBUG_SO { errs() << "skip: accessing non-leaf element : " << *userInst << "\n"; }
@@ -551,7 +551,7 @@ StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
   IF_DEBUG_SO { errs() << "vectorized type: " << *vecAllocTy << "\n"; }
   //
   // this alloca may only be:
-  // loaded from, stored to (must note store the pointer) use to derive addresses (with uniform indicies) or passsed through phi nodes
+  // loaded from, stored to (must note store the pointer) use to derive addresses (with uniform indicies) or passed through phi nodes
   if (!allUniformGeps(allocaInst)) return false;
   IF_DEBUG_SO { errs() << "vectorizable uses!\n"; }
 
@@ -565,7 +565,7 @@ StructOpt::optimizeAlloca(llvm::AllocaInst & allocaInst) {
   vecAlloc->setAlignment(
       Align(vecInfo.getVectorWidth() * allocaInst.getAlign().value()));
 
-  const unsigned alignment = layout.getPrefTypeAlign(vecAllocTy).value(); // TODO should enfore a stricter alignment at this point
+  const unsigned alignment = layout.getPrefTypeAlign(vecAllocTy).value(); // TODO should enforce a stricter alignment at this point
   vecInfo.setVectorShape(*vecAlloc, VectorShape::uni(alignment));
 
   ValueToValueMapTy transformMap;
@@ -587,7 +587,7 @@ StructOpt::vectorizeType(llvm::Type & scalarAllocaTy) {
       scalarAllocaTy.isFloatingPointTy())
     return FixedVectorType::get(&scalarAllocaTy, vecInfo.getVectorWidth());
 
-// finite aggrgate -> aggrgate of vectorized elemnts
+// finite aggregate -> aggregate of vectorized elements
   if (scalarAllocaTy.isStructTy()) {
     std::vector<Type*> elemTyVec;
     for (size_t i = 0; i < scalarAllocaTy.getStructNumElements(); ++i) {

@@ -135,7 +135,7 @@ Linearizer::scheduleDomRegion(BasicBlock * domEntry, Loop * loop, std::string pa
 }
 
 // schedule all idoms of the loop header
-// first all idoms wihin the loop, then all idoms after the loop (all in RPOT order)
+// first all idoms within the loop, then all idoms after the loop (all in RPOT order)
 void
 Linearizer::scheduleLoop(Loop * loop, std::string padStr, RPOT::rpo_iterator itStart, RPOT::rpo_iterator itEnd) {
   auto * loopHeader = loop->getHeader();
@@ -143,7 +143,7 @@ Linearizer::scheduleLoop(Loop * loop, std::string padStr, RPOT::rpo_iterator itS
 
   IF_DEBUG_INDEX errs() << padStr << "Sched Loop at " << loopHeader->getName() << "\n";
 
-  // schedule all dominatesd block within the loop
+  // schedule all dominated block within the loop
   scheduleDomRegion(loopHeader, loop, padStr+ "  ", itStart, itEnd);
 
 
@@ -391,7 +391,7 @@ Linearizer::verifyBlockIndex() {
       int destIdx = getIndex(block);
       IF_DEBUG_INDEX {
         if (destIdx < srcIdx) {
-          errs() << "Block index incosistent with control:\n";
+          errs() << "Block index inconsistent with control:\n";
           errs() << "\tfrom: " << block.getName() << " at " << srcIdx << " to " << succ->getName() <<  " at " << destIdx << "\n";
           abort();
         }
@@ -567,7 +567,7 @@ GetCommonLoop(LoopInfo & li, SuperBlockVec & blocks) {
       firstRound = false;
     } else {
       auto * candLoop = li.getLoopFor(block);
-      // wind up the loop tree until a common ancestro of @loop and @candLoop is found
+      // wind up the loop tree until a common ancestor of @loop and @candLoop is found
       while (candLoop && candLoop != loop && !candLoop->contains(loop)) {
           candLoop = candLoop->getParentLoop();
       }
@@ -619,7 +619,7 @@ Linearizer::createSuperInput(PHINode & phi, SuperInput & superInput) {
     blendedVal = &defFuture;
   }
 
-// Start buildling cascasding selects for all remaining incoming values
+// Start building cascading selects for all remaining incoming values
   IRBuilder<> builder(superInput.blendBlock);
 
   auto & phiBlock = *phi.getParent();
@@ -810,7 +810,7 @@ Linearizer::foldPhis(BasicBlock & block) {
     auto * phi = dyn_cast<PHINode>(&*it++);
     if (!phi) break;
     if (phi->getNumIncomingValues() == 1) continue; // LCSSA
-    if (isRepairPhi(*phi)) continue; // only a placeholder for defered SSA repair
+    if (isRepairPhi(*phi)) continue; // only a placeholder for deferred SSA repair
 
     ++numCDivPhis;
     IRBuilder<> builder(&block, block.getFirstInsertionPt());
@@ -1231,7 +1231,7 @@ Linearizer::processBranch(BasicBlock & head, RelayNode * exitRelay, Loop * paren
   }
 
 // process the second successor
-  // this makes sure all paths from the first successor will eventuall reach the second successor (post dom constraint)
+  // this makes sure all paths from the first successor will eventually reach the second successor (post dom constraint)
   auto & secondRelay = addTargetToRelay(exitRelay, secondId);
 
   mergeInReaching(secondRelay, headRelay);
@@ -1261,13 +1261,13 @@ Linearizer::run() {
 // early exit on trivial cases
   if (getNumBlocks() <= 1) return;
 
-// FIXME currently maskAnslysis is invalidated as a result of linearization.
+// FIXME currently maskAnalysis is invalidated as a result of linearization.
   // We cache the latch masks locally before touching the function as we need those to make divergent loops uniform
   cacheMasks();
 
 // dump divergent branches / loops
   IF_DEBUG_LIN {
-    errs() << "-- LIN: divergent loops/brances in the region --";
+    errs() << "-- LIN: divergent loops/branches in the region --";
     for (int i = 0; i < getNumBlocks(); ++i) {
       auto & block = getBlock(i);
       errs() << "\n" << i << " : " << block.getName() << " , ";
@@ -1567,7 +1567,7 @@ Linearizer::fixSSA() {
   }
 }
 
-// select simplifcation logic
+// select simplification logic
 using ValVec = SmallVector<Value*, 4>;
 
 static bool

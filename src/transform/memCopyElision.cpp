@@ -118,7 +118,7 @@ MemCopyElision::lowerMemCopy(llvm::Value * destBase, llvm::Value * srcBase, llvm
   auto varShape = VectorShape::varying();
   for (size_t i = 0; i < numElems; ++i) {
     auto * idxConst = ConstantInt::get(intTy, i, false);
-  // gep to elemens
+  // gep to elements
     auto * srcElemPtr = builder.CreateGEP(commonTy, srcBase, idxConst);
     auto * destElemPtr = builder.CreateGEP(commonTy, destBase, idxConst);
     vecInfo.setVectorShape(*srcElemPtr, varShape);
@@ -146,7 +146,7 @@ MemCopyElision::run() {
       if (!IsDivergent(Inst)) continue;
       IF_DEBUG_MCE  { errs() << "Found divergent memcpy: " << *mcInst << "\n"; }
 
-    // analyze eligiblity
+    // analyze eligibility
       auto srcVal = mcInst->getSource();
       auto destVal = mcInst->getDest();
       auto lenConst = dyn_cast<ConstantInt>(mcInst->getLength());
@@ -158,7 +158,7 @@ MemCopyElision::run() {
       auto * srcBase = deriveBase(srcVal, numBytes);
       auto * destBase = deriveBase(destVal, numBytes);
       if (!srcBase || !destBase) {
-        IF_DEBUG_MCE  { errs() << "\tskip: could not derive suiteble base pointers!\n"; }
+        IF_DEBUG_MCE  { errs() << "\tskip: could not derive suitable base pointers!\n"; }
         continue;
       }
 

@@ -142,7 +142,7 @@ repairPhis() {
   }
 }
 
-// check whether all uses of this will-be-replicated instruction can be recovered from the scalare replicates
+// check whether all uses of this will-be-replicated instruction can be recovered from the scalar replicates
 bool
 canRepairUses(Value & val) {
   // allow SIMD operations on this type
@@ -192,7 +192,7 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
     return true;
 
   // remark: checkedSet makes every value appear replicable on the second query
-  // However, a single negative reponse for a recursive constituent makes canReplicate fail anyway
+  // However, a single negative response for a recursive constituent makes canReplicate fail anyway
   if (!checkedSet.insert(&val).second) return true;
 
   // value was already replicated
@@ -201,7 +201,7 @@ canReplicate(llvm::Value & val, ConstValSet & checkedSet) {
   // check whether we could repair all uses
   if (!canRepairUses(val)) return false;
 
-  // check whether the instruction itself is replicatable
+  // check whether the instruction itself is replicable
   if (constVal) return true;
 
   if (phiInst) {
@@ -734,7 +734,7 @@ requestInstructionReplicate(Instruction & inst, TypeVec & replTyVec) {
     }
   }
 
-// register replcate
+// register replicate
   assert(!replVec.empty());
   replMap.addReplicate(inst, replVec);
 
@@ -769,7 +769,7 @@ requestConstVectorReplicate(Constant & val) {
 
   // replicate operand based constants
   } else {
-    // generic const expresssion case
+    // generic const expression case
     for (size_t i = 0; i < val.getNumOperands(); ++i) {
       ValVec elemRepl = requestReplicate(*val.getOperand(i));
       Append(res, elemRepl);
@@ -792,7 +792,7 @@ requestReplicate(Value & val) {
 
   ValVec replVec;
 
-  assert(replTyVec.size() >= 1 && "un-replictable type");
+  assert(replTyVec.size() >= 1 && "un-replicable type");
 
 // replication of atoms (unless this is an extract)
   if ((replTyVec.size() == 1) && !isa<StructType, ArrayType, VectorType>(val.getType()) && !isa<ExtractValueInst>(val) && !isa<ExtractElementInst>(val)) {
@@ -861,11 +861,11 @@ run() {
 
     // only split varying values
       if (!vecInfo.getVectorShape(I).isVarying()) {
-        // IF_DEBUG_SROV { errs() << "\tskpping (non-varying)\n"; }
+        // IF_DEBUG_SROV { errs() << "\tskipping (non-varying)\n"; }
         continue;
       }
 
-   // dont bother with unused instructions
+   // don't bother with unused instructions
       if (I.uses().empty()) continue; // skip dead code
 
       // only start replication from extractvalue

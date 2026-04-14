@@ -14,7 +14,7 @@
 
 typedef int32_t lane_t;
 
-// RV predicate instrinsics
+// RV predicate intrinsics
 int64_t rv_lane(); // current lane id
 inline int64_t rv_strided(int64_t base, int64_t stride) {
   return base + rv_lane() * stride;

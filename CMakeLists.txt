@@ -19,7 +19,7 @@ set(LLVM_INSTALL_ROOT ${LLVM_INSTALL_PREFIX} CACHE PATH "Root of LLVM install.")
 # Add the llvm header path.
 #include_directories(${LLVM_INSTALL_ROOT}/include/)
 
-# Get the system librarys that will link into LLVM.
+# Get the system libraries that will link into LLVM.
 #execute_process(COMMAND "${LLVM_INSTALL_ROOT}/bin/llvm-config" --system-libs
 #              OUTPUT_VARIABLE LLVM_SYSTEM_LIBS
 #              OUTPUT_STRIP_TRAILING_WHITESPACE)

@@ -293,7 +293,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   auto * mask = getBlockMask(BB);
   if (mask) return *mask;
 
-  // Otw, start buildling a mask
+  // Otw, start building a mask
   IF_DEBUG_ME { errs() << "Construct mask:\n"; }
 
   // if this is a uniform loop use the preheader edge mask
@@ -352,7 +352,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   // factor in all edges
   Value * lastUniIn = nullptr;
   bool redundantUniPhi = true;
-  size_t num_incomming_values = 0;
+  size_t num_incoming_values = 0;
   VectorShape phiShape = VectorShape::uni();
 
   for (auto itPred = itBegin; itPred != itEnd; ++itPred) {
@@ -373,7 +373,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
       redundantUniPhi &= (lastUniIn == nullptr) || (lastUniIn == &predMask);
       lastUniIn = &predMask;
       uniPhi->addIncoming(&predMask, predBlock);
-      num_incomming_values++;
+      num_incoming_values++;
       phiShape = VectorShape::join(vecInfo.getVectorShape(predMask), phiShape);
     }
 #endif
@@ -425,7 +425,7 @@ MaskExpander::requestBlockMask(BasicBlock & BB) {
   IF_DEBUG_ME { errs() << "\t mask(" << BB.getName() << ") = \n"; }
   IF_DEBUG_ME { errs() << "\t\t uniPhi: " << *uniPhi << " redundant " << redundantUniPhi << "\n"; }
   size_t startIdx = 0;
-  if (num_incomming_values == 0) {
+  if (num_incoming_values == 0) {
     assert((!lastUniIn || lastUniIn == falseConst) && "uniform inputs but no incoming values in uni phi");
     // no uniform inputs
     uniPhi->eraseFromParent();
